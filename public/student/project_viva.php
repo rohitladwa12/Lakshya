@@ -49,199 +49,304 @@ $projectTitle = $project['title'];
             --primary-maroon: #800000;
             --primary-dark: #4a0000;
             --accent-gold: #D4AF37;
-            --bg-light: #f8f9fa;
-            --white: #ffffff;
-            --shadow: 0 10px 30px rgba(0,0,0,0.1);
+            --bg-dark: #0f0c29;
+            --glass: rgba(255, 255, 255, 0.03);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-hover: rgba(255, 255, 255, 0.08);
+            --text-main: #e0e0e0;
+            --text-muted: #a0a0a0;
         }
 
-        * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
+        * { margin:0; padding:0; box-sizing:border-box; -webkit-user-select: none; user-select: none; }
+        
         body {
             font-family: 'Outfit', sans-serif;
-            background: var(--bg-light);
-            color: #2d3436;
+            background: radial-gradient(circle at top right, #1e1b4b, #0f172a, #020617);
+            color: var(--text-main);
             min-height: 100vh;
+            overflow-x: hidden;
             display: flex;
             flex-direction: column;
-            -webkit-user-select: none;
-            -moz-user-select: none;
-            -ms-user-select: none;
-            user-select: none;
         }
-        input, textarea { -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text; user-select: text; }
+
+        input, textarea { -webkit-user-select: text; user-select: text; }
+
+        /* Glassmorphic Background Shapes */
+        .bg-shape {
+            position: fixed;
+            border-radius: 50%;
+            filter: blur(80px);
+            z-index: -1;
+            opacity: 0.4;
+        }
+        .shape-1 { width: 400px; height: 400px; background: var(--primary-maroon); top: -100px; right: -100px; }
+        .shape-2 { width: 300px; height: 300px; background: #312e81; bottom: -50px; left: -50px; }
 
         .navbar {
-            background: linear-gradient(135deg, var(--primary-maroon) 0%, var(--primary-dark) 100%);
-            color: white;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(10px);
+            border-bottom: 1px solid var(--glass-border);
             padding: 1rem 5%;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .navbar h1 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            background: linear-gradient(to right, #fff, var(--accent-gold));
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
+            display: flex;
+            align-items: center;
+            gap: 10px;
         }
 
         .container {
             flex: 1;
-            max-width: 800px;
+            max-width: 900px;
             margin: 2rem auto;
-            width: 90%;
+            width: 95%;
             padding: 2.5rem;
-            background: white;
-            border-radius: 24px;
-            box-shadow: var(--shadow);
+            background: var(--glass);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--glass-border);
+            border-radius: 32px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
             position: relative;
         }
 
         .viva-header {
             text-align: center;
-            margin-bottom: 2rem;
-            padding-bottom: 1.5rem;
-            border-bottom: 1px solid #eee;
+            margin-bottom: 2.5rem;
+        }
+
+        .viva-header h3 {
+            font-size: 1.8rem;
+            margin-bottom: 0.5rem;
+            color: #fff;
         }
 
         .progress-steps {
             display: flex;
             justify-content: center;
-            gap: 10px;
-            margin-bottom: 2rem;
+            gap: 15px;
+            margin-bottom: 3rem;
         }
 
         .step-dot {
-            width: 12px; height: 12px;
-            border-radius: 50%;
-            background: #eee;
-            transition: 0.3s;
+            width: 45px; height: 6px;
+            border-radius: 10px;
+            background: var(--glass-border);
+            transition: all 0.5s ease;
+        }
+        .step-dot.active { background: var(--primary-maroon); box-shadow: 0 0 15px var(--primary-maroon); }
+        .step-dot.completed { background: #10b981; }
+
+        .question-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 2rem;
+            margin-bottom: 2rem;
+            animation: slideUp 0.6s ease-out;
         }
 
-        .step-dot.active { background: var(--primary-maroon); transform: scale(1.2); }
-        .step-dot.completed { background: #00875a; }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
 
-        .question-box {
-            font-size: 1.25rem;
-            font-weight: 600;
-            line-height: 1.5;
-            margin-bottom: 2rem;
-            padding: 1.5rem;
-            background: #fff9f9;
-            border-left: 5px solid var(--primary-maroon);
-            border-radius: 12px;
+        .question-label {
+            color: var(--accent-gold);
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 1rem;
+            font-weight: 700;
+        }
+
+        .question-text {
+            font-size: 1.4rem;
+            font-weight: 500;
+            line-height: 1.6;
+            color: #fff;
         }
 
         .answer-area {
             width: 100%;
+            background: rgba(0, 0, 0, 0.2);
+            border: 1px solid var(--glass-border);
+            border-radius: 20px;
             padding: 1.5rem;
-            border: 2px solid #eee;
-            border-radius: 16px;
+            color: #fff;
             font-family: inherit;
-            font-size: 1.05rem;
-            resize: vertical;
-            min-height: 150px;
-            transition: 0.3s;
-            margin-bottom: 1.5rem;
+            font-size: 1.1rem;
+            resize: none;
+            min-height: 180px;
+            transition: all 0.3s ease;
+            margin-bottom: 2rem;
         }
 
         .answer-area:focus {
             outline: none;
             border-color: var(--primary-maroon);
-            box-shadow: 0 0 0 4px rgba(128, 0, 0, 0.05);
+            background: rgba(0, 0, 0, 0.3);
+            box-shadow: 0 0 20px rgba(128, 0, 0, 0.2);
         }
 
-        .btn-submit {
-            background: var(--primary-maroon);
+        .btn-action {
+            width: 100%;
+            background: linear-gradient(135deg, var(--primary-maroon) 0%, var(--primary-dark) 100%);
             color: white;
-            padding: 14px 35px;
+            padding: 1.2rem;
             border: none;
-            border-radius: 50px;
+            border-radius: 18px;
             font-weight: 700;
             font-size: 1.1rem;
             cursor: pointer;
-            transition: 0.3s;
+            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
             display: flex;
             align-items: center;
-            gap: 10px;
-            margin-left: auto;
+            justify-content: center;
+            gap: 12px;
+            box-shadow: 0 10px 20px -5px rgba(128, 0, 0, 0.4);
         }
 
-        .btn-submit:hover { transform: translateY(-2px); box-shadow: 0 5px 15px rgba(128,0,0,0.2); }
-        .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+        .btn-action:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 20px 30px -10px rgba(128, 0, 0, 0.6);
+        }
+
+        .btn-action:active { transform: scale(0.98); }
 
         .loading-overlay {
             position: absolute;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: white;
+            background: var(--bg-dark);
             display: flex;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            border-radius: 24px;
-            z-index: 10;
+            border-radius: 32px;
+            z-index: 50;
         }
 
-        .spinner {
-            width: 50px; height: 50px;
-            border: 5px solid #eee;
-            border-top: 5px solid var(--primary-maroon);
+        .spinner-outer {
+            width: 80px; height: 80px;
+            border: 3px solid transparent;
+            border-top: 3px solid var(--primary-maroon);
+            border-bottom: 3px solid var(--accent-gold);
             border-radius: 50%;
-            animation: spin 1s linear infinite;
+            animation: spin 1.5s linear infinite;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .spinner-inner {
+            width: 50px; height: 50px;
+            border: 3px solid transparent;
+            border-left: 3px solid #fff;
+            border-radius: 50%;
+            animation: spin-reverse 1s linear infinite;
         }
         @keyframes spin { 100% { transform: rotate(360deg); } }
-
-        .results-view {
-            text-align: center;
-        }
-
-        .feedback-card {
-            background: #f8f9fa;
-            padding: 1.5rem;
-            border-radius: 16px;
-            text-align: left;
-            margin-top: 1.5rem;
-            border-left: 5px solid #0052cc;
-        }
+        @keyframes spin-reverse { 100% { transform: rotate(-360deg); } }
 
         .overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9);
+            background: rgba(2, 6, 23, 0.95);
+            backdrop-filter: blur(15px);
             z-index: 1000;
             display: flex; justify-content: center; align-items: center;
-            flex-direction: column;
+            padding: 20px;
         }
+
+        .results-card { text-align: center; }
+
+        .score-circle {
+            width: 150px; height: 150px;
+            border-radius: 50%;
+            border: 8px solid var(--glass-border);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            margin: 0 auto 2rem;
+            position: relative;
+        }
+        .score-val { font-size: 3rem; font-weight: 800; color: #fff; }
+        .score-label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; }
+
+        .feedback-box {
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 20px;
+            padding: 1.5rem;
+            text-align: left;
+            margin-bottom: 2rem;
+            border-left: 4px solid var(--primary-maroon);
+        }
+
         .hidden { display: none !important; }
+
+        @media (max-width: 600px) {
+            .container { padding: 1.5rem; margin-top: 1rem; }
+            .question-text { font-size: 1.1rem; }
+            .btn-action { padding: 1rem; }
+        }
     </style>
 </head>
 <body>
 
+<div class="bg-shape shape-1"></div>
+<div class="bg-shape shape-2"></div>
+
 <!-- Intro Overlay -->
 <div id="introOverlay" class="overlay">
-    <div style="text-align: center; max-width: 600px; padding: 40px; background: white; border-radius: 24px; box-shadow: var(--shadow); border: 2px solid var(--primary-maroon);">
-        <h1 style="color: var(--primary-maroon); margin-bottom: 20px;"><i class="fas fa-microphone"></i> Project Defense</h1>
-        <h2 style="margin-bottom: 15px;"><?php echo htmlspecialchars($projectTitle); ?></h2>
-        <p style="color: #666; margin-bottom: 30px;">
-            This is a proctored AI Viva session. Exiting full screen or switching tabs will be flagged.<br><br>
-            <strong>Project:</strong> <?php echo htmlspecialchars($projectTitle); ?><br>
-            <strong>Format:</strong> 5 Analytical Questions<br>
-            <strong>Evaluator:</strong> Senior AI Technical Lead
-        </p>
-        <button onclick="beginAssessment()" class="btn-submit" style="padding: 18px 50px; font-size: 1.2rem; width: 100%; justify-content: center;">START DEFENSE</button>
+    <div style="text-align: center; max-width: 600px; padding: 3rem; background: var(--glass); backdrop-filter: blur(30px); border: 1px solid var(--glass-border); border-radius: 40px; box-shadow: 0 40px 100px rgba(0,0,0,0.8);">
+        <div style="width: 80px; height: 80px; background: rgba(128, 0, 0, 0.1); border-radius: 24px; display: flex; align-items: center; justify-content: center; margin: 0 auto 2rem; border: 1px solid var(--primary-maroon);">
+            <i class="fas fa-microphone" style="font-size: 2.5rem; color: var(--primary-maroon);"></i>
+        </div>
+        <h1 style="color: #fff; margin-bottom: 1rem; font-size: 2rem;">Project Defense</h1>
+        <h2 style="color: var(--accent-gold); margin-bottom: 1.5rem; font-size: 1.2rem;"><?php echo htmlspecialchars($projectTitle); ?></h2>
+        
+        <div style="background: rgba(255,255,255,0.03); padding: 1.5rem; border-radius: 20px; margin-bottom: 2rem; text-align: left; font-size: 0.95rem; line-height: 1.6;">
+            <p><i class="fas fa-shield-alt" style="color: #10b981; margin-right: 10px;"></i> Professional AI-led Defense session.</p>
+            <p><i class="fas fa-expand" style="color: #3b82f6; margin-right: 10px;"></i> Mandatory Fullscreen mode for integrity.</p>
+            <p><i class="fas fa-brain" style="color: #f59e0b; margin-right: 10px;"></i> 5 Analytical questions about your project implementation.</p>
+        </div>
+
+        <button onclick="beginAssessment()" class="btn-action" style="font-size: 1.2rem; padding: 1.5rem;">
+            START DEFENSE SESSION <i class="fas fa-arrow-right"></i>
+        </button>
     </div>
 </div>
 
 <div class="navbar">
-    <h1><i class="fas fa-microphone"></i> Project Defense (AI Viva)</h1>
-    <a href="dashboard" style="color: white; text-decoration: none;"><i class="fas fa-times"></i> Exit</a>
+    <h1><i class="fas fa-shield-check"></i> <span>SECURE DEFENSE ENGINE</span></h1>
+    <a href="dashboard" style="color: var(--text-muted); text-decoration: none; font-size: 0.9rem; transition: 0.3s;" onmouseover="this.style.color='#fff'" onmouseout="this.style.color='var(--text-muted)'">
+        <i class="fas fa-times-circle"></i> EXIT DEFENSE
+    </a>
 </div>
 
 <div class="container" id="vivaContainer">
     <!-- Initial Loading -->
     <div id="loadingOverlay" class="loading-overlay">
-        <div class="spinner" style="margin-bottom: 20px;"></div>
-        <h2 id="loadingText">Preparing Defense Questions...</h2>
+        <div class="spinner-outer"><div class="spinner-inner"></div></div>
+        <h2 id="loadingText" style="margin-top: 2rem; font-weight: 500; letter-spacing: 1px;">PREPARING ANALYTICAL SUITE...</h2>
+        <p style="color: var(--text-muted); margin-top: 10px; font-size: 0.9rem;">Connecting to Technical Evaluator AI</p>
     </div>
 
-    <!-- Viva Interaction -->
+    <!-- Interface -->
     <div id="vivaView" style="display: none;">
         <div class="viva-header">
-            <h3>Defending: <?php echo htmlspecialchars($projectTitle); ?></h3>
-            <p style="color: #666; margin-top: 5px;">Question <span id="currentStepNum">1</span> of 5</p>
+            <p style="color: var(--accent-gold); font-size: 0.9rem; font-weight: 600; letter-spacing: 3px; margin-bottom: 10px;">DEFENSE IN PROGRESS</p>
+            <h3><?php echo htmlspecialchars($projectTitle); ?></h3>
         </div>
 
         <div class="progress-steps" id="progressSteps">
@@ -252,250 +357,200 @@ $projectTitle = $project['title'];
             <div class="step-dot"></div>
         </div>
 
-        <div id="questionText" class="question-box">Loading question...</div>
+        <div class="question-card">
+            <div class="question-label" id="stepCounterLabel">DEFENSE QUESTION 1/5</div>
+            <div id="questionText" class="question-text">Initializing parameters...</div>
+        </div>
 
-        <textarea id="userAnswer" class="answer-area" placeholder="Provide a detailed technical explanation..."></textarea>
+        <textarea id="userAnswer" class="answer-area" placeholder="Enter your technical project explanation..."></textarea>
 
-        <button id="btnSubmit" class="btn-submit" onclick="submitAnswer()">
-            Submit Answer <i class="fas fa-arrow-right"></i>
+        <button id="btnSubmit" class="btn-action" onclick="submitAnswer()">
+            CONFIRM & NEXT <i class="fas fa-chevron-right"></i>
         </button>
     </div>
 
-    <!-- Results -->
-    <div id="resultsView" class="results-view" style="display: none;">
-        <div style="font-size: 4rem; color: #00875a; margin-bottom: 1rem;">
-            <i class="fas fa-award"></i>
+    <!-- Results View -->
+    <div id="resultsView" class="results-card" style="display: none;">
+        <div id="successRing" style="font-size: 5rem; color: #10b981; margin-bottom: 2rem;"><i class="fas fa-award"></i></div>
+        <h2 style="font-size: 2rem; margin-bottom: 0.5rem;">Defense Evaluation Finalized</h2>
+        <p style="color: var(--text-muted); margin-bottom: 3rem;">Analysis generated by AI Evaluation Engine</p>
+
+        <div class="score-circle">
+            <div class="score-val" id="finalScoreVal">0</div>
+            <div class="score-label">DEFENSE SCORE</div>
         </div>
-        <h2 id="resultsTitle">Defense Evaluation Complete</h2>
-        <div style="margin: 2rem 0;">
-            <div style="font-size: 1.2rem; font-weight: 600;">Status: <span id="finalStatus" style="color: #00875a;">VERIFIED</span></div>
-            <p id="finalFeedback" style="color: #666; margin-top: 10px;"></p>
+
+        <div style="margin-bottom: 2.5rem;">
+            <div style="font-size: 1.1rem; font-weight: 600; color: #fff; margin-bottom: 10px;">
+                STATUS: <span id="finalStatusText" style="color: #10b981;">VERIFIED</span>
+            </div>
+            <div class="feedback-box" id="finalFeedback">Loading evaluation results...</div>
         </div>
-        <a href="dashboard" class="btn-submit" style="text-decoration: none; margin: 0 auto;">Return to Dashboard</a>
+
+        <a href="dashboard" class="btn-action" style="text-decoration: none; width: auto; margin: 0 auto; display: inline-flex; padding: 1.2rem 3rem; background: var(--glass); border: 1px solid var(--glass-border);">
+            RETURN TO DASHBOARD
+        </a>
     </div>
 </div>
 
 <!-- Warning Overlay -->
-<div id="warningOverlay" class="overlay hidden" style="background: rgba(0,0,0,0.95); z-index: 2000;">
-    <div style="text-align: center; max-width: 500px; padding: 30px; border: 2px solid var(--primary-maroon); background: #000; border-radius: 12px; color: white;">
-        <i class="fas fa-exclamation-triangle" style="color: var(--primary-maroon); font-size: 3rem; margin-bottom: 20px;"></i>
-        <h2 style="margin-bottom: 10px;">Security Violation</h2>
-        <p style="color: #ccc; margin-bottom: 25px;">
-            You have exited Full Screen mode. This is a violation of the assessment protocols.<br>
-            Please return to full screen immediately to continue.
+<div id="warningOverlay" class="overlay hidden" style="background: rgba(2, 6, 23, 0.98); z-index: 2000;">
+    <div style="text-align: center; max-width: 500px; padding: 3rem; border: 1px solid var(--primary-maroon); background: #000; border-radius: 30px; box-shadow: 0 0 50px rgba(128, 0, 0, 0.3);">
+        <i class="fas fa-lock" style="color: var(--primary-maroon); font-size: 4rem; margin-bottom: 2rem;"></i>
+        <h2 style="margin-bottom: 1rem; color: #fff;">Protocol Breach</h2>
+        <p style="color: var(--text-muted); margin-bottom: 2.5rem; line-height: 1.6;">
+            Fullscreen mode has been deactivated. This assessment requires an isolated environment to maintain academic integrity.
         </p>
-        <button onclick="resumeFullscreen()" class="btn-submit" style="width: 100%; justify-content: center;">RESUME ASSESSMENT</button>
+        <button onclick="resumeFullscreen()" class="btn-action" style="width: 100%;">RESUME DEFENSE</button>
     </div>
 </div>
 
 <script>
-    // Ensure DOM is loaded before attaching event listeners
-    document.addEventListener('DOMContentLoaded', function() {
-        console.log('DOM loaded, applying security measures...');
-        
-        // --- Security Measures: Disable Copy/Paste/Right-Click ---
-        document.addEventListener('contextmenu', e => {
-            e.preventDefault();
-            console.log('Right-click blocked');
-        });
-        document.addEventListener('copy', e => {
-            e.preventDefault();
-            console.log('Copy blocked');
-        });
-        document.addEventListener('cut', e => {
-            e.preventDefault();
-            console.log('Cut blocked');
-        });
-        document.addEventListener('paste', e => {
-            e.preventDefault();
-            console.log('Paste blocked');
-        });
-        
-        document.addEventListener('keydown', e => {
-            // Disable Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+U, Ctrl+Shift+I (Inspect)
-            if (e.ctrlKey && ['c', 'v', 'x', 'u'].includes(e.key.toLowerCase())) {
-                e.preventDefault();
-                console.log('Keyboard shortcut blocked:', e.key);
-            }
-            if (e.ctrlKey && e.shiftKey && e.key === 'I') {
-                e.preventDefault();
-                console.log('Ctrl+Shift+I blocked');
-            }
-            // Disable F12
-            if (e.key === 'F12') {
-                e.preventDefault();
-                console.log('F12 blocked');
-            }
-        });
-        
-        console.log('Security measures applied successfully');
+    let questions = [];
+    let answers = [];
+    let currentIdx = 0;
+    let isSessionActive = false;
+    const portfolioId = <?php echo $portfolioId; ?>;
+
+    document.addEventListener('DOMContentLoaded', () => {
+        applyStrictSecurity();
     });
 
-    let isSessionActive = false;
+    function applyStrictSecurity() {
+        document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('copy', e => e.preventDefault());
+        document.addEventListener('cut', e => e.preventDefault());
+        document.addEventListener('paste', e => e.preventDefault());
+        document.addEventListener('keydown', e => {
+            if (e.ctrlKey && ['c', 'v', 'x', 'u'].includes(e.key.toLowerCase())) e.preventDefault();
+            if (e.ctrlKey && e.shiftKey && e.key === 'I') e.preventDefault();
+            if (e.key === 'F12') e.preventDefault();
+        });
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement && isSessionActive) {
+                document.getElementById('warningOverlay').classList.remove('hidden');
+            }
+        });
+    }
 
     async function beginAssessment() {
         document.getElementById('introOverlay').classList.add('hidden');
         await enterFullscreen();
         isSessionActive = true;
-        startViva();
+        startProcessing();
+    }
+
+    async function enterFullscreen() {
+        if (document.documentElement.requestFullscreen) {
+            await document.documentElement.requestFullscreen().catch((e) => console.warn(e));
+        }
     }
 
     function resumeFullscreen() {
         document.documentElement.requestFullscreen().then(() => {
             document.getElementById('warningOverlay').classList.add('hidden');
-        }).catch(e => {
-            alert("Please manually enable full screen (F11)");
-        });
+        }).catch(e => alert("Please enable F11 manually."));
     }
 
-    // Monitor fullscreen changes
-    document.addEventListener('fullscreenchange', () => {
-        if (!document.fullscreenElement && isSessionActive) {
-            document.getElementById('warningOverlay').classList.remove('hidden');
-        }
-    });
-
-    // Enter fullscreen on start
-    async function enterFullscreen() {
-        if (document.documentElement.requestFullscreen) {
-            await document.documentElement.requestFullscreen().catch((e) => console.log(e));
-        }
-    }
-
-    let questions = [];
-    let answers = [];
-    let currentIdx = 0;
-    const portfolioId = <?php echo $portfolioId; ?>;
-
-    async function startViva() {
+    async function startProcessing() {
         try {
-            const res = await fetch('project_viva_handler', {
+            const res = await fetch('project_viva_handler.php', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `action=generate_viva&portfolio_id=${portfolioId}`
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'generate_viva', portfolio_id: portfolioId })
             });
             const data = await res.json();
-
             if (data.success && data.job_id) {
-                pollJobStatus(data.job_id, (aiData) => {
-                    questions = aiData; // This is the questions array
-                    showQuestion();
-                    document.getElementById('loadingOverlay').style.display = 'none';
-                    document.getElementById('vivaView').style.display = 'block';
-                }, (err) => {
-                    alert("AI Error: " + err);
-                    window.location.href = 'dashboard';
-                });
-            } else {
-                alert('Error: ' + data.message);
-                window.location.href = 'dashboard';
-            }
-        } catch (err) {
-            console.error(err);
-            alert('Connection error.');
-            window.location.href = 'dashboard';
-        }
+                pollJobStatus(data.job_id, (qData) => {
+                    const qList = Array.isArray(qData) ? qData : (qData.questions || []);
+                    questions = qList;
+                    initializeViva();
+                }, (err) => handleException("Generation Failure: " + err));
+            } else handleException(data.message);
+        } catch (err) { handleException("Network Error"); }
     }
 
-    function showQuestion() {
-        if (currentIdx >= questions.questions.length) {
-            finishViva();
-            return;
-        }
-        document.getElementById('currentStepNum').innerText = currentIdx + 1;
-        document.getElementById('questionText').innerText = questions.questions[currentIdx];
+    function initializeViva() {
+        document.getElementById('loadingOverlay').classList.add('hidden');
+        document.getElementById('vivaView').style.display = 'block';
+        renderStep();
+    }
+
+    function renderStep() {
+        if (currentIdx >= questions.length) { finalizeAssessment(); return; }
+        document.getElementById('stepCounterLabel').innerText = `DEFENSE QUESTION ${currentIdx + 1}/${questions.length}`;
+        document.getElementById('questionText').innerText = questions[currentIdx];
         document.getElementById('userAnswer').value = '';
-        
-        // Update dots
+        document.getElementById('userAnswer').focus();
+
         const dots = document.querySelectorAll('.step-dot');
         dots.forEach((dot, idx) => {
             if (idx === currentIdx) dot.className = 'step-dot active';
             else if (idx < currentIdx) dot.className = 'step-dot completed';
             else dot.className = 'step-dot';
         });
+
+        if (currentIdx === questions.length - 1) {
+            document.getElementById('btnSubmit').innerHTML = 'SUBMIT FOR EVALUATION <i class="fas fa-check-double"></i>';
+        }
     }
 
     function submitAnswer() {
         const answer = document.getElementById('userAnswer').value.trim();
-        if (!answer) {
-            alert("Please provide an answer before continuing.");
-            return;
-        }
-        
-        answers.push({
-            question: questions.questions[currentIdx],
-            answer: answer
-        });
-        
+        if (answer.length < 10) { alert("Please provide a detailed technical response."); return; }
+        answers.push({ question: questions[currentIdx], answer: answer });
         currentIdx++;
-        showQuestion();
+        renderStep();
     }
 
     async function pollJobStatus(jobId, onSuccess, onError) {
-        const poll = async () => {
+        const check = async () => {
             try {
                 const res = await fetch(`ai_job_status.php?job_id=${jobId}`);
-                if (!res.ok) throw new Error(`HTTP Error: ${res.status}`);
                 const data = await res.json();
                 if (data.status === 'completed') onSuccess(data.result);
                 else if (data.status === 'failed') onError(data.error);
-                else setTimeout(poll, 1500);
-            } catch (e) { 
-                console.error("Polling failure", e);
-                onError("Polling problem: " + e.message); 
-            }
+                else setTimeout(check, 1500);
+            } catch (e) { onError("Poll interrupted"); }
         };
-        poll();
+        check();
     }
 
-    async function finishViva() {
-        isSessionActive = false; // Disable security enforcement
+    async function finalizeAssessment() {
+        isSessionActive = false;
         document.getElementById('vivaView').style.display = 'none';
-        document.getElementById('loadingOverlay').style.display = 'flex';
-        document.getElementById('loadingText').innerText = 'AI is Evaluating Your Defense...';
+        document.getElementById('loadingOverlay').classList.remove('hidden');
+        document.getElementById('loadingText').innerText = 'EVALUATING DEFENSE ARGUMENTS...';
 
         try {
-            const res = await fetch('project_viva_handler', {
+            const res = await fetch('project_viva_handler.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    action: 'submit_viva',
-                    portfolio_id: portfolioId,
-                    history: answers
-                })
+                body: JSON.stringify({ action: 'submit_viva', portfolio_id: portfolioId, history: answers })
             });
             const data = await res.json();
-
             if (data.success && data.job_id) {
-                pollJobStatus(data.job_id, (evalData) => {
-                    // Final Save after evaluation
-                    saveFinalVivaResult(evalData);
-                }, (err) => {
-                    alert("Evaluation failed: " + err);
-                    window.location.href = 'dashboard';
-                });
-            } else {
-                alert('Evaluation error.');
-                window.location.href = 'dashboard';
-            }
-        } catch (err) {
-            console.error(err);
-            alert('Connection error during evaluation.');
-            window.location.href = 'dashboard';
-        }
+                pollJobStatus(data.job_id, (evalData) => persistResult(evalData), (err) => handleException(err));
+            } else handleException("Submission failed");
+        } catch (err) { handleException("Network error"); }
     }
 
-    async function saveFinalVivaResult(evalData) {
-        // Show local results first
-        document.getElementById('loadingOverlay').style.display = 'none';
+    async function persistResult(evalData) {
+        document.getElementById('loadingOverlay').classList.add('hidden');
         document.getElementById('resultsView').style.display = 'block';
-        document.getElementById('finalStatus').innerText = evalData.score >= 70 ? 'VERIFIED ✅' : 'NOT VERIFIED';
-        document.getElementById('finalStatus').style.color = evalData.score >= 70 ? '#00875a' : '#e74c3c';
+        const isVerified = evalData.score >= 70;
+        document.getElementById('finalScoreVal').innerText = evalData.score;
+        document.getElementById('finalStatusText').innerText = isVerified ? 'VERIFIED' : 'NOT VERIFIED';
+        document.getElementById('finalStatusText').style.color = isVerified ? '#10b981' : '#ef4444';
         document.getElementById('finalFeedback').innerText = evalData.feedback;
+        
+        if (!isVerified) {
+            document.getElementById('successRing').style.color = '#ef4444';
+            document.getElementById('successRing').innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
+        }
 
-        // Persist to database
         try {
-            const res = await fetch('project_viva_handler', {
+            await fetch('project_viva_handler.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -506,27 +561,10 @@ $projectTitle = $project['title'];
                     history: answers
                 })
             });
-            const data = await res.json();
-            if (!data.success) {
-                console.error("Save failed:", data.message);
-            } else {
-                console.log("Persistence successful");
-                // Optional: Update UI to show "Saved"
-                const savedBadge = document.createElement('div');
-                savedBadge.innerHTML = '<i class="fas fa-check-circle"></i> Result saved to profile';
-                savedBadge.style.color = '#00875a';
-                savedBadge.style.fontSize = '0.9rem';
-                savedBadge.style.marginTop = '10px';
-                document.getElementById('resultsTitle').after(savedBadge);
-            }
-        } catch (err) {
-            console.error("Persistence connection error:", err);
-        }
+        } catch (err) { console.error("Persistence error", err); }
     }
 
-    window.onload = () => {
-        // Just show intro
-    };
+    function handleException(msg) { alert("ERROR: " + msg); window.location.href = 'dashboard'; }
 </script>
 
 </body>

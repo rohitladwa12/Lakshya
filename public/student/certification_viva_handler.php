@@ -1,4 +1,6 @@
-<?php
+// MUST be first: prevents PHP warnings from polluting JSON output
+ob_start();
+
 /**
  * Certification Viva Handler
  */
@@ -30,22 +32,20 @@ try {
             $item = $stmt->fetch();
             
             if (!$item || $item['category'] !== 'Certification') {
-                echo json_encode(['success' => false, 'message' => 'Certification not found.']);
+                ob_clean(); echo json_encode(['success' => false, 'message' => 'Certification not found.']);
                 exit;
             }
 
             session_write_close();
-            $res = $aiService->generateCertificationQuestions($item['title'], $item['sub_title'] ?: 'Unknown Issuer');
-            if ($res['success']) {
-                $questions = is_array($res['questions']) ? $res['questions'] : json_decode($res['content'], true)['questions'];
-                echo json_encode([
-                    'success' => true, 
-                    'questions' => $questions
-                ]);
-            } else {
-                echo json_encode(['success' => false, 'message' => 'Failed to generate questions.']);
-            }
-            break;
+            require_once ROOT_PATH . '/src/Services/QueueService.php';
+            $jobId = \App\Services\QueueService::pushJob('generateCertificationQuestions', [$item['title'], $item['sub_title'] ?: 'Unknown Issuer'], $userId);
+            
+            ob_clean(); echo json_encode([
+                'success' => true, 
+                'job_id' => $jobId,
+                'message' => 'Generating questions...'
+            ]);
+            exit;
 
         case 'submit_viva':
             $portfolioId = $input['portfolio_id'] ?? 0;
@@ -57,86 +57,95 @@ try {
             $item = $stmt->fetch();
             
             if (!$item) {
-                echo json_encode(['success' => false, 'message' => 'Certification not found.']);
+                ob_clean(); echo json_encode(['success' => false, 'message' => 'Certification not found.']);
                 exit;
             }
 
             session_write_close();
-            $res = $aiService->evaluateCertificationViva($item['title'], $item['sub_title'], json_encode($history));
+            require_once ROOT_PATH . '/src/Services/QueueService.php';
+            $jobId = \App\Services\QueueService::pushJob('evaluateCertificationViva', [$item['title'], $item['sub_title'], json_encode($history)], $userId);
             
-            if ($res['success']) {
-                $evaluation = json_decode($res['content'], true);
-                $score = (int)$evaluation['score'];
-                $isVerified = ($score >= 70);
+            ob_clean(); echo json_encode([
+                'success' => true, 
+                'job_id' => $jobId,
+                'message' => 'Evaluating responses...'
+            ]);
+            exit;
 
-                // Update database
-                $sql = "UPDATE student_portfolio SET 
-                        is_verified = ?, 
-                        verification_score = ?, 
-                        verification_date = CURRENT_TIMESTAMP,
-                        verification_details = ? 
-                        WHERE id = ?";
-                $db = getDB();
-                $db->prepare($sql)->execute([
-                    $isVerified ? 1 : 0,
+        case 'save_viva_result':
+            $portfolioId = $input['portfolio_id'] ?? 0;
+            $score = $input['score'] ?? 0;
+            $feedback = $input['feedback'] ?? '';
+            $history = $input['history'] ?? [];
+
+            // 1. Verify ownership
+            $stmt = getDB()->prepare("SELECT * FROM student_portfolio WHERE id = ? AND student_id = ?");
+            $stmt->execute([$portfolioId, $username]);
+            $item = $stmt->fetch();
+            
+            if (!$item) {
+                ob_clean(); echo json_encode(['success' => false, 'message' => 'Certification not found.']);
+                exit;
+            }
+
+            // 2. Update student_portfolio
+            $isVerified = ($score >= 70) ? 1 : 0;
+            $sql = "UPDATE student_portfolio SET 
+                    is_verified = ?, 
+                    verification_score = ?, 
+                    verification_date = CURRENT_TIMESTAMP,
+                    verification_details = ? 
+                    WHERE id = ?";
+            getDB()->prepare($sql)->execute([
+                $isVerified,
+                $score,
+                json_encode(['feedback' => $feedback, 'transcript' => $history]),
+                $portfolioId
+            ]);
+
+            // 3. Sync to unified_ai_assessments
+            try {
+                require_once ROOT_PATH . '/src/Models/StudentProfile.php';
+                $studentModel = new StudentProfile();
+                $profile = $studentModel->getByUserId($userId);
+
+                $sqlUnified = "INSERT INTO unified_ai_assessments (
+                    student_id, institution, student_name, usn, aadhar,
+                    current_sem, branch, assessment_type,
+                    assessment_title, score, total_marks,
+                    feedback, details, status, completed_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)";
+
+                getDB()->prepare($sqlUnified)->execute([
+                    $studentIdForDb,
+                    $institution,
+                    $profile['name'] ?? getFullName(),
+                    $profile['usn'] ?? getUsername(),
+                    $profile['aadhar'] ?? null,
+                    $profile['semester'] ?? null,
+                    $profile['department'] ?? null,
+                    'Certification Verification',
+                    $item['title'], 
                     $score,
+                    100,
+                    $feedback,
                     json_encode([
                         'transcript' => $history,
-                        'feedback' => $evaluation['feedback']
+                        'cert_title' => $item['title'],
+                        'issuer' => $item['sub_title']
                     ]),
-                    $portfolioId
+                    'completed'
                 ]);
-
-                // Sync to Unified AI Assessments Table
-                try {
-                    require_once __DIR__ . '/../../src/Models/StudentProfile.php';
-                    $studentModel = new StudentProfile();
-                    $profile = $studentModel->getByUserId($userId);
-
-                    $sqlUnified = "INSERT INTO unified_ai_assessments (
-                        student_id, institution, student_name, usn, aadhar,
-                        current_sem, branch, assessment_type,
-                        assessment_title, score, total_marks,
-                        feedback, details, status, completed_at
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)";
-
-                    $db->prepare($sqlUnified)->execute([
-                        $studentIdForDb,
-                        $institution,
-                        $profile['name'] ?? getFullName(),
-                        $profile['usn'] ?? getUsername(),
-                        $profile['aadhar'] ?? null,
-                        $profile['semester'] ?? null,
-                        $profile['department'] ?? null,
-                        'Certification Verification',
-                        $item['title'], 
-                        $score,
-                        100,
-                        $evaluation['feedback'],
-                        json_encode([
-                            'transcript' => $history,
-                            'cert_title' => $item['title'],
-                            'issuer' => $item['sub_title']
-                        ]),
-                        'completed'
-                    ]);
-                } catch (Exception $e) {
-                    error_log("Failed to sync certification verification to unified table: " . $e->getMessage());
-                }
-
-                echo json_encode([
-                    'success' => true,
-                    'score' => $score,
-                    'feedback' => $evaluation['feedback']
-                ]);
-            } else {
-                echo json_encode(['success' => false, 'message' => 'AI evaluation failed.']);
+            } catch (Exception $e) {
+                error_log("Failed to sync certification verification to unified table: " . $e->getMessage());
             }
-            break;
+
+            ob_clean(); echo json_encode(['success' => true, 'message' => 'Result saved successfully.']);
+            exit;
 
         default:
-            echo json_encode(['success' => false, 'message' => 'Invalid action.']);
+            ob_clean(); echo json_encode(['success' => false, 'message' => 'Invalid action.']);
     }
 } catch (Exception $e) {
-    echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+    ob_clean(); echo json_encode(['success' => false, 'message' => $e->getMessage()]);
 }
