@@ -1,0 +1,30 @@
+# Prevent directory browsing
+Options -Indexes
+
+DirectoryIndex index.php
+
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+    RewriteBase /Lakshya/
+
+    # Block access to sensitive/internal dirs if somehow requested
+    RewriteRule ^(src|config|database|storage|vendor)/ - [F,L]
+    RewriteRule (^\.|/\.) - [F,L]
+
+    # Remove .php extension from direct browser requests, except POST
+    RewriteCond %{REQUEST_METHOD} !POST
+    RewriteCond %{THE_REQUEST} \s/+Lakshya/(.+)\.php[\s?] [NC]
+    RewriteRule ^(.+)\.php$ /Lakshya/$1 [R=301,L]
+
+    # Existing files/folders should load directly
+    RewriteCond %{REQUEST_FILENAME} -f [OR]
+    RewriteCond %{REQUEST_FILENAME} -d
+    RewriteRule ^ - [L]
+
+    # Route clean URLs to matching .php files inside THIS public folder
+    RewriteCond %{REQUEST_FILENAME}.php -f
+    RewriteRule ^(.+)$ $1.php [L,QSA]
+
+    # Default root
+    RewriteRule ^$ index.php [L]
+</IfModule>

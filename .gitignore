@@ -1,0 +1,107 @@
+# Dependencies
+/vendor/
+/composer.phar
+
+# Environment & Config
+.env
+.env.local
+.env.*.local
+openai_config.php
+config/database.php.local
+
+# Logs
+/logs/*
+!/logs/.gitkeep
+*.log
+*.err
+*.out
+activity_logs_analysis.txt
+history_metadata_analysis.txt
+hr_mock_analysis.txt
+id_analysis.txt
+leaderboard_analysis.txt
+report_sample_analysis.txt
+session_analysis.txt
+sync_analysis.txt
+unified_analysis.txt
+check_output.txt
+diag_error.txt
+db_diag.txt
+index_diag.txt
+portfolio_cols.log
+
+# Temporary & Cache
+/tmp/*
+!/tmp/.gitkeep
+/cache/*
+!/cache/.gitkeep
+storage/*
+!storage/.gitkeep
+
+# Uploads & Media
+/uploads/*
+!/uploads/.gitkeep
+resumes_dump.txt
+extracted_text.txt
+
+# Database
+/*.sql
+tables.txt
+portfolio_columns.txt
+id_samples.txt
+final_types.txt
+gmu_describe.out
+
+# IDE & OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Testing & Debugging Scripts (Aggressive Ignore)
+check_*.php
+analyze_*.php
+analyze_*.txt
+debug_*.php
+debug_*.txt
+inspect_*.php
+test_*.php
+tmp_*.php
+tmp_*.txt
+audit_*.php
+verify_*.php
+seed_*.php
+migrate_*.php
+create_*.php
+find_*.php
+run_*.php
+fix_*.php
+list_*.php
+sample_*.php
+add_*.php
+get_*.php
+lookup_*.php
+final_check*.php
+describe_*.php
+dump_*.php
+inspect_*.php
+
+# Specific one-off files
+test.php
+test_write.php
+0
+AMCAT - SET - 1.pdf
+placement_portal_v2 (3).sql
+extracted_text.txt
+final_types.txt
+tables.txt
+*.out
+*.err
+*.html
+*.txt
+!README.md
+!PROJECT_DOCUMENTATION.md
+!QUICK_START.md
+!composer.json
+!composer.lock
