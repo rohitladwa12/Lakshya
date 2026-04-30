@@ -553,11 +553,6 @@ $chapters = $chapterModel->all();
             const isActive = e.target.checked;
             const label = document.getElementById('maintStatusLabel');
             
-            if (isActive && !confirm("Warning: This will block ALL users (except admins) from accessing the site. Continue?")) {
-                e.target.checked = false;
-                return;
-            }
-
             try {
                 const formData = new FormData();
                 formData.append('action', 'toggle');
@@ -572,13 +567,13 @@ $chapters = $chapterModel->all();
                 if (data.success) {
                     label.innerText = data.status === 'on' ? 'ACTIVE' : 'INACTIVE';
                     label.className = `maintenance-status ${data.status === 'on' ? 'status-active' : 'status-inactive'}`;
-                    alert(data.message);
+                    // Success feedback is now reflected in the label change immediately
                 } else {
-                    alert("Error: " + data.message);
+                    console.error("Maintenance toggle failed: " + data.message);
                     e.target.checked = !isActive;
                 }
             } catch (error) {
-                alert("Connection failed.");
+                console.error("Maintenance connection failed", error);
                 e.target.checked = !isActive;
             }
         });

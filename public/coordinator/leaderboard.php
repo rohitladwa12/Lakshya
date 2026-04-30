@@ -32,23 +32,37 @@ $studentModel = new StudentProfile();
 $officerModel = new PlacementOfficer();
 $all_skills = LeaderboardService::getAllAvailableSkills();
 
+// Fetch Default Academic Year
+$dbGmu = getDB('gmu');
+$defaultYearQuery = "SELECT MAX(academic_year) as max_year FROM ad_student_approved";
+$yearRes = $dbGmu->query($defaultYearQuery);
+$defaultYearData = $yearRes->fetch();
+$defaultAcademicYear = $defaultYearData['max_year'] ?? date('Y') . '-' . (date('Y') + 1);
+
 // Define Scope & Academic Filters
 $coordFilters = [];
 if ($view === 'local') {
     list($deptGmu, $deptGmit) = getCoordinatorDisciplineFilters($myDepartment);
     $coordFilters['discipline'] = [$deptGmu, $deptGmit];
     if ($inst_filter !== 'all') {
-        $coordFilters['institution'] = ($inst_filter === 'GMIT') ? INSTITUTION_GMIT : INSTITUTION_GMU;
+        $coordFilters['institution'] = (strtoupper($inst_filter) === 'GMIT') ? INSTITUTION_GMIT : INSTITUTION_GMU;
     } else {
         $coordFilters['institution'] = $myInst;
     }
 } else {
     if ($inst_filter !== 'all') {
-        $coordFilters['institution'] = ($inst_filter === 'GMIT') ? INSTITUTION_GMIT : INSTITUTION_GMU;
+        $coordFilters['institution'] = (strtoupper($inst_filter) === 'GMIT') ? INSTITUTION_GMIT : INSTITUTION_GMU;
     }
 }
 
-if ($sem_filter > 0) $coordFilters['semesters'] = [$sem_filter];
+// Enforce coordinator semester scope (Only Semesters 5, 6, 7, 8 are eligible)
+if ($sem_filter > 0) {
+    // If specific semester selected, must be within 5-8
+    $coordFilters['semesters'] = [max(5, min(8, $sem_filter))];
+} else {
+    // If "Any" selected, default to the whole 5-8 range
+    $coordFilters['semesters'] = [5, 6, 7, 8];
+}
 
 // Map advanced performance filters from session
 if (isset($persistedFilters['min_sgpa_all']) && $persistedFilters['min_sgpa_all'] !== '') $coordFilters['min_sgpa_all'] = (float)$persistedFilters['min_sgpa_all'];
@@ -90,12 +104,13 @@ if (empty($students)) {
     unset($entry);
 
     // Pagination
-    $limit = 20;
+    $showAll = (bool)($persistedFilters['show_all'] ?? false);
+    $limit = $showAll ? count($leaderboard) : 20;
     $page = $persistedFilters['page'] ?? 1;
     if ($page < 1) $page = 1;
     $offset = ($page - 1) * $limit;
     $total_entries = count($leaderboard);
-    $total_pages = ceil($total_entries / $limit);
+    $total_pages = $showAll ? 1 : ceil($total_entries / $limit);
     $display_leaderboard = array_slice($leaderboard, $offset, $limit);
 }
 
@@ -110,15 +125,14 @@ if (empty($students)) {
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
-            --primary: #1e293b; /* Dark Slate instead of Maroon */
-            --accent: #800000; /* Subtle Maroon accent */
-            --gold: #D4AF37;
-            --bg: #fdfdfd;
+            --primary: #1e293b;
+            --accent: #800000;
+            --bg: #f8fafc;
             --white: #ffffff;
-            --text: #1e293b;
+            --text: #0f172a;
             --text-light: #64748b;
             --border: #e2e8f0;
-            --shadow: 0 1px 3px rgba(0,0,0,0.1);
+            --shadow: 0 1px 2px rgba(0,0,0,0.05);
         }
 
         body {
@@ -126,220 +140,280 @@ if (empty($students)) {
             background: var(--bg);
             color: var(--text);
             margin: 0;
+            line-height:1.5;
         }
 
-        .navbar-spacer { display: none; }
-        
         .container {
             width: 100%;
-            margin: 20px 0;
-            padding: 0 40px;
+            padding: 30px 40px;
+            box-sizing: border-box;
         }
 
         .header {
-            margin-bottom: 40px;
+            margin-bottom: 30px;
             display: flex;
             justify-content: space-between;
-            align-items: flex-end;
+            align-items: flex-start;
         }
 
         .header h1 {
-            font-size: 28px;
+            font-size: 24px;
             font-weight: 700;
-            color: var(--text);
             margin: 0;
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
         }
 
-        .header p { color: var(--text-light); margin-top: 5px; }
-
-        .tabs {
-            display: flex;
-            gap: 5px;
-            background: #e2e8f0;
-            padding: 5px;
-            border-radius: 12px;
-            margin-bottom: 30px;
-            width: fit-content;
-        }
-
-        .tab-link {
-            padding: 10px 25px;
-            text-decoration: none;
-            color: var(--text-light);
-            font-weight: 600;
-            border-radius: 8px;
-            transition: all 0.2s;
-        }
-
-        .tab-link.active {
-            background: var(--white);
-            color: var(--accent);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
-            border: 1px solid var(--border);
-        }
+        .header p { color: var(--text-light); margin: 5px 0 0 0; font-size:14px; }
 
         .filters {
             background: white;
-            padding: 20px;
+            padding: 24px;
             border-radius: 16px;
-            box-shadow: var(--shadow);
+            border: 1px solid var(--border);
             margin-bottom: 30px;
-            display: flex;
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
             gap: 20px;
-            align-items: center;
-        }
-
-        .filter-item {
-            display: flex;
-            flex-direction: column;
-            gap: 5px;
-            flex: 1;
+            align-items: end;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02);
         }
 
         .filter-item label {
-            font-size: 13px;
+            display: block;
+            font-size: 11px;
             font-weight: 700;
             color: var(--text-light);
             text-transform: uppercase;
+            margin-bottom: 6px;
+            letter-spacing: 0.5px;
         }
 
-        .filter-item select {
-            padding: 10px;
-            border-radius: 10px;
-            border: 1px solid #e2e8f0;
-            outline: none;
-            font-family: inherit;
-        }
-
-        .btn-apply {
-            background: #cbd5e1;
-            color: #334155;
-            border: none;
-            padding: 10px 20px;
+        .filter-item select, .filter-item input {
+            width: 100%;
+            padding: 9px 12px;
             border-radius: 8px;
+            border: 1px solid var(--border);
+            font-size: 13px;
+            background: #fff;
+            color: var(--text);
+        }
+
+        .btn-group {
+            display: flex;
+            gap: 12px;
+            grid-column: 1 / -1;
+            justify-content: flex-end;
+            margin-top: 10px;
+            padding-top: 15px;
+            border-top: 1px solid #f1f5f9;
+        }
+
+        .btn {
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-size: 14px;
             font-weight: 600;
             cursor: pointer;
-            margin-top: 18px;
-            transition: all 0.2s;
+            border: 1px solid var(--border);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            white-space: nowrap;
+            user-select: none;
         }
-        .btn-apply:hover { background: #94a3b8; }
+
+        .btn i { font-size: 16px; }
+
+        .btn-primary { 
+            background: var(--primary); 
+            color: white; 
+            border-color: var(--primary); 
+            box-shadow: 0 4px 6px -1px rgba(30, 41, 59, 0.1);
+        }
+        .btn-primary:hover { 
+            background: #334155; 
+            transform: translateY(-1px);
+            box-shadow: 0 10px 15px -3px rgba(30, 41, 59, 0.15);
+        }
+
+        .btn-secondary { 
+            background: white; 
+            color: #475569; 
+            box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+        }
+        .btn-secondary:hover { 
+            background: #f8fafc; 
+            color: var(--text); 
+            border-color: #cbd5e1;
+            transform: translateY(-1px);
+        }
+
+        .btn-success { 
+            background: #059669; 
+            color: white; 
+            border-color: #059669;
+            box-shadow: 0 4px 6px -1px rgba(5, 150, 105, 0.1);
+        }
+        .btn-success:hover { 
+            background: #047857; 
+            transform: translateY(-1px);
+            box-shadow: 0 10px 15px -3px rgba(5, 150, 105, 0.15);
+        }
+        .btn:active { transform: translateY(0); }
 
         .leaderboard-table {
             background: white;
-            border-radius: 20px;
-            overflow: hidden;
+            border-radius: 12px;
+            border: 1px solid var(--border);
             box-shadow: var(--shadow);
-            margin-bottom: 30px;
+            overflow: hidden;
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            background: #f8fafc;
+            text-align: left;
+            padding: 12px 15px;
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-light);
+            text-transform: uppercase;
+            border-bottom: 2px solid var(--border);
+        }
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid var(--border);
+            font-size: 13px;
+            vertical-align: middle;
+        }
+        tr:hover { background: #fbfcfd; }
+
+        .rank-num { font-weight: 700; color: #64748b; font-size: 15px; }
+        .student-name { font-weight: 600; color: var(--text); display: block; }
+        .student-usn { font-family: monospace; color: var(--text-light); font-size: 12px; }
+        
+        .score-val { font-weight: 600; text-align: center; display: block; }
+        .total-badge {
+            background: #f1f5f9;
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-weight: 700;
+            color: var(--primary);
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid transparent;
+            transition: all 0.2s;
+        }
+        .total-badge:hover {
+            background: white;
+            border-color: #cbd5e1;
+            transform: scale(1.05);
+            box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);
         }
 
         .pagination {
             display: flex;
             justify-content: center;
-            gap: 8px;
-            margin-top: 30px;
-            padding-bottom: 50px;
+            gap: 5px;
+            margin-top: 25px;
         }
-
         .page-link {
-            padding: 8px 16px;
+            padding: 6px 12px;
             background: white;
-            border: 1px solid #e2e8f0;
-            border-radius: 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
             text-decoration: none;
-            color: var(--text);
-            font-weight: 600;
-            transition: all 0.2s;
-        }
-
-        .page-link.active {
-            background: var(--primary);
-            color: white;
-            border-color: var(--primary);
-        }
-
-        .page-link:hover:not(.active) {
-            background: #f1f5f9;
-        }
-
-        table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        th {
-            background: #f1f5f9;
-            text-align: left;
-            padding: 15px 20px;
-            font-size: 13px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
             color: var(--text-light);
+            font-size: 13px;
         }
+        .page-link.active { background: var(--primary); color: white; border-color: var(--primary); }
 
-        td {
+        /* Multi-select Tags */
+        .multi-select-container { position: relative; }
+        .selected-tags {
+            background: white;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 4px 8px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            min-height: 38px;
+            align-items: center;
+        }
+        .tag {
+            background: #f1f5f9;
+            color: var(--text);
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .tag i { cursor: pointer; opacity: 0.5; }
+        .tag i:hover { opacity: 1; color: var(--accent); }
+        .selected-tags input { border: none; outline: none; padding: 4px; font-size: 12px; flex: 1; }
+        .skill-dropdown {
+            position: absolute; top: 100%; left: 0; width: 100%;
+            background: white; border: 1px solid var(--border);
+            z-index: 100; display: none; box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            border-radius: 0 0 8px 8px; max-height: 200px; overflow-y: auto;
+        }
+        .skill-option { padding: 8px 12px; font-size: 13px; cursor: pointer; }
+        .skill-option:hover { background: #f8fafc; }
+
+        .methodology-card {
+            background: #fff;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            margin-bottom: 25px;
+            overflow: hidden;
+            display: none;
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+        }
+        .methodology-card.active { display: block; }
+        .methodology-header {
+            background: #f8fafc;
             padding: 15px 20px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .methodology-body { padding: 20px; }
+        .rule-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-top: 15px; }
+        .rule-item { 
+            padding: 12px; 
+            border-radius: 12px; 
+            background: #f1f5f9; 
+            font-size: 12px;
+            display: flex;
+            gap: 10px;
+            align-items: flex-start;
+        }
+        .rule-item.warning { background: #fff1f2; color: #991b1b; border: 1px solid #fecaca; }
+        .rule-icon { width: 24px; height: 24px; border-radius: 6px; background: white; display: flex; align-items: center; justify-content: center; shrink: 0; }
+
+        /* Breakdown Modal specific */
+        .breakdown-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
             border-bottom: 1px solid #f1f5f9;
         }
+        .breakdown-row:last-child { border-bottom: none; border-top: 2px solid #e2e8f0; margin-top: 10px; padding-top: 15px; }
+        .breakdown-label { font-size: 14px; color: #64748b; }
+        .breakdown-val { font-weight: 700; color: var(--text); }
+        .breakdown-total { font-size: 18px; color: var(--primary); }
 
-        .rank-box {
-            font-weight: 700;
-            font-size: 15px;
-            color: var(--text-light);
-        }
-        .rank-1 { color: #f59e0b; }
-        .rank-2 { color: #94a3b8; }
-        .rank-3 { color: #b45309; }
-
-        .student-info h4 { margin: 0; font-size: 16px; }
-        .student-info p { margin: 0; font-size: 12px; color: var(--text-light); }
-
-        .score-pill {
-            font-weight: 600;
-            font-size: 14px;
-        }
-
-        .score-total {
-            font-size: 17px;
-            font-weight: 700;
-            color: var(--text);
-        }
-
-        .progress-bar {
-            width: 80px;
-            height: 6px;
-            background: #e2e8f0;
-            border-radius: 10px;
-            overflow: hidden;
-            margin-top: 4px;
-        }
-
-        .progress-fill { height: 100%; background: var(--primary); }
-        
-        /* View SGPA Button */
-        .btn-view-sgpa {
-            background: #f1f5f9;
-            color: var(--primary);
-            border: 1px solid #e2e8f0;
-            padding: 6px 12px;
-            border-radius: 8px;
-            font-size: 12px;
-            font-weight: 700;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            transition: all 0.2s;
-        }
-        .btn-view-sgpa:hover {
-            background: var(--primary);
-            color: white;
-            border-color: var(--primary);
-        }
-
-        /* Modal Styles */
         .modal { 
             display: none; 
             position: fixed; 
@@ -359,184 +433,65 @@ if (empty($students)) {
             width: 450px; 
             max-width: 90%; 
             box-shadow: 0 20px 50px rgba(0,0,0,0.2); 
-            position: relative; 
-            animation: modalFadeIn 0.3s ease;
-        }
-        @keyframes modalFadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
         }
         .modal-header { 
             display: flex; 
             justify-content: space-between; 
             align-items: center; 
             margin-bottom: 20px; 
-            border-bottom: 1px solid #eee; 
-            padding-bottom: 15px; 
         }
-        .modal-header h3 { margin: 0; color: var(--primary); font-size: 18px; }
-        .close-modal { background: none; border: none; font-size: 24px; cursor: pointer; color: #94a3b8; }
-        .close-modal:hover { color: var(--primary); }
-        
-        .sgpa-table { width: 100%; border-collapse: collapse; }
-        .sgpa-table th { background: #f8fafc; color: #64748b; font-size: 11px; text-transform: uppercase; padding: 12px; text-align: center; }
-        .sgpa-table td { padding: 12px; text-align: center; border-bottom: 1px solid #f1f5f9; font-size: 14px; }
-        .sgpa-table tr:last-child td { border-bottom: none; }
-        .sgpa-val { font-weight: 700; color: var(--primary); }
-
-        /* Breakdown Modal specific */
-        .breakdown-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px 0;
-            border-bottom: 1px solid #f1f5f9;
-        }
-        .breakdown-row:last-child { border-bottom: none; border-top: 2px solid #e2e8f0; margin-top: 10px; padding-top: 15px; }
-        .breakdown-label { font-size: 14px; color: #64748b; }
-        .breakdown-val { font-weight: 700; color: var(--text); }
-        .breakdown-total { font-size: 18px; color: var(--primary); }
-
-        .info-card {
-            background: #e0f2fe;
-            border: 1px solid #bae6fd;
-            padding: 15px 20px;
-            border-radius: 12px;
-            margin-bottom: 25px;
-            display: flex;
-            gap: 15px;
-            align-items: flex-start;
-        }
-        .info-card i { color: #0369a1; font-size: 20px; margin-top: 2px; }
-        .info-card p { margin: 0; font-size: 13px; color: #0c4a6e; line-height: 1.5; }
-        .info-card strong { color: #0369a1; }
-        
-        .score-formula {
-            display: flex;
-            gap: 20px;
-            margin-top: 8px;
-            flex-wrap: wrap;
-        }
-        .formula-item {
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            font-size: 12px;
-            font-weight: 600;
-        }
-        .formula-item .dot { width: 8px; height: 8px; border-radius: 50%; }
-
-        .info-card {
+        .close-modal { background: none; border: none; font-size: 24px; cursor: pointer; }
+        /* Custom Modal for Push to Pool */
+        .modal {
             display: none;
-            background: #f8fafc;
-            border: 1px solid var(--border);
-            padding: 20px;
-            border-radius: 12px;
-            margin-bottom: 25px;
-            flex-direction: column;
-            gap: 15px;
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.4);
+            backdrop-filter: blur(4px);
+            z-index: 2000;
+            justify-content: center;
+            align-items: center;
         }
-        .info-card.active { display: flex; }
-        .info-card h4 { margin: 0; color: var(--text); font-size: 15px; }
-        .info-card p { margin: 0; font-size: 13px; color: var(--text-light); line-height: 1.5; }
-        
-        .methodology-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-        }
-        .method-item {
-            padding: 10px;
-            border-radius: 8px;
-            border: 1px solid #f1f5f9;
+        .modal-content {
             background: white;
+            padding: 30px;
+            border-radius: 16px;
+            width: 100%;
+            max-width: 450px;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1);
         }
-        .method-item strong { display: block; color: var(--text); font-size: 13px; margin-bottom: 2px; }
-        .method-item span { font-size: 11px; color: var(--text-light); }
-
-        .btn-help {
-            background: none;
-            border: 1px solid var(--border);
+        .modal-header {
+            margin-bottom: 20px;
+        }
+        .modal-header h3 {
+            margin: 0;
+            color: var(--text);
+            font-size: 1.25rem;
+        }
+        .modal-field {
+            margin-bottom: 15px;
+        }
+        .modal-field label {
+            display: block;
+            margin-bottom: 6px;
+            font-size: 0.875rem;
+            font-weight: 500;
             color: var(--text-light);
-            padding: 8px 15px;
+        }
+        .modal-field input {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid var(--border);
             border-radius: 8px;
-            font-size: 13px;
-            font-weight: 600;
-            cursor: pointer;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
+            font-size: 1rem;
+            text-transform: uppercase;
         }
-        .btn-help:hover { background: #f1f5f9; color: var(--text); }
-
-        /* Multi-select Tags */
-        .multi-select-container {
-            position: relative;
-            background: white;
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 5px 10px;
+        .modal-footer {
+            margin-top: 25px;
             display: flex;
-            flex-wrap: wrap;
-            gap: 5px;
-            min-height: 42px;
-        }
-        .selected-tags {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 5px;
-            width: 100%;
-        }
-        .tag {
-            background: #f1f5f9;
-            color: var(--primary);
-            padding: 2px 10px;
-            border-radius: 6px;
-            font-size: 11px;
-            font-weight: 700;
-            display: flex;
-            align-items: center;
-            gap: 6px;
-            border: 1px solid #e2e8f0;
-        }
-        .tag i { cursor: pointer; color: #94a3b8; }
-        .tag i:hover { color: #ef4444; }
-        .selected-tags input {
-            border: none;
-            outline: none;
-            padding: 5px;
-            font-size: 13px;
-            flex: 1;
-            min-width: 80px;
-        }
-        .skill-dropdown {
-            position: absolute;
-            top: 100%;
-            left: 0;
-            width: 100%;
-            background: white;
-            border: 1px solid var(--border);
-            border-top: none;
-            border-radius: 0 0 10px 10px;
-            max-height: 200px;
-            overflow-y: auto;
-            z-index: 100;
-            display: none;
-            box-shadow: 0 10px 20px rgba(0,0,0,0.1);
-        }
-        .skill-option {
-            padding: 10px 15px;
-            font-size: 13px;
-            cursor: pointer;
-            transition: all 0.2s;
-        }
-        .skill-option:hover { background: #f8fafc; color: var(--accent); }
-        .skill-option.selected { display: none; }
-
-        @media (max-width: 768px) {
-            .header { flex-direction: column; align-items: flex-start; gap: 20px; }
-            .filters { flex-direction: column; }
-            .hide-mobile { display: none; }
+            justify-content: flex-end;
+            gap: 12px;
         }
     </style>
 </head>
@@ -545,18 +500,13 @@ if (empty($students)) {
     <div class="container">
         <div class="header">
             <div>
-                <h1>
-                    Placement Leaderboard
-                    <button class="btn-help" onclick="toggleInfo()">
-                        <i class="fas fa-info-circle"></i> View Methodology
-                    </button>
-                </h1>
+                <h1>Placement Leaderboard</h1>
                 <p>Tracking the top placement-ready students based on multi-dimensional scoring.</p>
             </div>
-            <form id="viewTabForm" method="POST" class="tabs">
+            <form id="viewTabForm" method="POST" class="btn-group">
                 <input type="hidden" name="view" id="viewInput" value="<?php echo $view; ?>">
-                <button type="button" onclick="setView('local')" class="tab-link <?php echo $view === 'local' ? 'active' : ''; ?>" style="background:none; border:none; cursor:pointer;">Local (My Dept)</button>
-                <button type="button" onclick="setView('global')" class="tab-link <?php echo $view === 'global' ? 'active' : ''; ?>" style="background:none; border:none; cursor:pointer;">Global (All Depts)</button>
+                <button type="button" onclick="setView('local')" class="btn <?php echo $view === 'local' ? 'btn-primary' : 'btn-secondary'; ?>">Local</button>
+                <button type="button" onclick="setView('global')" class="btn <?php echo $view === 'global' ? 'btn-primary' : 'btn-secondary'; ?>">Global</button>
             </form>
             <script>
                 function setView(val) {
@@ -566,32 +516,39 @@ if (empty($students)) {
             </script>
         </div>
 
-        <div id="methodologyCard" class="info-card">
-            <div style="flex: 1;">
-                <h4>How is the Total Score calculated?</h4>
-                <p>We use a weighted scoring system that combines academic performance, interview preparedness, and practical experience.</p>
-                <div class="methodology-grid">
-                    <div class="method-item">
-                        <strong>Academic (40%)</strong>
-                        <span>SGPA × 10 (e.g. 8.5 = 85 points)</span>
+        <div class="methodology-card" id="methodologyCard">
+            <div class="methodology-header">
+                <span style="font-weight: 700; color: var(--text);"><i class="fas fa-brain" style="color: var(--primary); margin-right: 8px;"></i> Scoring Methodology</span>
+                <button type="button" class="btn btn-secondary" style="padding: 4px 10px; font-size: 11px;" onclick="toggleInfo()">Close</button>
+            </div>
+            <div class="methodology-body">
+                <p style="font-size: 13px; color: #64748b; margin-bottom: 15px;">
+                    The leaderboard uses a high-performance weighting system: <strong>70% AI Pillar Score</strong> and <strong>30% Portfolio Rigor</strong>.
+                </p>
+                <div class="rule-grid">
+                    <div class="rule-item">
+                        <div class="rule-icon"><i class="fas fa-check" style="color: #10b981;"></i></div>
+                        <div><strong>Verification Rule:</strong> Each verified Skill (+2 pts) and Project (+5 pts) contributes to the 30% Portfolio weight.</div>
                     </div>
-                    <div class="method-item">
-                        <strong>AI Assessments (40%)</strong>
-                        <span>Average of Aptitude, Tech & HR (All Required)</span>
+                    <div class="rule-item">
+                        <div class="rule-icon"><i class="fas fa-exclamation-triangle" style="color: #f59e0b;"></i></div>
+                        <div><strong>Cubic Participation:</strong> Missing any AI round (Apt, Tech, HR) applies an exponential penalty (pow 3) to the AI score.</div>
                     </div>
-                    <div class="method-item">
-                        <strong>Portfolio (20%)</strong>
-                        <span>Skills (max 10) + Projects (max 4)</span>
+                    <div class="rule-item warning" style="grid-column: span 2;">
+                        <div class="rule-icon" style="background: #fee2e2;"><i class="fas fa-clock"></i></div>
+                        <div><strong>Inactivity Decay:</strong> Students lose 1 point from their total for every 24 hours of inactivity between assessments. Policy active from April 30, 2026.</div>
                     </div>
-                </div>
-                <div style="margin-top: 12px; font-size: 11px; color: #64748b; background: white; padding: 8px 12px; border-radius: 6px; display: inline-block; border: 1px solid #eee;">
-                    <i class="fas fa-exclamation-triangle" style="color: #ea580c;"></i> <strong>Challenge Mode:</strong> Unattempted AI tests count as 0%. Portfolio requires double the items for a perfect score.
                 </div>
             </div>
         </div>
 
-        <form class="filters flex-wrap" method="POST">
-            <div class="filter-item" style="min-width: 150px;">
+        <div style="display: flex; justify-content: flex-end; margin-bottom: 15px;">
+            <button type="button" onclick="toggleInfo()" class="btn btn-secondary" style="font-size: 12px;">
+                <i class="fas fa-info-circle"></i> View Scoring Rules
+            </button>
+        </div>
+        <form class="filters" method="POST">
+            <div class="filter-item">
                 <label>Institution</label>
                 <select name="inst" onchange="this.form.submit()">
                     <option value="all">All</option>
@@ -599,62 +556,71 @@ if (empty($students)) {
                     <option value="gmit" <?php echo $inst_filter === 'gmit' ? 'selected' : ''; ?>>GMIT</option>
                 </select>
             </div>
-            <div class="filter-item" style="min-width: 120px;">
+            <div class="filter-item">
                 <label>Semester</label>
                 <select name="sem" onchange="this.form.submit()">
-                    <option value="0" <?php echo $sem_filter === 0 ? 'selected' : ''; ?>>All Semesters</option>
-                    <?php for($i=1; $i<=8; $i++): ?>
-                        <option value="<?php echo $i; ?>" <?php echo $sem_filter === $i ? 'selected' : ''; ?>>Semester <?php echo $i; ?></option>
-                    <?php endfor; ?>
-                </select>
-            </div>
-            <div class="filter-item" style="min-width: 120px;">
-                <label>Min Total</label>
-                <select name="min_total">
-                    <option value="">Any</option>
-                    <?php foreach([50, 60, 70, 80, 90] as $v): ?>
-                        <option value="<?php echo $v; ?>" <?php echo ($persistedFilters['min_total'] ?? '') == $v ? 'selected' : ''; ?>><?php echo $v; ?>+</option>
+                    <option value="0">Any</option>
+                    <?php 
+                    $sems = getCoordinatorSemesterFilters($myDepartment);
+                    foreach($sems as $s): ?>
+                        <option value="<?php echo $s; ?>" <?php echo $sem_filter == $s ? 'selected' : ''; ?>>Sem <?php echo $s; ?></option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="filter-item" style="min-width: 120px;">
-                <label>Min SGPA (All)</label>
-                <select name="min_sgpa_all">
+            <div class="filter-item">
+                <label>Min SGPA</label>
+                <select name="min_sgpa_all" onchange="this.form.submit()">
                     <option value="">Any</option>
-                    <?php foreach([6.0, 6.5, 7.0, 7.5, 8.0, 8.5, 9.0] as $v): ?>
+                    <?php foreach([6, 7, 8, 9] as $v): ?>
                         <option value="<?php echo $v; ?>" <?php echo ($persistedFilters['min_sgpa_all'] ?? '') == $v ? 'selected' : ''; ?>><?php echo $v; ?>+</option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="filter-item" style="min-width: 120px;">
-                <label>Min Aptitude</label>
-                <select name="min_apt">
+            <div class="filter-item">
+                <label>Min Aptitude %</label>
+                <select name="min_apt" onchange="this.form.submit()">
                     <option value="">Any</option>
                     <?php foreach([40, 50, 60, 70, 80, 90] as $v): ?>
                         <option value="<?php echo $v; ?>" <?php echo ($persistedFilters['min_apt'] ?? '') == $v ? 'selected' : ''; ?>><?php echo $v; ?>%+</option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="filter-item" style="min-width: 120px;">
-                <label>Min Tech</label>
-                <select name="min_tech">
+            <div class="filter-item">
+                <label>Min Technical %</label>
+                <select name="min_tech" onchange="this.form.submit()">
                     <option value="">Any</option>
                     <?php foreach([40, 50, 60, 70, 80, 90] as $v): ?>
                         <option value="<?php echo $v; ?>" <?php echo ($persistedFilters['min_tech'] ?? '') == $v ? 'selected' : ''; ?>><?php echo $v; ?>%+</option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="filter-item" style="min-width: 120px;">
-                <label>Min HR</label>
-                <select name="min_hr">
+            <div class="filter-item">
+                <label>Min HR %</label>
+                <select name="min_hr" onchange="this.form.submit()">
                     <option value="">Any</option>
                     <?php foreach([40, 50, 60, 70, 80, 90] as $v): ?>
                         <option value="<?php echo $v; ?>" <?php echo ($persistedFilters['min_hr'] ?? '') == $v ? 'selected' : ''; ?>><?php echo $v; ?>%+</option>
                     <?php endforeach; ?>
                 </select>
             </div>
-            <div class="filter-item" style="min-width: 250px;">
-                <label>Required Skills (Select Multiple)</label>
+            <div class="filter-item">
+                <label>Academic Year</label>
+                <div style="font-weight: 600; color: var(--primary); padding: 8px 0;"><?php echo htmlspecialchars($defaultAcademicYear); ?></div>
+                <input type="hidden" id="defaultAcademicYear" value="<?php echo htmlspecialchars($defaultAcademicYear); ?>">
+            </div>
+            <div class="filter-item">
+                <label>View Mode</label>
+                <div style="display: flex; align-items: center; gap: 8px; padding: 8px 0;">
+                    <input type="checkbox" name="show_all" id="showAllCheck" value="1" <?php echo ($showAll ?? false) ? 'checked' : ''; ?> onchange="this.form.submit()">
+                    <label for="showAllCheck" style="margin: 0; text-transform: none; font-weight: 600; cursor: pointer;">Show All</label>
+                </div>
+            </div>
+            <div class="filter-item">
+                <label>Min Total Score</label>
+                <input type="number" name="min_total" value="<?php echo htmlspecialchars($persistedFilters['min_total'] ?? ''); ?>" placeholder="e.g. 70" onchange="this.form.submit()">
+            </div>
+            <div class="filter-item" style="grid-column: span 2;">
+                <label>Skills Required</label>
                 <div class="multi-select-container">
                     <div class="selected-tags" id="selectedTags">
                         <?php foreach($selected_skills as $sk): if(empty($sk)) continue; ?>
@@ -673,22 +639,31 @@ if (empty($students)) {
                     </div>
                 </div>
             </div>
-            <div style="display: flex; gap: 10px; align-self: flex-end; margin-bottom: 5px;">
-                <button type="submit" class="btn-apply" style="white-space: nowrap;">
+            <div class="btn-group">
+                <button type="submit" class="btn btn-secondary">
                     <i class="fas fa-search"></i> Search
                 </button>
-                <button type="submit" name="reset_filters" value="1" class="btn-help" style="white-space: nowrap; border: 1px solid var(--border);">
+                <button type="submit" name="reset_filters" value="1" class="btn btn-secondary">
                     <i class="fas fa-undo"></i> Reset
+                </button>
+                <button type="button" onclick="pushSelectedToPool()" class="btn btn-success">
+                    <i class="fas fa-paper-plane"></i> Push to Pool
                 </button>
             </div>
         </form>
+
 
         <div class="leaderboard-table">
             <table>
                 <thead>
                     <tr>
+                        <th width="30">
+                            <input type="checkbox" id="selectAllStudents" onclick="toggleAllCheckboxes(this)">
+                        </th>
                         <th width="40">Rank</th>
-                        <th>Student Name & USN</th>
+                        <th>Name</th>
+                        <th width="100">USN</th>
+                        <th width="140">Branch</th>
                         <?php for($i=1; $i<=8; $i++): ?>
                             <th width="35" style="text-align: center;">S<?php echo $i; ?></th>
                         <?php endfor; ?>
@@ -702,67 +677,58 @@ if (empty($students)) {
                 <tbody>
                     <?php if (empty($display_leaderboard)): ?>
                         <tr>
-                            <td colspan="10" style="text-align:center; padding: 50px; color: var(--text-light);">
+                            <td colspan="18" style="text-align:center; padding: 50px; color: var(--text-light);">
                                 <i class="fas fa-search" style="font-size: 32px; margin-bottom: 10px; display: block;"></i>
                                 No students found for the selected criteria.
                             </td>
                         </tr>
                     <?php endif; ?>
                     <?php foreach ($display_leaderboard as $e): ?>
-                        <tr>
-                            <td>
-                                <div class="rank-box <?php echo $e['rank'] <= 3 ? 'rank-'.$e['rank'] : ''; ?>">
-                                    <?php echo $e['rank']; ?>
-                                </div>
+                        <tr data-usn="<?php echo htmlspecialchars($e['usn']); ?>">
+                            <td style="text-align: center;">
+                                <input type="checkbox" class="student-select" value="<?php echo htmlspecialchars($e['usn']); ?>">
                             </td>
                             <td>
-                                <div class="student-info">
-                                    <h4 style="margin:0; font-size:13px; color:var(--text); white-space: nowrap;"><?php echo htmlspecialchars($e['name']); ?></h4>
-                                    <p style="font-family: monospace; font-weight: 700; color: var(--primary); font-size: 11px;"><?php echo htmlspecialchars($e['usn']); ?></p>
-                                    <span style="font-size: 9px; color: var(--text-light);"><?php echo htmlspecialchars($e['discipline']); ?></span>
-                                </div>
+                                <span class="rank-num"><?php echo $e['rank']; ?></span>
+                            </td>
+                            <td>
+                                <span class="student-name"><?php echo htmlspecialchars($e['name']); ?></span>
+                            </td>
+                            <td>
+                                <span class="student-usn"><?php echo htmlspecialchars($e['usn']); ?></span>
+                            </td>
+                            <td>
+                                <span style="font-size: 11px; color: var(--text-light); font-weight: 500;"><?php echo htmlspecialchars($e['discipline']); ?></span>
                             </td>
                             <?php for($semNum=1; $semNum<=8; $semNum++): ?>
                                 <td style="text-align: center;">
-                                    <span style="font-weight: 700; font-size: 11px; color: <?php 
+                                    <?php 
                                         $val = $e['academic_history'][$semNum]['sgpa'] ?? 0;
-                                        echo $val >= 8.5 ? '#059669' : ($val >= 7.5 ? '#2563eb' : ($val > 0 ? '#d97706' : '#94a3b8'));
-                                    ?>">
+                                    ?>
+                                    <span style="font-weight: 500; color: <?php echo $val > 0 ? 'var(--text)' : '#cbd5e1'; ?>">
                                         <?php echo $val > 0 ? number_format($val, 2) : '-'; ?>
                                     </span>
                                 </td>
                             <?php endfor; ?>
+                            <td style="text-align: center;"><span class="score-val"><?php echo round($e['aptitude']); ?>%</span></td>
+                            <td style="text-align: center;"><span class="score-val"><?php echo round($e['technical']); ?>%</span></td>
+                            <td style="text-align: center;"><span class="score-val"><?php echo round($e['hr']); ?>%</span></td>
                             <td>
-                                <div class="score-pill" style="color: <?php echo $e['aptitude'] >= 70 ? '#059669' : ($e['aptitude'] >= 40 ? '#d97706' : '#dc2626'); ?>;">
-                                    <?php echo round($e['aptitude']); ?>%
-                                </div>
-                            </td>
-                            <td>
-                                <div class="score-pill" style="color: <?php echo $e['technical'] >= 70 ? '#059669' : ($e['technical'] >= 40 ? '#d97706' : '#dc2626'); ?>;">
-                                    <?php echo round($e['technical']); ?>%
-                                </div>
-                            </td>
-                            <td>
-                                <div class="score-pill" style="color: #be185d;">
-                                    <?php echo round($e['hr']); ?>%
-                                </div>
-                            </td>
-                            <td>
-                                <div style="display: flex; flex-wrap: wrap; gap: 4px; max-width: 200px;">
+                                <div style="display: flex; flex-wrap: wrap; gap: 4px;">
                                     <?php 
-                                    $topSkills = array_slice($e['skills'], 0, 3);
+                                    $topSkills = array_slice($e['skills'], 0, 2);
                                     foreach($topSkills as $sk): ?>
-                                        <span style="font-size: 9px; padding: 2px 6px; background: #f1f5f9; border-radius: 4px; color: #475569; border: 1px solid #e2e8f0;"><?php echo htmlspecialchars($sk); ?></span>
+                                        <span class="tag"><?php echo htmlspecialchars($sk); ?></span>
                                     <?php endforeach; ?>
-                                    <?php if(count($e['skills']) > 3): ?>
-                                        <span style="font-size: 9px; color: #94a3b8;">+<?php echo count($e['skills'])-3; ?></span>
+                                    <?php if(count($e['skills']) > 2): ?>
+                                        <span style="font-size: 10px; color: #94a3b8;">+<?php echo count($e['skills'])-2; ?></span>
                                     <?php endif; ?>
                                 </div>
                             </td>
                             <td>
-                             <div class="total-score-wrapper" 
+                                <div class="total-badge" 
                                      style="cursor: pointer;"
-                                     onclick='showScoreBreakdown(<?php echo json_encode([
+                                     onclick='showScoreBreakdown(<?php echo htmlspecialchars(json_encode([
                                          "name" => $e["name"],
                                          "apt" => round($e["aptitude"], 1),
                                          "tech" => round($e["technical"], 1),
@@ -773,9 +739,9 @@ if (empty($students)) {
                                          "port_raw" => $e["portfolio"],
                                          "port_pts" => round($e["portfolio"] * 0.3, 1),
                                          "total" => $e["total"]
-                                     ]); ?>)'>
-                                    <span class="score-total"><?php echo $e['total']; ?></span>
-                                    <i class="fas fa-calculator" style="font-size: 10px; color: var(--primary); opacity: 0.6;"></i>
+                                     ]), ENT_QUOTES, "UTF-8"); ?>)'>
+                                    <?php echo $e['total']; ?>
+                                    <i class="fas fa-calculator" style="font-size: 9px; opacity: 0.5;"></i>
                                 </div>
                             </td>
                         </tr>
@@ -784,7 +750,7 @@ if (empty($students)) {
             </table>
         </div>
 
-        <?php if ($total_pages > 1): ?>
+        <?php if ($total_pages > 1 && !($showAll ?? false)): ?>
         <form method="POST" id="paginationForm" style="display:none;"><input type="hidden" name="page" id="pageNum"></form>
         <div class="pagination">
             <?php
@@ -824,6 +790,28 @@ if (empty($students)) {
         </script>
         <?php endif; ?>
     </div>
+        <!-- Push to Pool Modal -->
+        <div id="pushModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h3><i class="fas fa-layer-group" style="color: var(--primary);"></i> Finalize Placement Pool</h3>
+                </div>
+                <div class="modal-field">
+                    <label>Academic Year</label>
+                    <input type="text" id="modalAcademicYear" placeholder="e.g. 2025-26" style="text-transform: uppercase;">
+                </div>
+                <div class="modal-field">
+                    <label>Company Name</label>
+                    <input type="text" id="modalCompanyName" placeholder="e.g. CAMPUS DRIVE 2026" style="text-transform: uppercase;">
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" onclick="closePushModal()">Cancel</button>
+                    <button type="button" class="btn btn-primary" onclick="confirmPushToPool()">
+                        Confirm & Push
+                    </button>
+                </div>
+            </div>
+        </div>
     <!-- SGPA Details Modal -->
     <div id="sgpaModal" class="modal">
         <div class="modal-content">
@@ -998,11 +986,95 @@ if (empty($students)) {
             if(el) {
                 el.parentElement.remove();
             } else {
-                // Fallback for initial tags
+                // Find by value if el not provided (for existing tags)
                 const tags = document.querySelectorAll('.tag');
                 tags.forEach(t => {
-                    if(t.innerText.includes(skill)) t.remove();
+                    if(t.innerText.trim().startsWith(skill)) t.remove();
                 });
+            }
+        }
+
+        // --- Multi-Select & Push Logic ---
+        function toggleAllCheckboxes(master) {
+            const checkboxes = document.querySelectorAll('.student-select');
+            checkboxes.forEach(cb => cb.checked = master.checked);
+        }
+
+        let pendingUsns = [];
+
+        function pushSelectedToPool() {
+            const selectedBoxes = document.querySelectorAll('.student-select:checked');
+            pendingUsns = Array.from(selectedBoxes).map(cb => cb.value);
+
+            if (pendingUsns.length === 0) {
+                alert("Please select at least one student.");
+                return;
+            }
+
+            // Load from localStorage or defaults
+            const savedYear = localStorage.getItem('lastAcademicYear');
+            const savedCompany = localStorage.getItem('lastCompanyName');
+
+            document.getElementById('modalAcademicYear').value = savedYear || document.getElementById('defaultAcademicYear').value;
+            document.getElementById('modalCompanyName').value = savedCompany || "";
+            document.getElementById('pushModal').style.display = 'flex';
+        }
+
+        function closePushModal() {
+            document.getElementById('pushModal').style.display = 'none';
+        }
+
+        async function confirmPushToPool() {
+            const academicYear = document.getElementById('modalAcademicYear').value.trim().toUpperCase();
+            const companyName = document.getElementById('modalCompanyName').value.trim().toUpperCase();
+
+            if (!academicYear || !companyName) {
+                alert("Both Academic Year and Company Name are required.");
+                return;
+            }
+
+            if (!confirm(`Push ${pendingUsns.length} students to the pool for ${companyName}?`)) {
+                return;
+            }
+
+            // Remember for next time
+            localStorage.setItem('lastAcademicYear', academicYear);
+            localStorage.setItem('lastCompanyName', companyName);
+
+            closePushModal();
+            const pushBtn = document.querySelector('button[onclick="pushSelectedToPool()"]');
+            const originalHtml = pushBtn.innerHTML;
+            pushBtn.disabled = true;
+            pushBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Pushing...';
+
+            try {
+                const res = await fetch('leaderboard_handler.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        action: 'push_to_pool', 
+                        usns: pendingUsns,
+                        academic_year: academicYear,
+                        company_name: companyName
+                    })
+                });
+                const data = await res.json();
+                
+                pushBtn.disabled = false;
+                pushBtn.innerHTML = originalHtml;
+
+                if (data.success) {
+                    alert(`Successfully pushed ${data.count} student(s) to the pool.`);
+                    // Uncheck all
+                    document.getElementById('selectAllStudents').checked = false;
+                    document.querySelectorAll('.student-select').forEach(cb => cb.checked = false);
+                } else {
+                    alert("Error: " + (data.message || "Failed to push students."));
+                }
+            } catch (err) {
+                pushBtn.disabled = false;
+                pushBtn.innerHTML = originalHtml;
+                alert("Connection error occurred.");
             }
         }
 

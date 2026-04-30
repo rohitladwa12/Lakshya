@@ -296,6 +296,15 @@ switch ($action) {
         break;
 }
 
+/**
+ * Allow safe HTML from AI report (bold, breaks, lists) so it renders; strip script/style.
+ */
+function allowReportHtml($content) {
+    $allowed = '<b><strong><br><p><ul><ol><li><em><i><h2><h3><h4><span>';
+    $cleaned = strip_tags($content, $allowed);
+    return $cleaned ?: htmlspecialchars((string)$content, ENT_QUOTES, 'UTF-8');
+}
+
 function generateReportHTML($usn, $sem, $name, $role, $score, $content) {
     return "
     <html>
@@ -321,7 +330,7 @@ function generateReportHTML($usn, $sem, $name, $role, $score, $content) {
             <p><strong>Date:</strong> " . date('d M Y') . "</p>
         </div>
         <div class='content'>
-            " . nl2br(htmlspecialchars((string)$content)) . "
+            " . allowReportHtml($content) . "
         </div>
     </body>
     </html>";

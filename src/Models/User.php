@@ -62,6 +62,25 @@ class User extends Model {
     public function find($id, $institution = null) {
         if ($id === null) return null;
 
+        // Hardening: Handle array inputs gracefully to avoid "Array to string conversion" errors.
+        // This can happen if session user data or a full row is accidentally passed as the ID.
+        if (is_array($id)) {
+            $extractedId = null;
+            if (isset($id['id'])) $extractedId = $id['id'];
+            elseif (isset($id['username'])) $extractedId = $id['username'];
+            elseif (isset($id['SL_NO'])) $extractedId = $id['SL_NO'];
+            elseif (isset($id['USER_NAME'])) $extractedId = $id['USER_NAME'];
+            elseif (isset($id['ENQUIRY_NO'])) $extractedId = $id['ENQUIRY_NO'];
+            
+            if ($extractedId !== null && is_scalar($extractedId)) {
+                $id = $extractedId;
+            } else {
+                // If we can't find a scalar ID, log it and return null to prevent a PDO crash
+                error_log("Warning: User::find() called with an array that does not contain a recognizable scalar ID. Value: " . print_r($id, true));
+                return null;
+            }
+        }
+
         // If institution is provided, we know where to look and what column to use
         if ($institution) {
             if (!$this->remoteDB) return null; // Remote DB required
@@ -125,24 +144,36 @@ class User extends Model {
             
             $user = null;
             if ($inst === INSTITUTION_GMIT) {
-                $sql = "SELECT u.*, d.name as student_name 
-                        FROM {$table} u 
-                        LEFT JOIN {$prefix}ad_student_details d ON u.ENQUIRY_NO = d.enquiry_no OR u.USER_NAME = d.student_id 
-                        WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
-                $stmt = $this->remoteDB->prepare($sql);
-                $stmt->execute([$id, $id]);
-                $user = $stmt->fetch();
+                try {
+                    $sql = "SELECT u.*, d.name as student_name, d.discipline 
+                            FROM {$table} u 
+                            LEFT JOIN {$prefix}ad_student_details d ON u.ENQUIRY_NO = d.enquiry_no OR u.USER_NAME = d.student_id 
+                            WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
+                    $stmt = $this->remoteDB->prepare($sql);
+                    $stmt->execute([$id, $id]);
+                    $user = $stmt->fetch();
+                } catch (Exception $e) {
+                    // Fallback to minimal query if columns are missing
+                    $sql = "SELECT u.* FROM {$table} u WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
+                    $stmt = $this->remoteDB->prepare($sql);
+                    $stmt->execute([$id, $id]);
+                    $user = $stmt->fetch();
+                }
             } else {
-                // GMU: Try numeric SL_NO first, fall back to USER_NAME
-                if (is_numeric($id)) {
-                    $sql = "SELECT * FROM {$table} WHERE {$idCol} = ? LIMIT 1";
+                // GMU: Try joining with ad_student_approved for name/discipline
+                try {
+                    $queryId = is_numeric($id) ? "u.{$idCol}" : "u.USER_NAME";
+                    $sql = "SELECT u.*, ad.name as student_name, ad.discipline
+                            FROM {$table} u
+                            LEFT JOIN {$prefix}ad_student_approved ad ON u.USER_NAME = ad.usn
+                            WHERE {$queryId} = ? LIMIT 1";
                     $stmt = $this->remoteDB->prepare($sql);
                     $stmt->execute([$id]);
                     $user = $stmt->fetch();
-                }
-
-                if (!$user) {
-                    $sql = "SELECT * FROM {$table} WHERE USER_NAME = ? LIMIT 1";
+                } catch (Exception $e) {
+                    // Fallback to minimal query
+                    $queryId = is_numeric($id) ? "{$idCol}" : "USER_NAME";
+                    $sql = "SELECT * FROM {$table} WHERE {$queryId} = ? LIMIT 1";
                     $stmt = $this->remoteDB->prepare($sql);
                     $stmt->execute([$id]);
                     $user = $stmt->fetch();
@@ -417,7 +448,7 @@ class User extends Model {
             'student_id_str' => $row['ID'] ?? ($row['EMP_ID'] ?? null),
             'institution' => $institution,
             'COURSE' => $row['COURSE'] ?? null,
-            'DISCIPLINE' => $row['DISCIPLINE'] ?? ($row['DEPT_ID'] ?? null),
+            'DISCIPLINE' => $row['discipline'] ?? ($row['DISCIPLINE'] ?? ($row['branch'] ?? ($row['DEPT_ID'] ?? null))),
             'raw' => $row // Keep raw data for deep fallback in profile mapping
         ];
     }

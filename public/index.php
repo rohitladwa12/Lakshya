@@ -1296,9 +1296,9 @@
 
         <!-- Nav links -->
         <ul class="nav__links">
+			<li><a href="#about" class="mobile-link">Stats</a></li>
             <li><a href="#features" class="mobile-link">Features</a></li>
             <li><a href="#story" class="mobile-link">How it works</a></li>
-            <li><a href="#about" class="mobile-link">Stats</a></li>
         </ul>
 
         <!-- Divider -->

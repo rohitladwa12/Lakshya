@@ -35,6 +35,7 @@ class LeaderboardService {
         $taskDataByUsn = self::fetchTaskCompletions($usnList);
         $academicHistory = self::fetchAcademicHistory($gmuUsns, $gmitUsns);
         $skillData = self::fetchStudentSkills($usnList);
+        $assessmentTimestamps = self::fetchAssessmentTimestamps($usnList);
 
         // 3. Process into Ranking
         $rankings = [];
@@ -52,7 +53,7 @@ class LeaderboardService {
             if ($pillars['hr'] > 0) $attemptedCount++;
 
             $weightedScore = ($pillars['technical'] * 0.5) + ($pillars['aptitude'] * 0.25) + ($pillars['hr'] * 0.25);
-            $squarePenalty = pow($attemptedCount / 3.0, 2);
+            $squarePenalty = pow($attemptedCount / 3.0, 3); // Cubic Penalty for partial participation
             $assessmentScore = $weightedScore * $squarePenalty;
 
             // Portfolio Score (30% weight - Strict: 25 skills, 10 projects)
@@ -61,7 +62,11 @@ class LeaderboardService {
             $portfolioScore = min(50, $pS * 2) + min(50, $pP * 5);
 
             // Final Total Points (Out of 100)
-            $totalScore = ($assessmentScore * 0.7) + ($portfolioScore * 0.3);
+            $rawTotal = ($assessmentScore * 0.7) + ($portfolioScore * 0.3);
+            
+            // Inactivity Penalty (Permanent Decay)
+            $inactivityDays = self::calculateInactivityPenalty($assessmentTimestamps[$lowUsn] ?? []);
+            $totalScore = max(0, $rawTotal - $inactivityDays);
 
             // Academic History (for filtering and display)
             $history = $academicHistory[$lowUsn] ?? [];
@@ -292,6 +297,57 @@ class LeaderboardService {
 
             return true;
         });
+    }
+
+    private static function fetchAssessmentTimestamps($usnList) {
+        $db = getDB();
+        $timestamps = [];
+
+        // 1. Unified Assessments
+        $stmt = $db->query("SELECT usn, started_at FROM unified_ai_assessments WHERE usn IN ($usnList) ORDER BY started_at ASC");
+        while ($row = $stmt->fetch()) {
+            $timestamps[strtolower($row['usn'])][] = strtotime($row['started_at']);
+        }
+
+        // 2. Mock Interviews
+        $stmt = $db->query("SELECT student_id as usn, started_at FROM mock_ai_interview_sessions WHERE student_id IN ($usnList) AND status = 'completed' ORDER BY started_at ASC");
+        while ($row = $stmt->fetch()) {
+            $timestamps[strtolower($row['usn'])][] = strtotime($row['started_at']);
+        }
+
+        return $timestamps;
+    }
+
+    private static function calculateInactivityPenalty($userTimestamps) {
+        if (empty($userTimestamps)) return 0;
+        
+        sort($userTimestamps);
+        $penalty = 0;
+        $oneDay = 86400;
+        $policyStartDate = strtotime('2026-04-30 00:00:00'); // Penalty starts today
+
+        // Calculate historical gaps, but only those occurring after the policy start date
+        for ($i = 0; $i < count($userTimestamps) - 1; $i++) {
+            $gapStart = max($policyStartDate, $userTimestamps[$i]);
+            $gapEnd = $userTimestamps[$i+1];
+            
+            if ($gapEnd > $gapStart) {
+                $gap = $gapEnd - $gapStart;
+                if ($gap > $oneDay) {
+                    $penalty += floor($gap / $oneDay);
+                }
+            }
+        }
+
+        // Calculate current gap since last activity, relative to policy start
+        $lastActivity = max($policyStartDate, end($userTimestamps));
+        $currentGap = time() - $lastActivity;
+        
+        if ($currentGap > $oneDay) {
+            $penalty += floor($currentGap / $oneDay);
+        }
+
+        return $penalty;
     }
 
     private static function calculatePillars($userScores, $userMocks, $userTasks = []) {

@@ -163,10 +163,11 @@ try {
         ];
         $isCompleted = !empty($task['completion_status']);
         $statusText = $isCompleted ? 'COMPLETED' : 'Due: ' . date('M d', strtotime($task['deadline']));
-        $titlePrefix = $isCompleted ? '✅ ' : '📝 ';
+        $iconHtml = $isCompleted ? '<i class="fas fa-check-circle" style="color:#2ecc71;"></i> ' : '<i class="fas fa-pen-nib" style="color:var(--primary-maroon);"></i> ';
 
         $feedItems[] = [
-            'title' => $titlePrefix . $task['title'],
+            'title' => $task['title'],
+            'icon_html' => $iconHtml,
             'subtitle' => strtoupper($task['task_type']) . ' Task - ' . $statusText,
             'link' => 'assigned_task.php',
             'id' => $task['id'],
@@ -192,6 +193,7 @@ try {
         if (strpos($searchStr, 'job') !== false || strpos($searchStr, 'hiring') !== false || strpos($searchStr, 'recruitment') !== false) {
             $fItem['link'] = 'jobs.php';
         }
+        $fItem['icon_html'] = '<i class="fas fa-bullhorn" style="color:#f39c12;"></i> ';
     }
     unset($fItem);
 
@@ -216,6 +218,7 @@ if (count($feedItems) < 2) {
     foreach ($allActiveJobs as $job) {
         $feedItems[] = [
             'title' => 'Job: ' . $job['title'],
+            'icon_html' => '<i class="fas fa-briefcase" style="color:var(--accent-gold);"></i> ',
             'subtitle' => $job['company_name'] . ' is hiring!',
             'link' => 'jobs.php',
             'color' => 'var(--accent-gold)'
@@ -1457,7 +1460,7 @@ if ($profile):
     endif; ?>
                 <div id="profileAvatarDisplay" style="width:100%;height:100%;display:<?php echo !empty($profile['profile_photo']) ? 'none' : 'flex'; ?>;align-items:center;justify-content:center;">
                     <!-- Avatar rendered by JS -->
-                    <span style="font-size:3rem;">🎓</span>
+                    <span style="font-size:3rem; color:var(--primary-maroon); opacity:0.3;"><i class="fas fa-user-graduate"></i></span>
                 </div>
             </div>
 
@@ -1501,7 +1504,7 @@ if ($profile):
             <!-- Mini History -->
             <div class="bento-card">
                 <div class="card-header" style="margin-bottom: 1rem;">
-                    <h3 style="font-size: 0.95rem;"><i class="fas fa-history"></i> Recent SGPAs</h3>
+                    <h3 style="font-size: 0.95rem;"><i class="fas fa-history" style="color: var(--primary-maroon);"></i> Recent SGPAs</h3>
                 </div>
                 <?php if (count($academicHistory) > 1): ?>
                     <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -1528,7 +1531,7 @@ endif; ?>
         <main class="workspace">
             <?php if (!$hasFullHistory && $isGMIT): ?>
                 <div class="welcome-card" style="text-align: center; padding: 4rem; border: 2px solid var(--primary-maroon);">
-                    <div style="font-size: 4rem; margin-bottom: 2rem;">⚠️</div>
+                    <div style="font-size: 4rem; margin-bottom: 2rem; color: var(--accent-gold);"><i class="fas fa-exclamation-triangle"></i></div>
                     <h2 style="font-size: 2rem; color: var(--primary-maroon); margin-bottom: 1rem;">Academic Details Required</h2>
                     <p style="margin-bottom: 2rem; font-size: 1.1rem; color: var(--text-muted);">
                         To unlock your dashboard, you must update your <strong>Semester & SGPA</strong> details.
@@ -1618,7 +1621,7 @@ else: ?>
             <!-- Hero Banner -->
             <div class="hero-banner">
                 <div class="hero-content">
-                    <h2>Hello, <?php echo htmlspecialchars(explode(' ', $fullName)[0]); ?>! 👋</h2>
+                    <h2>Hello, <?php echo htmlspecialchars(explode(' ', $fullName)[0]); ?>! <i class="fas fa-hand-sparkles" style="color:var(--accent-gold); font-size:1.5rem;"></i></h2>
                     <p>Welcome to Lakshya. You have <strong><?php echo $activeJobsCount; ?></strong> matching job opportunities today. Your portfolio is currently <strong><?php echo $completeness; ?>%</strong> complete.</p>
                     
                     <?php if (!$hasFullHistory && $isGMIT): ?>
@@ -1645,31 +1648,31 @@ else: ?>
             <!-- Toolbelt -->
             <div class="quick-actions-bar">
                 <a href="jobs" class="action-tool-btn <?php echo(!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
-                    <div class="icon">💼</div>
+                    <div class="icon"><i class="fas fa-briefcase" style="color: #800000;"></i></div>
                     <h4>Jobs</h4>
                 </a>
                 <a href="company_ai_prep" class="action-tool-btn <?php echo(!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
-                    <div class="icon">🤖</div>
+                    <div class="icon"><i class="fas fa-robot" style="color: #1e3a8a;"></i></div>
                     <h4>AI Prep</h4>
                 </a>
                 <a href="mock_ai_interview" class="action-tool-btn <?php echo(!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
-                    <div class="icon">🔥</div>
+                    <div class="icon"><i class="fas fa-fire" style="color: #ea580c;"></i></div>
                     <h4>Mock AI Prep</h4>
                 </a>
                 <a href="leaderboard" class="action-tool-btn <?php echo(!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
-                    <div class="icon">🏆</div>
+                    <div class="icon"><i class="fas fa-trophy" style="color: #b8860b;"></i></div>
                     <h4>Leaderboard</h4>
                 </a>
                 <a href="javascript:void(0)" onclick="openGuideModal()" class="action-tool-btn <?php echo(!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
-                    <div class="icon">🎓</div>
+                    <div class="icon"><i class="fas fa-graduation-cap" style="color: #800000;"></i></div>
                     <h4>Company Guide</h4>
                 </a>
                 <a href="internships" class="action-tool-btn <?php echo(!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
-                    <div class="icon">🔍</div>
+                    <div class="icon"><i class="fas fa-search" style="color: #0d9488;"></i></div>
                     <h4>Internships</h4>
                 </a>
                 <a href="applications" class="action-tool-btn <?php echo(!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
-                    <div class="icon">📝</div>
+                    <div class="icon"><i class="fas fa-clipboard-list" style="color: #4f46e5;"></i></div>
                     <h4>Status</h4>
                 </a>
             </div>
@@ -1766,7 +1769,10 @@ else: ?>
                                 <a href="javascript:void(0)" onclick="navigatePost('<?php echo htmlspecialchars($fItem['link']); ?>', {id: '<?php echo $fItem['id'] ?? ''; ?>'})" style="display: flex; gap: 12px; text-decoration: none; color: inherit; <?php echo $idx > 0 ? 'padding-top: 12px; border-top: 1px solid #f5f5f5;' : ''; ?>">
                                     <div style="width: 8px; height: 8px; background: <?php echo $fItem['color']; ?>; border-radius: 50%; margin-top: 6px;"></div>
                                     <div>
-                                        <div style="font-size: 0.85rem; font-weight: 700;"><?php echo htmlspecialchars((string)($fItem['title'] ?? '')); ?></div>
+                                        <div style="font-size: 0.85rem; font-weight: 700;">
+                                            <?php echo $fItem['icon_html'] ?? ''; ?>
+                                            <?php echo htmlspecialchars((string)($fItem['title'] ?? '')); ?>
+                                        </div>
                                         <div style="font-size: 0.75rem; color: var(--text-muted);"><?php echo htmlspecialchars((string)($fItem['subtitle'] ?? '')); ?></div>
                                     </div>
                                 </a>
@@ -1794,7 +1800,7 @@ else: ?>
             
             <?php if (!$profile): ?>
                 <div style="background: #fff4f4; color: #c53030; padding: 2rem; border-radius: 20px; text-align: center; font-weight: 600; border: 1px solid #fecaca;">
-                    ⚠️ Profile configuration missing. Please update your details in the office.
+                    <i class="fas fa-exclamation-triangle" style="margin-right:8px; color:#e11d48;"></i> Profile configuration missing. Please update your details in the office.
                 </div>
             <?php
     endif; ?>
@@ -2413,7 +2419,7 @@ endif; ?>
             actionCont.innerHTML = '';
             
             const isSkill = result.category === 'Skill';
-            title.innerText = isSkill ? 'Skills Added! 💻' : 'Project Added! 🚀';
+            title.innerHTML = isSkill ? 'Skills Added! <i class="fas fa-laptop-code" style="color: #4f46e5;"></i>' : 'Project Added! <i class="fas fa-rocket" style="color: #ea580c;"></i>';
             msg.innerHTML = `Verified ${isSkill ? 'skills' : 'projects'} are <strong>prioritized</strong> by recruiters. 
                              <div style="background:#fee2e2; color:#b91c1c; padding:10px; border-radius:8px; margin-top:10px; font-size:0.8rem;">
                                  <i class="fas fa-exclamation-triangle"></i> <strong>Note:</strong> If these are not verified, they will be deleted after a week!
@@ -2604,7 +2610,7 @@ endif; ?>
             </div>
             <p style="font-size:0.8rem;color:#888;margin-bottom:1.2rem;">Pick an animated character that represents you!</p>
             <div class="avatar-grid" id="avatarGrid"></div>
-            <button class="avatar-save-btn" id="avatarSaveBtn">✅ Apply Avatar</button>
+            <button class="avatar-save-btn" id="avatarSaveBtn"><i class="fas fa-check"></i> Apply Avatar</button>
         </div>
     </div>
 

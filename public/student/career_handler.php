@@ -37,7 +37,12 @@ try {
             $context = [
                 'name' => $studentProfile['name'] ?? 'Student',
                 'degree' => $studentProfile['degree'] ?? 'Engineering',
-                'cgpa' => $studentProfile['cgpa'] ?? null
+                'cgpa' => $studentProfile['cgpa'] ?? null,
+                'institution' => $studentProfile['institution'] ?? INSTITUTION_GMU,
+                'usn' => $studentProfile['usn'] ?? null,
+                'student_id' => $studentProfile['student_id'] ?? null,
+                'id' => $studentProfile['id'] ?? null,
+                'user_id' => $userId
             ];
             
             $jobId = \App\Services\QueueService::pushJob('generateRoadmap', [$goalData, $context], $userId);

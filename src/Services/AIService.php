@@ -492,51 +492,66 @@ STRICT RULES:
 
         $systemPrompt = "You are a Senior Technical Career Coach. Generate a professional performance report for a " . ($isPureTechnical ? "DEEP TECHNICAL" : "{$domain}") . " interview.
         
-REPORT STRUCTURE:
-# " . ($isPureTechnical ? "TECHNICAL" : "INTERVIEW") . " PERFORMANCE REPORT
-##  Overall Summary: 2-3 sentences.
-{$sectionalAnalysis}
+        Provide the response strictly as a JSON object with this structure:
+        {
+            \"overall_score\": 0-100,
+            \"content\": \"The full report in HTML/Markdown format...\"
+        }
 
-## ✅ Key Strengths: 3 specific points.
-## ⚠️ Areas for Improvement: 3 actionable points.
-## 💡 Recommendations: 3 concrete next steps.
-##  Final Verdict: Readiness (Junior/Mid/Senior).
+        REPORT CONTENT STRUCTURE:
+        # " . ($isPureTechnical ? "TECHNICAL" : "INTERVIEW") . " PERFORMANCE REPORT
+        ##  Overall Summary: 2-3 sentences.
+        {$sectionalAnalysis}
 
-STRICT RULES:
-- Be honest and constructive. 
-- DO NOT hallucinate if transcript is empty.
-- ADD THIS EXACT LINE AT THE END: Overall Performance Score: [X]%";
+        ## ✅ Key Strengths: 3 specific points.
+        ## ⚠️ Areas for Improvement: 3 actionable points.
+        ## 💡 Recommendations: 3 concrete next steps.
+        ##  Final Verdict: Readiness (Junior/Mid/Senior).
+
+        STRICT RULES:
+        - Be honest and constructive. 
+        - DO NOT hallucinate if transcript is empty.
+        - The 'content' field should contain the formatted report text.
+        - Ensure 'overall_score' is a number between 0 and 100.";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
-            ['role' => 'user', 'content' => "Generate report for the following transcript:\n\n" . $transcript]
+            ['role' => 'user', 'content' => "Generate a detailed JSON performance report for the following interview transcript:\n\n" . $transcript]
         ];
 
-        $response = $this->callAPI($messages);
+        $response = $this->callAPI($messages, [
+            'max_tokens' => 4000,
+            'response_format' => ['type' => 'json_object']
+        ]);
         
         if (!$response['success']) {
             return $response;
         }
 
-        $reportText = $response['content'];
+        $contentStr = $response['content'];
+        $aiData = json_decode($contentStr, true);
+        
+        $reportText = $aiData['content'] ?? $contentStr;
+        $score = $aiData['overall_score'] ?? 0;
 
-        // Extract overall score percentage
-        preg_match('/Overall Performance Score:\s*(\d+)%?/i', $reportText, $matches);
-        $score = isset($matches[1]) ? (int)$matches[1] : 0;
-
-        // Fallback: try to average the X/10 metrics
+        // Fallback score extraction if JSON content is weird
         if ($score === 0) {
-            preg_match_all('/Score:\s*(\d+)\s*\/\s*10/i', $reportText, $scoreMatches);
-            if (!empty($scoreMatches[1])) {
-                $avg = array_sum($scoreMatches[1]) / count($scoreMatches[1]);
-                $score = (int)($avg * 10);
-            }
+            preg_match('/"overall_score":\s*"?(\d+)"?/i', $contentStr, $m);
+            $score = isset($m[1]) ? (int)$m[1] : 0;
         }
         
-        // Final fallback: Look for any number before % in the whole text
+        // Final fallback: Look for any number before % or in sectional scores
         if ($score === 0) {
             preg_match('/(\d+)\s*%/', $reportText, $matches);
             $score = isset($matches[1]) ? (int)$matches[1] : 0;
+            
+            if ($score === 0) {
+                preg_match_all('/Score:\s*(\d+)\s*\/\s*10/i', $reportText, $scoreMatches);
+                if (!empty($scoreMatches[1])) {
+                    $avg = array_sum($scoreMatches[1]) / count($scoreMatches[1]);
+                    $score = (int)($avg * 10);
+                }
+            }
         }
 
         return [
@@ -1026,7 +1041,10 @@ INSTRUCTIONS:
         }
         $messages[] = ['role' => 'user', 'content' => "Generate the extremely detailed, comprehensive final HR assessment report based on the complete interview transcript. Include specific examples and quotes from the candidate's responses. Make it thorough and professional - minimum 800-1000 words."];
 
-        return $this->callAPI($messages, ['response_format' => ['type' => 'json_object']]);
+        return $this->callAPI($messages, [
+            'response_format' => ['type' => 'json_object'],
+            'max_tokens' => 4000
+        ]);
     }
 
 

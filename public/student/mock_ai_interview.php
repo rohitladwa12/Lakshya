@@ -186,6 +186,26 @@ $roundType = $filters['type'] ?? 'Technical';
             color: black;
         }
 
+        .btn-back {
+            background: rgba(255, 255, 255, 0.05);
+            color: white;
+            padding: 10px 15px;
+            border-radius: 12px;
+            text-decoration: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.3s;
+            border: 1px solid var(--border-glass);
+            margin-right: 20px;
+        }
+
+        .btn-back:hover {
+            background: rgba(255, 255, 255, 0.1);
+            transform: translateX(-3px);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+
         #roleSelection {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -770,16 +790,88 @@ $roundType = $filters['type'] ?? 'Technical';
             .brand-text { display: none; }
             .message { max-width: 90%; }
         }
+        /* Resumption Modal */
+        #resumeModal {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(15px);
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+
+        .resume-card {
+            background: #1a1a20;
+            padding: 3rem;
+            border-radius: 32px;
+            text-align: center;
+            max-width: 500px;
+            width: 90%;
+            border: 1px solid var(--border-glass);
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        }
+
+        .resume-card h2 {
+            font-size: 1.8rem;
+            margin-bottom: 1rem;
+            color: white;
+        }
+
+        .resume-card p {
+            color: var(--text-muted);
+            margin-bottom: 2rem;
+            line-height: 1.6;
+        }
+
+        .resume-actions {
+            display: flex;
+            gap: 15px;
+        }
+
+        .btn-resume {
+            flex: 1;
+            padding: 15px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-new-session {
+            flex: 1;
+            padding: 15px;
+            background: rgba(255,255,255,0.05);
+            color: white;
+            border: 1px solid var(--border-glass);
+            border-radius: 12px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .btn-new-session:hover {
+            background: rgba(255,255,255,0.1);
+        }
     </style>
 </head>
 <body>
 
 <header class="session-header">
-    <div class="brand-logo">
-        <div class="logo-icon"><i class="fas fa-microchip"></i></div>
-        <div class="brand-text">
-            <h1><?php echo $roundType; ?> INTERVIEW</h1>
-            <span>AI MOCK SESSION • <?php echo htmlspecialchars($companyName); ?></span>
+    <div style="display: flex; align-items: center;">
+        <a href="dashboard.php" class="btn-back">
+            <i class="fas fa-arrow-left"></i>
+        </a>
+        <div class="brand-logo">
+            <div class="logo-icon"><i class="fas fa-microchip"></i></div>
+            <div class="brand-text">
+                <h1><?php echo $roundType; ?> INTERVIEW</h1>
+                <span>AI MOCK SESSION • <?php echo htmlspecialchars($companyName); ?></span>
+            </div>
         </div>
     </div>
 
@@ -915,9 +1007,21 @@ $roundType = $filters['type'] ?? 'Technical';
 <!-- Report Loading Overlay -->
 <div id="reportLoading" class="report-loading-overlay">
     <div class="loader-spinner"></div>
-    <h2 style="font-size: 2rem; color: white; margin-bottom: 10px;">Generating Your Analysis</h2>
-    <p style="color: var(--accent); font-weight: 600; letter-spacing: 1px;">PLEASE DO NOT CLOSE OR REFRESH THIS PAGE</p>
-    <p style="color: #64748b; margin-top: 15px;">Our AI is evaluating your responses, code quality, and communication skills...</p>
+    <h2 style="color: white; font-size: 2rem; margin-bottom: 10px;">Generating Analytics</h2>
+    <p style="color: var(--text-muted);">Please wait while AI analyzes your performance and generates a comprehensive report...</p>
+</div>
+
+<!-- Session Resumption Modal -->
+<div id="resumeModal">
+    <div class="resume-card">
+        <div style="font-size: 3.5rem; color: var(--accent); margin-bottom: 1.5rem;"><i class="fas fa-history"></i></div>
+        <h2>Active Session Found</h2>
+        <p>You have an ongoing interview session for <b><span id="resumeRole"></span></b>. Would you like to resume where you left off or start a fresh session?</p>
+        <div class="resume-actions">
+            <button class="btn-new-session" id="btnStartFresh">START FRESH</button>
+            <button class="btn-resume" id="btnResumeSession">RESUME SESSION</button>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -1188,7 +1292,13 @@ $roundType = $filters['type'] ?? 'Technical';
             });
             const data = await res.json();
             if (data.success && data.has_active) {
-                if (confirm("You have an active interview session. Would you like to resume?")) {
+                const modal = document.getElementById('resumeModal');
+                const roleSpan = document.getElementById('resumeRole');
+                roleSpan.innerText = data.role || 'a Previous Role';
+                modal.style.display = 'flex';
+
+                document.getElementById('btnResumeSession').onclick = () => {
+                    modal.style.display = 'none';
                     currentSessionId = data.session_id;
                     document.getElementById('roleSelection').style.display = 'none';
                     sessionStatus.style.display = 'flex';
@@ -1202,7 +1312,17 @@ $roundType = $filters['type'] ?? 'Technical';
                     if ("<?php echo $roundType; ?>" === "Technical") {
                         toggleWorkspaceBtn.style.display = 'flex';
                     }
-                }
+                };
+
+                document.getElementById('btnStartFresh').onclick = async () => {
+                    modal.style.display = 'none';
+                    // Retire old session
+                    await fetch('mock_ai_handler', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ action: 'cancel_pending', session_id: data.session_id })
+                    });
+                };
             }
         } catch (e) { console.warn("Active session check failed", e); }
     });

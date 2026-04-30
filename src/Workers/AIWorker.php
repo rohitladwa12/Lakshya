@@ -7,13 +7,18 @@
 require_once __DIR__ . '/../../config/bootstrap.php';
 require_once __DIR__ . '/../../src/Services/QueueService.php';
 require_once __DIR__ . '/../../src/Services/AIService.php';
+require_once __DIR__ . '/../../src/Services/CareerAdvisorAI.php';
 
 use App\Services\QueueService;
 
 echo "--- AI Worker Started ---\n";
 echo "Waiting for jobs...\n";
 
-$aiService = new AIService();
+// Service registry — worker will try each in order until method is found
+$services = [
+    new AIService(),
+    new CareerAdvisorAI(),
+];
 
 $startTime = time();
 $maxRuntime = 1800; // Auto-restart every 30 minutes to clear memory/cache
@@ -52,24 +57,25 @@ while (true) {
         $method = $job['method'];
         $args = $job['args'];
 
-        // 4. Call AIService
-        // We use call_user_func_array to call the dynamic method
-        if (method_exists($aiService, $method)) {
-            $result = call_user_func_array([$aiService, $method], $args);
-            
-            // If the result has a specific 'result' key (like analyzeResumeSequence returns), use it.
-            // Otherwise use the whole result.
-            $finalResult = isset($result['result']) ? $result['result'] : $result;
+        // 4. Find service that has the method and dispatch
+        $dispatched = false;
+        foreach ($services as $svc) {
+            if (method_exists($svc, $method)) {
+                $result = call_user_func_array([$svc, $method], $args);
+                $finalResult = isset($result['result']) ? $result['result'] : $result;
 
-            // 5. Save Result
-            QueueService::updateJob($jobId, [
-                'status' => 'completed',
-                'result' => json_encode($finalResult),
-                'completed_at' => time()
-            ]);
-            echo "Success: Job $jobId finished.\n";
-        } else {
-            throw new Exception("Method $method not found in AIService");
+                QueueService::updateJob($jobId, [
+                    'status'       => 'completed',
+                    'result'       => json_encode($finalResult),
+                    'completed_at' => time()
+                ]);
+                echo "Success: Job $jobId finished (" . get_class($svc) . "::$method).\n";
+                $dispatched = true;
+                break;
+            }
+        }
+        if (!$dispatched) {
+            throw new Exception("Method $method not found in any registered service");
         }
     } catch (Exception $e) {
         echo "Error: Job $jobId failed - " . $e->getMessage() . "\n";

@@ -189,7 +189,10 @@ if (file_exists(ROOT_PATH . '/src/maintenance.lock')) {
         $publicAssets = ['css', 'js', 'png', 'jpg', 'jpeg', 'svg', 'gif', 'woff', 'woff2'];
         
         if (!in_array($extension, $publicAssets)) {
-            header("Location: /Lakshya/maintenance.php");
+            // Calculate base path from APP_URL to stay within project
+            $urlParts = parse_url(APP_URL);
+            $basePath = rtrim($urlParts['path'] ?? '', '/');
+            header("Location: " . $basePath . "/maintenance.php", true, 303);
             exit;
         }
     }

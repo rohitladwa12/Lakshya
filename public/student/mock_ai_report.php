@@ -228,6 +228,24 @@ $date = date('d M Y', strtotime($session['started_at']));
     </div>
 
     <div class="report-body">
+        <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 30px; border-radius: 12px; margin-bottom: 35px; border-left: 5px solid var(--primary-maroon); display: flex; justify-content: space-between; align-items: center;">
+            <div>
+                <h3 style="margin: 0; color: #444; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">Overall Performance Score</h3>
+                <p style="margin: 5px 0 0; color: #666; font-size: 0.85rem;">Based on technical accuracy, communication, and problem-solving.</p>
+            </div>
+            <div style="text-align: center;">
+                <div style="font-size: 3rem; font-weight: 900; color: var(--primary-maroon); line-height: 1;"><?php echo (int)($session['overall_score'] ?? 0); ?><span style="font-size: 1.2rem; color: #999;">/100</span></div>
+                <div style="font-size: 0.75rem; font-weight: 800; margin-top: 5px; color: <?php echo ($session['overall_score'] >= 70) ? '#10b981' : (($session['overall_score'] >= 40) ? '#f59e0b' : '#ef4444'); ?>;">
+                    <?php 
+                        if(($session['overall_score'] ?? 0) >= 80) echo 'EXCEPTIONAL';
+                        elseif(($session['overall_score'] ?? 0) >= 60) echo 'READY FOR HIRE';
+                        elseif(($session['overall_score'] ?? 0) >= 40) echo 'NEEDS PRACTICE';
+                        else echo 'BEGINNER';
+                    ?>
+                </div>
+            </div>
+        </div>
+
         <?php
         // Convert Markdown-ish to HTML
         $html = $reportContent;

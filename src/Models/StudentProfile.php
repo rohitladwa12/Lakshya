@@ -173,10 +173,16 @@ class StudentProfile extends Model {
         }
     }
     
-    private function mapToAppProfile($row, $userRow = null, $detailsRow = [], $institution = null) {
+    protected function mapToAppProfile($row, $userRow = null, $detailsRow = [], $institution = null) {
         if (!$row && !$detailsRow && !$userRow) return null;
         
         $isGMIT = ($institution === INSTITUTION_GMIT);
+        
+        // Normalize keys to lowercase for robust mapping (GMU uses UPPERCASE columns)
+        if (is_array($row)) $row = array_change_key_case($row, CASE_LOWER);
+        if (is_array($detailsRow)) $detailsRow = array_change_key_case($detailsRow, CASE_LOWER);
+        if (is_array($userRow)) $userRow = array_change_key_case($userRow, CASE_LOWER);
+
         $data = $row ?: $detailsRow;
         
         // Extract photo from User row if available
@@ -390,8 +396,14 @@ class StudentProfile extends Model {
         $gmitPrefix = DB_GMIT_PREFIX;
         
         // REMOTE JOIN (GMU uses SL_NO, GMIT uses ENQUIRY_NO for user id). Include sem for coordinator 5-8 filter.
+        // We use a subquery for GMU to only get the LATEST administrative row per USN to avoid duplication.
         $sql = "SELECT ad.usn, ad.course, ad.discipline, ad.academic_year, u.USER_NAME, u.NAME, u.MOBILE_NO, u.SL_NO as user_sl_no, '" . INSTITUTION_GMU . "' as institution, ad.sem
                 FROM {$gmuPrefix}ad_student_approved ad
+                INNER JOIN (
+                    SELECT usn, MAX(SL_NO) as max_sl 
+                    FROM {$gmuPrefix}ad_student_approved 
+                    GROUP BY usn
+                ) latest ON ad.usn = latest.usn AND ad.SL_NO = latest.max_sl
                 JOIN {$gmuPrefix}users u ON u.USER_NAME = ad.usn
                 WHERE u.STATUS = 'ACTIVE'
                 UNION ALL
@@ -403,6 +415,13 @@ class StudentProfile extends Model {
         $sql = "SELECT * FROM ({$sql}) as combined WHERE 1=1";
                 
         $params = [];
+        if (!empty($filters['usns'])) {
+            $usns = (array)$filters['usns'];
+            $placeholders = implode(',', array_fill(0, count($usns), '?'));
+            $sql .= " AND usn IN ($placeholders)";
+            $params = array_merge($params, $usns);
+        }
+
         if (isset($filters['course'])) {
             $sql .= " AND course = ?";
             $params[] = $filters['course'];
@@ -474,8 +493,9 @@ class StudentProfile extends Model {
                         $sql .= " AND ( (institution = '" . INSTITUTION_GMU . "' AND sem IN ($semPlaceholders)) OR (institution = '" . INSTITUTION_GMIT . "' AND usn IN ($ph)) )";
                         $params = array_merge($params, $gmitUsns);
                     } else {
-                        // No GMIT rows in student_sem_sgpa: still show GMIT students for department (sem filter applies only to GMU)
-                        $sql .= " AND ( (institution = '" . INSTITUTION_GMU . "' AND sem IN ($semPlaceholders)) OR (institution = '" . INSTITUTION_GMIT . "') )";
+                        // No GMIT rows in student_sem_sgpa for these semesters
+                        // If specifically filtering for these semesters, we should only show GMU students that match
+                        $sql .= " AND (institution = '" . INSTITUTION_GMU . "' AND sem IN ($semPlaceholders))";
                     }
                 }
             }

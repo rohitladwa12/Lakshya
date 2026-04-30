@@ -7,7 +7,17 @@
 require_once __DIR__ . '/Model.php';
 
 class PlacementOfficer extends Model {
-    protected $table = 'users'; // Uses users table but with placement_officer role filter
+    protected $table = 'users'; 
+    protected $remoteDB;
+    
+    public function __construct() {
+        parent::__construct();
+        try {
+            $this->remoteDB = getDB('gmu');
+        } catch (Exception $e) {
+            $this->remoteDB = $this->db; // Fallback to default
+        }
+    }
     
     /**
      * Get dashboard statistics
@@ -55,6 +65,90 @@ class PlacementOfficer extends Model {
         $stats['total_companies'] = $this->queryOne($sql)['count'];
         
         return $stats;
+    }
+
+    /**
+     * Get distinct disciplines (branches) for filtering
+     */
+    public function getDisciplines() {
+        if (!$this->remoteDB) return [];
+        try {
+            $gmuPrefix = DB_GMU_PREFIX;
+            $gmitPrefix = DB_GMIT_PREFIX;
+            
+            $sql = "(SELECT DISTINCT discipline FROM {$gmuPrefix}ad_student_approved WHERE discipline IS NOT NULL AND discipline != '')
+                    UNION
+                    (SELECT DISTINCT discipline FROM {$gmitPrefix}ad_student_details WHERE discipline IS NOT NULL AND discipline != '')
+                    ORDER BY discipline ASC";
+            
+            $stmt = $this->remoteDB->query($sql);
+            $results = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            
+            if (empty($results)) {
+                // Try branch if discipline is empty
+                $sql = "(SELECT DISTINCT branch as discipline FROM {$gmuPrefix}ad_student_approved WHERE branch IS NOT NULL AND branch != '')
+                        UNION
+                        (SELECT DISTINCT branch as discipline FROM {$gmitPrefix}ad_student_details WHERE branch IS NOT NULL AND branch != '')
+                        ORDER BY discipline ASC";
+                $stmt = $this->remoteDB->query($sql);
+                $results = $stmt->fetchAll(PDO::FETCH_COLUMN);
+            }
+            
+            return array_filter($results);
+        } catch (Exception $e) {
+            error_log("Error fetching disciplines: " . $e->getMessage());
+            return [];
+        }
+    }
+
+    /**
+     * Get all USNs/Student IDs belonging to a specific discipline
+     */
+    public function getUsnsByDiscipline($discipline) {
+        $usns = [];
+        if (!$this->remoteDB) return [];
+        try {
+            $gmuPrefix = DB_GMU_PREFIX;
+            $gmitPrefix = DB_GMIT_PREFIX;
+            
+            // Try both discipline and branch columns for robustness
+            $sql = "(SELECT usn FROM {$gmuPrefix}ad_student_approved WHERE discipline = ? OR branch = ?)
+                    UNION
+                    (SELECT student_id as usn FROM {$gmitPrefix}ad_student_details WHERE discipline = ? OR branch = ?)
+                    UNION
+                    (SELECT enquiry_no as usn FROM {$gmitPrefix}ad_student_details WHERE discipline = ? OR branch = ?)";
+            
+            $stmt = $this->remoteDB->prepare($sql);
+            $stmt->execute([$discipline, $discipline, $discipline, $discipline, $discipline, $discipline]);
+            $usns = $stmt->fetchAll(PDO::FETCH_COLUMN);
+        } catch (Exception $e) {
+            error_log("Error fetching USNs by discipline: " . $e->getMessage());
+        }
+        return array_filter($usns);
+    }
+
+    /**
+     * Get USNs/IDs by student name search across databases
+     */
+    public function getUsnsByName($name) {
+        if (!$this->remoteDB) return [];
+        try {
+            $gmuPrefix = DB_GMU_PREFIX;
+            $gmitPrefix = DB_GMIT_PREFIX;
+            $term = "%$name%";
+            
+            $sql = "(SELECT usn FROM {$gmuPrefix}ad_student_approved WHERE name LIKE ?)
+                    UNION
+                    (SELECT student_id as usn FROM {$gmitPrefix}ad_student_details WHERE name LIKE ?)
+                    UNION
+                    (SELECT enquiry_no as usn FROM {$gmitPrefix}ad_student_details WHERE name LIKE ?)";
+            
+            $stmt = $this->remoteDB->prepare($sql);
+            $stmt->execute([$term, $term, $term]);
+            return $stmt->fetchAll(PDO::FETCH_COLUMN);
+        } catch (Exception $e) {
+            return [];
+        }
     }
     
     /**
@@ -334,188 +428,418 @@ class PlacementOfficer extends Model {
     }
 
     /**
-     * Get Unified AI Assessment Reports
-     * @param array $filters Optional ['department' => string, 'institution' => string] for coordinator scope
+     * Get recent placements (Selected students) - PAGED for Stats tab
      */
-    public function getUnifiedAIReports($filters = []) {
-        $sql = "SELECT u.* FROM unified_ai_assessments u";
-        $assessments = $this->query($sql);
+    public function getRecentPlacementsPaged($page = 1, $limit = 10) {
+        $offset = ($page - 1) * $limit;
         
-        // Fetch verified portfolio items and map them as "assessments" (Rounds)
-        try {
-            // Check if is_verified column exists
-            $stmtCol = $this->db->prepare("SELECT COUNT(*) FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'student_portfolio' AND COLUMN_NAME = 'is_verified'");
-            $stmtCol->execute();
-            if ((int)$stmtCol->fetchColumn() > 0) {
-                $portfolioSql = "SELECT id, student_id, institution, category, title, 
-                                 'completed' as status, created_at as started_at, 100 as score
-                                 FROM student_portfolio 
-                                 WHERE is_verified = 1 AND category IN ('Skill', 'Project')";
-                $portfolioItems = $this->db->query($portfolioSql)->fetchAll();
-                foreach ($portfolioItems as $item) {
-                    $assessments[] = [
-                        'id' => 'p' . $item['id'],
-                        'student_id' => $item['student_id'],
-                        'institution' => $item['institution'],
-                        'assessment_type' => $item['category'] . ' Verify',
-                        'company_name' => $item['title'],
-                        'score' => $item['score'],
-                        'status' => $item['status'],
-                        'started_at' => $item['started_at'],
-                        'usn' => $item['student_id'], // USN is used as student_id in portfolio
-                        'is_portfolio' => true
-                    ];
-                }
-            }
-
-            // Include Mock AI Sessions (Technical/HR round results stored in sessions table)
-            $mockWhere = "WHERE overall_score IS NOT NULL";
-            $mockParams = [];
-            if (!empty($filters['usn']) || !empty($filters['student_id'])) {
-                $targetId = $filters['usn'] ?? $filters['student_id'];
-                $mockWhere .= " AND student_id = ?";
-                $mockParams[] = $targetId;
-            }
-            
-            $mockSql = "SELECT id, student_id, institution, role_name as company_name, 
-                               'Mock AI' as assessment_type, overall_score as score, 
-                               'completed' as status, started_at
-                        FROM mock_ai_interview_sessions 
-                        $mockWhere";
-            $stmtMock = $this->db->prepare($mockSql);
-            $stmtMock->execute($mockParams);
-            $mockItems = $stmtMock->fetchAll();
-            
-            foreach ($mockItems as $item) {
-                // Deduplicate: check if this session already exists in $assessments (e.g. from unified table)
-                $isDuplicate = false;
-                foreach ($assessments as $existing) {
-                    $timeDiff = abs(strtotime($existing['started_at'] ?? '0') - strtotime($item['started_at'] ?? '0'));
-                    
-                    if ($existing['student_id'] == $item['student_id']) {
-                        // Match if same start time or if this is a completion record for the same session (within 4 hours)
-                        if ($timeDiff < 60 || ($timeDiff < 14400 && $item['assessment_type'] === 'Mock AI')) {
-                            $isDuplicate = true;
-                            break;
-                        }
-                    }
-                }
-                if ($isDuplicate) continue;
-
-                $assessments[] = [
-                    'id' => 'm' . $item['id'],
-                    'student_id' => $item['student_id'],
-                    'institution' => $item['institution'],
-                    'assessment_type' => $item['assessment_type'], // Keep "Mock AI" or specific type
-                    'company_name' => $item['company_name'],
-                    'score' => $item['score'],
-                    'status' => $item['status'],
-                    'started_at' => $item['started_at'],
-                    'usn' => is_numeric($item['student_id']) ? null : $item['student_id'], 
-                    'is_mock_session' => true
-                ];
-            }
-        } catch (Exception $e) { 
-            logMessage("Error including portfolio/mock rounds in AI reports: " . $e->getMessage(), 'DEBUG');
+        $countSql = "SELECT COUNT(*) FROM job_applications WHERE status = 'Selected'";
+        $total = $this->db->query($countSql)->fetchColumn();
+        
+        $total_pages = ceil($total / $limit);
+        if ($total_pages > 0 && $page > $total_pages) {
+            $page = $total_pages;
+            $offset = ($page - 1) * $limit;
         }
 
-        // 3. Resolve student details and USN for identifying/filtering
+        $sql = "SELECT ja.*, jp.title as job_title, c.name as company_name 
+                FROM job_applications ja
+                JOIN job_postings jp ON ja.job_id = jp.id
+                JOIN companies c ON jp.company_id = c.id
+                WHERE ja.status = 'Selected'
+                ORDER BY ja.applied_at DESC
+                LIMIT $offset, $limit";
+        $placements = $this->query($sql);
+        
         $userModel = new User();
+        foreach ($placements as &$p) {
+            $student = $userModel->find($p['student_id']);
+            $p['student_name'] = $student ? ($student['full_name'] ?? 'Unknown') : 'Unknown';
+            $p['usn'] = $student ? ($student['username'] ?? $p['student_id']) : ($p['student_id'] ?: '');
+            $p['discipline'] = $student ? ($student['DISCIPLINE'] ?? '-') : '-';
+        }
+
+        return [
+            'data' => $placements,
+            'total' => $total,
+            'page' => $page,
+            'total_pages' => $total_pages
+        ];
+    }
+
+    /**
+     * Get all portfolio items (PAGED & FILTERED)
+     */
+    public function getAllPortfolioItemsPaged($filters = [], $page = 1, $limit = 15) {
+        $offset = ($page - 1) * $limit;
         
-        foreach ($assessments as &$assessment) {
-            $studentId = $assessment['student_id'];
-            $institution = $assessment['institution'] ?? null;
-            
-            // Skip if USN and name already set
-            if (!empty($assessment['usn']) && !empty($assessment['full_name']) && $assessment['full_name'] !== 'Unknown') continue;
+        $where = ["1=1"];
+        $params = [];
 
-            // Resolve details via lookup
-            if ($studentId) {
-                // If institution is missing (older records), try to find the student in both DBs
-                $student = $userModel->find($studentId, $institution);
-                if ($student) {
-                    $assessment['full_name'] = $student['full_name'];
-                    $assessment['student_name'] = $student['full_name']; // For view compatibility
-                    $assessment['usn'] = $student['username'];
-                    $assessment['institution'] = $student['institution']; // Backfill if missing
-                    $usn = $student['username'];
-                    $institution = $student['institution'];
+        if (!empty($filters['institution'])) {
+            $where[] = "institution = ?";
+            $params[] = $filters['institution'];
+        }
 
-                    try {
-                        $dbGmu = getDB('gmu');
-                        $dbGmit = getDB('gmit');
-                        if ($institution === INSTITUTION_GMU && $dbGmu) {
-                            $stmt = $dbGmu->prepare("SELECT discipline, sem FROM ad_student_approved WHERE usn = ? LIMIT 1");
-                            $stmt->execute([$usn]);
-                            $d = $stmt->fetch();
-                            if ($d) {
-                                $assessment['branch'] = $d['discipline'] ?? 'N/A';
-                                $assessment['current_sem'] = $assessment['current_sem'] ?? ($d['sem'] ?? '-');
-                            }
-                        } elseif ($institution === INSTITUTION_GMIT && $dbGmit) {
-                            $stmt = $dbGmit->prepare("SELECT discipline FROM ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1");
-                            $stmt->execute([$studentId, $usn]);
-                            $d = $stmt->fetch();
-                            if ($d) {
-                                $assessment['branch'] = $d['discipline'] ?? 'N/A';
-                            }
-                            // GMIT: current sem and sgpa from student_sem_sgpa (local)
-                            try {
-                                $stmtLocal = $this->db->prepare("SELECT semester, sgpa FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
-                                $stmtLocal->execute([$usn, INSTITUTION_GMIT]);
-                                $sgpaRow = $stmtLocal->fetch();
-                                if ($sgpaRow) {
-                                    $assessment['current_sem'] = $sgpaRow['semester'];
-                                }
-                            } catch (Exception $e) { /* ignore */ }
-                        }
-                    } catch (Exception $e) { /* ignore */ }
-                }
+        if (isset($filters['status']) && $filters['status'] !== '') {
+            $where[] = "is_verified = ?";
+            $params[] = (int)$filters['status'];
+        }
+
+        if (!empty($filters['discipline'])) {
+            $usns = $this->getUsnsByDiscipline($filters['discipline']);
+            if (!empty($usns)) {
+                $placeholders = implode(',', array_fill(0, count($usns), '?'));
+                $where[] = "student_id IN ($placeholders)";
+                $params = array_merge($params, $usns);
+            } else {
+                $where[] = "1=0"; // No students found in this branch
             }
         }
-        unset($assessment);
-        
-        // Coordinator: filter by department or USN
-        if (!empty($filters['usn']) || !empty($filters['student_id']) || !empty($filters['department'])) {
-            $targetUsn = $filters['usn'] ?? ($filters['student_id'] ?? null);
-            $deptFilters = !empty($filters['department']) ? getCoordinatorDisciplineFilters($filters['department']) : [];
+
+        if (!empty($filters['search'])) {
+            $searchTerm = "%{$filters['search']}%";
+            $subWhere = ["student_id LIKE ?", "title LIKE ?", "description LIKE ?"];
+            $subParams = [$searchTerm, $searchTerm, $searchTerm];
             
-            $assessments = array_values(array_filter($assessments, function ($a) use ($filters, $deptFilters, $targetUsn) {
-                // Individual Student Filter
-                if ($targetUsn) {
-                    $matchUsn = strcasecmp(($a['usn'] ?? ''), $targetUsn) === 0 || strcasecmp(($a['student_id'] ?? ''), $targetUsn) === 0;
-                    if (!$matchUsn) return false;
-                }
+            // Search by student name
+            $nameUsns = $this->getUsnsByName($filters['search']);
+            if (!empty($nameUsns)) {
+                $ph = implode(',', array_fill(0, count($nameUsns), '?'));
+                $subWhere[] = "student_id IN ($ph)";
+                $subParams = array_merge($subParams, $nameUsns);
+            }
+            
+            $where[] = "(" . implode(" OR ", $subWhere) . ")";
+            $params = array_merge($params, $subParams);
+        }
 
-                // Department Filter (for bulk reports)
-                if (!empty($filters['department'])) {
-                    $branch = trim($a['branch'] ?? '');
-                    if (!in_array($branch, $deptFilters, true)) {
-                        return false;
-                    }
-                }
-
-                // Institution Filter
-                if (!empty($filters['institution']) && ($a['institution'] ?? '') !== $filters['institution']) {
-                    return false;
-                }
-
-                // Semester Filter
-                if (!empty($filters['semesters']) && is_array($filters['semesters'])) {
-                    $curSem = isset($a['current_sem']) ? (int) $a['current_sem'] : 0;
-                    return in_array($curSem, $filters['semesters'], true);
-                }
-                return true;
-            }));
+        $whereStr = implode(" AND ", $where);
+        
+        $countSql = "SELECT COUNT(*) FROM student_portfolio WHERE $whereStr";
+        try {
+            $stmtCount = $this->db->prepare($countSql);
+            $stmtCount->execute($params);
+            $total = $stmtCount->fetchColumn();
+        } catch (Exception $e) {
+            error_log("Error counting portfolio items: " . $e->getMessage());
+            $total = 0;
         }
         
+        $total_pages = ceil($total / $limit);
+        if ($total_pages > 0 && $page > $total_pages) {
+            $page = $total_pages;
+            $offset = ($page - 1) * $limit;
+        }
+
+        $sql = "SELECT id, student_id, institution, category, title, sub_title, description, link, created_at, is_verified 
+                FROM student_portfolio 
+                WHERE $whereStr
+                ORDER BY created_at DESC 
+                LIMIT $offset, $limit";
+        try {
+            $stmt = $this->db->prepare($sql);
+            $stmt->execute($params);
+            $items = $stmt->fetchAll();
+        } catch (Exception $e) {
+            error_log("Error fetching portfolio items: " . $e->getMessage());
+            $items = [];
+        }
+        
+        $userModel = new User();
+        foreach ($items as &$item) {
+            $student = $userModel->find($item['student_id'], $item['institution']);
+            $item['student_name'] = $student ? ($student['full_name'] ?? 'Unknown') : 'Unknown';
+            $item['usn'] = $student ? ($student['username'] ?? $item['student_id']) : ($item['student_id'] ?: '');
+            $item['discipline'] = $student ? ($student['DISCIPLINE'] ?? '-') : '-';
+        }
+
+        // Summary stats for the filtered context
+        $summarySql = "SELECT 
+                        COUNT(*) as total, 
+                        SUM(CASE WHEN is_verified = 0 THEN 1 ELSE 0 END) as pending,
+                        SUM(CASE WHEN is_verified = 1 THEN 1 ELSE 0 END) as verified
+                      FROM student_portfolio WHERE $whereStr";
+        $stmtSum = $this->db->prepare($summarySql);
+        $stmtSum->execute($params);
+        $summary = $stmtSum->fetch(PDO::FETCH_ASSOC);
+        
+        return [
+            'data' => $items,
+            'total' => $total,
+            'page' => $page,
+            'total_pages' => $total_pages,
+            'summary' => $summary
+        ];
+    }
+
+    /**
+     * Get Unified AI Assessment Reports (PAGED)
+     */
+    public function getUnifiedAIReportsPaged($filters = [], $page = 1, $limit = 15) {
+        $offset = ($page - 1) * $limit;
+
+        // Due to the complex UNION of local tables (unified_ai_assessments, student_portfolio, mock_sessions),
+        // we'll fetch the combined list first, then resolve names for the slice.
+        // Optimization: In a real high-scale system, we'd unified these into a single table.
+        // For now, we'll keep the logic but wrap it in a paged structure.
+
+        $assessments = [];
+
+        // 1. Unified Assessments Table (Aptitude, Tech, HR, etc)
+        // Exclude Skill and Project related assessments as requested
+        $stmtU = $this->db->query("SELECT *, 'assessment' as source FROM unified_ai_assessments 
+                                   WHERE assessment_type NOT LIKE '%Skill%' 
+                                   AND assessment_type NOT LIKE '%Project%'");
+        while ($r = $stmtU->fetch(PDO::FETCH_ASSOC)) $assessments[] = $r;
+
+        // 3. Mock Sessions
+        try {
+            $mockSql = "SELECT id, student_id, institution, role_name as company_name, 'Mock AI' as assessment_type, overall_score as score, 'completed' as status, started_at, 'mock' as source FROM mock_ai_interview_sessions WHERE overall_score IS NOT NULL";
+            $mockItems = $this->db->query($mockSql)->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($mockItems as $item) $assessments[] = $item;
+        } catch (Exception $e) {}
+
         // Sort by date descending
         usort($assessments, function($a, $b) {
-            $t1 = strtotime($a['started_at'] ?? 'now');
-            $t2 = strtotime($b['started_at'] ?? 'now');
-            return $t2 - $t1;
+            return strtotime($b['started_at'] ?? 'now') - strtotime($a['started_at'] ?? 'now');
         });
+
+        $total = count($assessments);
         
-        return $assessments;
+        $total_pages = ceil($total / $limit);
+        if ($total_pages > 0 && $page > $total_pages) {
+            $page = $total_pages;
+            $offset = ($page - 1) * $limit;
+        }
+        
+        $slice = array_slice($assessments, $offset, $limit);
+
+        // Resolve names and filter by discipline for the ENTIRE list before slicing
+        
+        $userModel = new User();
+        
+        $eligibleUsns = [];
+        if (!empty($filters['discipline'])) {
+            $eligibleUsns = $this->getUsnsByDiscipline($filters['discipline']);
+        }
+
+        $searchUsns = [];
+        if (!empty($filters['search'])) {
+            $searchUsns = $this->getUsnsByName($filters['search']);
+        }
+
+        $filteredAssessments = [];
+        $excludeCategories = ['Skill Verification', 'Project Defense', 'Project Device'];
+        
+        $instCache = [];
+
+        foreach ($assessments as $a) {
+            // 0. Pre-resolve institution if missing (Critical for filtering)
+            if (empty($a['institution'])) {
+                $sid = $a['student_id'];
+                if (!isset($instCache[$sid])) {
+                    $studentInfo = $userModel->find($sid);
+                    $instCache[$sid] = $studentInfo['institution'] ?? 'UNKNOWN';
+                }
+                $a['institution'] = $instCache[$sid];
+            }
+
+            // 1. Filter by search (USN or Name)
+            if (!empty($filters['search'])) {
+                $match = false;
+                if (stripos($a['student_id'] ?? '', $filters['search']) !== false) $match = true;
+                if (in_array($a['student_id'], $searchUsns)) $match = true;
+                if (!$match) continue;
+            }
+            // Filter by assessment category (check multiple possible column names)
+            $cat = $a['category'] ?? $a['assessment_type'] ?? '';
+            $isExcluded = false;
+            foreach ($excludeCategories as $ex) {
+                if (stripos($cat, $ex) !== false) {
+                    $isExcluded = true;
+                    break;
+                }
+            }
+            if ($isExcluded) continue;
+            
+            // Filter by discipline (branch) if set
+            if (!empty($eligibleUsns) && !in_array($a['student_id'], $eligibleUsns)) {
+                continue;
+            }
+
+            // Filter by institution if set
+            if (!empty($filters['institution']) && strtoupper((string)$a['institution']) !== strtoupper((string)$filters['institution'])) {
+                continue;
+            }
+            
+            $filteredAssessments[] = $a;
+        }
+
+        $total = count($filteredAssessments);
+        
+        $total_pages = ceil($total / $limit);
+        if ($total_pages > 0 && $page > $total_pages) {
+            $page = $total_pages;
+            $offset = ($page - 1) * $limit;
+        }
+        
+        $slice = array_slice($filteredAssessments, $offset, $limit);
+
+        // Resolve details ONLY for the slice
+        foreach ($slice as &$a) {
+            $student = $userModel->find($a['student_id'], $a['institution'] ?? null);
+            $a['full_name'] = $student ? ($student['full_name'] ?? 'Unknown') : 'Unknown';
+            $a['usn'] = $student ? ($student['username'] ?? $a['student_id']) : ($a['student_id'] ?: '');
+            $a['discipline'] = $student ? ($student['DISCIPLINE'] ?? '-') : '-';
+        }
+
+        // Summary stats
+        $avgScore = 0;
+        if (!empty($filteredAssessments)) {
+            $scores = array_column($filteredAssessments, 'score');
+            $avgScore = count($scores) > 0 ? array_sum($scores) / count($scores) : 0;
+        }
+
+        return [
+            'data' => $slice,
+            'total' => $total,
+            'page' => $page,
+            'total_pages' => $total_pages,
+            'summary' => [
+                'total_assessments' => count($assessments),
+                'avg_score' => round($avgScore, 1),
+                'filtered_count' => count(array_unique(array_column($filteredAssessments, 'student_id')))
+            ]
+        ];
+    }
+
+    /**
+     * Update portfolio verification status
+     */
+    public function verifyPortfolioItem($id, $status = 1) {
+        $sql = "UPDATE student_portfolio SET is_verified = ? WHERE id = ?";
+        return $this->db->prepare($sql)->execute([$status, $id]);
+    }
+
+    /**
+     * Get paged and filtered student list (Academic Hub)
+     */
+    public function getStudentsPaged($filters, $page = 1, $limit = 10) {
+        $offset = ($page - 1) * $limit;
+        $gmuPrefix = DB_GMU_PREFIX;
+        $gmitPrefix = DB_GMIT_PREFIX;
+        
+        // 1. Fetch eligible GMIT Student IDs from LOCAL DB (lakshya)
+        $eligibleGmitUsns = [];
+        try {
+            $gmitSems = !empty($filters['semester']) ? [(int)$filters['semester']] : [5, 6, 7, 8];
+            $semPlaceholders = implode(',', array_fill(0, count($gmitSems), '?'));
+            
+            $sqlGmitIds = "SELECT DISTINCT student_id FROM student_sem_sgpa 
+                           WHERE institution = ? AND semester IN ($semPlaceholders) AND is_current = 1";
+            $stmtGmitIds = $this->db->prepare($sqlGmitIds);
+            $stmtGmitIds->execute(array_merge([INSTITUTION_GMIT], $gmitSems));
+            $eligibleGmitUsns = $stmtGmitIds->fetchAll(PDO::FETCH_COLUMN);
+        } catch (Exception $e) {
+            error_log("Warning: Permission denied or table missing for student_sem_sgpa: " . $e->getMessage());
+            // Fallback: Continue without GMIT semester filter if denied
+        }
+
+        $gmitFilterSql = "1=0"; // Default: no GMIT students if no sem records
+        $gmitParams = [];
+        if (!empty($eligibleGmitUsns)) {
+            $ph = implode(',', array_fill(0, count($eligibleGmitUsns), '?'));
+            $gmitFilterSql = "ad.student_id IN ($ph)";
+            $gmitParams = $eligibleGmitUsns;
+        }
+
+        // 2. Base combined query on REMOTE DB
+        $gmuSemFilter = !empty($filters['semester']) ? "AND ad.sem = " . (int)$filters['semester'] : "AND ad.sem IN (5,6,7,8)";
+
+        $combinedSql = "
+            (SELECT ad.usn, ad.name, ad.aadhar, ad.faculty, ad.school, ad.programme, ad.course, ad.discipline, ad.year, ad.sem, ad.sgpa, ad.registered, ad.usn as student_id_map, 
+                    det.sslc_percentage, det.puc_percentage, det.father_name, det.mother_name, det.address,
+                    '" . INSTITUTION_GMU . "' as institution 
+             FROM {$gmuPrefix}ad_student_approved ad
+             LEFT JOIN {$gmuPrefix}ad_student_details det ON ad.usn = det.usn
+             INNER JOIN (
+                SELECT usn, MAX(SL_NO) as max_sl FROM {$gmuPrefix}ad_student_approved GROUP BY usn
+             ) latest ON ad.usn = latest.usn AND ad.SL_NO = latest.max_sl
+             WHERE ad.registered = 1 $gmuSemFilter
+             UNION ALL
+             SELECT ad.student_id as usn, ad.name, ad.aadhar, ad.college as faculty, ad.college as school, ad.programme, ad.course, ad.discipline, 0 as year, 0 as sem, 0.0 as sgpa, 1 as registered, ad.student_id as student_id_map,
+                    ad.sslc_percentage, ad.puc_percentage, ad.father_name, ad.mother_name, ad.address,
+                    '" . INSTITUTION_GMIT . "' as institution 
+             FROM {$gmitPrefix}ad_student_details ad
+             WHERE $gmitFilterSql)
+        ";
+
+        $where = ["1=1"];
+        $params = $gmitParams;
+
+        if (!empty($filters['institution'])) {
+            $where[] = "institution = ?";
+            $params[] = $filters['institution'];
+        }
+
+        // Specific sub-semester filter is already baked into $gmuSemFilter and $gmitFilterSql
+        // But we keep it in where for safety if passed differently, though usually redundant now.
+
+        if (!empty($filters['search'])) {
+            $where[] = "(name LIKE ? OR usn LIKE ?)";
+            $params[] = "%{$filters['search']}%";
+            $params[] = "%{$filters['search']}%";
+        }
+
+        if (!empty($filters['discipline'])) {
+            $disciplines = is_array($filters['discipline']) ? $filters['discipline'] : [$filters['discipline']];
+            $placeholders = implode(',', array_fill(0, count($disciplines), '?'));
+            $where[] = "discipline IN ($placeholders)";
+            foreach ($disciplines as $d) $params[] = $d;
+        }
+
+        $whereStr = implode(" AND ", $where);
+        
+        // Count total
+        $countSql = "SELECT COUNT(*) FROM ($combinedSql) as t WHERE $whereStr";
+        $stmtCount = $this->remoteDB->prepare($countSql);
+        $stmtCount->execute($params);
+        $total = $stmtCount->fetchColumn();
+        
+        $total_pages = ceil($total / $limit);
+        if ($total_pages > 0 && $page > $total_pages) {
+            $page = $total_pages;
+            $offset = ($page - 1) * $limit;
+        }
+
+        // Get paged results
+        $dataSql = "SELECT * FROM ($combinedSql) as t WHERE $whereStr ORDER BY name ASC LIMIT $offset, $limit";
+        $stmtData = $this->remoteDB->prepare($dataSql);
+        $stmtData->execute($params);
+        $students = $stmtData->fetchAll();
+
+        // 3. Enrich with local data (GMIT SGPA/Sem)
+        foreach ($students as &$s) {
+            if ($s['institution'] === INSTITUTION_GMIT) {
+                try {
+                    $stmtSgpa = $this->db->prepare("SELECT semester, sgpa FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
+                    $stmtSgpa->execute([$s['usn'], INSTITUTION_GMIT]);
+                    $row = $stmtSgpa->fetch();
+                    if ($row) {
+                        $s['sem'] = $row['semester'];
+                        $s['sgpa'] = $row['sgpa'];
+                    }
+                } catch (Exception $e) {}
+            }
+        }
+
+        return [
+            'data' => $students,
+            'total' => $total,
+            'page' => $page,
+            'limit' => $limit,
+            'total_pages' => ceil($total / $limit)
+        ];
     }
 }

@@ -122,6 +122,13 @@ class Admin extends Model {
                             $table = ($inst === 'gmit') ? 'ad_student_details' : 'ad_student_approved';
                             $usnToFind = ($student && isset($student['username'])) ? $student['username'] : $sid;
 
+                            // Final safety check: ensure $usnToFind is a scalar
+                            if (is_array($usnToFind)) {
+                                $usnToFind = is_scalar($sid) ? $sid : (isset($student['username']) ? $student['username'] : null);
+                            }
+                            
+                            if ($usnToFind === null || !is_scalar($usnToFind)) continue;
+
                             // Try USN, student_id, or Aadhar
                             $stmt = $conn->prepare("SELECT discipline FROM {$prefix}{$table} WHERE usn = ? OR student_id = ? OR aadhar = ? LIMIT 1");
                             $stmt->execute([$usnToFind, $usnToFind, $usnToFind]);
@@ -192,6 +199,13 @@ class Admin extends Model {
                             $prefix = ($inst === 'gmit') ? DB_GMIT_PREFIX : DB_GMU_PREFIX;
                             $table = ($inst === 'gmit') ? 'ad_student_details' : 'ad_student_approved';
                             $usnToFind = ($student && isset($student['username'])) ? $student['username'] : $sid;
+
+                            // Final safety check: ensure $usnToFind is a scalar
+                            if (is_array($usnToFind)) {
+                                $usnToFind = is_scalar($sid) ? $sid : (isset($student['username']) ? $student['username'] : null);
+                            }
+
+                            if ($usnToFind === null || !is_scalar($usnToFind)) continue;
 
                             $stmt = $conn->prepare("SELECT usn, discipline FROM {$prefix}{$table} WHERE usn = ? OR student_id = ? OR aadhar = ? LIMIT 1");
                             $stmt->execute([$usnToFind, $usnToFind, $usnToFind]);

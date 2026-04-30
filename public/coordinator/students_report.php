@@ -63,7 +63,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
     }
 
     $db_update = getDB(); // Local DB
+
+    // --- Permission Check ---
+    // Ensure the coordinator can only edit students within their department's disciplines
+    $department = getDepartment();
+    $allowed_disciplines = getCoordinatorDisciplineFilters($department);
     
+    // Fetch student's discipline for verification
+    try {
+        $student_discipline = null;
+        if ($inst === INSTITUTION_GMU) {
+            $stmtD = $db_update->prepare("SELECT discipline FROM " . DB_GMU_PREFIX . "ad_student_approved WHERE usn = ?");
+            $stmtD->execute([$usn]);
+            $student_discipline = $stmtD->fetchColumn();
+        } else {
+            $db_inst = getDB('gmit');
+            if ($db_inst) {
+                $stmtD = $db_inst->prepare("SELECT discipline FROM ad_student_details WHERE student_id = ? OR usn = ?");
+                $stmtD->execute([$usn, $usn]);
+                $student_discipline = $stmtD->fetchColumn();
+            }
+        }
+        
+        if ($student_discipline && !in_array($student_discipline, $allowed_disciplines)) {
+            echo json_encode(['status' => 'error', 'message' => 'Access Denied: Student is not in your department.']);
+            exit;
+        }
+    } catch (Exception $e) {
+        // Log error but proceed if verification fails to avoid blocking legitimate edits due to DB connection issues
+        error_log("AJAX Permission Check Error: " . $e->getMessage());
+    }
+    // --- End Permission Check ---
     if (strpos($field, 'sem_') === 0) {
         // Handle SGPA Update in local DB (Coordinator)
         $sem = (int)str_replace('sem_', '', $field);
@@ -76,12 +106,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                 $stmt->execute([$usn, $inst, $sem]);
             } else {
                 // Upsert the SGPA and mark it as frozen (coordinator-set)
+                // For GMIT, if we are saving by USN but a record exists for Aadhaar, we should update both?
+                // Actually, let's just save to the identifier provided by the report (which is now the USN preferring IFNULL(NULLIF(usn, ''), student_id))
                 $stmt = $db_update->prepare(
                     "INSERT INTO student_sem_sgpa (student_id, institution, semester, sgpa, freezed) 
                      VALUES (?, ?, ?, ?, 1) 
                      ON DUPLICATE KEY UPDATE sgpa = VALUES(sgpa), freezed = 1"
                 );
                 $stmt->execute([$usn, $inst, $sem, $sgpaVal]);
+
+                // Special handling for GMIT: if a record exists for a different ID (e.g. Aadhar vs USN), 
+                // we should probably ensure consistency. But the flexible fetch should handle viewing.
 
                 // Ensure is_current is set on the highest semester for this student
                 // so the student dashboard recognises the history as complete.
@@ -252,7 +287,7 @@ $gmitPrefix = DB_GMIT_PREFIX;
 $combinedApproved = "
     (SELECT usn, name, aadhar, faculty, school, programme, course, discipline, year, sem, sgpa, registered, usn as student_id_map, '" . INSTITUTION_GMU . "' as institution FROM {$gmuPrefix}ad_student_approved
      UNION ALL
-     SELECT student_id as usn, name, aadhar, college as faculty, college as school, programme, course, discipline, 0 as year, 0 as sem, 0.0 as sgpa, 1 as registered, student_id as student_id_map, '" . INSTITUTION_GMIT . "' as institution FROM {$gmitPrefix}ad_student_details)
+     SELECT IFNULL(NULLIF(usn, ''), student_id) as usn, name, aadhar, college as faculty, college as school, programme, course, discipline, 0 as year, 0 as sem, 0.0 as sgpa, 1 as registered, student_id as student_id_map, '" . INSTITUTION_GMIT . "' as institution FROM {$gmitPrefix}ad_student_details)
 ";
 
 $combinedDetails = "
@@ -286,9 +321,32 @@ if ($min_sgpa > 0) {
 
 if (!$instFilter) {
     $sem_placeholders = implode(',', array_fill(0, count($semester_filter), '?'));
-    $stmtLocal = $localDB->prepare("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE institution = ? AND semester IN ($sem_placeholders)");
+    $stmtLocal = $localDB->prepare("
+        SELECT DISTINCT student_id 
+        FROM student_sem_sgpa 
+        WHERE institution = ? AND semester IN ($sem_placeholders)
+    ");
     $stmtLocal->execute(array_merge([INSTITUTION_GMIT], $semester_filter));
-    $gmitUsns = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
+    $gmitUsnsRaw = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
+    
+    // For GMIT, some students might be stored in student_sem_sgpa under their student_id (Aadhar)
+    // while the report uses their USN. We should ensure we include both possibilities.
+    $gmitUsns = $gmitUsnsRaw;
+    if (!empty($gmitUsnsRaw)) {
+        $db_gmit = getDB('gmit');
+        if ($db_gmit) {
+            $in_placeholders = implode(',', array_fill(0, count($gmitUsnsRaw), '?'));
+            // Expanded to check aadhar and aadhar_no columns for flexibility
+            $stmtRef = $db_gmit->prepare("SELECT DISTINCT usn, student_id FROM ad_student_details WHERE student_id IN ($in_placeholders) OR usn IN ($in_placeholders) OR aadhar IN ($in_placeholders) OR aadhar_no IN ($in_placeholders)");
+            $stmtRef->execute(array_merge($gmitUsnsRaw, $gmitUsnsRaw, $gmitUsnsRaw, $gmitUsnsRaw));
+            $mapped = $stmtRef->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($mapped as $m) {
+                if ($m['usn']) $gmitUsns[] = $m['usn'];
+                if ($m['student_id']) $gmitUsns[] = $m['student_id'];
+            }
+            $gmitUsns = array_values(array_unique($gmitUsns));
+        }
+    }
     
     $gmu_sem_sql = "asa.sem IN ($sem_placeholders)";
     foreach ($semester_filter as $s_val) $params[] = $s_val;
@@ -298,7 +356,8 @@ if (!$instFilter) {
         $where_clauses[] = "((asa.institution = '" . INSTITUTION_GMU . "' AND $gmu_sem_sql) OR (asa.institution = '" . INSTITUTION_GMIT . "' AND asa.usn IN ($placeholders)))";
         $params = array_merge($params, $gmitUsns);
     } else {
-        $where_clauses[] = "((asa.institution = '" . INSTITUTION_GMU . "' AND $gmu_sem_sql) OR (asa.institution = '" . INSTITUTION_GMIT . "'))";
+        // If no GMIT student has SGPA details in the selected semesters, only show GMU students in those semesters
+        $where_clauses[] = "(asa.institution = '" . INSTITUTION_GMU . "' AND $gmu_sem_sql)";
     }
 } else {
     if ($instFilter === INSTITUTION_GMU) {
@@ -354,7 +413,7 @@ if (isset($filters['export']) && $section === 'details') {
     for($i=1; $i<=8; $i++) echo "<th>Sem $i SGPA</th>";
     echo '<th>PUC %</th><th>SSLC %</th><th>Mobile</th><th>Email</th></tr>';
     foreach($all_students as $s) {
-        $sgpaData = getSemesterSGPACoord($db, $localDB, $s['usn'], $s['institution']);
+        $sgpaData = getSemesterSGPACoord($db, $localDB, $s['usn'], $s['aadhar'], $s['institution']);
         $appCount = $localDB->prepare("SELECT COUNT(*) FROM job_applications WHERE student_id = ?");
         $appCount->execute([$s['usn']]);
         $count = $appCount->fetchColumn();
@@ -494,31 +553,36 @@ try {
     }
 } catch (Exception $e) {}
 // Bulk fetch current semesters for GMIT
-$gmitCurrentSems = [];
+$gmitCurrentSemsMap = [];
 if (!empty($detailsStudents)) {
-    $gmitUsns = [];
+    $searchIds = [];
     foreach ($detailsStudents as $s) {
-        if ($s['institution'] === INSTITUTION_GMIT) $gmitUsns[] = $s['usn'];
+        if ($s['institution'] === INSTITUTION_GMIT) {
+            if ($s['usn']) $searchIds[] = $s['usn'];
+            if ($s['aadhar']) $searchIds[] = $s['aadhar'];
+        }
     }
-    if (!empty($gmitUsns)) {
-        $ph = implode(',', array_fill(0, count($gmitUsns), '?'));
-        // Try is_current = 1 first, fallback to MAX(semester) if needed (conceptually, we'll just take MAX for simplicity/reliability here)
-        $stmtC = $localDB->prepare("SELECT student_id, MAX(semester) FROM student_sem_sgpa WHERE institution = ? AND student_id IN ($ph) GROUP BY student_id");
-        $stmtC->execute(array_merge([INSTITUTION_GMIT], $gmitUsns));
-        $gmitCurrentSems = $stmtC->fetchAll(PDO::FETCH_KEY_PAIR);
+    if (!empty($searchIds)) {
+        $searchIds = array_values(array_unique($searchIds));
+        $ph = implode(',', array_fill(0, count($searchIds), '?'));
+        // Prefer is_current = 1, otherwise will be handled by fallback logic in loop
+        $stmtC = $localDB->prepare("SELECT student_id, semester FROM student_sem_sgpa WHERE institution = ? AND student_id IN ($ph) AND is_current = 1");
+        $stmtC->execute(array_merge([INSTITUTION_GMIT], $searchIds));
+        $gmitCurrentSemsMap = $stmtC->fetchAll(PDO::FETCH_KEY_PAIR);
     }
 }
 
-function getSemesterSGPACoord($remoteDB, $localDB, $usn, $institution) {
+function getSemesterSGPACoord($remoteDB, $localDB, $usn, $aadhar, $institution) {
     if ($institution === INSTITUTION_GMIT) {
         $sgpaData = array_fill(1, 8, null);
         try {
-            $stmt = $localDB->prepare("SELECT semester, sgpa FROM student_sem_sgpa WHERE student_id = ? AND institution = ? ORDER BY semester");
-            $stmt->execute([$usn, INSTITUTION_GMIT]);
-            while ($row = $stmt->fetch()) {
-                if ($row['semester'] >= 1 && $row['semester'] <= 8) $sgpaData[$row['semester']] = $row['sgpa'];
+            // Flexible check for student_id (could be USN or Aadhar)
+            $stmt = $localDB->prepare("SELECT semester, sgpa FROM student_sem_sgpa WHERE (student_id = ? OR student_id = ?) AND institution = ? ORDER BY semester");
+            $stmt->execute([$usn, $aadhar, INSTITUTION_GMIT]);
+            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+                $sgpaData[(int)$row['semester']] = $row['sgpa'];
             }
-        } catch (PDOException $e) {}
+        } catch (Exception $e) { }
         return $sgpaData;
     }
     $prefix = DB_GMU_PREFIX;
@@ -736,7 +800,7 @@ $fullName = getFullName();
                     <tbody>
 
                             <?php foreach ($detailsStudents as $index => $student):
-                                $sgpaData = getSemesterSGPACoord($db, $localDB, $student['usn'], $student['institution']);
+                                $sgpaData = getSemesterSGPACoord($db, $localDB, $student['usn'], $student['aadhar'], $student['institution']);
                                 $rowNum = $offset + $index + 1;
                                 $pKey = ($student['institution'] ?? '') . '|' . ($student['usn'] ?? '');
                                 $pSkill = $portfolioSummary[$pKey]['Skill'] ?? ['total' => 0, 'verified' => 0];
@@ -760,8 +824,14 @@ $fullName = getFullName();
                                 <td>
                                     <?php 
                                         $displaySem = $student['sem'];
-                                        if ($student['institution'] === INSTITUTION_GMIT && isset($gmitCurrentSems[$student['usn']])) {
-                                            $displaySem = $gmitCurrentSems[$student['usn']];
+                                        if ($student['institution'] === INSTITUTION_GMIT) {
+                                            $u = $student['usn'];
+                                            $a = $student['aadhar'];
+                                            if (isset($gmitCurrentSemsMap[$u])) {
+                                                $displaySem = $gmitCurrentSemsMap[$u];
+                                            } elseif (isset($gmitCurrentSemsMap[$a])) {
+                                                $displaySem = $gmitCurrentSemsMap[$a];
+                                            }
                                         }
                                         echo "" . ($displaySem ?: '-');
                                     ?>

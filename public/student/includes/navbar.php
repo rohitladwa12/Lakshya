@@ -30,15 +30,16 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         left: 0;
         width: 100%;
         height: var(--nav-height);
-        background: var(--glass-bg);
-        backdrop-filter: blur(15px);
+        background: rgba(255, 255, 255, 0.85);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
         display: flex;
         align-items: center;
         justify-content: space-between;
         padding: 0 40px;
-        box-shadow: 0 4px 25px rgba(0, 0, 0, 0.08);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05), inset 0 0 0 1px rgba(255,255,255,0.4);
         z-index: 2000;
-        border-bottom: 2px solid rgba(128, 0, 0, 0.05);
+        border-bottom: 1px solid rgba(128, 0, 0, 0.1);
     }
 
     .nav-left {
@@ -231,10 +232,18 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 6px 6px 6px 16px;
-        background: #f7fafc;
+        padding: 4px 4px 4px 16px;
+        background: white;
         border-radius: 50px;
-        border: 1px solid #edf2f7;
+        border: 1px solid rgba(128, 0, 0, 0.1);
+        transition: var(--transition);
+        box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+    }
+
+    .student-badge:hover {
+        border-color: var(--primary-maroon);
+        box-shadow: 0 4px 15px rgba(128, 0, 0, 0.1);
+        transform: translateY(-1px);
     }
 
     .student-details {
@@ -388,61 +397,52 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         <ul class="nav-menu">
             <li class="nav-item">
                 <a href="dashboard.php" class="nav-btn <?php echo $currentPage == 'dashboard.php' ? 'active' : ''; ?>">
-                    <i class="fas fa-th-large"></i> Dashboard
+                    <i class="fas fa-th-large" style="color: #4f46e5;"></i> Dashboard
                 </a>
             </li>
             <li class="nav-item dropdown-container">
                 <button class="nav-btn">
-                    <i class="fas fa-briefcase"></i> Opportunities <i class="fas fa-chevron-down" style="font-size: 10px;"></i>
+                    <i class="fas fa-briefcase" style="color: #800000;"></i> Opportunities <i class="fas fa-chevron-down" style="font-size: 10px;"></i>
                 </button>
                 <div class="dropdown-menu">
                     <a href="jobs" class="dropdown-item">
-                        <i class="fas fa-building"></i> Browse Jobs
+                        <i class="fas fa-building" style="color: #800000; background: rgba(128,0,0,0.1);"></i> Browse Jobs
                     </a>
                     <a href="internships" class="dropdown-item">
-                        <i class="fas fa-user-graduate"></i> Internships
+                        <i class="fas fa-user-graduate" style="color: #0d9488; background: rgba(13,148,136,0.1);"></i> Internships
                     </a>
                     <a href="applications" class="dropdown-item">
-                        <i class="fas fa-file-signature"></i> My Applications
+                        <i class="fas fa-file-signature" style="color: #4f46e5; background: rgba(79,70,229,0.1);"></i> My Applications
                     </a>
                 </div>
             </li>
             <li class="nav-item dropdown-container">
                 <button class="nav-btn">
-                    <i class="fas fa-brain"></i> AI Tools <i class="fas fa-chevron-down" style="font-size: 10px;"></i>
+                    <i class="fas fa-brain" style="color: #1e3a8a;"></i> AI Tools <i class="fas fa-chevron-down" style="font-size: 10px;"></i>
                 </button>
                 <div class="dropdown-menu">
-                    <!-- <a href="profile_analyser.php" class="dropdown-item">
-                        <i class="fas fa-user-astronaut"></i> Profile Analyser
-                    </a> -->
-                    <a href="career_roadmap.php" class="dropdown-item">
-                        <i class="fas fa-map-marked-alt"></i> Personalized Roadmap
+                    <a href="career_roadmap" class="dropdown-item">
+                        <i class="fas fa-map-marked-alt" style="color: #b8860b; background: rgba(184,134,11,0.1);"></i> Personalized Roadmap
                     </a>
                     <a href="resume_builder.php" class="dropdown-item">
-                        <i class="fas fa-file-invoice"></i> Resume Builder
+                        <i class="fas fa-file-invoice" style="color: #800000; background: rgba(128,0,0,0.1);"></i> Resume Builder
                     </a>
-                    <!-- <a href="resume_analyzer.php" class="dropdown-item">
-                        <i class="fas fa-microscope"></i> Resume Analyzer
-                    </a> -->
 					<a href="https://gmu.ac.in/tutor/login.php" class="dropdown-item">
-                        <i class="fas fa-file-invoice"></i> AI Tutor
+                        <i class="fas fa-graduation-cap" style="color: #1e3a8a; background: rgba(30,58,138,0.1);"></i> AI Tutor
                     </a>
                 </div>
             </li>
             <li class="nav-item dropdown-container">
                 <button class="nav-btn">
-                    <i class="fas fa-laptop-code"></i> Practice <i class="fas fa-chevron-down" style="font-size: 10px;"></i>
+                    <i class="fas fa-laptop-code" style="color: #ea580c;"></i> Practice <i class="fas fa-chevron-down" style="font-size: 10px;"></i>
                 </button>
                 <div class="dropdown-menu">
                     <a href="aptitude_practice.php" class="dropdown-item">
-                        <i class="fas fa-puzzle-piece"></i> Aptitude Library
+                        <i class="fas fa-puzzle-piece" style="color: #0d9488; background: rgba(13,148,136,0.1);"></i> Aptitude Library
                     </a>
                     <a href="coding_practice.php" class="dropdown-item">
-                        <i class="fas fa-code"></i> Coding Practice
+                        <i class="fas fa-code" style="color: #1e3a8a; background: rgba(30,58,138,0.1);"></i> Coding Practice
                     </a>
-                    <!-- <a href="mock_ai_interview.php" class="dropdown-item">
-                        <i class="fas fa-user-tie"></i> Mock AI Interview
-                    </a> -->
                 </div>
             </li>
         </ul>
@@ -459,7 +459,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
             </div>
         </div>
         <a href="../logout.php" class="logout-link">
-            <i class="fas fa-power-off"></i>
+            <i class="fas fa-power-off" style="color: #e53e3e;"></i>
         </a>
         <div class="mobile-toggle" id="mobileToggle">
             <i class="fas fa-bars"></i>

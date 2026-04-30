@@ -612,29 +612,31 @@ function buildUrl($key, $val) {
                     ?>
                 </div>
                 
-                <form id="filterForm" method="POST">
-                    <input type="hidden" name="inst" id="filterInst" value="<?php echo htmlspecialchars($instFilter); ?>">
-                    <input type="hidden" name="search" id="filterSearch" value="<?php echo htmlspecialchars($search); ?>">
-                    <input type="hidden" name="min_sgpa" id="filterSgpa" value="<?php echo htmlspecialchars($min_sgpa); ?>">
-                    <input type="hidden" name="branch" id="filterBranch" value="<?php echo htmlspecialchars($branch_filter_val); ?>">
-                    <input type="hidden" name="page" id="filterPage" value="<?php echo htmlspecialchars($page); ?>">
-                </form>
-
-                <script>
-                    function updateFilter(key, val) {
-                        if (key === 'inst') document.getElementById('filterInst').value = val;
-                        if (key === 'search') document.getElementById('filterSearch').value = val;
-                        if (key === 'min_sgpa') document.getElementById('filterSgpa').value = val;
-                        if (key === 'branch') document.getElementById('filterBranch').value = val;
-                        if (key === 'page') document.getElementById('filterPage').value = val;
-                        
-                        // Reset page if filtering by other criteria
-                        if (key !== 'page') document.getElementById('filterPage').value = 1;
-                        
-                        document.getElementById('filterForm').submit();
-                    }
-                </script>
             <?php endif; ?>
+
+            <!-- Global Hidden Form for Page/Filter Updates -->
+            <form id="filterForm" method="POST" style="display:none;">
+                <input type="hidden" name="inst" id="filterInst" value="<?php echo htmlspecialchars($instFilter); ?>">
+                <input type="hidden" name="search" id="filterSearch" value="<?php echo htmlspecialchars($search); ?>">
+                <input type="hidden" name="min_sgpa" id="filterSgpa" value="<?php echo htmlspecialchars($min_sgpa); ?>">
+                <input type="hidden" name="branch" id="filterBranch" value="<?php echo htmlspecialchars($branch_filter_val); ?>">
+                <input type="hidden" name="page" id="filterPage" value="<?php echo htmlspecialchars($page); ?>">
+            </form>
+
+            <script>
+                function updateFilter(key, val) {
+                    if (key === 'inst') document.getElementById('filterInst').value = val;
+                    if (key === 'search') document.getElementById('filterSearch').value = val;
+                    if (key === 'min_sgpa') document.getElementById('filterSgpa').value = val;
+                    if (key === 'branch') document.getElementById('filterBranch').value = val;
+                    if (key === 'page') document.getElementById('filterPage').value = val;
+                    
+                    // Reset page if filtering by other criteria
+                    if (key !== 'page') document.getElementById('filterPage').value = 1;
+                    
+                    document.getElementById('filterForm').submit();
+                }
+            </script>
         </div>
     </div>
 

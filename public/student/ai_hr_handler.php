@@ -55,6 +55,7 @@ switch ($action) {
                 'has_active' => true,
                 'session_id' => $session['id'],
                 'started_at' => $session['started_at'],
+                'elapsed_seconds' => time() - strtotime($session['started_at']),
                 'role' => $details['role'] ?? 'Software Engineer',
                 'history' => $details['history'] ?? []
             ]);
@@ -209,8 +210,40 @@ switch ($action) {
             }
 
             $aiData = json_decode($contentStr, true);
-            $reportText = $aiData['content'] ?? "Report generation error: invalid JSON format.";
-            $score = $aiData['overall_score'] ?? 0;
+            
+            // Fallback for truncated/malformed JSON: Try regex extraction
+            if (!$aiData) {
+                // Try to extract overall_score
+                if (preg_match('/"overall_score":\s*"?(\d+)"?/i', $contentStr, $m)) {
+                    $rawScore = $m[1];
+                } else {
+                    // Try to extract from the footer line requested in prompt
+                    if (preg_match('/Overall Performance Score:\s*(\d+)%/i', $contentStr, $m)) {
+                        $rawScore = $m[1];
+                    } else {
+                        $rawScore = 0;
+                    }
+                }
+                
+                // Try to extract content (everything between "content": " and the end or ")
+                if (preg_match('/"content":\s*"(.*?)"\s*(?:,|\}$)/s', $contentStr, $m)) {
+                    $reportText = stripcslashes($m[1]);
+                } else if (preg_match('/"content":\s*"(.*)/s', $contentStr, $m)) {
+                    // Truncated content: take everything from the start of content
+                    $reportText = stripcslashes($m[1]);
+                } else {
+                    $reportText = $contentStr; 
+                }
+            } else {
+                $reportText = $aiData['content'] ?? ($aiData['report'] ?? "Report content missing.");
+                $rawScore = $aiData['overall_score'] ?? 0;
+            }
+            
+            // Final numeric score extraction (take first number found)
+            preg_match('/\d+/', (string)$rawScore, $m);
+            $score = (int)($m[0] ?? 0);
+            if ($score > 100) $score = 100; 
+            if ($score < 0) $score = 0;
 
             // Generate HTML for PDF
             $html = generateHRReportHTML($session['usn'], $session['current_sem'] ?? 'N/A', $session['student_name'], $session['company_name'], $score, $reportText);

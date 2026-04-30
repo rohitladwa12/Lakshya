@@ -8,7 +8,7 @@ use App\Helpers\SessionFilterHelper;
 
 requireRole(ROLE_PLACEMENT_OFFICER);
 
-$pageId = 'placement_officer_reports';
+$pageId = 'officer_intelligence';
 $q = $_GET;
 $q['section'] = 'details';
 

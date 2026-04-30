@@ -7,14 +7,16 @@ require_once __DIR__ . '/../config/bootstrap.php';
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Maintenance | Lakshya</title>
+    <title>Scheduled Maintenance | Lakshya</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
         :root {
             --primary: #800000; /* Maroon */
             --secondary: #e9c66f; /* Gold */
-            --dark: #0a0a0a;
-            --text: #ffffff;
+            --bg-bright: #ffffff;
+            --text-main: #2d3436;
+            --accent-soft: rgba(233, 198, 111, 0.1);
         }
 
         * {
@@ -25,140 +27,151 @@ require_once __DIR__ . '/../config/bootstrap.php';
 
         body {
             font-family: 'Outfit', sans-serif;
-            background: var(--dark);
-            color: var(--text);
+            background: var(--bg-bright);
+            color: var(--text-main);
             height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
             overflow: hidden;
-        }
-
-        .bg-glow {
-            position: absolute;
-            width: 100%;
-            height: 100%;
-            background: 
-                radial-gradient(circle at 20% 20%, rgba(128, 0, 0, 0.15), transparent 40%),
-                radial-gradient(circle at 80% 80%, rgba(233, 198, 111, 0.15), transparent 40%);
-            z-index: -1;
+            background-image: 
+                radial-gradient(circle at 100% 0%, var(--accent-soft) 0%, transparent 40%),
+                radial-gradient(circle at 0% 100%, rgba(128, 0, 0, 0.03) 0%, transparent 40%);
         }
 
         .container {
             text-align: center;
-            padding: 3rem;
-            max-width: 600px;
-            backdrop-filter: blur(20px);
-            background: rgba(255, 255, 255, 0.02);
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            border-radius: 2.5rem;
-            box-shadow: 0 40px 100px -20px rgba(0, 0, 0, 0.8);
-            animation: fadeIn 1.2s ease-out;
+            padding: 4rem;
+            max-width: 650px;
+            width: 90%;
+            background: #ffffff;
+            border-radius: 40px;
+            box-shadow: 0 40px 100px rgba(0, 0, 0, 0.06);
+            border: 1px solid rgba(0,0,0,0.03);
             position: relative;
-        }
-        
-        .container::before {
-            content: '';
-            position: absolute;
-            top: -2px; left: -2px; right: -2px; bottom: -2px;
-            background: linear-gradient(135deg, var(--primary), transparent, var(--secondary));
-            border-radius: 2.5rem;
-            z-index: -1;
-            opacity: 0.2;
+            animation: fadeIn 0.8s ease-out;
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(30px); }
+            from { opacity: 0; transform: translateY(20px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
         .icon-box {
-            width: 110px;
-            height: 110px;
-            background: linear-gradient(135deg, var(--primary), #a00000);
-            border-radius: 50%;
+            width: 100px;
+            height: 100px;
+            background: var(--accent-soft);
+            border-radius: 28px;
             display: flex;
             align-items: center;
             justify-content: center;
             margin: 0 auto 2.5rem;
-            box-shadow: 0 15px 40px rgba(128, 0, 0, 0.5);
-            border: 3px solid rgba(255, 255, 255, 0.1);
+            border: 2px solid var(--secondary);
+            color: var(--primary);
+            font-size: 3rem;
+            position: relative;
+        }
+
+        .icon-box::after {
+            content: '';
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border: 2px solid var(--secondary);
+            border-radius: 28px;
+            top: 5px;
+            left: 5px;
+            z-index: -1;
+            opacity: 0.3;
         }
 
         h1 {
             font-size: 2.8rem;
             font-weight: 800;
             margin-bottom: 1.2rem;
-            background: linear-gradient(to right, #fff, var(--secondary));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            letter-spacing: -1px;
+            color: var(--primary);
+            letter-spacing: -1.5px;
         }
 
-        p {
-            font-size: 1.15rem;
-            color: rgba(255,255,255,0.7);
-            line-height: 1.7;
-            margin-bottom: 2.5rem;
+        .info-msg {
+            font-size: 1.25rem;
+            line-height: 1.6;
+            color: #636e72;
+            margin-bottom: 3rem;
+            font-weight: 400;
         }
 
-        .loader {
+        .info-msg strong {
+            color: var(--primary);
+            font-weight: 700;
+        }
+
+        .loader-dots {
             display: flex;
             justify-content: center;
             gap: 12px;
-            margin-bottom: 1.5rem;
+            margin-bottom: 2rem;
         }
 
         .dot {
-            width: 14px;
-            height: 14px;
+            width: 12px;
+            height: 12px;
             background: var(--secondary);
             border-radius: 50%;
-            animation: bounce 1.4s infinite ease-in-out both;
-            box-shadow: 0 0 15px rgba(233, 198, 111, 0.4);
+            animation: pulse 1.5s infinite ease-in-out;
         }
 
-        .dot:nth-child(1) { animation-delay: -0.32s; }
-        .dot:nth-child(2) { animation-delay: -0.16s; }
+        .dot:nth-child(2) { background: var(--primary); animation-delay: 0.2s; }
+        .dot:nth-child(3) { background: var(--secondary); animation-delay: 0.4s; }
 
-        @keyframes bounce {
-            0%, 80%, 100% { transform: scale(0); }
-            40% { transform: scale(1.0); }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.3); opacity: 1; }
         }
 
-        .badge {
+        .status-badge {
             display: inline-block;
-            padding: 0.6rem 1.2rem;
-            background: rgba(128, 0, 0, 0.2);
-            color: var(--secondary);
+            padding: 0.5rem 1.2rem;
+            background: var(--primary);
+            color: white;
             border-radius: 100px;
-            font-size: 0.9rem;
+            font-size: 0.85rem;
             font-weight: 700;
-            border: 1px solid rgba(233, 198, 111, 0.3);
+            letter-spacing: 1px;
             text-transform: uppercase;
-            letter-spacing: 1.5px;
-            margin-bottom: 1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .footer-tag {
+            font-size: 0.85rem;
+            color: #b2bec3;
+            font-weight: 600;
+            letter-spacing: 1px;
         }
     </style>
 </head>
 <body>
-    <div class="bg-glow"></div>
     <div class="container">
-        <div class="icon-box">
-            <svg width="45" height="45" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                <path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"></path>
-            </svg>
-        </div>
-        <div class="badge">System Upgrade</div>
-        <h1>We're Upgrading</h1>
-        <p>We are working hard to make this site more user friendly and premium. Please wait while we roll out exciting new updates for your assessment experience.</p>
+        <div class="status-badge">Scheduled Maintenance</div>
         
-        <div class="loader">
+        <div class="icon-box">
+            <i class="fas fa-tools"></i>
+        </div>
+
+        <h1>System Enhancement</h1>
+        
+        <p class="info-msg">
+            LAKSHYA is currently undergoing <strong>scheduled maintenance</strong> to enhance our infrastructure and processing capabilities. <br>
+            We are working to ensure a seamless assessment experience. Service will be restored shortly.
+        </p>
+
+        <div class="loader-dots">
             <div class="dot"></div>
             <div class="dot"></div>
             <div class="dot"></div>
         </div>
-        <div style="font-size: 0.85rem; font-weight: 600; color: rgba(255,255,255,0.4); letter-spacing: 1px;">LAKSHYA PLATFORM v<?php echo APP_VERSION; ?></div>
+
+        <div class="footer-tag">LAKSHYA PLATFORM v<?php echo APP_VERSION; ?> | OFFICIAL PLACEMENT ECOSYSTEM</div>
     </div>
 </body>
 </html>

@@ -16,9 +16,6 @@ class CareerAdvisorAI {
         }
     }
     
-    /**
-     * Generate career roadmap using OpenAI
-     */
     public function generateRoadmap($goalData, $studentContext) {
         $prompt = $this->buildPrompt($goalData, $studentContext);
         
@@ -26,8 +23,23 @@ class CareerAdvisorAI {
             $response = $this->callOpenAI($prompt);
             $roadmapData = $this->parseResponse($response);
             
+            // Persist to database
+            require_once __DIR__ . '/../Models/CareerRoadmap.php';
+            $roadmapModel = new CareerRoadmap();
+            
+            // Determine student ID (consistent with career_handler.php)
+            $userId = $studentContext['user_id'] ?? null;
+            $studentId = $this->getStudentId($studentContext, $userId);
+            
+            $roadmapId = $roadmapModel->createRoadmap($studentId, $goalData, $roadmapData);
+            
+            if (!$roadmapId) {
+                throw new Exception("Failed to save roadmap to database");
+            }
+            
             return [
                 'success' => true,
+                'roadmap_id' => $roadmapId,
                 'roadmap' => $roadmapData
             ];
         } catch (Exception $e) {
@@ -282,5 +294,27 @@ Return ONLY valid JSON, no additional text.";
                 ]
             ]
         ];
+    }
+
+    /**
+     * Get the correct student ID for storage (ported from career_handler.php)
+     */
+    private function getStudentId($context, $userId) {
+        $institution = $context['institution'] ?? INSTITUTION_GMU;
+        
+        if ($institution === INSTITUTION_GMIT) {
+            if (!empty($context['id']) && $context['id'] != 0) {
+                return $context['id'];
+            }
+            if (!empty($context['usn'])) {
+                return $context['usn'];
+            }
+            if (!empty($context['student_id']) && $context['student_id'] != '0' && $context['student_id'] != 0) {
+                return $context['student_id'];
+            }
+            return $userId;
+        } else {
+            return $userId;
+        }
     }
 }

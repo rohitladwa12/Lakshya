@@ -11,23 +11,6 @@ requireRole(ROLE_STUDENT);
 
 $userId = getUserId();
 
-// Handle POST from advisor or dashboard
-if (isPost() && isset($_POST['id'])) {
-    SessionFilterHelper::setFilters('career_roadmap', [
-        'id' => $_POST['id'] ?? 0
-    ]);
-    header("Location: career_roadmap.php");
-    exit;
-}
-
-$filters = SessionFilterHelper::getFilters('career_roadmap');
-$roadmapId = $filters['id'] ?? null;
-
-if (!$roadmapId) {
-    header('Location: career_advisor.php');
-    exit;
-}
-
 // Load models
 require_once __DIR__ . '/../../src/Models/CareerRoadmap.php';
 require_once __DIR__ . '/../../src/Models/CareerResource.php';
@@ -41,9 +24,8 @@ $studentModel = new StudentProfile();
 $studentProfile = $studentModel->getProfile($userId);
 $institution = $studentProfile['institution'] ?? INSTITUTION_GMU;
 
-// Use the same logic as career_handler.php
+// Resolve student ID for database queries
 if ($institution === INSTITUTION_GMIT) {
-    // Prioritize: enquiry_no (id) > usn > student_id (excluding 0)
     if (!empty($studentProfile['id']) && $studentProfile['id'] != 0) {
         $roadmapStudentId = $studentProfile['id'];
     } else if (!empty($studentProfile['usn'])) {
@@ -54,14 +36,44 @@ if ($institution === INSTITUTION_GMIT) {
         $roadmapStudentId = $userId;
     }
 } else {
-    // GMU: Use SL_NO (userId)
     $roadmapStudentId = $userId;
+}
+
+// Handle POST from advisor or dashboard
+if (isPost() && isset($_POST['id'])) {
+    SessionFilterHelper::setFilters('career_roadmap', ['id' => $_POST['id']]);
+    header("Location: career_roadmap.php");
+    exit;
+}
+
+// Load from GET if present (to support direct links)
+if (isset($_GET['id'])) {
+    SessionFilterHelper::setFilters('career_roadmap', ['id' => $_GET['id']]);
+}
+
+$filters = SessionFilterHelper::getFilters('career_roadmap');
+$roadmapId = $filters['id'] ?? null;
+
+// Auto-resolve active roadmap if none selected
+if (!$roadmapId) {
+    $activeRoadmap = $roadmapModel->getActiveRoadmap($roadmapStudentId);
+    if ($activeRoadmap) {
+        $roadmapId = $activeRoadmap['id'];
+        SessionFilterHelper::setFilters('career_roadmap', ['id' => $roadmapId]);
+    }
+}
+
+if (!$roadmapId) {
+    header('Location: career_advisor.php');
+    exit;
 }
 
 // Get roadmap
 $roadmap = $roadmapModel->getRoadmapById($roadmapId, $roadmapStudentId);
 
 if (!$roadmap) {
+    // Clear invalid roadmap ID
+    SessionFilterHelper::setFilters('career_roadmap', ['id' => null]);
     header('Location: career_advisor.php');
     exit;
 }
@@ -77,275 +89,366 @@ $stats = $roadmapModel->getRoadmapStats($roadmapId);
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Career Roadmap - Student Portal</title>
     <style>
+        :root {
+            --primary: #800000;
+            --primary-light: #a00000;
+            --secondary: #FFD700;
+            --glass-bg: rgba(255, 255, 255, 0.95);
+            --glass-border: rgba(255, 255, 255, 0.3);
+            --text-main: #2d3436;
+            --text-soft: #636e72;
+            --card-shadow: 0 10px 30px rgba(0,0,0,0.08);
+        }
+
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #f5f5f5; }
-        .navbar { background: linear-gradient(135deg, #800000 0%, #a00000 100%); color: white; padding: 15px 30px; display: flex; justify-content: space-between; align-items: center; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        .navbar h1 { font-size: 24px; }
-        .navbar a { color: white; text-decoration: none; margin-left: 20px; transition: opacity 0.3s; }
-        .navbar a:hover { opacity: 0.8; }
+        
+        body { 
+            font-family: 'Outfit', sans-serif; 
+            background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+            min-height: 100vh;
+            color: var(--text-main);
+            padding-top: 72px; /* Navbar height offset */
+        }
+
+        .roadmap-container {
+            max-width: 1200px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+        
+        .roadmap-header {
+            background: linear-gradient(135deg, var(--primary) 0%, #600000 100%);
+            color: white;
+            padding: 60px 50px;
+            border-radius: 30px;
+            margin-bottom: 40px;
+            box-shadow: 0 20px 40px rgba(128,0,0,0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .roadmap-header::after {
+            content: '';
+            position: absolute;
+            top: -20%;
+            right: -10%;
+            width: 300px;
+            height: 300px;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            border-radius: 50%;
+        }
+        
+        .roadmap-header h1 {
+            font-size: 42px;
+            margin-bottom: 12px;
+            font-weight: 800;
+            letter-spacing: -1px;
+        }
+        
+        .roadmap-header .subtitle {
+            font-size: 19px;
+            opacity: 0.95;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            flex-wrap: wrap;
+        }
+        
+        .roadmap-header .timeline {
+            margin-top: 20px;
+            font-size: 16px;
+            background: rgba(255,255,255,0.15);
+            display: inline-flex;
+            padding: 10px 20px;
+            border-radius: 50px;
+            backdrop-filter: blur(5px);
+            font-weight: 600;
+        }
+        
+        .overview-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            padding: 40px;
+            border-radius: 24px;
+            box-shadow: var(--card-shadow);
+            margin-bottom: 40px;
+        }
+        
+        .overview-card h2 {
+            color: var(--primary);
+            margin-bottom: 20px;
+            font-size: 24px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .overview-card p {
+            color: var(--text-soft);
+            line-height: 1.8;
+            font-size: 17px;
+        }
+        
+        .phases-section h2 {
+            font-size: 28px;
+            margin-bottom: 30px;
+            color: var(--text-main);
+            font-weight: 800;
+            padding-left: 10px;
+        }
+        
+        .phase-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--glass-border);
+            border-radius: 24px;
+            padding: 40px;
+            margin-bottom: 30px;
+            box-shadow: var(--card-shadow);
+            transition: transform 0.3s ease;
+            position: relative;
+        }
+
+        .phase-card:hover {
+            transform: translateY(-5px);
+        }
+        
+        .phase-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 25px;
+        }
+        
+        .phase-number {
+            background: linear-gradient(135deg, var(--primary) 0%, #a00000 100%);
+            color: white;
+            width: 56px;
+            height: 56px;
+            border-radius: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: 800;
+            box-shadow: 0 8px 16px rgba(128,0,0,0.2);
+        }
+        
+        .phase-title {
+            flex: 1;
+            margin-left: 25px;
+        }
+        
+        .phase-title h3 {
+            color: var(--text-main);
+            font-size: 24px;
+            margin-bottom: 6px;
+            font-weight: 700;
+        }
+        
+        .phase-duration {
+            color: var(--primary);
+            font-weight: 700;
+            font-size: 15px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .skills-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin: 20px 0;
+        }
+        
+        .skill-badge {
+            background: white;
+            padding: 10px 18px;
+            border-radius: 12px;
+            font-size: 14px;
+            color: var(--text-main);
+            font-weight: 600;
+            border: 1px solid #eee;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+        
+        .milestones-list {
+            list-style: none;
+            padding: 0;
+            margin-top: 20px;
+        }
+        
+        .milestones-list li {
+            padding: 12px 0;
+            padding-left: 35px;
+            position: relative;
+            color: var(--text-soft);
+            font-size: 15px;
+            border-bottom: 1px solid rgba(0,0,0,0.02);
+        }
+
+        .milestones-list li:last-child { border-bottom: none; }
+        
+        .milestones-list li:before {
+            content: "✦";
+            position: absolute;
+            left: 0;
+            color: var(--primary);
+            font-weight: 800;
+        }
+        
+        .skills-section {
+            background: var(--glass-bg);
+            padding: 40px;
+            border-radius: 24px;
+            box-shadow: var(--card-shadow);
+            margin-bottom: 40px;
+        }
+        
+        .skill-item {
+            padding: 25px;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+            transition: background 0.2s;
+            border-radius: 16px;
+        }
+
+        .skill-item:hover { background: rgba(0,0,0,0.01); }
+        
+        .skill-item:last-child { border-bottom: none; }
+        
+        .skill-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        
+        .skill-name {
+            font-size: 19px;
+            font-weight: 700;
+            color: var(--text-main);
+        }
+        
+        .priority-badge {
+            padding: 6px 14px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .priority-critical { background: #fff1f1; color: #d32f2f; }
+        .priority-important { background: #fff9e6; color: #f57c00; }
+        .priority-nice { background: #f1f9f1; color: #388e3c; }
+        
+        .skill-details {
+            color: var(--text-soft);
+            font-size: 15px;
+            line-height: 1.6;
+        }
+        
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 40px;
+            justify-content: center;
+        }
+        
+        .btn {
+            padding: 18px 36px;
+            border-radius: 18px;
+            text-decoration: none;
+            font-weight: 700;
+            font-size: 17px;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            border: none;
+            cursor: pointer;
+        }
+        
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 10px 25px rgba(128,0,0,0.2);
+        }
+        
+        .btn-primary:hover {
+            background: var(--primary-light);
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(128,0,0,0.3);
+        }
+
+        .btn-outline {
+            background: white;
+            color: var(--primary);
+            border: 2px solid var(--primary);
+        }
+
+        .btn-outline:hover {
+            background: var(--primary);
+            color: white;
+        }
+        
+        .btn-text {
+            background: rgba(128,0,0,0.05);
+            border: none;
+            color: var(--primary);
+            font-weight: 700;
+            cursor: pointer;
+            padding: 12px 25px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 15px;
+            transition: all 0.3s;
+        }
+
+        .btn-text:hover { background: rgba(128,0,0,0.1); }
+
+        .resources-container {
+            background: #fff;
+            border: 1px solid rgba(0,0,0,0.05);
+            border-radius: 20px;
+            padding: 30px;
+            margin-top: 20px;
+            box-shadow: inset 0 2px 10px rgba(0,0,0,0.02);
+        }
+
+        .loading-spinner {
+            text-align: center;
+            padding: 30px;
+            color: var(--text-soft);
+            font-weight: 500;
+        }
     </style>
 </head>
 <body>
 
 <?php include_once __DIR__ . '/includes/navbar.php'; ?>
 
-<?php
-?>
-
-<style>
-    .roadmap-container {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 30px 20px;
-    }
-    
-    .roadmap-header {
-        background: linear-gradient(135deg, #800000 0%, #a00000 100%);
-        color: white;
-        padding: 40px;
-        border-radius: 12px;
-        margin-bottom: 30px;
-    }
-    
-    .roadmap-header h1 {
-        font-size: 36px;
-        margin-bottom: 10px;
-    }
-    
-    .roadmap-header .subtitle {
-        font-size: 18px;
-        opacity: 0.9;
-    }
-    
-    .roadmap-header .timeline {
-        margin-top: 15px;
-        font-size: 16px;
-        opacity: 0.95;
-    }
-    
-    .overview-card {
-        background: white;
-        padding: 30px;
-        border-radius: 12px;
-        box-shadow: 0 2 10px rgba(0,0,0,0.1);
-        margin-bottom: 30px;
-    }
-    
-    .overview-card h2 {
-        color: #800000;
-        margin-bottom: 15px;
-    }
-    
-    .overview-card p {
-        color: #666;
-        line-height: 1.8;
-    }
-    
-    .phases-section {
-        margin-bottom: 40px;
-    }
-    
-    .phase-card {
-        background: white;
-        border-radius: 12px;
-        padding: 30px;
-        margin-bottom: 25px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-        border-left: 5px solid #800000;
-    }
-    
-    .phase-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 20px;
-    }
-    
-    .phase-number {
-        background: #800000;
-        color: white;
-        width: 50px;
-        height: 50px;
-        border-radius: 50%;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 24px;
-        font-weight: bold;
-    }
-    
-    .phase-title {
-        flex: 1;
-        margin-left: 20px;
-    }
-    
-    .phase-title h3 {
-        color: #333;
-        margin-bottom: 5px;
-    }
-    
-    .phase-duration {
-        color: #800000;
-        font-weight: 600;
-    }
-    
-    .skills-list {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin: 15px 0;
-    }
-    
-    .skill-badge {
-        background: #f0f0f0;
-        padding: 8px 16px;
-        border-radius: 20px;
-        font-size: 14px;
-        color: #333;
-    }
-    
-    .milestones-list {
-        list-style: none;
-        padding: 0;
-    }
-    
-    .milestones-list li {
-        padding: 10px 0;
-        padding-left: 30px;
-        position: relative;
-        color: #666;
-    }
-    
-    .milestones-list li:before {
-        content: "✓";
-        position: absolute;
-        left: 0;
-        color: #800000;
-        font-weight: bold;
-    }
-    
-    .skills-section {
-        background: white;
-        padding: 30px;
-        border-radius: 12px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-        margin-bottom: 30px;
-    }
-    
-    .skill-item {
-        padding: 20px;
-        border-bottom: 1px solid #f0f0f0;
-    }
-    
-    .skill-item:last-child {
-        border-bottom: none;
-    }
-    
-    .skill-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 10px;
-    }
-    
-    .skill-name {
-        font-size: 18px;
-        font-weight: 600;
-        color: #333;
-    }
-    
-    .priority-badge {
-        padding: 4px 12px;
-        border-radius: 12px;
-        font-size: 12px;
-        font-weight: 600;
-    }
-    
-    .priority-critical {
-        background: #ffebee;
-        color: #c62828;
-    }
-    
-    .priority-important {
-        background: #fff3e0;
-        color: #e65100;
-    }
-    
-    .priority-nice {
-        background: #e8f5e9;
-        color: #2e7d32;
-    }
-    
-    .skill-details {
-        color: #666;
-        font-size: 14px;
-        line-height: 1.6;
-    }
-    
-    .action-buttons {
-        display: flex;
-        gap: 15px;
-        margin-top: 30px;
-    }
-    
-    .btn {
-        padding: 12px 24px;
-        border-radius: 8px;
-        text-decoration: none;
-        font-weight: 600;
-        transition: all 0.3s;
-    }
-    
-    .btn-primary {
-        background: #800000;
-        color: white;
-    }
-    
-    .btn-primary:hover {
-        background: #a00000;
-    }
-
-    .btn-text {
-        background: none;
-        border: none;
-        color: #800000;
-        font-weight: 600;
-        cursor: pointer;
-        padding: 5px 0;
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        font-size: 15px;
-    }
-
-    .btn-text:hover {
-        text-decoration: underline;
-    }
-
-    .resources-container {
-        background: #fdfdfd;
-        border: 1px solid #eee;
-        border-radius: 8px;
-        padding: 20px;
-    }
-
-    .loading-spinner {
-        text-align: center;
-        padding: 20px;
-        color: #666;
-        font-style: italic;
-    }
-</style>
-
 <div class="roadmap-container">
     <div class="roadmap-header">
-        <h1><?php echo htmlspecialchars($roadmap['target_role']); ?></h1>
-        <div class="subtitle">
-            <?php if ($roadmap['target_company_type']): ?>
-                <?php echo htmlspecialchars($roadmap['target_company_type']); ?> •
-            <?php endif; ?>
-            <?php echo htmlspecialchars($roadmap['target_industry']); ?> •
-            <?php echo htmlspecialchars($roadmap['experience_level']); ?> Level
+        <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 20px; flex-wrap: wrap;">
+            <div style="flex: 1;">
+                <h1><?php echo htmlspecialchars($roadmap['target_role']); ?></h1>
+                <div class="subtitle">
+                    <?php if ($roadmap['target_company_type']): ?>
+                        <?php echo htmlspecialchars($roadmap['target_company_type']); ?> •
+                    <?php endif; ?>
+                    <?php echo htmlspecialchars($roadmap['target_industry']); ?> •
+                    <?php echo htmlspecialchars($roadmap['experience_level']); ?> Level
+                </div>
+            </div>
+            <a href="career_goal_form.php" class="btn btn-outline" style="background: rgba(255,255,255,0.1); color: white; border-color: rgba(255,255,255,0.3); padding: 12px 20px; font-size: 14px;">
+                🔄 Switch Career Path
+            </a>
         </div>
         <div class="timeline">
             ⏱️ Estimated Timeline: <?php echo htmlspecialchars($roadmapData['timeline'] ?? 'N/A'); ?>
@@ -436,6 +539,9 @@ $stats = $roadmapModel->getRoadmapStats($roadmapId);
         <button onclick="navigatePost('career_resources.php', {id: '<?php echo $roadmapId; ?>'})" class="btn btn-primary" style="border:none; cursor:pointer;">
             📚 Browse Learning Resources
         </button>
+        <a href="career_goal_form.php" class="btn btn-outline">
+            🔄 Switch Career Path
+        </a>
         <a href="career_advisor.php" class="btn btn-primary">
             🏠 Back to Dashboard
         </a>

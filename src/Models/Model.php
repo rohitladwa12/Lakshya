@@ -219,19 +219,19 @@ abstract class Model {
     /**
      * Execute raw query
      */
-    public function query($sql, $params = []) {
+    public function query($sql, $params = [], $fetchMode = PDO::FETCH_ASSOC, ...$fetchArgs) {
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
-        return $stmt->fetchAll();
+        return $stmt->fetchAll($fetchMode, ...$fetchArgs);
     }
     
     /**
      * Execute raw query (single result)
      */
-    public function queryOne($sql, $params = []) {
+    public function queryOne($sql, $params = [], $fetchMode = PDO::FETCH_ASSOC, ...$fetchArgs) {
         $stmt = $this->db->prepare($sql);
         $stmt->execute($params);
-        return $stmt->fetch();
+        return $stmt->fetch($fetchMode, ...$fetchArgs);
     }
     
     /**

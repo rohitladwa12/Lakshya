@@ -74,231 +74,263 @@ if ($hasActiveRoadmap) {
     <title>Career Advisor - Student Portal</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
+        :root {
+            --primary: #800000;
+            --primary-light: #a00000;
+            --secondary: #FFD700;
+            --glass-bg: rgba(255, 255, 255, 0.95);
+            --glass-border: rgba(255, 255, 255, 0.3);
+            --text-main: #2d3436;
+            --text-soft: #636e72;
+            --card-shadow: 0 10px 30px rgba(0,0,0,0.08);
         }
         
-        :root {
-            --maroon: #800000;
-            --gold: #FFD700;
-            --dark-gray: #333;
-            --light-gray: #f5f5f5;
-            --white: #fff;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: var(--light-gray);
-            color: var(--dark-gray);
+            font-family: 'Outfit', sans-serif;
+            background: linear-gradient(135deg, #fdfbfb 0%, #ebedee 100%);
+            color: var(--text-main);
+            min-height: 100vh;
+            padding-top: 72px; /* Navbar height offset */
         }
+
+        .career-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 40px 20px;
+        }
+        
+        .hero-section {
+            background: linear-gradient(135deg, var(--primary) 0%, #600000 100%);
+            color: white;
+            padding: 80px 40px;
+            border-radius: 30px;
+            margin-bottom: 50px;
+            text-align: center;
+            box-shadow: 0 20px 40px rgba(128, 0, 0, 0.2);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .hero-section::after {
+            content: '';
+            position: absolute;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(circle, rgba(255,255,255,0.1) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        
+        .hero-section h1 {
+            font-size: 48px;
+            margin-bottom: 20px;
+            font-weight: 800;
+            letter-spacing: -1px;
+        }
+        
+        .hero-section p {
+            font-size: 20px;
+            opacity: 0.9;
+            max-width: 750px;
+            margin: 0 auto;
+            line-height: 1.6;
+        }
+        
+        .roadmap-card {
+            background: var(--glass-bg);
+            backdrop-filter: blur(15px);
+            border: 1px solid var(--glass-border);
+            border-radius: 28px;
+            padding: 40px;
+            box-shadow: var(--card-shadow);
+            margin-bottom: 40px;
+            transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+        }
+        
+        .roadmap-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 35px;
+            padding-bottom: 25px;
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+        
+        .roadmap-title {
+            font-size: 32px;
+            color: var(--text-main);
+            font-weight: 800;
+            letter-spacing: -0.5px;
+        }
+        
+        .progress-badge {
+            background: linear-gradient(135deg, var(--primary) 0%, #a00000 100%);
+            color: white;
+            padding: 10px 25px;
+            border-radius: 50px;
+            font-weight: 700;
+            font-size: 15px;
+            box-shadow: 0 4px 15px rgba(128,0,0,0.2);
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 25px;
+            margin-bottom: 40px;
+        }
+        
+        .stat-box {
+            background: rgba(255,255,255,0.5);
+            padding: 25px;
+            border-radius: 20px;
+            text-align: center;
+            border: 1px solid rgba(0,0,0,0.03);
+            transition: all 0.3s ease;
+        }
+
+        .stat-box:hover {
+            background: #fff;
+            transform: translateY(-5px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.05);
+        }
+        
+        .stat-box .number {
+            font-size: 36px;
+            font-weight: 800;
+            color: var(--primary);
+            margin-bottom: 8px;
+        }
+        
+        .stat-box .label {
+            color: var(--text-soft);
+            font-size: 15px;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .cta-section {
+            text-align: center;
+            padding: 40px 20px;
+        }
+        
+        .cta-button {
+            display: inline-block;
+            background: var(--primary);
+            color: white;
+            padding: 20px 45px;
+            border-radius: 20px;
+            font-size: 18px;
+            font-weight: 700;
+            text-decoration: none;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            box-shadow: 0 8px 25px rgba(128,0,0,0.25);
+        }
+        
+        .cta-button:hover {
+            background: var(--primary-light);
+            transform: translateY(-5px);
+            box-shadow: 0 15px 35px rgba(128,0,0,0.35);
+        }
+        
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            margin: 60px 0;
+        }
+        
+        .feature-card {
+            background: white;
+            padding: 40px;
+            border-radius: 24px;
+            box-shadow: var(--card-shadow);
+            transition: all 0.3s ease;
+            border: 1px solid transparent;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-10px);
+            border-color: rgba(128,0,0,0.1);
+        }
+        
+        .feature-icon {
+            font-size: 56px;
+            margin-bottom: 25px;
+            display: block;
+        }
+        
+        .feature-card h3 {
+            font-size: 22px;
+            color: var(--text-main);
+            margin-bottom: 15px;
+            font-weight: 700;
+        }
+        
+        .feature-card p {
+            color: var(--text-soft);
+            line-height: 1.7;
+            font-size: 16px;
+        }
+        
+        .action-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 30px;
+        }
+        
+        .btn {
+            padding: 16px 32px;
+            border-radius: 16px;
+            text-decoration: none;
+            font-weight: 700;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            border: none;
+        }
+        
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+            box-shadow: 0 4px 15px rgba(128,0,0,0.2);
+        }
+        
+        .btn-primary:hover {
+            background: var(--primary-light);
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(128,0,0,0.3);
+        }
+        
+        .btn-secondary {
+            background: rgba(0,0,0,0.05);
+            color: var(--text-main);
+        }
+        
+        .btn-secondary:hover {
+            background: rgba(0,0,0,0.1);
+        }
+
+        .tag-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-top: 15px;
+        }
+
     </style>
 </head>
 <body>
 
 <?php include_once __DIR__ . '/includes/navbar.php'; ?>
-
-<style>
-    .career-container {
-        max-width: 1200px;
-        margin: 0 auto;
-        padding: 30px 20px;
-    }
-    
-    .hero-section {
-        background: linear-gradient(135deg, #800000 0%, #a00000 100%);
-        color: white;
-        padding: 60px 40px;
-        border-radius: 16px;
-        margin-bottom: 40px;
-        text-align: center;
-    }
-    
-    .hero-section h1 {
-        font-size: 42px;
-        margin-bottom: 15px;
-    }
-    
-    .hero-section p {
-        font-size: 18px;
-        opacity: 0.9;
-        max-width: 700px;
-        margin: 0 auto;
-    }
-    
-    .roadmap-card {
-        background: white;
-        border-radius: 12px;
-        padding: 30px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        margin-bottom: 30px;
-    }
-    
-    .roadmap-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-bottom: 25px;
-        padding-bottom: 20px;
-        border-bottom: 2px solid #f0f0f0;
-    }
-    
-    .roadmap-title {
-        font-size: 28px;
-        color: #333;
-        margin: 0;
-    }
-    
-    .progress-badge {
-        background: #800000;
-        color: white;
-        padding: 8px 20px;
-        border-radius: 20px;
-        font-weight: 600;
-    }
-    
-    .stats-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-        gap: 20px;
-        margin-bottom: 30px;
-    }
-    
-    .stat-box {
-        background: #f8f9fa;
-        padding: 20px;
-        border-radius: 10px;
-        text-align: center;
-    }
-    
-    .stat-box .number {
-        font-size: 32px;
-        font-weight: 700;
-        color: #800000;
-        margin-bottom: 5px;
-    }
-    
-    .stat-box .label {
-        color: #666;
-        font-size: 14px;
-    }
-    
-    .cta-section {
-        text-align: center;
-        padding: 60px 20px;
-    }
-    
-    .cta-button {
-        display: inline-block;
-        background: #800000;
-        color: white;
-        padding: 18px 40px;
-        border-radius: 30px;
-        font-size: 18px;
-        font-weight: 600;
-        text-decoration: none;
-        transition: all 0.3s;
-    }
-    
-    .cta-button:hover {
-        background: #a00000;
-        transform: translateY(-2px);
-        box-shadow: 0 10px 30px rgba(128,0,0,0.3);
-    }
-    
-    .features-grid {
-        display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-        gap: 25px;
-        margin: 40px 0;
-    }
-    
-    .feature-card {
-        background: white;
-        padding: 30px;
-        border-radius: 12px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.08);
-        transition: transform 0.3s;
-    }
-    
-    .feature-card:hover {
-        transform: translateY(-5px);
-    }
-    
-    .feature-icon {
-        font-size: 48px;
-        margin-bottom: 15px;
-    }
-    
-    .feature-card h3 {
-        color: #333;
-        margin-bottom: 10px;
-    }
-    
-    .feature-card p {
-        color: #666;
-        line-height: 1.6;
-    }
-    
-    .action-buttons {
-        display: flex;
-        gap: 15px;
-        margin-top: 20px;
-    }
-
-    .tag-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 10px;
-        margin-top: 10px;
-    }
-
-    .tag {
-        background: #f0f0f0;
-        color: #333;
-        border-radius: 999px;
-        padding: 8px 14px;
-        font-size: 13px;
-        font-weight: 600;
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
-    }
-
-    .tag.empty {
-        background: #fff3e0;
-        color: #8a4b00;
-        font-weight: 600;
-    }
-    
-    .btn {
-        padding: 12px 24px;
-        border-radius: 8px;
-        text-decoration: none;
-        font-weight: 600;
-        transition: all 0.3s;
-        display: inline-block;
-    }
-    
-    .btn-primary {
-        background: #800000;
-        color: white;
-    }
-    
-    .btn-primary:hover {
-        background: #a00000;
-    }
-    
-    .btn-secondary {
-        background: #f0f0f0;
-        color: #333;
-    }
-    
-    .btn-secondary:hover {
-        background: #e0e0e0;
-    }
-</style>
 
 <div class="career-container">
     <?php if (!$hasActiveRoadmap): ?>

@@ -401,6 +401,14 @@ switch ($action) {
         }
         break;
 
+    case 'cancel_pending':
+        $sessionId = $input['session_id'] ?? 0;
+        $sql = "UPDATE mock_ai_interview_sessions SET status = 'cancelled', completed_at = CURRENT_TIMESTAMP 
+                WHERE id = ? AND student_id = ? AND status = 'active'";
+        $db->prepare($sql)->execute([$sessionId, $studentIdForDb]);
+        echo json_encode(['success' => true, 'message' => 'Pending session retired']);
+        break;
+
     default:
         echo json_encode(['success' => false, 'message' => 'Action not found']);
         break;

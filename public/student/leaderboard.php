@@ -639,23 +639,27 @@ $pageTitle = "Leaderboard | Lakshya";
                     </div>
                 </div>
 
-                <div class="bg-slate-50 rounded-2xl p-5 border border-slate-100">
-                    <h4 class="text-xs font-black text-slate-800 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <div class="bg-slate-50 rounded-3xl p-6 border border-slate-100">
+                    <h4 class="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
                         <i class="fas fa-circle-check text-green-500"></i>
-                        Verification Rules
+                        Scoring & Verification Rules
                     </h4>
-                    <ul class="text-[11px] text-slate-500 font-medium space-y-2 leading-relaxed">
-                        <li class="flex items-start gap-2">
-                            <span class="text-green-500 mt-0.5">•</span>
+                    <ul class="text-[13px] text-slate-600 font-medium space-y-4 leading-relaxed">
+                        <li class="flex items-start gap-3">
+                            <span class="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-[10px] shrink-0 mt-0.5"><i class="fas fa-check"></i></span>
                             <span>Each verified <b>Skill</b> adds 2 points (max 50)</span>
                         </li>
-                        <li class="flex items-start gap-2">
-                            <span class="text-green-500 mt-0.5">•</span>
+                        <li class="flex items-start gap-3">
+                            <span class="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-[10px] shrink-0 mt-0.5"><i class="fas fa-check"></i></span>
                             <span>Each verified <b>Project</b> adds 5 points (max 50)</span>
                         </li>
-                        <li class="flex items-start gap-2">
-                            <span class="text-red-400 mt-0.5">•</span>
-                            <span class="text-slate-600 font-semibold">Important: Students need to verify it. Only verified items count.</span>
+                        <li class="flex items-start gap-3 p-3 bg-red-50 rounded-2xl border border-red-100">
+                            <span class="w-5 h-5 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-[10px] shrink-0 mt-0.5"><i class="fas fa-clock"></i></span>
+                            <span class="text-red-700 font-bold">Inactivity Decay: Lose 1 point for every 24 hours of inactivity between assessments. Consistency is key!</span>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-[10px] shrink-0 mt-0.5"><i class="fas fa-info"></i></span>
+                            <span class="text-slate-500 font-semibold italic">Important: Only verified items contribute to your score.</span>
                         </li>
                     </ul>
                 </div>

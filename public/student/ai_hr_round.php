@@ -234,7 +234,62 @@ $taskId = $filters['task_id'] ?? 0;
             margin-bottom: 20px;
         }
         @keyframes spin { to { transform: rotate(360deg); } }
+        /* Real-time Transcript Layout Fixes */
+        .transcript-panel {
+            position: absolute;
+            right: 30px;
+            top: 100px;
+            width: 320px;
+            max-height: 65vh;
+            background: rgba(255, 255, 255, 0.03);
+            backdrop-filter: blur(15px);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 15px 35px rgba(0,0,0,0.3);
+            z-index: 10;
+            transition: all 0.3s ease;
+        }
 
+        .transcript-panel h3 {
+            margin: 0 0 15px 0;
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 1.5px;
+            color: var(--accent);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .transcript-scroll {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 10px;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .transcript-scroll::-webkit-scrollbar { width: 4px; }
+        .transcript-scroll::-webkit-scrollbar-track { background: transparent; }
+        .transcript-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+
+        .transcript-line { margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .transcript-line b { color: var(--accent); font-size: 0.75rem; text-transform: uppercase; display: block; margin-bottom: 2px; }
+        .transcript-line.user b { color: #4CAF50; }
+        .transcript-line.ai b { color: var(--accent); }
+
+        @media (max-width: 1200px) {
+            .transcript-panel { 
+                position: relative; 
+                right: auto; top: auto; 
+                width: 90%; max-width: 600px; 
+                margin: 20px 0;
+                max-height: 200px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -441,9 +496,9 @@ $taskId = $filters['task_id'] ?? 0;
                 if (confirm("You have an active session for this company. Would you like to resume?")) {
                     sessionId = checkRes.session_id;
                     isSessionActive = true;
-                    // Sync start time from server to maintain accurate 20m lock timer
-                    if (checkRes.started_at) {
-                        startTime = new Date(checkRes.started_at.replace(/-/g, "/")).getTime(); 
+                    // Sync start time from server using relative elapsed seconds (Skew-resistant)
+                    if (checkRes.elapsed_seconds !== undefined) {
+                        startTime = Date.now() - (checkRes.elapsed_seconds * 1000); 
                     } else {
                         startTime = Date.now(); 
                     }

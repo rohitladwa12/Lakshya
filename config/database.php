@@ -14,11 +14,11 @@ class Database {
     private function __construct() {
         // Local Portal DB (Default)
         $this->definitions['default'] = [
-            'host' => 'localhost',
-            'port' => '3306',
-            'name' => 'placement_portal_v2',
-            'user' => 'root',
-            'pass' => ''
+            'host' => getenv('DB_HOST') ?: 'localhost',
+            'port' => getenv('DB_PORT') ?: '3306',
+            'name' => getenv('DB_NAME') ?: 'lakshya',
+            'user' => getenv('DB_USER') ?: 'root',
+            'pass' => getenv('DB_PASS') ?: ''
         ];
 
     //$this->definitions['gmu'] = [
