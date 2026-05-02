@@ -105,10 +105,17 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
         $completions[$row['student_id']] = $row;
     }
 
+    // Check if task is expired
+    $isExpired = strtotime($viewingTask['deadline']) < time();
+
     // Merge completion data with student data
     foreach ($allStudents as &$student) {
         $completion = $completions[$student['student_id']] ?? null;
-        $student['status'] = $completion ? 'completed' : 'pending';
+        if ($completion) {
+            $student['status'] = 'completed';
+        } else {
+            $student['status'] = $isExpired ? 'missed' : 'pending';
+        }
         $student['score'] = $completion['score'] ?? null;
         $student['completed_at'] = $completion['completed_at'] ?? null;
         $student['time_taken'] = $completion['time_taken'] ?? null;
@@ -387,6 +394,11 @@ foreach ($tasks as &$task) {
             color: #856404;
         }
 
+        .status-missed {
+            background: #ffebee;
+            color: #c62828;
+        }
+
         .score-badge {
             padding: 4px 12px;
             border-radius: 6px;
@@ -452,6 +464,7 @@ foreach ($tasks as &$task) {
                         <button class="filter-tab active" onclick="filterTable('all')">All</button>
                         <button class="filter-tab" onclick="filterTable('completed')">Completed</button>
                         <button class="filter-tab" onclick="filterTable('pending')">Pending</button>
+                        <button class="filter-tab" onclick="filterTable('missed')" style="color: #c62828;">Missed</button>
                     </div>
                 </div>
 
@@ -495,7 +508,11 @@ foreach ($tasks as &$task) {
                                 <td><?php echo $student['cgpa'] ? number_format($student['cgpa'], 2) : 'N/A'; ?></td>
                                 <td>
                                     <span class="status-badge status-<?php echo $student['status']; ?>">
-                                        <?php echo $student['status'] === 'completed' ? '✅ Completed' : '⏳ Pending'; ?>
+                                        <?php 
+                                            if ($student['status'] === 'completed') echo '✅ Completed';
+                                            elseif ($student['status'] === 'missed') echo '❌ Missed';
+                                            else echo '⏳ Pending';
+                                        ?>
                                     </span>
                                 </td>
                                 <td>
@@ -559,7 +576,7 @@ foreach ($tasks as &$task) {
                                 <?php if ($task['company_name']): ?>
                                     <i class="fas fa-building"></i> <?php echo htmlspecialchars($task['company_name']); ?><br>
                                 <?php endif; ?>
-                                <i class="fas fa-calendar"></i> Due: <?php echo date('d M Y', strtotime($task['deadline'])); ?>
+                                <i class="fas fa-calendar"></i> Due: <?php echo date('d M Y, h:i A', strtotime($task['deadline'])); ?>
                             </div>
 
                             <div class="completion-bar">

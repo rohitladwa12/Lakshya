@@ -335,13 +335,21 @@ $redirectPage = $redirectPages[$task['task_type']] ?? 'dashboard.php';
                 </div>
                 <?php endif; ?>
 
+                <?php $isExpired = $deadline < $now; ?>
                 <form method="POST" action="<?php echo $redirectPage; ?>">
                     <input type="hidden" name="company" value="<?php echo htmlspecialchars($task['company_name'] ?: 'General'); ?>">
                     <input type="hidden" name="task_id" value="<?php echo $taskId; ?>">
-                    <button type="submit" class="btn-start" style="width:100%; cursor:pointer;">
-                        <i class="fas fa-play-circle"></i>
-                        Start Assessment
-                    </button>
+                    <?php if ($isExpired): ?>
+                        <button type="button" class="btn-start" style="width:100%; cursor:not-allowed; background: #64748b; opacity: 0.7;" disabled>
+                            <i class="fas fa-clock-rotate-left"></i>
+                            DEADLINE EXPIRED
+                        </button>
+                    <?php else: ?>
+                        <button type="submit" class="btn-start" style="width:100%; cursor:pointer;">
+                            <i class="fas fa-play-circle"></i>
+                            Start Assessment
+                        </button>
+                    <?php endif; ?>
                 </form>
             </div>
         <?php endif; ?>

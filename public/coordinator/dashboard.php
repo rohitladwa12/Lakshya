@@ -185,7 +185,7 @@ $studentCount = count($students);
                 <div class="action-desc">Assign assessments to students</div>
             </a>
 
-            <a href="analytics.php" class="action-card secondary">
+            <a href="analytics.php?reset=1" class="action-card secondary">
                 <div class="action-icon"><i class="fas fa-chart-pie"></i></div>
                 <div class="action-title">Department Analytics</div>
                 <div class="action-desc">Track department progress</div>

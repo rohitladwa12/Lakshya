@@ -574,6 +574,14 @@ class PlacementOfficer extends Model {
     }
 
     /**
+     * Backward compatibility wrapper for getUnifiedAIReports
+     */
+    public function getUnifiedAIReports($filters = []) {
+        // Redirect to paged version with a high limit to mimic legacy behavior
+        return $this->getUnifiedAIReportsPaged($filters, 1, 1000);
+    }
+
+    /**
      * Get Unified AI Assessment Reports (PAGED)
      */
     public function getUnifiedAIReportsPaged($filters = [], $page = 1, $limit = 15) {

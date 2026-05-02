@@ -229,7 +229,7 @@ $officerModel = new PlacementOfficer();
 $semester_filter = getCoordinatorSemesterFilters($department);
 $reportFilters = ['department' => $department, 'semesters' => $semester_filter];
 if ($instFilter) $reportFilters['institution'] = $instFilter;
-$aiReports = $officerModel->getUnifiedAIReports($reportFilters);
+// AI reports are loaded dynamically via AJAX in the student modal for this section.
 
 function findStudentReportsCoord($usn) {
     $reports = [];

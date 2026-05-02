@@ -54,7 +54,7 @@ try {
 
     // AI Reports from Placement Officer logic
     $officerModel = new PlacementOfficer();
-    $aiData = $officerModel->getUnifiedAIReports(['usn' => $usn, 'institution' => $institution]);
+    $aiData = $officerModel->getUnifiedAIReportsPaged(['usn' => $usn, 'institution' => $institution]);
     
     // Find physical PDF reports from various possible directories
     $findPdfs = function($u) {

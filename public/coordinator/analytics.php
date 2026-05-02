@@ -22,6 +22,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     exit;
 }
 
+// Handle GET Reset
+if (isset($_GET['reset'])) {
+    SessionFilterHelper::clearFilters($pageId);
+    header("Location: analytics.php");
+    exit;
+}
+
 $filters = SessionFilterHelper::getFilters($pageId);
 
 $fullName = getFullName();
@@ -122,8 +129,10 @@ if (!empty($studentIds)) {
                 'title' => ucfirst($type) . " Assessment Overview",
                 'completed_list' => [],
                 'pending_list' => [],
+                'missed_list' => [],
                 'unique_assigned' => [],
-                'unique_completed' => []
+                'unique_completed' => [],
+                'unique_missed' => []
             ];
         }
 
@@ -157,10 +166,14 @@ if (!empty($studentIds)) {
             $sDet['task_title'] = $task['title'];
             $sDet['assigned_at'] = $task['created_at'];
 
+            $isExpired = strtotime($task['deadline']) < time();
             if (isset($completeMap[$ru])) {
                 $sDet['score'] = $completeMap[$ru]['score'];
                 $tasksDataMap[$type]['completed_list'][$ru . '_' . $taskId] = $sDet;
                 $tasksDataMap[$type]['unique_completed'][$ru] = true;
+            } else if ($isExpired) {
+                $tasksDataMap[$type]['missed_list'][$ru . '_' . $taskId] = $sDet;
+                $tasksDataMap[$type]['unique_missed'][$ru] = true;
             } else {
                 $tasksDataMap[$type]['pending_list'][$ru . '_' . $taskId] = $sDet;
             }
@@ -172,13 +185,16 @@ if (!empty($studentIds)) {
     foreach ($tasksDataMap as $type => $data) {
         $totalAssigned = count($data['unique_assigned']);
         $totalCompleted = count($data['unique_completed']);
+        $totalMissed = count($data['unique_missed']);
         $tasksData[] = [
             'type' => $type,
             'title' => $data['title'],
             'total' => $totalAssigned,
             'completed' => $totalCompleted,
+            'missed' => $totalMissed,
             'completed_list' => array_values($data['completed_list']),
             'pending_list' => array_values($data['pending_list']),
+            'missed_list' => array_values($data['missed_list']),
             'percentage' => $getPercentage($totalCompleted, $totalAssigned)
         ];
     }
@@ -186,11 +202,11 @@ if (!empty($studentIds)) {
     // --- Export Logic (Excel & PDF) ---
     if (isset($filters['export']) || isset($filters['pdf']) || isset($filters['pending_pdf'])) {
         $isPdf = isset($filters['pdf']) || isset($filters['pending_pdf']);
-        $isPendingOnly = isset($filters['pending_pdf']);
+        $isMissedOnly = isset($filters['missed_pdf']);
         $pendingType = $filters['type'] ?? null;
         
         // Consume export triggers
-        SessionFilterHelper::setFilters($pageId, array_diff_key($filters, ['export'=>1, 'pdf'=>1, 'pending_pdf'=>1, 'type'=>1]));
+        SessionFilterHelper::setFilters($pageId, array_diff_key($filters, ['export'=>1, 'pdf'=>1, 'missed_pdf'=>1, 'type'=>1]));
         
         if (!$isPdf) {
             ob_clean();
@@ -260,10 +276,10 @@ if (!empty($studentIds)) {
             <body>
                 <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
                 <div class="report-header">
-                    <h1><?php echo $isPendingOnly ? "Pending Students Report" : "Department Analytics Report"; ?></h1>
-                    <p>Department: <?php echo htmlspecialchars($deptLabel); ?> <?php if ($instFilter !== 'all') echo " | Institution: " . $instFilter; ?></p>
-                    <?php if ($isPendingOnly && $pendingType): ?>
-                        <p style="font-weight: 700; color: #dc2626;">Filter: Only Pending <?php echo ucfirst($pendingType); ?> Tasks</p>
+                    <h1><?php echo $isMissedOnly ? "Missed Students Report" : "Department Analytics Report"; ?></h1>
+                    <p>Generated on <?php echo date('d M Y'); ?> for <?php echo htmlspecialchars($deptLabel); ?></p>
+                    <?php if ($isMissedOnly && $pendingType): ?>
+                        <p style="font-weight: 700; color: #dc2626;">Filter: Only Missed <?php echo ucfirst($pendingType); ?> Tasks</p>
                     <?php endif; ?>
                     <p>Total Students: <?php echo $studentCount; ?> | Date: <?php echo date('d M Y'); ?></p>
                 </div>
@@ -311,7 +327,7 @@ if (!empty($studentIds)) {
                                 <th>Type</th>
                                 <th>Assigned</th>
                                 <th>Completed</th>
-                                <th>Pending</th>
+                                <th>Missed</th>
                                 <th>Rate</th>
                             </tr>
                         </thead>
@@ -322,7 +338,7 @@ if (!empty($studentIds)) {
                                 <td><?php echo ucfirst($td['type']); ?></td>
                                 <td><?php echo $td['total']; ?></td>
                                 <td style="color: #16a34a; font-weight: 700;"><?php echo $td['completed']; ?></td>
-                                <td style="color: #dc2626;"><?php echo count($td['pending_list']); ?></td>
+                                <td style="color: #dc2626; font-weight: 700;"><?php echo count($td['pending_list']) + $td['missed']; ?></td>
                                 <td><?php echo $td['percentage']; ?>%</td>
                             </tr>
                             <?php endforeach; ?>
@@ -352,16 +368,18 @@ if (!empty($studentIds)) {
                 <?php foreach ($students as $s): 
                     $usn = $s['usn'];
                     
-                    // If Pending Only mode, skip students who have completed the task
-                    if ($isPendingOnly && $pendingType) {
-                        $isPending = false;
-                        foreach ($tasksDataMap[$pendingType]['pending_list'] ?? [] as $pl) {
+                    // If Missed Only mode, skip students who have completed the task
+                    if ($isMissedOnly && $pendingType) {
+                        $isMissed = false;
+                        // Check both pending and missed lists as both are "not completed"
+                        $combinedMissing = array_merge($tasksDataMap[$pendingType]['pending_list'] ?? [], $tasksDataMap[$pendingType]['missed_list'] ?? []);
+                        foreach ($combinedMissing as $pl) {
                             if ($pl['usn'] === $usn) {
-                                $isPending = true;
+                                $isMissed = true;
                                 break;
                             }
                         }
-                        if (!$isPending) continue;
+                        if (!$isMissed) continue;
                     }
 
                     $displaySem = ($s['semester'] ?? null) ?: ($gmitSems[$usn] ?? '-');
@@ -701,8 +719,8 @@ endif; ?>
                             <div style="font-size: 10px; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px;">DONE</div>
                         </div>
                         <div style="padding-left: 24px; border-left: 1px solid #f1f5f9;">
-                            <div style="font-size: 20px; font-weight: 800; color: #ef4444;"><?php echo count($task['pending_list']); ?></div>
-                            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px;">PENDING</div>
+                            <div style="font-size: 20px; font-weight: 800; color: #ef4444;"><?php echo count($task['pending_list']) + $task['missed']; ?></div>
+                            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px;">MISSED</div>
                         </div>
                         <div style="padding-left: 24px; border-left: 1px solid #f1f5f9;">
                             <div style="font-size: 20px; font-weight: 800; color: var(--text-main);"><?php echo $task['total']; ?></div>
@@ -715,13 +733,9 @@ endif; ?>
                     </div>
                     
                     <div style="display: flex; gap: 10px;">
-                        <form method="POST" target="_blank" style="width: 100%;">
-                            <input type="hidden" name="pending_pdf" value="1">
-                            <input type="hidden" name="type" value="<?php echo $task['type']; ?>">
-                            <button type="submit" style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #e2e8f0; background: #fff; color: var(--text-main); font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;">
-                                <i class="fas fa-list-check"></i> View Detailed Breakdown
-                            </button>
-                        </form>
+                        <button onclick="showTaskDetails('<?php echo $task['type']; ?>')" style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #e2e8f0; background: #fff; color: var(--text-main); font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                            <i class="fas fa-list-check"></i> View Detailed Breakdown
+                        </button>
                     </div>
                 </div>
                 <?php endforeach; ?>
@@ -791,8 +805,8 @@ endif; ?>
                                 <p style="font-size: 14px; color: var(--text-muted);"><?php echo $task['total']; ?> Total Assignments</p>
                             </div>
                             <div style="display: flex; gap: 10px;">
-                                <a href="?pending_pdf=1&type=<?php echo $task['type']; ?>&inst=<?php echo $instFilter; ?>" target="_blank" style="padding: 8px 16px; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; border-radius: 8px; font-size: 12px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 6px;">
-                                    <i class="fas fa-file-pdf"></i> Download Pending List
+                                <a href="?missed_pdf=1&type=<?php echo $task['type']; ?>&inst=<?php echo $instFilter; ?>" target="_blank" style="padding: 8px 16px; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; border-radius: 8px; font-size: 12px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 6px;">
+                                    <i class="fas fa-file-pdf"></i> Download Missed List
                                 </a>
                                 <button onclick="hideTaskDetails('<?php echo $task['type']; ?>')" style="background: #f1f5f9; border: none; width: 40px; height: 40px; border-radius: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s;">
                                     <i class="fas fa-times"></i>
@@ -808,8 +822,8 @@ endif; ?>
                                     <div style="font-size: 24px; font-weight: 800; color: #166534;"><?php echo $task['completed']; ?></div>
                                 </div>
                                 <div style="background: #fff5f5; padding: 15px; border-radius: 16px; border: 1px solid #fee2e2; text-align: center;">
-                                    <h4 style="font-size: 11px; color: #991b1b; text-transform: uppercase;">Pending</h4>
-                                    <div style="font-size: 24px; font-weight: 800; color: #991b1b;"><?php echo count($task['pending_list']); ?></div>
+                                    <h4 style="font-size: 11px; color: #991b1b; text-transform: uppercase;">Missed</h4>
+                                    <div style="font-size: 24px; font-weight: 800; color: #991b1b;"><?php echo count($task['pending_list']) + $task['missed']; ?></div>
                                 </div>
                                 <div style="background: #f8fafc; padding: 15px; border-radius: 16px; border: 1px solid #e2e8f0; text-align: center;">
                                     <h4 style="font-size: 11px; color: #475569; text-transform: uppercase;">Rate</h4>
@@ -843,7 +857,22 @@ endif; ?>
                                         <td style="padding: 12px; font-weight: 700; color: #166534;">Score: <?php echo $s['score'] ?: 'N/A'; ?></td>
                                     </tr>
                                     <?php endforeach; ?>
-
+                                    <?php foreach ($task['missed_list'] as $s): ?>
+                                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                                        <td style="padding: 12px;">
+                                            <div style="font-weight: 600; font-size: 14px;"><?php echo htmlspecialchars($s['name']); ?></div>
+                                            <div style="font-size: 11px; color: var(--text-muted);"><?php echo $s['usn']; ?></div>
+                                        </td>
+                                        <td style="padding: 12px; font-size: 13px;">
+                                            <div><?php echo htmlspecialchars($s['task_title']); ?></div>
+                                            <div style="font-size: 10px; color: var(--text-muted);"><?php echo date('d M Y', strtotime($s['assigned_at'])); ?></div>
+                                        </td>
+                                        <td style="padding: 12px;">
+                                            <span style="background: #ffebee; color: #c62828; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;">MISSED</span>
+                                        </td>
+                                        <td style="padding: 12px;">-</td>
+                                    </tr>
+                                    <?php endforeach; ?>
                                     <?php foreach ($task['pending_list'] as $s): ?>
                                     <tr style="border-bottom: 1px solid #f1f5f9;">
                                         <td style="padding: 12px;">
@@ -855,9 +884,9 @@ endif; ?>
                                             <div style="font-size: 10px; color: var(--text-muted);"><?php echo date('d M Y', strtotime($s['assigned_at'])); ?></div>
                                         </td>
                                         <td style="padding: 12px;">
-                                            <span style="background: #fee2e2; color: #991b1b; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;">PENDING</span>
+                                            <span style="background: #fff3cd; color: #856404; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;">MISSED</span>
                                         </td>
-                                        <td style="padding: 12px; font-size: 12px; color: #991b1b;">Waiting...</td>
+                                        <td style="padding: 12px;">-</td>
                                     </tr>
                                     <?php endforeach; ?>
                                 </tbody>

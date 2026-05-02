@@ -27,7 +27,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
     $taskType = $_POST['task_type'];
     $companyName = $_POST['company_name'] ?? '';
     $questionSource = $_POST['question_source'] ?? 'ai';
-    $deadline = $_POST['deadline'];
+    $deadlineDate = $_POST['deadline_date'] ?? '';
+    $hour = (int)($_POST['deadline_hour'] ?? 0);
+    $minute = (int)($_POST['deadline_minute'] ?? 0);
+    $ampm = $_POST['deadline_ampm'] ?? 'AM';
+
+    if ($ampm === 'PM' && $hour < 12) $hour += 12;
+    if ($ampm === 'AM' && $hour === 12) $hour = 0;
+    $deadline = $deadlineDate . ' ' . str_pad($hour, 2, '0', STR_PAD_LEFT) . ':' . str_pad($minute, 2, '0', STR_PAD_LEFT) . ':00';
     
     $assignedCount = 0;
     $skippedCount = 0;
@@ -695,7 +702,26 @@ function buildUrl($key, $val) {
 
                 <div class="form-group" style="margin-bottom: 20px;">
                     <label style="display:block; margin-bottom: 8px; font-weight: 600;">Deadline *</label>
-                    <input type="datetime-local" name="deadline" class="form-input" style="width: 100%;" required>
+                    <div style="display: flex; gap: 10px;">
+                        <input type="date" name="deadline_date" class="form-input" style="flex: 2;" required>
+                        <div style="display: flex; gap: 5px; flex: 3; align-items: center;">
+                            <select name="deadline_hour" class="form-select" style="width: 70px; text-align: center;" required>
+                                <?php for($i=1; $i<=12; $i++): ?>
+                                    <option value="<?php echo $i; ?>"><?php echo str_pad($i, 2, '0', STR_PAD_LEFT); ?></option>
+                                <?php endfor; ?>
+                            </select>
+                            <span>:</span>
+                            <select name="deadline_minute" class="form-select" style="width: 70px; text-align: center;" required>
+                                <?php for($i=0; $i<60; $i+=5): ?>
+                                    <option value="<?php echo $i; ?>"><?php echo str_pad($i, 2, '0', STR_PAD_LEFT); ?></option>
+                                <?php endfor; ?>
+                            </select>
+                            <select name="deadline_ampm" class="form-select" style="width: 80px;">
+                                <option value="AM">AM</option>
+                                <option value="PM">PM</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="modal-actions">
