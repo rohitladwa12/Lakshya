@@ -8,6 +8,7 @@ requireLogin();
 if (isPost() && (isset($_POST['company']) || isset($_POST['task_id']))) {
     SessionFilterHelper::setFilters('ai_hr_round', [
         'company' => $_POST['company'] ?? 'General',
+        'concept' => $_POST['concept'] ?? '',
         'task_id' => $_POST['task_id'] ?? 0
     ]);
     header("Location: ai_hr_round.php");

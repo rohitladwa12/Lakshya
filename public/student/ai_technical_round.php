@@ -8,6 +8,7 @@ requireLogin();
 if (isPost() && (isset($_POST['company']) || isset($_POST['task_id']))) {
     SessionFilterHelper::setFilters('ai_technical_round', [
         'company' => $_POST['company'] ?? 'General',
+        'concept' => $_POST['concept'] ?? '',
         'task_id' => $_POST['task_id'] ?? 0
     ]);
     header("Location: ai_technical_round.php");
@@ -224,7 +225,7 @@ $taskId = $filters['task_id'] ?? 0;
             <p style="color: #aaa; margin: 20px 0;">
                 Prepare for a rigorous technical assessment.<br>
                 The AI interviewer is strict and expects precise answers.<br>
-                You will face both <strong>Conceptual</strong> questions and <strong>Coding Challenges</strong>.
+                You will face both <strong>Conceptual</strong> questions and <strong>Practical Industry Scenarios</strong>.
             </p>
             <div style="margin-bottom: 20px;">
                 <input type="text" id="roleInput" placeholder="Enter specific role (e.g. Backend Dev)" value="Software Engineer" 

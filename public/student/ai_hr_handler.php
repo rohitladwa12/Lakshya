@@ -57,6 +57,7 @@ switch ($action) {
                 'started_at' => $session['started_at'],
                 'elapsed_seconds' => time() - strtotime($session['started_at']),
                 'role' => $details['role'] ?? 'Software Engineer',
+                'concept' => $details['concept'] ?? '',
                 'history' => $details['history'] ?? []
             ]);
         } else {
@@ -67,6 +68,7 @@ switch ($action) {
     case 'start_session':
         $role = $input['role'] ?? 'Software Engineer';
         $company = $input['company'] ?? 'General';
+        $concept = $input['concept'] ?? '';
         
         // Fetch student profile and portfolio projects
         $profile = $studentModel->getByUserId($userId);
@@ -105,6 +107,7 @@ switch ($action) {
             $company,
             json_encode([
                 'role' => $role, 
+                'concept' => $concept,
                 'history' => [],
                 'projects' => $projects,
                 'task_id' => $input['task_id'] ?? null
@@ -131,6 +134,7 @@ switch ($action) {
         $details = json_decode($session['details'], true);
         $history = $details['history'] ?? [];
         $role = $details['role'];
+        $concept = $details['concept'] ?? '';
         $projects = $details['projects'] ?? [];  // Extract projects
 
         // Append user voice transcript if exists
@@ -142,7 +146,7 @@ switch ($action) {
         }
 
         // Get AI HR Question with project context using Queue
-        $jobId = \App\Services\QueueService::pushJob('getHRQuestion', [$role, $history, $projects], $userId);
+        $jobId = \App\Services\QueueService::pushJob('getHRQuestion', [$role, $history, $projects, $concept], $userId);
         
         // Return job_id to the frontend
         ob_clean(); echo json_encode([
@@ -183,9 +187,10 @@ switch ($action) {
         
         $details = json_decode($session['details'], true);
         $role = $details['role'];
+        $concept = $details['concept'] ?? '';
         $history = $details['history'];
         $taskId = $details['task_id'] ?? null;
-
+        
         // Check Minimum Time Requirement (20 mins = 1200 seconds) for assigned tasks
         if ($taskId) {
             $startTime = strtotime($session['started_at']);
@@ -197,10 +202,10 @@ switch ($action) {
                 exit;
             }
         }
-
+        
         // Generate HR Report via AI
         session_write_close();
-        $reportRes = $ai->generateHRReport($role, $history);
+        $reportRes = $ai->generateHRReport($role, $history, $concept);
         
         if ($reportRes['success']) {
             // Strip markdown JSON block if AI hallucinated it

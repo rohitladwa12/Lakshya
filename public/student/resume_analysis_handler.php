@@ -15,9 +15,10 @@ $action = post('action');
 
 if ($action === 'submit_analysis') {
     $resumeText = '';
+    $jobDescription = post('job_description'); 
     $targetRole = post('target_role') ?: 'Software Engineer';
     
-    // 1. Text Extraction (Done here because it's required for caching check)
+    // 1. Text Extraction
     if (!empty($_FILES['resume_pdf']['name'])) {
         $fileTmpPath = $_FILES['resume_pdf']['tmp_name'];
         $fileType = $_FILES['resume_pdf']['type'];
@@ -47,10 +48,11 @@ if ($action === 'submit_analysis') {
         exit;
     }
 
-    // 2. Check Cache First (Save AI cost and Job time)
+    // 2. Check Cache First
     require_once __DIR__ . '/../../src/Models/Resume.php';
     $resumeModel = new Resume();
-    $cached = $resumeModel->getCachedAnalysis($userId, $resumeText);
+    $cacheKey = $resumeText . ($jobDescription ?: $targetRole);
+    $cached = $resumeModel->getCachedAnalysis($userId, $cacheKey);
     
     if ($cached) {
         $cached['metadata']['is_cached'] = true;
@@ -59,8 +61,10 @@ if ($action === 'submit_analysis') {
     }
 
     // 3. Push to Queue
-    // Method: analyzeResumeSequence(int $userId, string $resumeText, string $targetRole)
-    $jobId = \App\Services\QueueService::pushJob('analyzeResumeSequence', [$userId, $resumeText, $targetRole], $userId);
+    $method = $jobDescription ? 'analyzeResumeWithJD' : 'analyzeResumeSequence';
+    $args = $jobDescription ? [$userId, $resumeText, $jobDescription] : [$userId, $resumeText, $targetRole];
+    
+    $jobId = \App\Services\QueueService::pushJob($method, $args, $userId);
 
     if ($jobId) {
         echo json_encode(['success' => true, 'job_id' => $jobId]);

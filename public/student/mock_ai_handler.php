@@ -55,11 +55,12 @@ switch ($action) {
     case 'start':
         $role = $input['role'] ?? 'AI Engineer';
         $company = $input['company'] ?? 'General';
+        $concept = $input['concept'] ?? '';
         $type = $input['type'] ?? 'Technical';
         $institution = getInstitution() ?: 'GMU';
-        $sql = "INSERT INTO mock_ai_interview_sessions (student_id, role_name, status, institution) VALUES (?, ?, 'active', ?)";
+        $sql = "INSERT INTO mock_ai_interview_sessions (student_id, role_name, status, institution, concept) VALUES (?, ?, 'active', ?, ?)";
         $stmt = $db->prepare($sql);
-        $stmt->execute([$studentIdForDb, $role, $institution]);
+        $stmt->execute([$studentIdForDb, $role, $institution, $concept]);
         $sessionId = $db->lastInsertId();
 
         // Log session start
@@ -104,6 +105,7 @@ switch ($action) {
         }
         
         $role = $session['role_name'];
+        $concept = $session['concept'] ?? '';
         $type = $input['type'] ?? 'Technical';
         $history = json_decode($session['conversation_history'], true) ?: [];
         $history[] = ['role' => 'user', 'content' => $userMessage];
@@ -125,7 +127,7 @@ switch ($action) {
         }
 
         session_write_close();
-        $response = $aiService->getTechnicalInterviewResponse($role, $history, $profile, '', $type, $projects, $aptitudeQuestions);
+        $response = $aiService->getTechnicalInterviewResponse($role, $history, $profile, '', $type, $projects, $aptitudeQuestions, $concept);
         
         if ($response['success']) {
             $aiContent = $response['content'];
@@ -143,7 +145,7 @@ switch ($action) {
 
             if ($isEnd && $hasEngagement) {
                 session_write_close();
-                $reportRes = $aiService->generateTechnicalInterviewReport($role, $history, $type);
+                $reportRes = $aiService->generateTechnicalInterviewReport($role, $history, $type, $concept);
                 if ($reportRes['success']) {
                     $reportContent = $reportRes['content'];
                     $overallScore = $reportRes['overall_score'] ?? null;
@@ -270,6 +272,7 @@ switch ($action) {
         }
 
         $role = $session['role_name'];
+        $concept = $session['concept'] ?? '';
         $history = json_decode($session['conversation_history'], true) ?: [];
         $completedAt = date('Y-m-d H:i:s');
         
@@ -292,7 +295,7 @@ switch ($action) {
         $overallScore = null;
         $type = $input['type'] ?? 'Technical';
         
-        $reportRes = $aiService->generateTechnicalInterviewReport($role, $history, $type);
+        $reportRes = $aiService->generateTechnicalInterviewReport($role, $history, $type, $concept);
         if ($reportRes['success']) {
             $reportContent = $reportRes['content'];
             $overallScore = $reportRes['overall_score'] ?? null;

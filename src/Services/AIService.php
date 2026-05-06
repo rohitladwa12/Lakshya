@@ -310,12 +310,205 @@ Output Format (JSON):
     }
 
     /**
+     * Advanced ATS Resume Analysis based on strict logic-based criteria.
+     * Implements Keyword matching, Experience relevance, Project relevance, and Formatting clarity.
+     * 
+     * @param string $resumeText Raw resume text
+     * @param string $jobDescription Raw job description text
+     * @return array
+     */
+    public function advancedATSAnalysis($resumeText, $jobDescription) {
+        $systemPrompt = "You are an advanced ATS (Applicant Tracking System) resume analyzer designed to evaluate student resumes with strict, logic-based criteria.
+
+You do NOT behave like a human recruiter. You behave like a deterministic system focused on keyword matching, structure validation, and impact analysis.
+
+-----------------------------------
+STEP 1: STRUCTURE EXTRACTION
+-----------------------------------
+Extract resume into structured JSON:
+{
+  \"name\": \"\",
+  \"skills\": [],
+  \"education\": [],
+  \"experience\": [
+    {
+      \"role\": \"\",
+      \"company\": \"\",
+      \"bullets\": []
+    }
+  ],
+  \"projects\": [
+    {
+      \"name\": \"\",
+      \"description\": \"\"
+    }
+  ]
+}
+Rules:
+- Do NOT invent data
+- If missing, leave empty
+- Normalize skills to lowercase
+
+-----------------------------------
+STEP 2: JOB KEYWORD ANALYSIS
+-----------------------------------
+Extract and categorize keywords from job description:
+{
+  \"core_skills\": [],
+  \"tools\": [],
+  \"role_terms\": [],
+  \"soft_skills\": []
+}
+Rules:
+- Prioritize frequently repeated terms
+- Ignore generic words like \"good\", \"team\", etc.
+
+-----------------------------------
+STEP 3: MATCHING ENGINE
+-----------------------------------
+Perform strict comparison:
+1. Exact keyword match
+2. Context match:
+   - Skill present in skills section only → weak
+   - Skill used in experience/projects → strong
+
+Output:
+{
+  \"matched_keywords\": [],
+  \"missing_keywords\": [],
+  \"weak_matches\": []
+}
+
+-----------------------------------
+STEP 4: SCORING SYSTEM
+-----------------------------------
+Calculate ATS score (0–100) using:
+- 40% keyword match
+- 30% experience relevance
+- 20% project relevance
+- 10% formatting clarity
+
+Penalties:
+- -10 for vague bullets (no action verb)
+- -10 for no measurable impact
+- -15 for keyword stuffing
+- -10 for inconsistent structure
+
+-----------------------------------
+STEP 5: QUALITY CHECKS
+-----------------------------------
+Detect:
+1. Fluff words: [\"hardworking\", \"passionate\", \"team player\"]
+2. Fake skills: Skill listed but not used anywhere
+3. Role confusion: Too many unrelated domains
+4. Weak bullets: No action verb, No measurable result
+
+-----------------------------------
+STEP 6: BULLET IMPROVEMENT ENGINE
+-----------------------------------
+Rewrite weak bullets using:
+Format: [ACTION VERB] + [WHAT YOU DID] + [TECH USED] + [IMPACT/METRIC]
+
+-----------------------------------
+STEP 7: FINAL OUTPUT (STRICT JSON)
+-----------------------------------
+{
+  \"ats_score\": 0,
+  \"matched_keywords\": [],
+  \"missing_keywords\": [],
+  \"weak_matches\": [],
+  \"section_scores\": {
+    \"skills\": 0,
+    \"experience\": 0,
+    \"projects\": 0,
+    \"formatting\": 0
+  },
+  \"issues\": [],
+  \"red_flags\": [],
+  \"suggestions\": [],
+  \"improved_bullets\": [
+    {
+      \"original\": \"\",
+      \"improved\": \"\"
+    }
+  ]
+}
+
+RULES:
+- Never hallucinate experience or skills
+- Be strict and critical in scoring
+- Prefer exact keyword matching
+- Penalize vague and generic resumes heavily
+- Output must ALWAYS be valid JSON";
+
+        $messages = [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => "RESUME TEXT:\n$resumeText\n\nJOB DESCRIPTION:\n$jobDescription"]
+        ];
+
+        $response = $this->callAPI($messages, [
+            'response_format' => ['type' => 'json_object'],
+            'temperature' => 0.2 // Lower temperature for more deterministic output
+        ]);
+
+        if ($response['success']) {
+            return json_decode($response['content'], true);
+        }
+
+        return $response;
+    }
+
+    /**
+     * Integrated ATS Analysis Sequence
+     */
+    public function analyzeResumeWithJD($userId, $resumeText, $jobDescription) {
+        try {
+            $atsResult = $this->advancedATSAnalysis($resumeText, $jobDescription);
+            
+            if (isset($atsResult['ats_score'])) {
+                // Wrap it in a success response compatible with existing UI
+                $analysis = [
+                    'score' => $atsResult['ats_score'],
+                    'matched_keywords' => $atsResult['matched_keywords'],
+                    'missing_keywords' => $atsResult['missing_keywords'],
+                    'weak_matches' => $atsResult['weak_matches'],
+                    'section_scores' => $atsResult['section_scores'],
+                    'issues' => $atsResult['issues'],
+                    'red_flags' => $atsResult['red_flags'],
+                    'suggestions' => $atsResult['suggestions'],
+                    'improved_bullets' => $atsResult['improved_bullets'],
+                    'metadata' => [
+                        'parsed_at' => date('Y-m-d H:i:s'),
+                        'is_cached' => false,
+                        'type' => 'advanced_ats'
+                    ]
+                ];
+
+                // Cache it
+                require_once __DIR__ . '/../../src/Models/Resume.php';
+                $resumeModel = new Resume();
+                $resumeModel->cacheAnalysis($userId, $resumeText . $jobDescription, $analysis);
+
+                return [
+                    'success' => true,
+                    'result' => $analysis
+                ];
+            }
+
+            return ['success' => false, 'message' => 'Failed to generate ATS analysis.'];
+        } catch (Exception $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
      * Get a response for the Mock Interview (Student-Choice Question System)
      * Persona: Rude, Direct, Expert Phrasing
      * Question Types: Aptitude, Technical, HR (Student chooses)
      */
-    public function getTechnicalInterviewResponse($domain, $history, $profile, $userMessage, $type = null, $projects = [], $aptitudeQuestions = [])
+    public function getTechnicalInterviewResponse($domain, $history, $profile, $userMessage, $type = null, $projects = [], $aptitudeQuestions = [], $concept = null)
     {
+        $conceptContext = $concept ? " The candidate is applying for a role specifically focused on: '**{$concept}**'." : "";
         $sgpa = $profile['sgpa'] ?? 0;
         $randomSeed = substr(md5(microtime()), 0, 8);
         
@@ -389,8 +582,12 @@ Output Format (JSON):
         // Reorder flow to put selected type first if available
         $flow = [
             'Aptitude' => "10 to 15 logic/MCQ questions using the bank.",
-            'Technical' => "Open-ended questions (NO MCQs) tailored strictly to the role: **{$domain}**. 5 conceptual deep-dives followed by 5 coding-based challenges.",
-            'HR' => "Open-ended behavioral questions (NO MCQs). 5 questions focusing on situational logic and personal projects."
+            'Technical' => "Open-ended questions (NO MCQs) tailored strictly to the role: **{$domain}**.{$conceptContext}
+            INSTRUCTIONS: 
+            - **For CS/IT:** 5 conceptual deep-dives followed by 5 coding challenges.
+            - **For Circuit Branches (ECE/EEE/Robotics):** 5 conceptual deep-dives followed by 5 practical hardware/low-level logic or circuit design challenges.
+            - **For Non-Technical (Civil, BCom, Mechanical):** 5 conceptual deep-dives followed by 5 practical industry scenarios or calculation problems (DO NOT ask for code).",
+            'HR' => "Open-ended behavioral questions (NO MCQs). 5 questions focusing on situational logic and personal projects.{$conceptContext}"
         ];
         
         $flowItems = "";
@@ -406,6 +603,7 @@ Output Format (JSON):
         }
 
         $systemPrompt = "You are an Elite AI Technical Interviewer at GM University (Lakshya Placement Portal). Your persona is Direct, Professional, and Firm.
+        {$conceptContext}
         $portfolioContext
         $aptitudeContext
 
@@ -458,8 +656,9 @@ STRICT RULES:
     /**
      * Generate a professional performance report after the interview
      */
-    public function generateTechnicalInterviewReport($domain, $history, $type = 'Mock')
+    public function generateTechnicalInterviewReport($domain, $history, $type = 'Mock', $concept = null)
     {
+        $conceptContext = $concept ? " The candidate was assessed for a role specifically focused on: '**{$concept}**'." : "";
         // Extract only content from history for the transcript
         $transcript = "";
         foreach ($history as $msg) {
@@ -490,7 +689,7 @@ STRICT RULES:
             $sectionalAnalysis .= "###  HR: [Score/10] - Feedback on behavioral and situational responses.\n";
         }
 
-        $systemPrompt = "You are a Senior Technical Career Coach. Generate a professional performance report for a " . ($isPureTechnical ? "DEEP TECHNICAL" : "{$domain}") . " interview.
+        $systemPrompt = "You are a Senior Technical Career Coach. Generate a professional performance report for a " . ($isPureTechnical ? "DEEP TECHNICAL" : "{$domain}") . " interview. {$conceptContext}
         
         Provide the response strictly as a JSON object with this structure:
         {
@@ -789,8 +988,9 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Get a Technical Question (Coding or Conceptual) for the new Technical Round
      */
-    public function getTechnicalQuestion($role, $history) {
-        $systemPrompt = "You are a Professional, Strict Technical Interviewer for the role of '{$role}'.
+    public function getTechnicalQuestion($role, $history, $concept = null) {
+        $conceptContext = $concept ? " Specifically focus on the technical concept or role of: '**{$concept}**'." : "";
+        $systemPrompt = "You are a Professional, Strict Technical Interviewer for the role of '{$role}'.{$conceptContext}
         
         YOUR GOAL: Conduct a high-quality technical screening. 
         
@@ -801,12 +1001,13 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
         2. **QUESTIONING:**
            - Start with conceptual questions.
            - Progressively increase difficulty.
-        3. **TRANSITION TO CODING:**
-           - **Rule:** Do NOT spring a coding question unannounced. Before giving a coding question, output `type: 'conceptual'` and ask: \"The next question is a coding challenge. Would you like to open the coding workspace?\"
-           - ONLY AFTER the user replies \"yes\" or \"ready\", output `type: 'coding'` with the actual challenge.
-        4. **CODING CHALLENGES (Type: 'coding'):**
-           - MUST provide a **Highly Detailed Problem Statement**. Do not be vague. Explain the scenario, the exact requirements, and what functions to implement.
-           - Provide explicit **Constraints** and multiple **Example Input/Output** pairs.
+           - **For Technical Roles (CS/IT/Software):** Follow the coding challenge flow.
+           - **For Circuit Branches (ECE/EEE/Robotics):** Present a mix of **Low-level Coding (C/Assembly/Verilog)** and **Circuit Design Scenarios**. Use the code workspace for hardware-related logic if appropriate.
+           - **For Non-Technical Roles (Civil, BCom, Mechanical, etc.):** Instead of 'coding', present a **'Practical Scenario'** or **'Complex Calculation'**. Ask: \"The next part is a practical industry scenario. Are you ready?\"
+           - ONLY AFTER the user replies \"yes\" or \"ready\", output `type: 'coding'` (for technical/circuit) or `type: 'conceptual'` (for non-technical) with the actual challenge.
+        4. **PRACTICAL CHALLENGES:**
+           - **Technical/Circuit:** Provide a Detailed Problem Statement, Constraints, and Examples. For ECE/EEE, focus on Embedded Systems, VLSI, or Signal Processing logic.
+           - **Non-Technical:** Provide a **Case Study, Site Scenario, or Financial Problem**. Ask for specific steps, calculations, or justifications. Do NOT force them to write code if the role is non-technical (e.g., Taxation, Site Engineering).
            - The 'question' field should just be a short heading.
         5. **FORMATTING:**
            - Use **Markdown** for clarity. Break long texts into paragraphs.
@@ -871,7 +1072,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Get HR Question (Behavioral)
      */
-    public function getHRQuestion($role, $history, $projects = []) {
+    public function getHRQuestion($role, $history, $projects = [], $concept = null) {
+        $conceptContext = $concept ? " The candidate is applying for a role specifically focused on: '**{$concept}**'." : "";
         // Build project context for AI
         $projectContext = "";
         if (!empty($projects)) {
@@ -906,7 +1108,7 @@ INSTRUCTIONS:
 5. Keep probing the same project until you are satisfied with their technical depth before moving to standard HR questions.\n";
         }
         
-        $systemPrompt = "You are an Expert HR Manager conducting a behavioral interview for the role of '{$role}'.
+        $systemPrompt = "You are an Expert HR Manager conducting a behavioral interview for the role of '{$role}'.{$conceptContext}
 {$projectContext}
         
         GOAL: Assess the candidate's soft skills, cultural fit, situational judgment, AND their technical decision-making through their projects.
@@ -945,8 +1147,9 @@ INSTRUCTIONS:
     /**
      * Generate HR Interview Report
      */
-    public function generateHRReport($role, $history) {
-        $systemPrompt = "You are a Senior Human Resources Director with 20 years of experience in technical recruitment. Generate an EXTREMELY COMPREHENSIVE, DETAILED behavioral and technical assessment report for a candidate applying for the role of '{$role}'.
+    public function generateHRReport($role, $history, $concept = null) {
+        $conceptContext = $concept ? " The candidate was assessed for a role specifically focused on: '**{$concept}**'." : "";
+        $systemPrompt = "You are a Senior Human Resources Director with 20 years of experience in technical recruitment. Generate an EXTREMELY COMPREHENSIVE, DETAILED behavioral and technical assessment report for a candidate applying for the role of '{$role}'. {$conceptContext}
         
         CRITERIA TO ANALYZE IN DEPTH:
         1. **Communication Skills**: Clarity, articulation, confidence, active listening, and ability to explain technical concepts

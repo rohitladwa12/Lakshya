@@ -146,15 +146,16 @@ $error = '';
                     <label>Upload Resume (PDF only)</label>
                     <div style="border: 2px dashed #ccc; padding: 30px; text-align: center; border-radius: 8px; cursor: pointer; position: relative;">
                         <p style="color: #666; margin-bottom: 5px;" id="file-label">Click to Upload PDF</p>
-                        <span style="font-size: 0.8rem; color: #999;">or paste text below</span>
                         <input type="file" name="resume_pdf" id="pdf_file" accept=".pdf" style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; opacity: 0; cursor: pointer; z-index: 10;" onchange="updateFileName(this)">
                     </div>
                 </div>
 
                 <div class="input-group">
-                    <label>Or Paste Raw Text</label>
-                    <textarea name="resume_text" class="form-control" rows="6" placeholder="Paste resume content here if you don't have a PDF..."></textarea>
+                    <label>Target Job Role or Description (Recommended)</label>
+                    <textarea name="job_description" class="form-control" rows="4" placeholder="Enter the target role (e.g. 'Java Developer') or paste a full Job Description here..."></textarea>
+                    <small style="color: #666; font-size: 0.75rem; margin-top: 5px; display: block;">Providing a specific role or JD enables strict keyword matching and relevance scoring.</small>
                 </div>
+
                 
                 <button type="submit" name="analyze" class="btn btn-primary" id="submit-btn">Running Analysis...</button>
             </form>
@@ -204,12 +205,12 @@ $error = '';
                     
                     <div class="metric-grid">
                         <div class="metric-box">
-                            <div class="val"><?php echo $analysis['scores_breakdown']['skills']; ?>%</div>
+                            <div class="val"><?php echo $analysis['scores_breakdown']['skills'] ?? $analysis['section_scores']['skills'] ?? 0; ?>%</div>
                             <div class="lbl">Keywords</div>
                         </div>
                         <div class="metric-box">
-                            <div class="val"><?php echo $analysis['scores_breakdown']['quality']; ?>%</div>
-                            <div class="lbl">Impact</div>
+                            <div class="val"><?php echo $analysis['scores_breakdown']['quality'] ?? $analysis['section_scores']['experience'] ?? 0; ?>%</div>
+                            <div class="lbl">Relevance</div>
                         </div>
                     </div>
 
@@ -269,10 +270,18 @@ $error = '';
 
                 <!-- Qualitative Verdict -->
                 <div style="margin-bottom: 40px;">
-                    <h3 class="section-title">The Recruiter's Verdict</h3>
+                    <h3 class="section-title">The ATS Verdict</h3>
                     <div style="background: #fff; padding: 25px; border-radius: 20px; border: 1px solid #edf2f7; font-size: 1.15rem; line-height: 1.8; color: #2d3748; font-style: italic; position: relative;">
                         <i class="fas fa-quote-left" style="position: absolute; top: 10px; left: 10px; opacity: 0.1; font-size: 2rem;"></i>
-                        "<?php echo htmlspecialchars($analysis['refinements']['qualitative_summary'] ?? 'No summary available.'); ?>"
+                        <?php 
+                            if (isset($analysis['refinements']['qualitative_summary'])) {
+                                echo htmlspecialchars($analysis['refinements']['qualitative_summary']);
+                            } elseif (isset($analysis['suggestions'][0])) {
+                                echo htmlspecialchars($analysis['suggestions'][0]);
+                            } else {
+                                echo "Your resume has been analyzed by our advanced ATS logic. Check the detailed sections below for improvements.";
+                            }
+                        ?>
                     </div>
                 </div>
 
@@ -291,14 +300,37 @@ $error = '';
                 </div>
                 <?php endif; ?>
 
-                <!-- Critical Fixes -->
+                <!-- Critical Fixes / Red Flags -->
                 <div style="margin-bottom: 40px;">
-                    <h3 class="section-title">Critical Fixes Needed</h3>
+                    <h3 class="section-title">Critical Issues & Red Flags</h3>
                     <div style="display: grid; gap: 15px;">
                         <?php 
-                        $critical = array_filter($analysis['findings'], function($f) { return $f['severity'] === 'critical'; });
-                        $warnings = array_filter($analysis['findings'], function($f) { return $f['severity'] === 'warning'; });
+                        $critical = $analysis['findings'] ?? [];
+                        $critical = array_filter($critical, function($f) { return $f['severity'] === 'critical'; });
+                        
+                        $redFlags = $analysis['red_flags'] ?? [];
+                        $issues = $analysis['issues'] ?? [];
                         ?>
+
+                        <?php foreach($redFlags as $flag): ?>
+                            <div class="finding-item" style="border-left: 5px solid var(--danger);">
+                                <div class="finding-icon critical"><i class="fas fa-flag"></i></div>
+                                <div class="finding-content">
+                                    <h5>RED FLAG DETECTED</h5>
+                                    <p><?php echo htmlspecialchars($flag); ?></p>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+
+                        <?php foreach($issues as $issue): ?>
+                            <div class="finding-item">
+                                <div class="finding-icon warning"><i class="fas fa-exclamation-circle"></i></div>
+                                <div class="finding-content">
+                                    <h5>Potential Issue</h5>
+                                    <p><?php echo htmlspecialchars($issue); ?></p>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
 
                         <?php foreach($critical as $item): ?>
                             <div class="finding-item">
@@ -312,28 +344,45 @@ $error = '';
                                 </div>
                             </div>
                         <?php endforeach; ?>
-
-                        <?php foreach($warnings as $item): ?>
-                            <div class="finding-item">
-                                <div class="finding-icon warning"><i class="fas fa-lightbulb"></i></div>
-                                <div class="finding-content">
-                                    <h5><?php echo htmlspecialchars($item['message']); ?></h5>
-                                    <p><?php echo htmlspecialchars($item['fix'] ?? 'Consider improving this section.'); ?></p>
-                                </div>
-                            </div>
-                        <?php endforeach; ?>
                     </div>
                 </div>
 
-                <!-- Keywords Cloud -->
+                <!-- Keywords Analysis -->
                 <div style="margin-top: 40px; padding: 30px; background: #fff; border-radius: 20px; border: 1px dashed #cbd5e0;">
-                    <h4 style="color: #4a5568; font-size: 0.9rem; text-transform: uppercase; margin-bottom: 20px; font-weight: 800;">💡 Keywords to Inject</h4>
-                    <div style="display: flex; flex-wrap: wrap; gap: 10px;">
-                        <?php foreach($analysis['refinements']['impact_phrases_to_use'] ?? [] as $phrase): ?>
-                            <span style="background: #f8fafc; color: var(--primary-maroon); border: 1px solid #edf2f7; padding: 8px 16px; border-radius: 10px; font-size: 0.85rem; font-weight: 700; shadow: 0 2px 4px rgba(0,0,0,0.02);"><?php echo htmlspecialchars($phrase); ?></span>
-                        <?php endforeach; ?>
-                    </div>
-                    <p style="margin-top: 15px; font-size: 0.8rem; color: #718096;"><i class="fas fa-info-circle"></i> Sprinkle these naturally into your experience bullets to pass ATS filters.</p>
+                    <h4 style="color: #4a5568; font-size: 0.9rem; text-transform: uppercase; margin-bottom: 20px; font-weight: 800;">🔍 Keyword Analysis</h4>
+                    
+                    <?php if (!empty($analysis['matched_keywords'])): ?>
+                        <div style="margin-bottom: 15px;">
+                            <h6 style="font-size: 0.7rem; color: var(--success); font-weight: 800; margin-bottom: 8px;">MATCHED KEYWORDS</h6>
+                            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                <?php foreach($analysis['matched_keywords'] as $kw): ?>
+                                    <span style="background: #f0fff4; color: #22543d; padding: 5px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; border: 1px solid #c6f6d5;"><?php echo htmlspecialchars($kw); ?></span>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if (!empty($analysis['missing_keywords'])): ?>
+                        <div style="margin-bottom: 15px;">
+                            <h6 style="font-size: 0.7rem; color: var(--danger); font-weight: 800; margin-bottom: 8px;">MISSING CRITICAL KEYWORDS</h6>
+                            <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                                <?php foreach($analysis['missing_keywords'] as $kw): ?>
+                                    <span style="background: #fff5f5; color: #c53030; padding: 5px 12px; border-radius: 6px; font-size: 0.75rem; font-weight: 700; border: 1px solid #fed7d7;"><?php echo htmlspecialchars($kw); ?></span>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+
+                    <?php if (!empty($analysis['refinements']['impact_phrases_to_use'])): ?>
+                        <h6 style="font-size: 0.7rem; color: var(--primary-maroon); font-weight: 800; margin-bottom: 8px;">IMPACT PHRASES TO ADD</h6>
+                        <div style="display: flex; flex-wrap: wrap; gap: 10px;">
+                            <?php foreach($analysis['refinements']['impact_phrases_to_use'] as $phrase): ?>
+                                <span style="background: #f8fafc; color: var(--primary-maroon); border: 1px solid #edf2f7; padding: 8px 16px; border-radius: 10px; font-size: 0.85rem; font-weight: 700;"><?php echo htmlspecialchars($phrase); ?></span>
+                            <?php endforeach; ?>
+                        </div>
+                    <?php endif; ?>
+                    
+                    <p style="margin-top: 15px; font-size: 0.8rem; color: #718096;"><i class="fas fa-info-circle"></i> ATS algorithms prioritize resumes with exact keyword matches from the job description.</p>
                 </div>
 
                 <!-- Bullet Point Surgery -->
@@ -341,8 +390,12 @@ $error = '';
                     <h3 class="section-title">Bullet Point Surgery (Before vs After)</h3>
                     <p style="color: #666; margin-bottom: 25px;">We've identified your weakest bullets and rewritten them to sound like a senior professional.</p>
                     
-                    <?php if (!empty($analysis['refinements']['bullet_surgery'])): ?>
-                        <?php foreach($analysis['refinements']['bullet_surgery'] as $surgery): ?>
+                    <?php 
+                        $surgeries = $analysis['refinements']['bullet_surgery'] ?? $analysis['improved_bullets'] ?? [];
+                    ?>
+
+                    <?php if (!empty($surgeries)): ?>
+                        <?php foreach($surgeries as $surgery): ?>
                         <div class="surgery-card">
                             <div class="surgery-header">
                                 Surgery ID: <?php echo substr(md5($surgery['original']), 0, 8); ?>
@@ -355,12 +408,14 @@ $error = '';
                                     </div>
                                     <div class="surgery-col">
                                         <h6><i class="fas fa-check-circle" style="color: var(--success);"></i> Pro Version</h6>
-                                        <div class="surgery-after">"<?php echo htmlspecialchars($surgery['suggested']); ?>"</div>
+                                        <div class="surgery-after">"<?php echo htmlspecialchars($surgery['improved'] ?? $surgery['suggested']); ?>"</div>
                                     </div>
                                 </div>
+                                <?php if (isset($surgery['why'])): ?>
                                 <div class="surgery-meta">
                                     <i class="fas fa-info-circle"></i> <b>Why this works:</b> <?php echo htmlspecialchars($surgery['why']); ?>
                                 </div>
+                                <?php endif; ?>
                             </div>
                         </div>
                         <?php endforeach; ?>
@@ -376,7 +431,10 @@ $error = '';
                 <div class="action-plan" style="border-radius: 24px;">
                     <h3 style="margin-bottom: 25px; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 15px; font-weight: 800;">🚀 YOUR STRATEGIC ROADMAP</h3>
                     <div style="display: grid; gap: 20px;">
-                        <?php foreach($analysis['refinements']['strategic_advice'] ?? [] as $index => $step): ?>
+                        <?php 
+                            $steps = $analysis['refinements']['strategic_advice'] ?? $analysis['suggestions'] ?? [];
+                        ?>
+                        <?php foreach($steps as $index => $step): ?>
                         <div class="step">
                             <div class="step-num"><?php echo str_pad($index + 1, 2, '0', STR_PAD_LEFT); ?></div>
                             <div class="step-content">

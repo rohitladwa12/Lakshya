@@ -57,6 +57,7 @@ switch ($action) {
                 'session_id' => $session['id'],
                 'started_at' => $session['started_at'],
                 'role' => $details['role'] ?? 'Software Engineer',
+                'concept' => $details['concept'] ?? '',
                 'history' => $details['history'] ?? []
             ]);
         } else {
@@ -67,6 +68,7 @@ switch ($action) {
     case 'start_session':
         $role = $input['role'] ?? 'Software Engineer';
         $company = $input['company'] ?? 'General';
+        $concept = $input['concept'] ?? '';
         
         $sql = "INSERT INTO unified_ai_assessments (
             student_id, institution, student_name, usn, aadhar, current_sem, branch, 
@@ -87,6 +89,7 @@ switch ($action) {
             $company,
             json_encode([
                 'role' => $role, 
+                'concept' => $concept,
                 'history' => [],
                 'task_id' => $input['task_id'] ?? null
             ])
@@ -112,6 +115,7 @@ switch ($action) {
         $details = json_decode($session['details'], true);
         $history = $details['history'] ?? [];
         $role = $details['role'];
+        $concept = $details['concept'] ?? '';
 
         // Append user message if exists
         if (!empty($userMessage)) {
@@ -124,7 +128,7 @@ switch ($action) {
 
         // Offload to Async Queue
         require_once ROOT_PATH . '/src/Services/QueueService.php';
-        $jobId = \App\Services\QueueService::pushJob('getTechnicalQuestion', [$role, $history], $userId);
+        $jobId = \App\Services\QueueService::pushJob('getTechnicalQuestion', [$role, $history, $concept], $userId);
         
         ob_clean(); echo json_encode([
             'success' => true, 
@@ -180,6 +184,7 @@ switch ($action) {
         
         $details = json_decode($session['details'], true);
         $role = $details['role'];
+        $concept = $details['concept'] ?? '';
         $history = $details['history'];
         $taskId = $details['task_id'] ?? null;
 
@@ -196,7 +201,7 @@ switch ($action) {
 
         // Generate Text Report via AI
         session_write_close();
-        $reportRes = $ai->generateTechnicalInterviewReport($role, $history, 'Technical');
+        $reportRes = $ai->generateTechnicalInterviewReport($role, $history, 'Technical', $concept);
         
         if ($reportRes['success']) {
             $reportText = $reportRes['content'];

@@ -924,7 +924,7 @@ $roundType = $filters['type'] ?? 'Technical';
         <ul class="loader-steps">
             <li class="loader-step" id="step-1"><i class="fas fa-search"></i> Analyzing requirements for <span id="targetRoleLabel"></span>...</li>
             <li class="loader-step" id="step-2"><i class="fas fa-cog"></i> Configuring AI Interviewer...</li>
-            <li class="loader-step" id="step-3"><i class="fas fa-microchip"></i> Booting Technical Workspace...</li>
+            <li class="loader-step" id="step-3"><i class="fas fa-briefcase"></i> Preparing Industry Scenarios...</li>
             <li class="loader-step" id="step-4"><i class="fas fa-shield-alt"></i> Activating Security Protocols...</li>
         </ul>
 
@@ -1231,12 +1231,14 @@ $roundType = $filters['type'] ?? 'Technical';
     let backendInitData = null;
     async function initiateBackendSession(role) {
         try {
-            const res = await fetch('mock_ai_handler', {
+            // 2. Start Session
+            const res = await fetch('mock_ai_handler', { 
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     action: 'start', 
-                    role: role,
+                    role: role, 
+                    concept: role, // Use role as concept for general mocks
                     company: "<?php echo addslashes($companyName); ?>",
                     type: "<?php echo $roundType; ?>"
                 })

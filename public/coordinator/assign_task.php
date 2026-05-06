@@ -26,6 +26,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
     $studentIds = array_filter(explode(',', $studentIdsRaw));
     $taskType = $_POST['task_type'];
     $companyName = $_POST['company_name'] ?? '';
+    $concept = $_POST['concept'] ?? '';
     $questionSource = $_POST['question_source'] ?? 'ai';
     $deadlineDate = $_POST['deadline_date'] ?? '';
     $hour = (int)($_POST['deadline_hour'] ?? 0);
@@ -54,9 +55,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
                                AND deadline > NOW()");
 
     $stmtInsert = $db->prepare("INSERT INTO coordinator_tasks 
-                               (coordinator_id, task_type, title, company_name, question_source, 
+                               (coordinator_id, task_type, title, company_name, concept, question_source, 
                                 target_type, target_students, target_branches, deadline) 
-                               VALUES (?, ?, ?, ?, ?, 'individual', ?, ?, ?)");
+                               VALUES (?, ?, ?, ?, ?, ?, 'individual', ?, ?, ?)");
 
     // Start transaction for atomicity and speed
     $db->beginTransaction();
@@ -82,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
             // Create task
             $title = ucfirst($taskType) . " Assessment" . ($companyName ? " - $companyName" : "");
             $stmtInsert->execute([
-                $coordinatorId, $taskType, $title, $compSearch, $questionSource, 
+                $coordinatorId, $taskType, $title, $compSearch, $concept, $questionSource, 
                 json_encode([$studentId]), json_encode([$targetBranch]), $deadline
             ]);
             $assignedCount++;
@@ -690,6 +691,12 @@ function buildUrl($key, $val) {
                 <div class="form-group" style="margin-bottom: 20px;">
                     <label style="display:block; margin-bottom: 8px; font-weight: 600;">Company Name (Optional)</label>
                     <input type="text" name="company_name" class="form-input" style="width: 100%;" placeholder="e.g., TCS, Infosys">
+                </div>
+
+                <div class="form-group" style="margin-bottom: 20px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight: 600;">Technical Concept / Job Role (Recommended)</label>
+                    <input type="text" name="concept" class="form-input" style="width: 100%;" placeholder="e.g., Site Engineering, Taxation, HVAC Design">
+                    <small style="color: #666; font-size: 0.85rem; display: block; margin-top: 4px;">This helps the AI tailor Technical and HR questions for non-technical branches.</small>
                 </div>
 
                 <div class="form-group" style="margin-bottom: 20px;">
