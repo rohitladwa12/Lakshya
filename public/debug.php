@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <title>Debug Info</title>
 </head>
 <body>
@@ -33,3 +34,4 @@
     </ul>
 </body>
 </html>
+

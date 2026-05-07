@@ -5,6 +5,7 @@ require_once __DIR__ . '/../../src/Services/AIService.php';
 use App\Helpers\SessionFilterHelper;
 
 requireRole(ROLE_STUDENT);
+requireFeature('feature_company_guide', 'Company Placement Guide');
 
 // Handle POST from Dashboard
 if (isPost() && isset($_POST['company'])) {
@@ -25,12 +26,14 @@ if (empty($companyName)) {
 $aiService = new AIService();
 
 // Call fresh to ensure accuracy/no stale data as requested.
-$result = $aiService->getCompanyPlacementGuide($companyName);
+$studentDept = getDepartment();
+$result = $aiService->getCompanyPlacementGuide($companyName, $studentDept);
 $guideContent = $result['success'] ? $result['content'] : "Error generating guide: " . ($result['message'] ?? 'Unknown error');
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Placement Strategy: <?php echo htmlspecialchars($companyName); ?> | Lakshya</title>
@@ -251,6 +254,7 @@ $guideContent = $result['success'] ? $result['content'] : "Error generating guid
 <body>
 
 <header class="guide-header">
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <div class="brand">
         <h1>Placement Strategy <sup style="font-size: 0.6rem; background: var(--primary); color: white; padding: 2px 6px; border-radius: 4px; vertical-align: top;">PREMIUM</sup></h1>
         <span>Expert Roadmap for <?php echo htmlspecialchars($companyName); ?></span>
@@ -325,3 +329,4 @@ $guideContent = $result['success'] ? $result['content'] : "Error generating guid
 
 </body>
 </html>
+

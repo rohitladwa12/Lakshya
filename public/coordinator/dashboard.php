@@ -22,8 +22,9 @@ $coordFilters = [
     'discipline' => $discipline_filters,
     'semesters' => $semester_filter
 ];
-$students = $studentModel->getAllWithUsers($coordFilters);
-$studentCount = count($students);
+
+// Use a more inclusive counting method to match the Students Report (Academic Strength)
+$studentCount = $studentModel->getTotalAcademicStrength($coordFilters);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -31,6 +32,7 @@ $studentCount = count($students);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coordinator Dashboard - <?php echo APP_NAME; ?></title>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <style>
@@ -225,3 +227,4 @@ $studentCount = count($students);
 
 </body>
 </html>
+

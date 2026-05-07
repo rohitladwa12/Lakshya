@@ -25,6 +25,7 @@ function getStatusBadge($deadline) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Internships - <?php echo APP_NAME; ?></title>
@@ -431,3 +432,4 @@ function getStatusBadge($deadline) {
     </div>
 </body>
 </html>
+

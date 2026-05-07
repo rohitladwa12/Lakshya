@@ -26,6 +26,7 @@ $fullName = getFullName();
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Activity Logs - <?php echo APP_NAME; ?></title>
@@ -257,6 +258,7 @@ $fullName = getFullName();
 
     <div class="main-content">
         <header class="glass-header">
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
             <div class="header-title">
                 <h1>Global Activity Intelligence</h1>
                 <p>Tracking system-wide engagement and high-impact events</p>
@@ -413,3 +415,4 @@ $fullName = getFullName();
     </script>
 </body>
 </html>
+

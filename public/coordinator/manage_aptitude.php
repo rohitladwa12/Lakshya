@@ -16,6 +16,7 @@ $companies = $stmt->fetchAll(PDO::FETCH_COLUMN);
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage Aptitude - <?php echo APP_NAME; ?></title>
@@ -298,3 +299,4 @@ $companies = $stmt->fetchAll(PDO::FETCH_COLUMN);
     </script>
 </body>
 </html>
+

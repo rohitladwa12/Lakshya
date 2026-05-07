@@ -14,8 +14,29 @@ requireRole(ROLE_STUDENT);
 
 $userId = getUserId();
 $fullName = getFullName();
+$username = getUsername();
 
+// 1. Check for existing built resume in filesystem
+$safeName = preg_replace('/[^a-zA-Z0-9_-]/', '_', $username);
+$systemResumeFileName = strtoupper($safeName) . '_Resume.pdf';
+$systemResumePath = UPLOADS_PATH . '/resumes/Student_Resumes/' . $systemResumeFileName;
+$hasSystemResume = file_exists($systemResumePath);
+
+// 2. Check for resume data in database
+$resumeModel = new Resume();
+$existingResume = $resumeModel->getByStudentId($userId);
+
+// 3. Redirect if no resume exists anywhere
+if (!$existingResume && !$hasSystemResume) {
+    header("Location: resume_builder.php?msg=Please build your resume first before using the AI Analyzer.");
+    exit;
+}
+
+// 4. Fetch latest analysis results if available (unless new scan requested)
 $analysis = null;
+if (!isset($_GET['new'])) {
+    $analysis = $resumeModel->getLatestAnalysis($userId);
+}
 $error = '';
 
 // Check if we are viewing a specific result (optional enhancement)
@@ -144,7 +165,24 @@ $error = '';
 
                 <div class="input-group">
                     <label>Upload Resume (PDF only)</label>
-                    <div style="border: 2px dashed #ccc; padding: 30px; text-align: center; border-radius: 8px; cursor: pointer; position: relative;">
+                    
+                    <?php if ($hasSystemResume): ?>
+                        <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 15px; border-radius: 12px; margin-bottom: 15px; display: flex; align-items: center; gap: 12px;">
+                            <div style="background: var(--success); color: white; width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 1.2rem;">
+                                <i class="fas fa-file-invoice"></i>
+                            </div>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 700; color: #166534; font-size: 0.9rem;">System Resume Detected</div>
+                                <div style="font-size: 0.8rem; color: #15803d;">Your built resume is ready for analysis.</div>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" name="use_system_resume" id="use_system_resume" value="1" checked onchange="toggleUpload(this)">
+                                <label class="form-check-label" for="use_system_resume" style="font-size: 0.8rem; font-weight: 700; color: #166534;">USE THIS</label>
+                            </div>
+                        </div>
+                    <?php endif; ?>
+
+                    <div id="upload-container" style="<?php echo $hasSystemResume ? 'display:none; opacity:0.5; pointer-events:none;' : ''; ?> border: 2px dashed #ccc; padding: 30px; text-align: center; border-radius: 8px; cursor: pointer; position: relative;">
                         <p style="color: #666; margin-bottom: 5px;" id="file-label">Click to Upload PDF</p>
                         <input type="file" name="resume_pdf" id="pdf_file" accept=".pdf" style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; opacity: 0; cursor: pointer; z-index: 10;" onchange="updateFileName(this)">
                     </div>
@@ -155,15 +193,10 @@ $error = '';
                     <textarea name="job_description" class="form-control" rows="4" placeholder="Enter the target role (e.g. 'Java Developer') or paste a full Job Description here..."></textarea>
                     <small style="color: #666; font-size: 0.75rem; margin-top: 5px; display: block;">Providing a specific role or JD enables strict keyword matching and relevance scoring.</small>
                 </div>
-
                 
-                <button type="submit" name="analyze" class="btn btn-primary" id="submit-btn">Running Analysis...</button>
+                <button type="submit" name="analyze" class="btn btn-primary" id="submit-btn">Analyze Resume</button>
             </form>
 
-            <div id="loader" class="loader">
-                <div style="font-size: 3rem;">🕵️‍♂️</div>
-                <p>Analyzing strict recruiter metrics...<br><span style="font-size: 0.9rem; font-weight: 400; color: #666;">Parsing keywords, checking impacts, and looking for red flags.</span></p>
-            </div>
         </div>
     <?php else: ?>
         <?php 
@@ -214,13 +247,13 @@ $error = '';
                         </div>
                     </div>
 
-                    <?php if ($analysis['metadata']['is_cached']): ?>
+                    <?php if (isset($analysis['metadata']['is_cached']) && $analysis['metadata']['is_cached']): ?>
                         <div style="font-size: 0.7rem; color: #a0aec0; margin-top: 20px; text-align: center; font-style: italic;">
                             <i class="fas fa-history"></i> Analysis from local cache
                         </div>
                     <?php endif; ?>
 
-                    <a href="resume_analyzer.php" class="btn btn-primary" style="display: flex; margin-top: 30px; text-decoration: none;">
+                    <a href="resume_analyzer.php?new=1" class="btn btn-primary" style="display: flex; margin-top: 30px; text-decoration: none;">
                         <i class="fas fa-plus"></i> New Scan
                     </a>
                 </div>
@@ -463,6 +496,19 @@ $error = '';
 </div>
 
 <script>
+    function toggleUpload(checkbox) {
+        const container = document.getElementById('upload-container');
+        if (checkbox.checked) {
+            container.style.display = 'none';
+            container.style.opacity = '0.5';
+            container.style.pointerEvents = 'none';
+        } else {
+            container.style.display = 'block';
+            container.style.opacity = '1';
+            container.style.pointerEvents = 'auto';
+        }
+    }
+
     function updateFileName(input) {
         if (input.files && input.files[0]) {
             document.getElementById('file-label').innerHTML = "<i class='fas fa-file-pdf'></i> " + input.files[0].name;
@@ -547,7 +593,7 @@ $error = '';
         // Given the scale, we'll use a clean redirect or hash-based view.
         
         // For now, let's just reload the page - the cache will handle the rendering immediately.
-        location.reload(); 
+        window.location.href = 'resume_analyzer.php'; 
     }
 </script>
 

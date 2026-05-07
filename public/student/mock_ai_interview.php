@@ -1,10 +1,12 @@
 <?php
 require_once __DIR__ . '/../../config/bootstrap.php';
+require_once __DIR__ . '/../../src/Helpers/SessionFilterHelper.php';
 require_once __DIR__ . '/../../src/Models/StudentProfile.php';
 
 use App\Helpers\SessionFilterHelper;
 
 requireRole(ROLE_STUDENT);
+requireFeature('feature_mock_ai', 'Mock AI Interview');
 
 $userId = getUserId();
 $studentModel = new StudentProfile();

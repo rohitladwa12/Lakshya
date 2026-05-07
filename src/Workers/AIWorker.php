@@ -11,8 +11,12 @@ require_once __DIR__ . '/../../src/Services/CareerAdvisorAI.php';
 
 use App\Services\QueueService;
 
-echo "--- AI Worker Started ---\n";
-echo "Waiting for jobs...\n";
+function workerLog($message) {
+    echo "[" . date('Y-m-d H:i:s') . "] " . $message . "\n";
+}
+
+workerLog("--- AI Worker Started ---");
+workerLog("Waiting for jobs...");
 
 // Service registry — worker will try each in order until method is found
 $services = [
@@ -26,7 +30,7 @@ $maxRuntime = 1800; // Auto-restart every 30 minutes to clear memory/cache
 while (true) {
     // Check if we need to restart for memory clearance
     if (time() - $startTime > $maxRuntime) {
-        echo "[".date('Y-m-d H:i:s')."] Worker reaching max runtime of 30 minutes. Exiting gracefully to clear memory...\n";
+        workerLog("Worker reaching max runtime of 30 minutes. Exiting gracefully to clear memory...");
         exit(0);
     }
 
@@ -38,12 +42,12 @@ while (true) {
         continue;
     }
 
-    echo "[".date('Y-m-d H:i:s')."] Processing Job: $jobId\n";
+    workerLog("Processing Job: $jobId");
 
     // 2. Load Job Data
     $job = QueueService::getJobStatus($jobId);
     if (!$job) {
-        echo "Error: Job $jobId not found in Redis.\n";
+        workerLog("Error: Job $jobId not found in Redis.");
         continue;
     }
 
@@ -69,7 +73,7 @@ while (true) {
                     'result'       => json_encode($finalResult),
                     'completed_at' => time()
                 ]);
-                echo "Success: Job $jobId finished (" . get_class($svc) . "::$method).\n";
+                workerLog("Success: Job $jobId finished (" . get_class($svc) . "::$method).");
                 $dispatched = true;
                 break;
             }
@@ -78,7 +82,7 @@ while (true) {
             throw new Exception("Method $method not found in any registered service");
         }
     } catch (Exception $e) {
-        echo "Error: Job $jobId failed - " . $e->getMessage() . "\n";
+        workerLog("Error: Job $jobId failed - " . $e->getMessage());
         QueueService::updateJob($jobId, [
             'status' => 'failed',
             'error' => $e->getMessage(),

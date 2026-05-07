@@ -100,6 +100,7 @@ if (isPost() && isset($_POST['apply'])) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo htmlspecialchars($job['title']); ?> - <?php echo APP_NAME; ?></title>
@@ -490,7 +491,7 @@ if (isPost() && isset($_POST['apply'])) {
                                 <i class="fas fa-sparkles"></i> RESUME READY
                             </div>
                             Your Lakshya-built resume is linked and will be automatically submitted with your application.<br><br>
-                            <a href="../public/<?php echo $existingResumePath; ?>" target="_blank" style="color: var(--primary); text-decoration: underline; font-weight: 600;">View Your Resume</a>
+                            <a href="view_resume.php?usn=<?php echo urlencode($currentUsn); ?>" target="_blank" style="color: var(--primary); text-decoration: underline; font-weight: 600;">View Your Resume</a>
                         </div>
                         
                         <form method="POST" enctype="multipart/form-data">
@@ -561,3 +562,4 @@ if (isPost() && isset($_POST['apply'])) {
     </div>
 </body>
 </html>
+

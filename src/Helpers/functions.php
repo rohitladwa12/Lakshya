@@ -304,7 +304,7 @@ function dd(...$vars) {
  * Log message
  */
 function logMessage($message, $level = 'INFO') {
-    $logFile = LOGS_PATH . '/app_' . date('Y-m-d') . '.log';
+    $logFile = LOGS_PATH . '/app.log';
     $timestamp = date('Y-m-d H:i:s');
     $logEntry = "[{$timestamp}] [{$level}] {$message}" . PHP_EOL;
     file_put_contents($logFile, $logEntry, FILE_APPEND);
@@ -419,4 +419,83 @@ function loadEnv($path) {
         }
     }
     return true;
+}
+
+/**
+ * Check if a specific system feature is enabled
+ * @param string $featureKey The key from system_settings table (e.g. 'feature_mock_ai')
+ * @return bool
+ */
+function isFeatureEnabled($featureKey) {
+    try {
+        $db = getDB();
+        if (!$db) return true;
+        
+        $stmt = $db->prepare("SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1");
+        $stmt->execute([$featureKey]);
+        $value = $stmt->fetchColumn();
+        
+        // If not found in DB, default to enabled
+        if ($value === false) return true;
+        
+        return ($value === 'enabled');
+    } catch (\Exception $e) {
+        return true;
+    }
+}
+
+/**
+ * Require a feature to be enabled, otherwise show maintenance page
+ * @param string $featureKey
+ * @param string $featureName Human readable name for the error message
+ */
+function requireFeature($featureKey, $featureName = 'This feature') {
+    if (!isFeatureEnabled($featureKey)) {
+        http_response_code(503);
+        ?>
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title><?php echo $featureName; ?> - Under Maintenance</title>
+            <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+            <style>
+                :root { --primary: #800000; --text: #1e293b; --muted: #64748b; }
+                body { font-family: 'Outfit', sans-serif; background: #f8fafc; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; color: var(--text); }
+                .container { background: white; padding: 3.5rem; border-radius: 32px; box-shadow: 0 20px 50px -12px rgba(0,0,0,0.1); text-align: center; max-width: 500px; border: 1px solid #e2e8f0; position: relative; overflow: hidden; }
+                .container::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 6px; background: linear-gradient(90deg, var(--primary), #e9c66f); }
+                .icon-stack { position: relative; width: 100px; height: 100px; margin: 0 auto 2rem; }
+                .icon-bg { font-size: 5rem; color: #f1f5f9; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); }
+                .icon-main { font-size: 3rem; color: var(--primary); position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 1; }
+                h1 { font-size: 2rem; font-weight: 800; margin-bottom: 1rem; color: #0f172a; letter-spacing: -0.025em; }
+                p { line-height: 1.7; color: var(--muted); margin-bottom: 2.5rem; font-size: 1.1rem; }
+                .status-badge { display: inline-flex; align-items: center; gap: 0.5rem; background: #fff7ed; color: #9a3412; padding: 0.5rem 1rem; border-radius: 99px; font-size: 0.85rem; font-weight: 700; text-transform: uppercase; margin-bottom: 1.5rem; border: 1px solid #ffedd5; }
+                .btn { background: var(--primary); color: white; text-decoration: none; padding: 1rem 2.5rem; border-radius: 16px; font-weight: 700; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); display: inline-block; box-shadow: 0 10px 15px -3px rgba(128, 0, 0, 0.3); }
+                .btn:hover { background: #5b1f1f; transform: translateY(-2px); box-shadow: 0 20px 25px -5px rgba(128, 0, 0, 0.4); }
+                .dots { display: flex; justify-content: center; gap: 8px; margin-top: 2rem; }
+                .dot { width: 8px; height: 8px; background: #e2e8f0; border-radius: 50%; animation: pulse 1.5s infinite; }
+                .dot:nth-child(2) { animation-delay: 0.2s; }
+                .dot:nth-child(3) { animation-delay: 0.4s; }
+                @keyframes pulse { 0%, 100% { opacity: 0.3; transform: scale(1); } 50% { opacity: 1; transform: scale(1.2); background: var(--primary); } }
+            </style>
+        </head>
+    <body>
+        <div class="container">
+            <div class="status-badge"><i class="fas fa-wrench"></i> System Update</div>
+            <div class="icon-stack">
+                <i class="fas fa-microchip icon-bg"></i>
+                <i class="fas fa-gears icon-main"></i>
+            </div>
+            <h1><?php echo htmlspecialchars($featureName); ?> is Updating</h1>
+            <p>We're currently enhancing this feature to provide you with a better AI experience. Please check back in a short while.</p>
+            <a href="javascript:history.back()" class="btn">Go Back</a>
+            <div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div>
+        </div>
+    </body>
+    </html>
+    <?php
+    exit;
+    }
 }

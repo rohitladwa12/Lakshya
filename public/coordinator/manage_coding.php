@@ -5,6 +5,7 @@ requireRole(ROLE_DEPT_COORDINATOR);
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Manage Coding Problems - <?php echo APP_NAME; ?></title>
@@ -295,3 +296,4 @@ requireRole(ROLE_DEPT_COORDINATOR);
     </script>
 </body>
 </html>
+

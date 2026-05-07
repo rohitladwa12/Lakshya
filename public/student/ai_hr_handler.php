@@ -357,6 +357,7 @@ function generateHRReportHTML($usn, $sem, $name, $role, $score, $content) {
     return "
     <html>
     <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
         <style>
             body { font-family: 'Helvetica', sans-serif; padding: 40px; line-height: 1.6; color: #333; }
             h1 { color: #2c3e50; border-bottom: 2px solid #2c3e50; padding-bottom: 10px; margin-bottom: 20px; }
@@ -385,3 +386,4 @@ function generateHRReportHTML($usn, $sem, $name, $role, $score, $content) {
     </body>
     </html>";
 }
+

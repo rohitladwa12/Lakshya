@@ -230,6 +230,7 @@ if (count($feedItems) < 2) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Dashboard - <?php echo APP_NAME; ?></title>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -1779,6 +1780,78 @@ if (count($feedItems) < 2) {
                 font-size: 1.5rem;
             }
         }
+
+        /* Global Loading Overlay */
+        .global-loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(13, 4, 4, 0.95);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+            backdrop-filter: blur(10px);
+            color: #fff;
+            text-align: center;
+        }
+
+        .loading-content {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .loading-content h3 {
+            font-size: 1.5rem;
+            margin-top: 2rem;
+            color: var(--accent-gold);
+            letter-spacing: 1px;
+            font-weight: 800;
+        }
+
+        .loading-content p {
+            color: rgba(255, 255, 255, 0.6);
+            margin-top: 10px;
+            font-size: 0.9rem;
+        }
+
+        .premium-spinner {
+            width: 80px;
+            height: 80px;
+            border: 3px solid rgba(233, 198, 111, 0.1);
+            border-top: 3px solid var(--accent-gold);
+            border-radius: 50%;
+            animation: spin-premium 1s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+            position: relative;
+        }
+
+        .premium-spinner::after {
+            content: '';
+            position: absolute;
+            top: 5px;
+            left: 5px;
+            right: 5px;
+            bottom: 5px;
+            border: 2px solid rgba(128, 0, 0, 0.2);
+            border-top: 2px solid var(--primary-maroon);
+            border-radius: 50%;
+            animation: spin-premium 2s linear infinite reverse;
+        }
+
+        @keyframes spin-premium {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
+        }
     </style>
 </head>
 
@@ -1812,13 +1885,15 @@ if (count($feedItems) < 2) {
                 ?>
                 <div class="student-card">
                     <div class="profile-pic-container" id="profilePicContainer">
-                        <?php if (!empty($profile['profile_photo'])): ?>
-                            <img src="<?php echo htmlspecialchars((string) $profile['profile_photo']); ?>" alt="Profile"
-                                id="profileRealPhoto" style="display:block;">
-                            <?php
-                        endif; ?>
+                        <?php
+                        $displayPhoto = !empty($profile['profile_photo']) ? $profile['profile_photo'] : getPhoto();
+                        if (!empty($displayPhoto)): ?>
+                            <img src="<?php echo htmlspecialchars((string) $displayPhoto); ?>" alt="Profile"
+                                id="profileRealPhoto"
+                                style="display:block; width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
+                        <?php endif; ?>
                         <div id="profileAvatarDisplay"
-                            style="width:100%;height:100%;display:<?php echo !empty($profile['profile_photo']) ? 'none' : 'flex'; ?>;align-items:center;justify-content:center;">
+                            style="width:100%;height:100%;display:<?php echo !empty($displayPhoto) ? 'none' : 'flex'; ?>;align-items:center;justify-content:center;">
                             <!-- Avatar rendered by JS -->
                             <span style="font-size:3rem; color:var(--primary-maroon); opacity:0.3;"><i
                                     class="fas fa-user-graduate"></i></span>
@@ -2031,8 +2106,7 @@ if (count($feedItems) < 2) {
                 <!-- Hero Banner -->
                 <div class="hero-banner">
                     <div class="hero-content">
-                        <h2>Hello, <?php echo htmlspecialchars(explode(' ', $fullName)[0]); ?>! <i
-                                class="fas fa-hand-sparkles" style="color:var(--accent-gold); font-size:1.5rem;"></i></h2>
+                        <h2>Hello, <?php echo htmlspecialchars(explode(' ', $fullName)[0]); ?>!</h2>
                         <p>Welcome to Lakshya. You have <strong><?php echo $activeJobsCount; ?></strong> matching job
                             opportunities today. Your portfolio is currently <strong><?php echo $completeness; ?>%</strong>
                             complete.</p>
@@ -2061,7 +2135,8 @@ if (count($feedItems) < 2) {
 
                 <!-- Toolbelt -->
                 <div class="quick-actions-bar">
-                    <a href="jobs" class="action-tool-btn <?php echo (!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
+                    <a href="jobs"
+                        class="action-tool-btn <?php echo (!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
                         <div class="icon"><i class="fas fa-briefcase" style="color: #800000;"></i></div>
                         <h4>Jobs</h4>
                     </a>
@@ -2214,7 +2289,8 @@ if (count($feedItems) < 2) {
                                                 <?php echo htmlspecialchars((string) ($fItem['title'] ?? '')); ?>
                                             </div>
                                             <div style="font-size: 0.75rem; color: var(--text-muted);">
-                                                <?php echo htmlspecialchars((string) ($fItem['subtitle'] ?? '')); ?></div>
+                                                <?php echo htmlspecialchars((string) ($fItem['subtitle'] ?? '')); ?>
+                                            </div>
                                         </div>
                                     </a>
                                     <?php
@@ -2952,6 +3028,11 @@ if (count($feedItems) < 2) {
                 alert('Please enter a company name (e.g., Infosys).');
                 return;
             }
+
+            // Show Loading Overlay
+            document.getElementById('guideModal').style.display = 'none';
+            document.getElementById('globalLoadingOverlay').style.display = 'flex';
+
             navigatePost('company_placement_guide.php', { company: company });
         }
 
@@ -3168,6 +3249,14 @@ if (count($feedItems) < 2) {
         })();
     </script>
 
+    <!-- Global Loading Overlay -->
+    <div id="globalLoadingOverlay" class="global-loading-overlay">
+        <div class="loading-content">
+            <div class="premium-spinner"></div>
+            <h3>Generating Expert Roadmap</h3>
+            <p>Analyzing company data & recruitment trends...</p>
+        </div>
+    </div>
 </body>
 
 </html>

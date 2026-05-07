@@ -188,14 +188,28 @@ class StudentProfile extends Model {
         // Extract photo from User row if available
         $photo = null;
         if ($userRow) {
-            $rawPhoto = $userRow['photo'] ?? ($userRow['PHOTO'] ?? null);
-            if (!empty($rawPhoto)) {
-                 $photoData = json_decode($rawPhoto, true);
-                 if (is_array($photoData) && isset($photoData[0]['thumbnail'])) {
-                     $photo = $photoData[0]['thumbnail'];
-                 } else {
-                     $photo = $rawPhoto;
-                 }
+            $p = $userRow['photo'] ?? ($userRow['PHOTO'] ?? null);
+            if (!empty($p)) {
+                // Handle JSON-encoded photo data
+                if (strpos($p, '[{') === 0 || strpos($p, '{') === 0) {
+                    $decoded = json_decode($p, true);
+                    if (is_array($decoded)) {
+                        if (isset($decoded[0]['thumbnail'])) $p = $decoded[0]['thumbnail'];
+                        elseif (isset($decoded[0]['url'])) $p = $decoded[0]['url'];
+                        elseif (isset($decoded['thumbnail'])) $p = $decoded['thumbnail'];
+                        elseif (isset($decoded['url'])) $p = $decoded['url'];
+                    }
+                }
+                $photo = $p;
+            }
+        }
+
+        // Final URL normalization
+        if ($photo && !preg_match('/^https?:\/\//', $photo)) {
+            if (strpos($photo, 'attachments/') !== false) {
+                $photo = "https://erp.gmit.info/" . ltrim($photo, '/');
+            } else {
+                $photo = "https://erp.gmit.info/attachments/gmu/profile/" . ltrim($photo, '/');
             }
         }
 
@@ -206,7 +220,7 @@ class StudentProfile extends Model {
             'enrollment_number' => (!empty($row['usn']) ? $row['usn'] : (!empty($detailsRow['usn']) ? $detailsRow['usn'] : ($userRow['username'] ?? ($userRow['USER_NAME'] ?? ($userRow['EMP_ID'] ?? ($userRow['raw']['EMP_ID'] ?? null)))))),
             'student_id' => (!empty($detailsRow['student_id']) ? $detailsRow['student_id'] : (!empty($row['student_id']) ? $row['student_id'] : ($userRow['username'] ?? ($userRow['USER_NAME'] ?? ($userRow['EMP_ID'] ?? ($userRow['raw']['EMP_ID'] ?? null)))))),
             'course' => (!empty($row['course']) ? $row['course'] : (!empty($detailsRow['course']) ? $detailsRow['course'] : ($userRow['COURSE'] ?? ($userRow['raw']['COURSE'] ?? null)))),
-            'department' => (!empty($row['discipline']) ? $row['discipline'] : (!empty($detailsRow['discipline']) ? $detailsRow['discipline'] : ($userRow['DISCIPLINE'] ?? ($userRow['raw']['DISCIPLINE'] ?? ($userRow['raw']['DEPT_ID'] ?? null))))),
+            'department' => (!empty($row['discipline']) ? $row['discipline'] : (!empty($row['branch']) ? $row['branch'] : (!empty($detailsRow['discipline']) ? $detailsRow['discipline'] : (!empty($detailsRow['branch']) ? $detailsRow['branch'] : ($userRow['DISCIPLINE'] ?? ($userRow['raw']['DISCIPLINE'] ?? ($userRow['raw']['branch'] ?? ($userRow['raw']['DEPT_ID'] ?? null)))))))),
             'year_of_study' => $row['year'] ?? (!empty($row['sem']) ? ceil((int)$row['sem'] / 2) : (!empty($row['semester']) ? ceil((int)$row['semester'] / 2) : null)),
             'semester' => $row['sem'] ?? ($row['semester'] ?? null),
             'cgpa' => $row['sgpa'] ?? 0.0,
@@ -519,6 +533,76 @@ class StudentProfile extends Model {
         return $results;
     }
     
+    public function getTotalAcademicStrength($filters = []) {
+        $gmuPrefix = DB_GMU_PREFIX;
+        $gmitPrefix = DB_GMIT_PREFIX;
+        
+        $combinedApproved = "(
+            SELECT usn, discipline, sem, registered, '" . INSTITUTION_GMU . "' as institution FROM {$gmuPrefix}ad_student_approved
+            UNION ALL
+            SELECT IFNULL(NULLIF(usn, ''), student_id) as usn, discipline, 0 as sem, 1 as registered, '" . INSTITUTION_GMIT . "' as institution FROM {$gmitPrefix}ad_student_details
+        )";
+
+        $where_clauses = ["registered = 1"];
+        $params = [];
+
+        if (!empty($filters['discipline'])) {
+            $disciplines = is_array($filters['discipline']) ? $filters['discipline'] : [$filters['discipline']];
+            $placeholders = implode(',', array_fill(0, count($disciplines), '?'));
+            $where_clauses[] = "discipline IN ($placeholders)";
+            $params = array_merge($params, $disciplines);
+        }
+
+        if (!empty($filters['institution'])) {
+            $where_clauses[] = "institution = ?";
+            $params[] = $filters['institution'];
+        }
+
+        // Semester filtering
+        if (!empty($filters['semesters']) && is_array($filters['semesters'])) {
+            $sems = array_map('intval', $filters['semesters']);
+            $semPlaceholdersSql = implode(',', array_fill(0, count($sems), '?'));
+            $semValuesString = implode(',', $sems); // For the remote query part
+            
+            // GMIT USNs with SGPA in these semesters
+            $stmtLocal = $this->db->prepare("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE institution = ? AND semester IN ($semPlaceholdersSql)");
+            $stmtLocal->execute(array_merge([INSTITUTION_GMIT], $sems));
+            $gmitUsnsRaw = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
+
+            // Expand GMIT IDs
+            $gmitUsns = $gmitUsnsRaw;
+            if (!empty($gmitUsnsRaw)) {
+                $db_gmit = getDB('gmit');
+                if ($db_gmit) {
+                    $in_ph = implode(',', array_fill(0, count($gmitUsnsRaw), '?'));
+                    $stmtRef = $db_gmit->prepare("SELECT DISTINCT usn, student_id FROM ad_student_details WHERE student_id IN ($in_ph) OR usn IN ($in_ph) OR aadhar IN ($in_ph) OR aadhar_no IN ($in_ph)");
+                    $stmtRef->execute(array_merge($gmitUsnsRaw, $gmitUsnsRaw, $gmitUsnsRaw, $gmitUsnsRaw));
+                    $mapped = $stmtRef->fetchAll(PDO::FETCH_ASSOC);
+                    foreach ($mapped as $m) {
+                        if ($m['usn']) $gmitUsns[] = $m['usn'];
+                        if ($m['student_id']) $gmitUsns[] = $m['student_id'];
+                    }
+                    $gmitUsns = array_values(array_unique($gmitUsns));
+                }
+            }
+
+            if (!empty($gmitUsns)) {
+                $gmitPh = implode(',', array_fill(0, count($gmitUsns), '?'));
+                $where_clauses[] = "((institution = '" . INSTITUTION_GMU . "' AND sem IN ($semValuesString)) OR (institution = '" . INSTITUTION_GMIT . "' AND usn IN ($gmitPh)))";
+                $params = array_merge($params, $gmitUsns);
+            } else {
+                $where_clauses[] = "(institution = '" . INSTITUTION_GMU . "' AND sem IN ($semValuesString))";
+            }
+        }
+
+        $where_sql = implode(" AND ", $where_clauses);
+        $sql = "SELECT COUNT(DISTINCT usn) FROM {$combinedApproved} as asa WHERE $where_sql";
+        
+        $stmt = $this->remoteDB->prepare($sql);
+        $stmt->execute($params);
+        return (int)$stmt->fetchColumn();
+    }
+
     public function search($query, $filters = []) {
         $gmuPrefix = DB_GMU_PREFIX;
         $gmitPrefix = DB_GMIT_PREFIX;

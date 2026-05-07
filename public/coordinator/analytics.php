@@ -212,7 +212,8 @@ if (!empty($studentIds)) {
             ob_clean();
             header('Content-Type: application/vnd.ms-excel');
             header('Content-Disposition: attachment; filename="department_detailed_analytics_'.date('Y-m-d').'.xls"');
-            echo '<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>';
+            echo '<html><head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>';
         }
         
         // Fetch detailed data for mapping
@@ -250,6 +251,7 @@ if (!empty($studentIds)) {
             <!DOCTYPE html>
             <html lang="en">
             <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
                 <meta charset="UTF-8">
                 <title>Department Analytics Report - <?php echo date('Y-m-d'); ?></title>
                 <style>
@@ -423,6 +425,7 @@ if (!empty($studentIds)) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Department Analytics - <?php echo APP_NAME; ?></title>
@@ -926,3 +929,4 @@ endif; ?>
 
 </body>
 </html>
+

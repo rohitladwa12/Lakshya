@@ -332,6 +332,7 @@ function generateResumeWithAI($profile) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Dynamic Resume Builder – AI Powered</title>
@@ -514,6 +515,7 @@ function generateResumeWithAI($profile) {
 <body>\n    <?php include_once __DIR__ . '/includes/navbar.php'; ?>
 
     <!-- <header>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
         <h1><i class="fas fa-file-invoice"></i> Dynamic Resume Builder</h1>
         <a href="profile.php" class="back-link"><i class="fas fa-arrow-left"></i> Back to Profile</a>
     </header> -->
@@ -687,3 +689,4 @@ function generateResumeWithAI($profile) {
     </script>
 </body>
 </html>
+

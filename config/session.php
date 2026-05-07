@@ -97,7 +97,7 @@ class Session {
     }
     
     // Authentication helpers
-    public static function setUser($userId, $username, $role, $fullName, $institution = null, $department = null) {
+    public static function setUser($userId, $username, $role, $fullName, $institution = null, $department = null, $photo = null) {
         self::set('user_id', $userId);
         self::set('username', $username);
         self::set('role', $role);
@@ -107,6 +107,11 @@ class Session {
             self::set('department', $department);
         } else {
             self::remove('department');
+        }
+        if ($photo !== null) {
+            self::set('photo', $photo);
+        } else {
+            self::remove('photo');
         }
         self::set('logged_in', true);
         self::set('login_time', time());
@@ -139,6 +144,10 @@ class Session {
 
     public static function getDepartment() {
         return self::get('department');
+    }
+
+    public static function getPhoto() {
+        return self::get('photo');
     }
     
     public static function hasRole($role) {
@@ -232,6 +241,10 @@ function getInstitution() {
 
 function getDepartment() {
     return Session::getDepartment();
+}
+
+function getPhoto() {
+    return Session::getPhoto();
 }
 
 /**

@@ -7,6 +7,7 @@ require_once __DIR__ . '/../../config/bootstrap.php';
 
 // Require student role
 requireRole(ROLE_STUDENT);
+requireFeature('feature_profile_analyzer', 'Profile Analyzer');
 
 $userId = getUserId();
 $fullName = getFullName();
@@ -30,6 +31,7 @@ if (!$hasSkillsOrProjects) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Action Required - Profile Analyser</title>
@@ -98,6 +100,7 @@ if (!$hasSkillsOrProjects) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AI Career Architect - <?php echo APP_NAME; ?></title>
@@ -311,6 +314,7 @@ if (!$hasSkillsOrProjects) {
     </div>
 
     <header class="header">
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
         <div style="max-width: 1200px; margin: 0 auto; text-align: left;">
             <h1 style="font-size: 2.5rem; font-weight: 800; letter-spacing: -1px; margin-bottom: 0.5rem;">Elite Career Architect</h1>
             <p style="opacity: 0.9; font-size: 1.1rem; font-weight: 400;">Strict AI evaluation based on Global Tech Standards & Professional Benchmarks</p>
@@ -825,3 +829,4 @@ if (!$hasSkillsOrProjects) {
     </script>
 </body>
 </html>
+

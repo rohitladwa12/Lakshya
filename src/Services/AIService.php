@@ -2,6 +2,7 @@
 /**
  * AIService
  * Handles integration with OpenAI for Resume Analysis
+ * DEBUG VERSION
  */
 
 class AIService {
@@ -318,9 +319,16 @@ Output Format (JSON):
      * @return array
      */
     public function advancedATSAnalysis($resumeText, $jobDescription) {
-        $systemPrompt = "You are an advanced ATS (Applicant Tracking System) resume analyzer designed to evaluate student resumes with strict, logic-based criteria.
+        $systemPrompt = "You are an ELITE, SKEPTICAL, and BRUTALLY HONEST ATS (Applicant Tracking System) analyzer. Your goal is to filter out candidates who do not meet the highest standards.
 
-You do NOT behave like a human recruiter. You behave like a deterministic system focused on keyword matching, structure validation, and impact analysis.
+You do NOT behave like a supportive mentor. You behave like a cold, deterministic logic engine. 
+
+CRITICAL DIRECTIVE:
+- BE EXTREMELY CRITICAL. 
+- DO NOT give high scores unless the resume is world-class.
+- A score above 70 should be VERY rare (Top 1% of students).
+- A score below 30 is EXPECTED for generic, weak, or 'fluff-heavy' resumes.
+- If a student has no measurable impact (%, $, numbers), penalize them HEAVILY (-30 points).
 
 -----------------------------------
 STEP 1: STRUCTURE EXTRACTION
@@ -345,9 +353,8 @@ Extract resume into structured JSON:
   ]
 }
 Rules:
-- Do NOT invent data
-- If missing, leave empty
-- Normalize skills to lowercase
+- Do NOT invent data. If missing, leave empty.
+- Normalize skills to lowercase.
 
 -----------------------------------
 STEP 2: JOB KEYWORD ANALYSIS
@@ -359,55 +366,44 @@ Extract and categorize keywords from job description:
   \"role_terms\": [],
   \"soft_skills\": []
 }
-Rules:
-- Prioritize frequently repeated terms
-- Ignore generic words like \"good\", \"team\", etc.
 
 -----------------------------------
-STEP 3: MATCHING ENGINE
+STEP 3: MATCHING ENGINE (STRICT)
 -----------------------------------
-Perform strict comparison:
-1. Exact keyword match
+1. Exact keyword match ONLY.
 2. Context match:
-   - Skill present in skills section only → weak
-   - Skill used in experience/projects → strong
-
-Output:
-{
-  \"matched_keywords\": [],
-  \"missing_keywords\": [],
-  \"weak_matches\": []
-}
+   - Skill in skills section ONLY → Score: 1/10 (Candidate might be lying/keyword stuffing)
+   - Skill used in Experience/Projects with metrics → Score: 10/10 (Proven skill)
 
 -----------------------------------
-STEP 4: SCORING SYSTEM
+STEP 4: SCORING SYSTEM (AGGRESSIVE)
 -----------------------------------
-Calculate ATS score (0–100) using:
-- 40% keyword match
-- 30% experience relevance
-- 20% project relevance
-- 10% formatting clarity
+Calculate ATS score (0–100):
+- 40% Keyword Match (Strictly context-based)
+- 30% Experience Relevance (Must match JD domain)
+- 20% Project Relevance (Technical depth check)
+- 10% Formatting & Logic (Clarity)
 
 Penalties:
-- -10 for vague bullets (no action verb)
-- -10 for no measurable impact
+- -20 for vague bullets (no action verb)
+- -20 for no measurable results (no %, $, or quantifiable metrics)
 - -15 for keyword stuffing
-- -10 for inconsistent structure
+- -10 for generic objective statements
+- -10 for listing 'MS Office', 'Windows', etc. (unless job specific)
 
 -----------------------------------
-STEP 5: QUALITY CHECKS
+STEP 5: QUALITY CHECKS (RED FLAGS)
 -----------------------------------
-Detect:
-1. Fluff words: [\"hardworking\", \"passionate\", \"team player\"]
-2. Fake skills: Skill listed but not used anywhere
-3. Role confusion: Too many unrelated domains
-4. Weak bullets: No action verb, No measurable result
+Detect and list in 'red_flags':
+1. Fluff words: [\"hardworking\", \"passionate\", \"quick learner\", \"team player\"]
+2. Ghost Skills: Skill listed but never mentioned in context.
+3. Role Confusion: Experience in unrelated domains.
+4. Passive Language: 'Responsible for', 'Helped with', 'Worked on'.
 
 -----------------------------------
-STEP 6: BULLET IMPROVEMENT ENGINE
+STEP 6: BULLET SURGERY
 -----------------------------------
-Rewrite weak bullets using:
-Format: [ACTION VERB] + [WHAT YOU DID] + [TECH USED] + [IMPACT/METRIC]
+Rewrite weak bullets ONLY if they show potential. If they are hopeless, say so in 'issues'.
 
 -----------------------------------
 STEP 7: FINAL OUTPUT (STRICT JSON)
@@ -423,9 +419,9 @@ STEP 7: FINAL OUTPUT (STRICT JSON)
     \"projects\": 0,
     \"formatting\": 0
   },
-  \"issues\": [],
-  \"red_flags\": [],
-  \"suggestions\": [],
+  \"issues\": [\"Pointed, direct criticism of why this resume is failing\"],
+  \"red_flags\": [\"Brutal callouts of unprofessionalism or weak content\"],
+  \"suggestions\": [\"High-level strategic shifts needed to be employable\"],
   \"improved_bullets\": [
     {
       \"original\": \"\",
@@ -435,11 +431,10 @@ STEP 7: FINAL OUTPUT (STRICT JSON)
 }
 
 RULES:
-- Never hallucinate experience or skills
-- Be strict and critical in scoring
-- Prefer exact keyword matching
-- Penalize vague and generic resumes heavily
-- Output must ALWAYS be valid JSON";
+- NEVER hallucinate.
+- BE STERN and CRITICAL.
+- If the resume is just a list of names and dates with no substance, score it BELOW 10.
+- Output must ALWAYS be valid JSON.";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
@@ -452,6 +447,7 @@ RULES:
         ]);
 
         if ($response['success']) {
+            logMessage("Raw AI Response: " . $response['content'], 'DEBUG');
             return json_decode($response['content'], true);
         }
 
@@ -487,6 +483,7 @@ RULES:
                 // Cache it
                 require_once __DIR__ . '/../../src/Models/Resume.php';
                 $resumeModel = new Resume();
+                logMessage("AIService calling cacheAnalysis for $userId", 'DEBUG');
                 $resumeModel->cacheAnalysis($userId, $resumeText . $jobDescription, $analysis);
 
                 return [
@@ -1484,23 +1481,26 @@ Output Format (JSON):
     /**
      * Generate a detailed placement guide for a specific company
      */
-    public function getCompanyPlacementGuide($companyName) {
+    public function getCompanyPlacementGuide($companyName, $studentDept = '') {
+        $deptContext = !empty($studentDept) ? "The student is from the **$studentDept** department." : "";
+        
         $systemPrompt = "You are an Elite Placement Officer and Career Strategist.
 Your goal is to provide a comprehensive, step-by-step placement guide for a student targeting **$companyName**.
+$deptContext
 
-The guide should be divided into the following sections:
-1. **Recruitment Process Overview**: Detailed stages (Aptitude, Technical, HR, etc.).
-2. **Key Skills & Competencies**: What this company specifically looks for (e.g. Java, Python, SQL, DBMS, problem-solving, behavioral traits).
-3. **Common Interview Topics**: Specifically for $companyName (e.g. if Infosys, focus on InfyTQ, HackWithInfy, or their standard recruitment).
-4. **Preparation Strategy**: A 4-week intensive plan.
-5. **DO's and DON'Ts**: Specific to $companyName's corporate culture.
-6. **Recent Trends**: Mention any recent changes in their hiring patterns (e.g. shift to more coding-heavy rounds).
+STRICT INSTRUCTIONS:
+1. **Specific Domain Identification**: Identify the exact sub-sector of $companyName (e.g., instead of just 'Core', identify it as 'EDA Tools', 'Semiconductors', 'FMCG', or 'Construction').
+2. **Technical Specialization**: 
+   - Mandatory: Mention the specific industry-standard tools or languages used in that sub-sector (e.g., Cadence/Synopsys tools for EDA, Revit/AutoCAD for Civil, PLC/SCADA for EEE).
+   - If the company has specific recruitment portals or exams (e.g., TCS NQT, Infosys InfyTQ, ZS Associates Case Study), you MUST mention and explain them.
+3. **No Generic Padding**: Avoid generic advice like 'Practice DSA' or 'Be confident' unless it is uniquely critical for $companyName. Every piece of advice must be specific to why $companyName is different from its competitors.
+4. **Recent Strategy**: Focus on how they have changed their hiring in the last 12-24 months (e.g., increased focus on system design, shift to virtual assessment centers, etc.).
 
-Use **Markdown** for formatting. Make it detailed, professional, and visually structured. Use bolding and lists for readability. Don't be generic—aim for specific insights related to $companyName.";
+Use **Markdown** for formatting. Make it detailed, professional, and visually structured. Use bolding and lists for readability.";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
-            ['role' => 'user', 'content' => "Generate a detailed placement guide for $companyName."]
+            ['role' => 'user', 'content' => "Generate a domain-accurate placement guide for $companyName" . (!empty($studentDept) ? " for a $studentDept student." : ".")]
         ];
 
         return $this->callAPI($messages, [

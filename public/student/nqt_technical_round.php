@@ -30,6 +30,7 @@ $taskId = $filters['task_id'] ?? 0;
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>NQT Coding Workspace - Lakshya</title>
@@ -186,6 +187,7 @@ $taskId = $filters['task_id'] ?? 0;
 <body>
 
     <header>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
         <div style="display: flex; align-items: center; gap: 15px;">
             <i class="fas fa-microchip" style="color: var(--secondary); font-size: 1.8rem;"></i>
             <div>
@@ -499,3 +501,4 @@ $taskId = $filters['task_id'] ?? 0;
     </script>
 </body>
 </html>
+

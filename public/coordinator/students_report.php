@@ -319,35 +319,33 @@ if ($min_sgpa > 0) {
     $params[] = $min_sgpa;
 }
 
-if (!$instFilter) {
-    $sem_placeholders = implode(',', array_fill(0, count($semester_filter), '?'));
-    $stmtLocal = $localDB->prepare("
-        SELECT DISTINCT student_id 
-        FROM student_sem_sgpa 
-        WHERE institution = ? AND semester IN ($sem_placeholders)
-    ");
-    $stmtLocal->execute(array_merge([INSTITUTION_GMIT], $semester_filter));
-    $gmitUsnsRaw = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
-    
-    // For GMIT, some students might be stored in student_sem_sgpa under their student_id (Aadhar)
-    // while the report uses their USN. We should ensure we include both possibilities.
-    $gmitUsns = $gmitUsnsRaw;
-    if (!empty($gmitUsnsRaw)) {
-        $db_gmit = getDB('gmit');
-        if ($db_gmit) {
-            $in_placeholders = implode(',', array_fill(0, count($gmitUsnsRaw), '?'));
-            // Expanded to check aadhar and aadhar_no columns for flexibility
-            $stmtRef = $db_gmit->prepare("SELECT DISTINCT usn, student_id FROM ad_student_details WHERE student_id IN ($in_placeholders) OR usn IN ($in_placeholders) OR aadhar IN ($in_placeholders) OR aadhar_no IN ($in_placeholders)");
-            $stmtRef->execute(array_merge($gmitUsnsRaw, $gmitUsnsRaw, $gmitUsnsRaw, $gmitUsnsRaw));
-            $mapped = $stmtRef->fetchAll(PDO::FETCH_ASSOC);
-            foreach ($mapped as $m) {
-                if ($m['usn']) $gmitUsns[] = $m['usn'];
-                if ($m['student_id']) $gmitUsns[] = $m['student_id'];
-            }
-            $gmitUsns = array_values(array_unique($gmitUsns));
+$sem_placeholders = implode(',', array_fill(0, count($semester_filter), '?'));
+$stmtLocal = $localDB->prepare("
+    SELECT DISTINCT student_id 
+    FROM student_sem_sgpa 
+    WHERE institution = ? AND semester IN ($sem_placeholders)
+");
+$stmtLocal->execute(array_merge([INSTITUTION_GMIT], $semester_filter));
+$gmitUsnsRaw = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
+
+// Expand GMIT USNs/IDs
+$gmitUsns = $gmitUsnsRaw;
+if (!empty($gmitUsnsRaw)) {
+    $db_gmit = getDB('gmit');
+    if ($db_gmit) {
+        $in_placeholders = implode(',', array_fill(0, count($gmitUsnsRaw), '?'));
+        $stmtRef = $db_gmit->prepare("SELECT DISTINCT usn, student_id FROM ad_student_details WHERE student_id IN ($in_placeholders) OR usn IN ($in_placeholders) OR aadhar IN ($in_placeholders) OR aadhar_no IN ($in_placeholders)");
+        $stmtRef->execute(array_merge($gmitUsnsRaw, $gmitUsnsRaw, $gmitUsnsRaw, $gmitUsnsRaw));
+        $mapped = $stmtRef->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($mapped as $m) {
+            if ($m['usn']) $gmitUsns[] = $m['usn'];
+            if ($m['student_id']) $gmitUsns[] = $m['student_id'];
         }
+        $gmitUsns = array_values(array_unique($gmitUsns));
     }
-    
+}
+
+if (!$instFilter) {
     $gmu_sem_sql = "asa.sem IN ($sem_placeholders)";
     foreach ($semester_filter as $s_val) $params[] = $s_val;
 
@@ -356,19 +354,13 @@ if (!$instFilter) {
         $where_clauses[] = "((asa.institution = '" . INSTITUTION_GMU . "' AND $gmu_sem_sql) OR (asa.institution = '" . INSTITUTION_GMIT . "' AND asa.usn IN ($placeholders)))";
         $params = array_merge($params, $gmitUsns);
     } else {
-        // If no GMIT student has SGPA details in the selected semesters, only show GMU students in those semesters
         $where_clauses[] = "(asa.institution = '" . INSTITUTION_GMU . "' AND $gmu_sem_sql)";
     }
 } else {
     if ($instFilter === INSTITUTION_GMU) {
-        $sem_placeholders = implode(',', array_fill(0, count($semester_filter), '?'));
         $where_clauses[] = "asa.sem IN ($sem_placeholders)";
         foreach ($semester_filter as $s_val) $params[] = $s_val;
     } else {
-        $sem_placeholders = implode(',', array_fill(0, count($semester_filter), '?'));
-        $stmtLocal = $localDB->prepare("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE institution = ? AND semester IN ($sem_placeholders)");
-        $stmtLocal->execute(array_merge([INSTITUTION_GMIT], $semester_filter));
-        $gmitUsns = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
         if (!empty($gmitUsns)) {
             $placeholders = implode(',', array_fill(0, count($gmitUsns), '?'));
             $where_clauses[] = "asa.usn IN ($placeholders)";
@@ -606,6 +598,7 @@ $fullName = getFullName();
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Students & Reports — <?php echo htmlspecialchars($deptLabel); ?></title>
@@ -1393,3 +1386,4 @@ $fullName = getFullName();
     </script>
 </body>
 </html>
+

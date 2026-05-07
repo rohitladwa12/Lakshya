@@ -449,6 +449,29 @@ class User extends Model {
             'institution' => $institution,
             'COURSE' => $row['COURSE'] ?? null,
             'DISCIPLINE' => $row['discipline'] ?? ($row['DISCIPLINE'] ?? ($row['branch'] ?? ($row['DEPT_ID'] ?? null))),
+            'photo' => (function($p) {
+                if (empty($p)) return null;
+                
+                // Handle JSON-encoded photo data (common in some CMS/ERP systems)
+                if (strpos($p, '[{') === 0 || strpos($p, '{') === 0) {
+                    $decoded = json_decode($p, true);
+                    if (is_array($decoded)) {
+                        // Priority: thumbnail -> url -> first array element
+                        if (isset($decoded[0]['thumbnail'])) $p = $decoded[0]['thumbnail'];
+                        elseif (isset($decoded[0]['url'])) $p = $decoded[0]['url'];
+                        elseif (isset($decoded['thumbnail'])) $p = $decoded['thumbnail'];
+                        elseif (isset($decoded['url'])) $p = $decoded['url'];
+                    }
+                }
+
+                if (empty($p) || preg_match('/^https?:\/\//', $p)) return $p;
+                
+                // Prepend base URL for relative paths
+                if (strpos($p, 'attachments/') !== false) {
+                    return "https://erp.gmit.info/" . ltrim($p, '/');
+                }
+                return "https://erp.gmit.info/attachments/gmu/profile/" . ltrim($p, '/');
+            })($row['PHOTO'] ?? null),
             'raw' => $row // Keep raw data for deep fallback in profile mapping
         ];
     }

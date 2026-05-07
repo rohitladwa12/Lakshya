@@ -310,13 +310,8 @@ if ($action === 'save_resume' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $destPath = $uploadDir . '/' . $fileName;
 
             if (move_uploaded_file($_FILES['resume_pdf']['tmp_name'], $destPath)) {
-                // Success - construct URL dynamically
-                $protocol = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') ? "https" : "http";
-                $host = $_SERVER['HTTP_HOST'];
-                $scriptName = $_SERVER['SCRIPT_NAME'];
-                // Detect the 'public' base by removing the student subfolder path
-                $publicBase = substr($scriptName, 0, strpos($scriptName, '/student/'));
-                $pdfUrl  = $protocol . "://" . $host . $publicBase . "/uploads/resumes/Student_Resumes/" . $fileName;
+                // Success - construct SECURE proxy URL
+                $pdfUrl = "view_resume.php?usn=" . urlencode($username);
             } else {
                 logMessage("Failed to move uploaded resume PDF to $destPath", 'ERROR');
             }
@@ -324,8 +319,8 @@ if ($action === 'save_resume' && $_SERVER['REQUEST_METHOD'] === 'POST') {
 
         echo json_encode(['success' => (bool)$ok, 'pdf_url' => $pdfUrl]);
     } catch (\Throwable $e) {
-        $debugInfo = date('[Y-m-d H:i:s] ') . $e->getMessage() . " in " . $e->getFile() . " on line " . $e->getLine() . "\n" . $e->getTraceAsString() . "\n\n";
-        file_put_contents(__DIR__ . '/../../logs/debug_save_resume.log', $debugInfo, FILE_APPEND);
+        $debugInfo = $e->getMessage() . " in " . $e->getFile() . " on line " . $e->getLine() . "\n" . $e->getTraceAsString();
+        logMessage($debugInfo, 'FATAL_RESUME_SAVE');
         http_response_code(200); // Override 500 so JSON can be parsed by the frontend
         echo json_encode(['success' => false, 'error' => $e->getMessage() . ' in ' . $e->getFile() . ' on line ' . $e->getLine()]);
     }

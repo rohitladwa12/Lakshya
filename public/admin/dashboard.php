@@ -19,6 +19,11 @@ $resumeStats = $adminModel->getResumeCompletionStats();
 
 $chapterModel = new LearningChapter();
 $chapters = $chapterModel->all();
+
+// Fetch System Settings for Feature Toggles
+$db = getDB();
+$stmt = $db->query("SELECT setting_key, setting_value FROM system_settings");
+$settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -26,6 +31,7 @@ $chapters = $chapterModel->all();
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - <?php echo APP_NAME; ?></title>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <!-- Modern Typography and Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
@@ -150,19 +156,13 @@ $chapters = $chapterModel->all();
         /* Analytics Layout */
         .analytics-grid {
             display: grid;
-            grid-template-columns: 1fr 1.2fr 0.8fr;
+            grid-template-columns: 1fr 1.5fr;
             gap: 30px;
             margin-bottom: 40px;
         }
 
-        @media (max-width: 1400px) {
-            .analytics-grid { grid-template-columns: 1fr 1fr; }
-            .col-3 { grid-column: span 2; }
-        }
-
-        @media (max-width: 900px) {
+        @media (max-width: 1100px) {
             .analytics-grid { grid-template-columns: 1fr; }
-            .col-3 { grid-column: span 1; }
         }
 
         .panel {
@@ -384,7 +384,7 @@ $chapters = $chapterModel->all();
                 <div class="metric-icon icon-students" style="background: #FFF4E5; color: #FF9920;"><i class="fas fa-graduation-cap"></i></div>
                 <div class="metric-info">
                     <h3>Curriculum</h3>
-                    <div class="value"><?php echo count($chapters); ?> <span style="font-size: 14px; font-weight: 500;">Chaps</span></div>
+                    <div class="value"><?php echo count($chapters); ?> <span style="font-size: 14px; font-weight: 500;">Chapters</span></div>
                 </div>
             </a>
 
@@ -404,6 +404,74 @@ $chapters = $chapterModel->all();
                             <?php echo file_exists(ROOT_PATH . '/src/maintenance.lock') ? 'ACTIVE' : 'INACTIVE'; ?>
                         </span>
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Feature Management Section -->
+        <div class="panel" style="margin-bottom: 40px; border-radius: 30px; padding: 30px;">
+            <div class="panel-header" style="margin-bottom: 25px; border-bottom: 1px solid #F4F7FE; padding-bottom: 15px;">
+                <div class="panel-title" style="font-size: 18px; font-weight: 800; color: var(--text-dark);">
+                    <i class="fas fa-microchip" style="color: var(--primary-maroon); margin-right: 10px;"></i> AI Feature Management
+                </div>
+                <p style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Enable or disable specific student-facing AI modules</p>
+            </div>
+            
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px;">
+                <!-- Mock AI -->
+                <div style="background: #fafbff; padding: 20px; border-radius: 20px; border: 1px solid #f0f4ff; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <div style="width: 40px; height: 40px; background: #fff7ed; color: #ea580c; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-fire"></i>
+                        </div>
+                        <span style="font-weight: 700; font-size: 15px;">Mock AI Interview</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" onchange="toggleAI('feature_mock_ai', this)" <?php echo ($settings['feature_mock_ai'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <!-- Company Guide -->
+                <div style="background: #fafbff; padding: 20px; border-radius: 20px; border: 1px solid #f0f4ff; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <div style="width: 40px; height: 40px; background: #f0f9ff; color: #0284c7; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-graduation-cap"></i>
+                        </div>
+                        <span style="font-weight: 700; font-size: 15px;">Placement Guide</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" onchange="toggleAI('feature_company_guide', this)" <?php echo ($settings['feature_company_guide'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <!-- Resume Builder -->
+                <div style="background: #fafbff; padding: 20px; border-radius: 20px; border: 1px solid #f0f4ff; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <div style="width: 40px; height: 40px; background: #fff1f2; color: #e11d48; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-file-invoice"></i>
+                        </div>
+                        <span style="font-weight: 700; font-size: 15px;">Resume Builder</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" onchange="toggleAI('feature_resume_builder', this)" <?php echo ($settings['feature_resume_builder'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <!-- Profile Analyser -->
+                <div style="background: #fafbff; padding: 20px; border-radius: 20px; border: 1px solid #f0f4ff; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <div style="width: 40px; height: 40px; background: #f5f3ff; color: #7c3aed; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                        <span style="font-weight: 700; font-size: 15px;">Profile Analyser</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" onchange="toggleAI('feature_profile_analyzer', this)" <?php echo ($settings['feature_profile_analyzer'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
+                        <span class="slider"></span>
+                    </label>
                 </div>
             </div>
         </div>
@@ -461,41 +529,14 @@ $chapters = $chapterModel->all();
                         </div>
                     <?php endforeach; ?>
                 </div>
-            </div>
 
-            <!-- Right: Identity Registry -->
-            <div class="panel col-3">
-                <div class="panel-header">
-                    <div class="panel-title">
-                        <i class="fas fa-shield-halved" style="color: var(--primary-dark);"></i> Identity Resolver
-                    </div>
-                </div>
-                <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 25px;">
-                    Ensuring all students are mapped to official USNs across the multi-database cluster.
-                </p>
-                
-                <div class="resolution-hub">
-                    <div class="res-item">
-                        <div class="res-label"><span>Official USN Matches</span><span>Verified</span></div>
-                        <div class="res-bar"><div class="res-progress" style="width: 85%; background: #05CD99;"></div></div>
-                    </div>
-                    <div class="res-item">
-                        <div class="res-label"><span>Aadhar/Legacy Fallbacks</span><span>Resolving</span></div>
-                        <div class="res-bar"><div class="res-progress" style="width: 12%; background: #FF9920;"></div></div>
-                    </div>
-                    <div class="res-item">
-                        <div class="res-label"><span>Unmapped Entries</span><span>Attention</span></div>
-                        <div class="res-bar"><div class="res-progress" style="width: 3%; background: #ef4444;"></div></div>
-                    </div>
-                </div>
-
-                <div style="margin-top: 40px; padding-top: 25px; border-top: 1px solid #F4F7FE;">
-                    <a href="" style="display:block; text-align:center; padding: 15px; background: var(--bg-color); border-radius: 15px; color: var(--primary-maroon); text-decoration: none; font-weight: 700; border: 1px solid transparent; transition: var(--transition);" onmouseover="this.style.borderColor='var(--primary-maroon)'" onmouseout="this.style.borderColor='transparent'">
-                        Audit Detailed Registry <i class="fas fa-arrow-right"></i>
+                <div style="margin-top: 25px; padding-top: 20px; border-top: 1px solid #F4F7FE; text-align: center;">
+                    <a href="resumes.php" style="color: var(--primary-maroon); text-decoration: none; font-weight: 700; font-size: 14px;">
+                        View All Student Resumes <i class="fas fa-arrow-right"></i>
                     </a>
                 </div>
             </div>
-        </div>
+        </div>v>
     </div>
 
     <script>
@@ -577,6 +618,32 @@ $chapters = $chapterModel->all();
                 e.target.checked = !isActive;
             }
         });
+
+        // AI Feature Toggles
+        async function toggleAI(key, el) {
+            const status = el.checked ? 'enabled' : 'disabled';
+            try {
+                const formData = new FormData();
+                formData.append('key', key);
+                formData.append('value', status);
+                formData.append('action', 'update_setting');
+
+                const res = await fetch('settings_handler.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const data = await res.json();
+                if (!data.success) {
+                    alert('Error: ' + data.message);
+                    el.checked = !el.checked;
+                }
+            } catch (e) {
+                console.error('Feature toggle network error', e);
+                el.checked = !el.checked;
+            }
+        }
     </script>
 </body>
 </html>
+

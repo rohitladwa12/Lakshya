@@ -5,6 +5,12 @@ class Admin extends Model {
     protected $table = 'users'; 
 
     public function getDashboardStats() {
+        $redis = \App\Helpers\RedisHelper::getInstance();
+        $cacheKey = 'admin:dashboard_stats';
+        
+        $cached = $redis->get($cacheKey);
+        if ($cached) return $cached;
+
         $stats = [];
         
         // Active Jobs
@@ -54,10 +60,11 @@ class Admin extends Model {
             if ($js['job_type'] === 'Internship') $stats['active_internships'] = $js['count'];
         }
 
-        // Total Placed Students
-        $sql = "SELECT COUNT(*) as count FROM job_applications WHERE status = 'Selected'";
         $stats['placed_students'] = $this->queryOne($sql)['count'] ?? 0;
         
+        // Cache for 10 minutes
+        $redis->set($cacheKey, $stats, 600);
+
         return $stats;
     }
 
@@ -81,6 +88,12 @@ class Admin extends Model {
     }
 
     public function getResumeCompletionStats() {
+        $redis = \App\Helpers\RedisHelper::getInstance();
+        $cacheKey = 'admin:resume_completion_stats';
+
+        $cached = $redis->get($cacheKey);
+        if ($cached) return $cached;
+
         $stats = [
             'total_built' => 0,
             'percentage' => 0,
@@ -130,15 +143,18 @@ class Admin extends Model {
                             if ($usnToFind === null || !is_scalar($usnToFind)) continue;
 
                             // Try USN, student_id, or Aadhar
-                            $stmt = $conn->prepare("SELECT discipline FROM {$prefix}{$table} WHERE usn = ? OR student_id = ? OR aadhar = ? LIMIT 1");
+                            // SELECT * is safer against missing columns (discipline vs branch)
+                            $stmt = $conn->prepare("SELECT * FROM {$prefix}{$table} WHERE usn = ? OR student_id = ? OR aadhar = ? LIMIT 1");
                             $stmt->execute([$usnToFind, $usnToFind, $usnToFind]);
-                            $resolvedDept = $stmt->fetchColumn();
+                            $remoteData = $stmt->fetch(PDO::FETCH_ASSOC);
+                            $resolvedDept = $remoteData['discipline'] ?? ($remoteData['DISCIPLINE'] ?? ($remoteData['branch'] ?? ($remoteData['DEPT_ID'] ?? null)));
                             
                             // Fallback for GMU - second table
                             if (!$resolvedDept && $inst === 'gmu') {
-                                $stmt = $conn->prepare("SELECT discipline FROM {$prefix}ad_student_details WHERE usn = ? OR student_id = ? OR aadhar = ? LIMIT 1");
+                                $stmt = $conn->prepare("SELECT * FROM {$prefix}ad_student_details WHERE usn = ? OR student_id = ? OR aadhar = ? LIMIT 1");
                                 $stmt->execute([$usnToFind, $usnToFind, $usnToFind]);
-                                $resolvedDept = $stmt->fetchColumn();
+                                $remoteData = $stmt->fetch(PDO::FETCH_ASSOC);
+                                $resolvedDept = $remoteData['discipline'] ?? ($remoteData['DISCIPLINE'] ?? ($remoteData['branch'] ?? ($remoteData['DEPT_ID'] ?? null)));
                             }
 
                             if ($resolvedDept) break; // Found it!
@@ -158,6 +174,10 @@ class Admin extends Model {
                     'count' => $count
                 ];
             }
+
+            
+            // Cache for 10 minutes
+            $redis->set($cacheKey, $stats, 600);
 
         } catch (Throwable $e) {
             logMessage("Admin Stats Critical Error: " . $e->getMessage(), 'ERROR');
@@ -192,41 +212,50 @@ class Admin extends Model {
                     $possibleInstitutions = ['gmu', 'gmit'];
                 }
 
-                foreach ($possibleInstitutions as $inst) {
-                    try {
-                        $conn = getDB($inst);
-                        if ($conn instanceof PDO) {
-                            $prefix = ($inst === 'gmit') ? DB_GMIT_PREFIX : DB_GMU_PREFIX;
-                            $table = ($inst === 'gmit') ? 'ad_student_details' : 'ad_student_approved';
-                            $usnToFind = ($student && isset($student['username'])) ? $student['username'] : $sid;
+                if ($student) {
+                    $resolvedDept = $student['DISCIPLINE'] ?? 'Unknown';
+                    $institution = $student['institution'] ?? 'Unknown';
+                    // Use USN if found for PDF path consistency
+                    if (!empty($student['username'])) {
+                        $sid = $student['username'];
+                    }
+                } else {
+                    // Fallback to manual check only if User model failed
+                    foreach ($possibleInstitutions as $inst) {
+                        try {
+                            $conn = getDB($inst);
+                            if ($conn instanceof PDO) {
+                                $prefix = ($inst === 'gmit') ? DB_GMIT_PREFIX : DB_GMU_PREFIX;
+                                $table = ($inst === 'gmit') ? 'ad_student_details' : 'ad_student_approved';
+                                $usnToFind = is_scalar($sid) ? $sid : (isset($r['student_id']) ? $r['student_id'] : null);
+                                
+                                if ($usnToFind === null || !is_scalar($usnToFind)) continue;
 
-                            // Final safety check: ensure $usnToFind is a scalar
-                            if (is_array($usnToFind)) {
-                                $usnToFind = is_scalar($sid) ? $sid : (isset($student['username']) ? $student['username'] : null);
-                            }
-
-                            if ($usnToFind === null || !is_scalar($usnToFind)) continue;
-
-                            $stmt = $conn->prepare("SELECT usn, discipline FROM {$prefix}{$table} WHERE usn = ? OR student_id = ? OR aadhar = ? LIMIT 1");
-                            $stmt->execute([$usnToFind, $usnToFind, $usnToFind]);
-                            $remoteUser = $stmt->fetch(PDO::FETCH_ASSOC);
-                            
-                            if (!$remoteUser && $inst === 'gmu') {
-                                $stmt = $conn->prepare("SELECT usn, discipline FROM {$prefix}ad_student_details WHERE usn = ? OR student_id = ? OR aadhar = ? LIMIT 1");
+                                // SELECT * is safer against missing columns
+                                $stmt = $conn->prepare("SELECT * FROM {$prefix}{$table} WHERE usn = ? OR student_id = ? OR aadhar = ? LIMIT 1");
                                 $stmt->execute([$usnToFind, $usnToFind, $usnToFind]);
                                 $remoteUser = $stmt->fetch(PDO::FETCH_ASSOC);
-                            }
-
-                            if ($remoteUser) {
-                                $resolvedDept = $remoteUser['discipline'];
-                                $institution = strtoupper($inst);
-                                if (!empty($remoteUser['usn'])) {
-                                    $sid = $remoteUser['usn']; // Use the real USN for PDF path and display
+                                
+                                if (!$remoteUser && $inst === 'gmu') {
+                                    $stmt = $conn->prepare("SELECT * FROM {$prefix}ad_student_details WHERE usn = ? OR student_id = ? OR aadhar = ? LIMIT 1");
+                                    $stmt->execute([$usnToFind, $usnToFind, $usnToFind]);
+                                    $remoteUser = $stmt->fetch(PDO::FETCH_ASSOC);
                                 }
-                                break;
+
+                                if ($remoteUser) {
+                                    // Robust mapping
+                                    $resolvedDept = $remoteUser['discipline'] ?? ($remoteUser['DISCIPLINE'] ?? ($remoteUser['branch'] ?? ($remoteUser['DEPT_ID'] ?? 'Unknown')));
+                                    $institution = strtoupper($inst);
+                                    if (!empty($remoteUser['usn'])) {
+                                        $sid = $remoteUser['usn'];
+                                    }
+                                    break;
+                                }
                             }
+                        } catch(Throwable $e) {
+                             logMessage("Admin Fallback Query Error for $sid: " . $e->getMessage(), 'WARNING');
                         }
-                    } catch(Throwable $e) {}
+                    }
                 }
 
                 // Construct PDF path using resolved USN

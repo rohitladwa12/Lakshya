@@ -85,6 +85,7 @@ $stats = $roadmapModel->getRoadmapStats($roadmapId);
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Career Roadmap - Student Portal</title>
@@ -714,3 +715,4 @@ async function loadResources(phaseNum) {
 </script>
 </body>
 </html>
+

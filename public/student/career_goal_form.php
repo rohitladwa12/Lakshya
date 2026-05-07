@@ -29,6 +29,7 @@ $prepopulatedSkills = array_column($portfolioSkills, 'title');
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Career Goal Form - Student Portal</title>
@@ -250,26 +251,39 @@ $prepopulatedSkills = array_column($portfolioSkills, 'title');
                 <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
                     <div class="form-group">
                         <label for="targetCompany">Preferred Company Type</label>
-                        <select id="targetCompany" name="target_company_type">
+                        <select id="targetCompany" name="target_company_type" onchange="toggleOtherInput('targetCompany', 'otherCompanyGroup')">
                             <option value="MNC">MNC (Google, Microsoft, etc.)</option>
                             <option value="Startup">Innovative Startup</option>
                             <option value="Product">Product-Based Company</option>
                             <option value="Service">Service-Based Company</option>
-                            <option value="Any">Any Company</option>
+                            <option value="Other">Other Type</option>
                         </select>
                     </div>
                     
                     <div class="form-group">
                         <label for="targetIndustry">Industry Sector</label>
-                        <select id="targetIndustry" name="target_industry">
+                        <select id="targetIndustry" name="target_industry" onchange="toggleOtherInput('targetIndustry', 'otherIndustryGroup')">
                             <option value="Technology">Technology & IT</option>
                             <option value="Finance">FinTech & Finance</option>
                             <option value="Healthcare">HealthTech</option>
                             <option value="E-commerce">E-commerce</option>
                             <option value="Security">Cybersecurity</option>
+                            <option value="Automotive">Automotive & EV</option>
+                            <option value="Construction">Construction & Civil</option>
                             <option value="Other">Other Sector</option>
                         </select>
                     </div>
+                </div>
+
+                <!-- Hidden Other Inputs -->
+                <div id="otherCompanyGroup" style="display: none;" class="form-group">
+                    <label for="otherCompany">Specify Company Type</label>
+                    <input type="text" id="otherCompany" placeholder="e.g. Government, Research Lab, NGO">
+                </div>
+                
+                <div id="otherIndustryGroup" style="display: none;" class="form-group">
+                    <label for="otherIndustry">Specify Industry Sector</label>
+                    <input type="text" id="otherIndustry" placeholder="e.g. Aerospace, Agriculture, Fashion">
                 </div>
                 
                 <div class="form-group">
@@ -326,6 +340,17 @@ function removeSkill(skill) {
     updateSkillsTags();
 }
 
+function toggleOtherInput(selectId, targetId) {
+    const select = document.getElementById(selectId);
+    const target = document.getElementById(targetId);
+    if (select.value === 'Other') {
+        target.style.display = 'block';
+        target.querySelector('input').focus();
+    } else {
+        target.style.display = 'none';
+    }
+}
+
 function updateSkillsTags() {
     const container = document.getElementById('skillsTags');
     container.innerHTML = skills.map(skill => `
@@ -345,10 +370,23 @@ document.getElementById('careerGoalForm').addEventListener('submit', async funct
     e.preventDefault();
     
     const formData = new FormData(this);
+    let targetCompany = formData.get('target_company_type');
+    let targetIndustry = formData.get('target_industry');
+    
+    if (targetCompany === 'Other') {
+        const otherVal = document.getElementById('otherCompany').value.trim();
+        if (otherVal) targetCompany = otherVal;
+    }
+    
+    if (targetIndustry === 'Other') {
+        const otherVal = document.getElementById('otherIndustry').value.trim();
+        if (otherVal) targetIndustry = otherVal;
+    }
+
     const data = {
         target_role: formData.get('target_role'),
-        target_company_type: formData.get('target_company_type'),
-        target_industry: formData.get('target_industry'),
+        target_company_type: targetCompany,
+        target_industry: targetIndustry,
         experience_level: formData.get('experience_level'),
         current_skills: JSON.parse(formData.get('current_skills'))
     };
@@ -418,3 +456,4 @@ async function pollJobStatus(jobId, onSuccess, onError) {
 
 </body>
 </html>
+

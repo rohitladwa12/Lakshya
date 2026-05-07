@@ -33,6 +33,7 @@ function getRoleDisplayName($role) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User Management - <?php echo APP_NAME; ?></title>
@@ -384,3 +385,4 @@ function getRoleDisplayName($role) {
     </script>
 </body>
 </html>
+

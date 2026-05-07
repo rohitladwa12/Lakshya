@@ -21,6 +21,10 @@ class Resume extends Model {
      * Get resume by student ID
      */
     public function getByStudentId($studentId) {
+        if (is_array($studentId)) {
+            error_log("getByStudentId called with array: " . print_r($studentId, true));
+            return null;
+        }
         $sql = "SELECT * FROM {$this->table} WHERE student_id = ? ORDER BY last_updated DESC LIMIT 1";
         $stmt = $this->db->prepare($sql);
         $stmt->execute([$studentId]);
@@ -205,18 +209,52 @@ class Resume extends Model {
     }
 
     /**
+     * Get the latest analysis for a user
+     */
+    public function getLatestAnalysis($userId) {
+        error_log("Fetching latest analysis for user: " . $userId);
+        $sql = "SELECT analysis_json FROM resume_analysis_cache WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1";
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute([$userId]);
+        $row = $stmt->fetch();
+        
+        if ($row) {
+            error_log("Analysis found for user: " . $userId);
+        } else {
+            error_log("No analysis found for user: " . $userId);
+        }
+
+        return $row ? json_decode($row['analysis_json'], true) : null;
+    }
+
+    /**
      * Store analysis in cache
      */
     public function cacheAnalysis($userId, $resumeText, $analysis) {
         $hash = hash('sha256', trim($resumeText));
         $json = json_encode($analysis);
+        if ($json === false) {
+            logMessage("ERROR - json_encode failed: " . json_last_error_msg(), 'ERROR');
+            return false;
+        }
         
+        logMessage("cacheAnalysis called for user: $userId", 'DEBUG');
+        if (!$this->db) {
+            logMessage("ERROR - No database connection in Resume model!", 'ERROR');
+            error_log("Resume Model: No database connection in cacheAnalysis");
+            return false;
+        }
+        logMessage("DB connection exists. Proceeding with SQL...", 'DEBUG');
         // Use REPLACE INTO or similar for upsert
         $sql = "INSERT INTO resume_analysis_cache (user_id, resume_hash, analysis_json) 
                 VALUES (?, ?, ?) 
                 ON DUPLICATE KEY UPDATE analysis_json = VALUES(analysis_json), updated_at = CURRENT_TIMESTAMP";
         
         $stmt = $this->db->prepare($sql);
-        return $stmt->execute([$userId, $hash, $json]);
+        $res = $stmt->execute([$userId, $hash, $json]);
+        if (!$res) {
+            error_log("Failed to cache analysis for user $userId. Hash: $hash");
+        }
+        return $res;
     }
 }

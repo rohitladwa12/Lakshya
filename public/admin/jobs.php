@@ -37,6 +37,7 @@ foreach ($jobs as $j) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Placements Management - <?php echo APP_NAME; ?></title>
@@ -128,6 +129,7 @@ foreach ($jobs as $j) {
         <a href="dashboard.php" class="back-link"><i class="fas fa-arrow-left"></i> Back to Dashboard</a>
         
         <header class="glass-header">
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
             <div class="header-title">
                 <h1>Placements Pipeline</h1>
                 <p>Managing direct campus drives and job application processing</p>
@@ -238,3 +240,4 @@ foreach ($jobs as $j) {
     </script>
 </body>
 </html>
+

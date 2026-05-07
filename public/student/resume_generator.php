@@ -76,6 +76,7 @@ foreach ($portfolioItems as $item) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Resume Generator - <?php echo APP_NAME; ?></title>
@@ -718,4 +719,5 @@ foreach ($portfolioItems as $item) {
     <script src="../public/student/resume_generator.js?v=<?php echo time(); ?>"></script>
 </body>
 </html>
+
 

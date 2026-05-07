@@ -43,7 +43,8 @@ if (isPost()) {
         if ($result['success']) {
             $user       = $result['user'];
             $department = isset($user['department']) ? $user['department'] : null;
-            Session::setUser($user['id'], $user['username'], $user['role'], $user['full_name'], $user['institution'] ?? null, $department);
+            $photo      = isset($user['photo']) ? $user['photo'] : null;
+            Session::setUser($user['id'], $user['username'], $user['role'], $user['full_name'], $user['institution'] ?? null, $department, $photo);
             trackActivity('login', 'User logged in successfully', ['role' => $user['role'], 'institution' => $user['institution'] ?? 'N/A']);
 
             if ($user['role'] === ROLE_VC) {
@@ -74,6 +75,7 @@ if (isPost()) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login — LAKSHYA | GM University</title>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>
@@ -812,3 +814,4 @@ if (isPost()) {
 
 </body>
 </html>
+

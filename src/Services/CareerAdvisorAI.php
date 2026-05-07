@@ -86,40 +86,22 @@ class CareerAdvisorAI {
 - Experience Level: {$experienceLevel}
 
 **Instructions:**
-Generate a comprehensive career roadmap in JSON format with the following structure:
+Generate a comprehensive, domain-accurate career roadmap in JSON format.
 
+**STRICT DOMAIN RULES:**
+1. **Industry Alignment**: Identify if the target role is in **Software/IT** or **Core Engineering** (ECE, EEE, Mechanical, Civil, etc.).
+2. **Branch Sensitivity**: Tailor every phase to the student's degree ({$context['degree']}). 
+   - If the student is Core Engineering (Non-CS/IS), do NOT suggest generic software phases (like Web Dev/Mobile App) unless specifically asked.
+   - For Core roles, focus on industry-specific certifications and tools (e.g., ASIC/FPGA for ECE, Power Systems for EEE, CFD for Mechanical).
+3. **Phase Quality**: Create 4-6 learning phases with clear progression, focusing on practical, industry-standard technology.
+
+**JSON Structure:**
 {
-  \"overview\": \"A brief 2-3 sentence overview of the career path\",
-  \"timeline\": \"Estimated time to achieve this goal (e.g., '6-12 months')\",
-  \"phases\": [
-    {
-      \"phase_number\": 1,
-      \"title\": \"Phase title\",
-      \"duration\": \"Duration (e.g., '2-3 months')\",
-      \"description\": \"What this phase focuses on\",
-      \"skills\": [\"Skill 1\", \"Skill 2\"],
-      \"milestones\": [\"Milestone 1\", \"Milestone 2\"]
-    }
-  ],
-  \"required_skills\": [
-    {
-      \"skill_name\": \"Skill name\",
-      \"category\": \"Technical/Soft/Domain\",
-      \"priority\": \"Critical/Important/Nice-to-have\",
-      \"current_level\": \"None/Beginner/Intermediate/Advanced\",
-      \"target_level\": \"Beginner/Intermediate/Advanced/Expert\",
-      \"why_important\": \"Why this skill matters for the role\"
-    }
-  ]
+  \"overview\": \"\",
+  \"timeline\": \"\",
+  \"phases\": [{\"phase_number\": 1, \"title\": \"\", \"duration\": \"\", \"description\": \"\", \"skills\": [], \"milestones\": []}],
+  \"required_skills\": [{\"skill_name\": \"\", \"category\": \"\", \"priority\": \"\", \"current_level\": \"\", \"target_level\": \"\", \"why_important\": \"\"}]
 }
-
-**Requirements:**
-1. Create 4-6 learning phases with clear progression
-2. List 8-15 required skills with priorities
-3. Be specific and actionable
-4. Consider the student's current skills
-5. Make timeline realistic
-6. Focus on practical, industry-relevant skills
 
 Return ONLY valid JSON, no additional text.";
 

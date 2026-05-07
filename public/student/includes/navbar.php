@@ -37,7 +37,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         align-items: center;
         justify-content: space-between;
         padding: 0 40px;
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05), inset 0 0 0 1px rgba(255,255,255,0.4);
+        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.05), inset 0 0 0 1px rgba(255, 255, 255, 0.4);
         z-index: 2000;
         border-bottom: 1px solid rgba(128, 0, 0, 0.1);
     }
@@ -154,7 +154,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         width: 240px;
         background: white;
         border-radius: 16px;
-        box-shadow: 0 15px 35px rgba(0,0,0,0.15);
+        box-shadow: 0 15px 35px rgba(0, 0, 0, 0.15);
         padding: 12px;
         opacity: 0;
         visibility: hidden;
@@ -163,7 +163,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         display: flex;
         flex-direction: column;
         gap: 4px;
-        border: 1px solid rgba(0,0,0,0.05);
+        border: 1px solid rgba(0, 0, 0, 0.05);
     }
 
     .dropdown-container:hover .dropdown-menu {
@@ -237,7 +237,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         border-radius: 50px;
         border: 1px solid rgba(128, 0, 0, 0.1);
         transition: var(--transition);
-        box-shadow: 0 2px 10px rgba(0,0,0,0.03);
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
     }
 
     .student-badge:hover {
@@ -278,7 +278,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         color: white;
         font-weight: 700;
         font-size: 14px;
-        box-shadow: 0 4px 8px rgba(128,0,0,0.2);
+        box-shadow: 0 4px 8px rgba(128, 0, 0, 0.2);
     }
 
     .logout-link {
@@ -302,13 +302,20 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
     }
 
     @media (max-width: 1200px) {
-        .unified-navbar { padding: 0 20px; }
-        .nav-logo .logo-text { display: none; }
+        .unified-navbar {
+            padding: 0 20px;
+        }
+
+        .nav-logo .logo-text {
+            display: none;
+        }
     }
 
     @media (max-width: 1024px) {
-        .mobile-toggle { display: flex; }
-        
+        .mobile-toggle {
+            display: flex;
+        }
+
         .nav-menu {
             position: fixed;
             top: var(--nav-height);
@@ -320,7 +327,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
             padding: 30px;
             gap: 15px;
             transition: var(--transition);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
             overflow-y: auto;
             z-index: 1001;
             transform: translateX(-100%);
@@ -368,17 +375,41 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         .student-badge {
             padding: 6px;
         }
-        
-        .student-details { display: none; }
+
+        .student-details {
+            display: none;
+        }
     }
 
     @media (max-width: 480px) {
-        .unified-navbar { padding: 0 15px; }
-        .nav-left { gap: 15px; }
-        .logo-container { width: 34px; height: 34px; font-size: 18px; }
-        .student-badge { background: transparent; border: none; padding: 0; }
-        .logout-link { padding: 8px 12px; font-size: 0; }
-        .logout-link i { font-size: 16px; }
+        .unified-navbar {
+            padding: 0 15px;
+        }
+
+        .nav-left {
+            gap: 15px;
+        }
+
+        .logo-container {
+            width: 34px;
+            height: 34px;
+            font-size: 18px;
+        }
+
+        .student-badge {
+            background: transparent;
+            border: none;
+            padding: 0;
+        }
+
+        .logout-link {
+            padding: 8px 12px;
+            font-size: 0;
+        }
+
+        .logout-link i {
+            font-size: 16px;
+        }
     }
 </style>
 
@@ -402,46 +433,60 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
             </li>
             <li class="nav-item dropdown-container">
                 <button class="nav-btn">
-                    <i class="fas fa-briefcase" style="color: #800000;"></i> Opportunities <i class="fas fa-chevron-down" style="font-size: 10px;"></i>
+                    <i class="fas fa-briefcase" style="color: #800000;"></i> Opportunities <i
+                        class="fas fa-chevron-down" style="font-size: 10px;"></i>
                 </button>
                 <div class="dropdown-menu">
                     <a href="jobs" class="dropdown-item">
-                        <i class="fas fa-building" style="color: #800000; background: rgba(128,0,0,0.1);"></i> Browse Jobs
+                        <i class="fas fa-building" style="color: #800000; background: rgba(128,0,0,0.1);"></i> Browse
+                        Jobs
                     </a>
                     <a href="internships" class="dropdown-item">
-                        <i class="fas fa-user-graduate" style="color: #0d9488; background: rgba(13,148,136,0.1);"></i> Internships
+                        <i class="fas fa-user-graduate" style="color: #0d9488; background: rgba(13,148,136,0.1);"></i>
+                        Internships
                     </a>
                     <a href="applications" class="dropdown-item">
-                        <i class="fas fa-file-signature" style="color: #4f46e5; background: rgba(79,70,229,0.1);"></i> My Applications
+                        <i class="fas fa-file-signature" style="color: #4f46e5; background: rgba(79,70,229,0.1);"></i>
+                        My Applications
                     </a>
                 </div>
             </li>
             <li class="nav-item dropdown-container">
                 <button class="nav-btn">
-                    <i class="fas fa-brain" style="color: #1e3a8a;"></i> AI Tools <i class="fas fa-chevron-down" style="font-size: 10px;"></i>
+                    <i class="fas fa-brain" style="color: #1e3a8a;"></i> AI Tools <i class="fas fa-chevron-down"
+                        style="font-size: 10px;"></i>
                 </button>
                 <div class="dropdown-menu">
                     <a href="career_roadmap" class="dropdown-item">
-                        <i class="fas fa-map-marked-alt" style="color: #b8860b; background: rgba(184,134,11,0.1);"></i> Personalized Roadmap
+                        <i class="fas fa-map-marked-alt" style="color: #b8860b; background: rgba(184,134,11,0.1);"></i>
+                        Personalized Roadmap
                     </a>
                     <a href="resume_builder.php" class="dropdown-item">
-                        <i class="fas fa-file-invoice" style="color: #800000; background: rgba(128,0,0,0.1);"></i> Resume Builder
+                        <i class="fas fa-file-invoice" style="color: #800000; background: rgba(128,0,0,0.1);"></i>
+                        Resume Builder
                     </a>
-					<a href="https://gmu.ac.in/tutor/login.php" class="dropdown-item">
-                        <i class="fas fa-graduation-cap" style="color: #1e3a8a; background: rgba(30,58,138,0.1);"></i> AI Tutor
+                    <!--<a href="resume_analyzer.php" class="dropdown-item">
+                        <i class="fas fa-microscope" style="color: #4f46e5; background: rgba(79,70,229,0.1);"></i> AI Resume Analyzer
+                    </a> -->
+                    <a href="https://gmu.ac.in/tutor/login.php" class="dropdown-item">
+                        <i class="fas fa-graduation-cap" style="color: #1e3a8a; background: rgba(30,58,138,0.1);"></i>
+                        AI Tutor
                     </a>
                 </div>
             </li>
             <li class="nav-item dropdown-container">
                 <button class="nav-btn">
-                    <i class="fas fa-laptop-code" style="color: #ea580c;"></i> Practice <i class="fas fa-chevron-down" style="font-size: 10px;"></i>
+                    <i class="fas fa-laptop-code" style="color: #ea580c;"></i> Practice <i class="fas fa-chevron-down"
+                        style="font-size: 10px;"></i>
                 </button>
                 <div class="dropdown-menu">
                     <a href="aptitude_practice.php" class="dropdown-item">
-                        <i class="fas fa-puzzle-piece" style="color: #0d9488; background: rgba(13,148,136,0.1);"></i> Aptitude Library
+                        <i class="fas fa-puzzle-piece" style="color: #0d9488; background: rgba(13,148,136,0.1);"></i>
+                        Aptitude Library
                     </a>
                     <a href="coding_practice.php" class="dropdown-item">
-                        <i class="fas fa-code" style="color: #1e3a8a; background: rgba(30,58,138,0.1);"></i> Coding Practice
+                        <i class="fas fa-code" style="color: #1e3a8a; background: rgba(30,58,138,0.1);"></i> Coding
+                        Practice
                     </a>
                 </div>
             </li>
@@ -468,12 +513,12 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
 </nav>
 
 <script>
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
         const mobileToggle = document.getElementById('mobileToggle');
         const navMenu = document.querySelector('.nav-menu');
         const dropdownToggles = document.querySelectorAll('.dropdown-container .nav-btn');
 
-        mobileToggle.addEventListener('click', function() {
+        mobileToggle.addEventListener('click', function () {
             navMenu.classList.toggle('active');
             const icon = this.querySelector('i');
             if (navMenu.classList.contains('active')) {
@@ -488,7 +533,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         });
 
         dropdownToggles.forEach(toggle => {
-            toggle.addEventListener('click', function(e) {
+            toggle.addEventListener('click', function (e) {
                 if (window.innerWidth <= 1024) {
                     e.preventDefault();
                     const container = this.parentElement;

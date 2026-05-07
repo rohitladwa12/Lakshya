@@ -22,6 +22,7 @@ $taskId = $filters['task_id'] ?? 0;
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HR Round - <?php echo htmlspecialchars($companyName); ?></title>
@@ -850,3 +851,4 @@ $taskId = $filters['task_id'] ?? 0;
     </script>
 </body>
 </html>
+

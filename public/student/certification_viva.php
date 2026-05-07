@@ -40,6 +40,7 @@ $issuer = $cert['sub_title'];
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Certification Verification: <?php echo htmlspecialchars($certTitle); ?> - <?php echo APP_NAME; ?></title>
@@ -640,3 +641,4 @@ $issuer = $cert['sub_title'];
 
 </body>
 </html>
+

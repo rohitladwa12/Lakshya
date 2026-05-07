@@ -11,17 +11,38 @@ requireRole(ROLE_ADMIN);
 
 $fullName = getFullName();
 $adminModel = new Admin();
-$resumes = $adminModel->getDetailedResumeList();
-
-// Extract unique departments for filter
+// Extract unique departments for filter (from full list)
+$allResumes = $adminModel->getDetailedResumeList();
 $departments = array_unique(array_map(function($r) { 
     return $r['department']; 
-}, $resumes));
+}, $allResumes));
 sort($departments);
+
+// Filtering logic
+$search = trim($_GET['search'] ?? '');
+$deptFilter = trim($_GET['dept'] ?? '');
+
+$filteredResumes = array_filter($allResumes, function($r) use ($search, $deptFilter) {
+    $matchesSearch = empty($search) || 
+                     stripos($r['full_name'], $search) !== false || 
+                     stripos($r['student_id'], $search) !== false;
+    
+    $matchesDept = empty($deptFilter) || $r['department'] === $deptFilter;
+    
+    return $matchesSearch && $matchesDept;
+});
+
+// Pagination
+$currentPage = (int)($_GET['page'] ?? 1);
+$perPage = 20;
+$paginationData = paginate($filteredResumes, $currentPage, $perPage);
+$resumes = $paginationData['items'];
+$pagination = $paginationData['pagination'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Central Resumes - Detailed List - <?php echo APP_NAME; ?></title>
@@ -227,6 +248,50 @@ sort($departments);
         .search-input:focus {
             border-color: var(--primary-maroon);
         }
+
+        /* Pagination Styling */
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 30px;
+        }
+
+        .pagination-btn {
+            padding: 8px 16px;
+            border-radius: 10px;
+            background: var(--white);
+            border: 1px solid #eef2f8;
+            color: var(--text-dark);
+            text-decoration: none;
+            font-size: 14px;
+            font-weight: 600;
+            transition: var(--transition);
+        }
+
+        .pagination-btn:hover:not(.disabled) {
+            background: var(--primary-maroon);
+            color: var(--white);
+            border-color: var(--primary-maroon);
+        }
+
+        .pagination-btn.active {
+            background: var(--primary-maroon);
+            color: var(--white);
+            border-color: var(--primary-maroon);
+        }
+
+        .pagination-btn.disabled {
+            color: var(--text-muted);
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        .pagination-info {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
@@ -252,17 +317,22 @@ sort($departments);
             <div class="panel-header">
                 <div class="panel-title">
                     <i class="fas fa-file-pdf" style="color: var(--primary-maroon);"></i> Student Resume Database 
-                    <span style="font-weight: 400; font-size: 14px; color: var(--text-muted); margin-left: 10px;">(<?php echo count($resumes); ?> Total)</span>
+                    <span style="font-weight: 400; font-size: 14px; color: var(--text-muted); margin-left: 10px;">
+                        (<?php echo count($filteredResumes); ?> Matches out of <?php echo count($allResumes); ?>)
+                    </span>
                 </div>
-                <div class="filter-row">
-                    <input type="text" id="resumeSearch" class="search-input" placeholder="Search by name or USN...">
-                    <select id="deptFilter" class="filter-select">
+                <form method="GET" class="filter-row">
+                    <input type="text" name="search" class="search-input" placeholder="Search by name or USN..." value="<?php echo htmlspecialchars($search); ?>">
+                    <select name="dept" class="filter-select" onchange="this.form.submit()">
                         <option value="">All Departments</option>
                         <?php foreach($departments as $dept): ?>
-                            <option value="<?php echo htmlspecialchars($dept); ?>"><?php echo htmlspecialchars($dept); ?></option>
+                            <option value="<?php echo htmlspecialchars($dept); ?>" <?php echo $deptFilter === $dept ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($dept); ?>
+                            </option>
                         <?php endforeach; ?>
                     </select>
-                </div>
+                    <button type="submit" style="display: none;"></button>
+                </form>
             </div>
             
             <table class="data-table">
@@ -305,35 +375,63 @@ sort($departments);
                     <?php endif; ?>
                 </tbody>
             </table>
+
+            <!-- Pagination UI -->
+            <?php if ($pagination['total_pages'] > 1): ?>
+                <div class="pagination">
+                    <span class="pagination-info">
+                        Showing <?php echo ($pagination['current_page'] - 1) * $perPage + 1; ?> to 
+                        <?php echo min($pagination['current_page'] * $perPage, $pagination['total_items']); ?> of 
+                        <?php echo $pagination['total_items']; ?>
+                    </span>
+                    
+                    <a href="?page=1<?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?>" 
+                       class="pagination-btn <?php echo !$pagination['has_prev'] ? 'disabled' : ''; ?>">
+                        <i class="fas fa-angle-double-left"></i>
+                    </a>
+                    
+                    <a href="?page=<?php echo $pagination['current_page'] - 1; ?><?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?>" 
+                       class="pagination-btn <?php echo !$pagination['has_prev'] ? 'disabled' : ''; ?>">
+                        <i class="fas fa-angle-left"></i> Prev
+                    </a>
+
+                    <?php 
+                    $startPage = max(1, $pagination['current_page'] - 2);
+                    $endPage = min($pagination['total_pages'], $startPage + 4);
+                    if ($endPage - $startPage < 4) $startPage = max(1, $endPage - 4);
+                    
+                    for($i = $startPage; $i <= $endPage; $i++): 
+                    ?>
+                        <a href="?page=<?php echo $i; ?><?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?>" 
+                           class="pagination-btn <?php echo $pagination['current_page'] == $i ? 'active' : ''; ?>">
+                            <?php echo $i; ?>
+                        </a>
+                    <?php endfor; ?>
+
+                    <a href="?page=<?php echo $pagination['current_page'] + 1; ?><?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?>" 
+                       class="pagination-btn <?php echo !$pagination['has_next'] ? 'disabled' : ''; ?>">
+                        Next <i class="fas fa-angle-right"></i>
+                    </a>
+                    
+                    <a href="?page=<?php echo $pagination['total_pages']; ?><?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?>" 
+                       class="pagination-btn <?php echo !$pagination['has_next'] ? 'disabled' : ''; ?>">
+                        <i class="fas fa-angle-double-right"></i>
+                    </a>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 
     <script>
-        const resumeSearch = document.getElementById('resumeSearch');
-        const deptFilter = document.getElementById('deptFilter');
-        const rows = document.querySelectorAll('.resume-row');
-
-        function filterResumes() {
-            const searchTerm = resumeSearch.value.toLowerCase();
-            const selectedDept = deptFilter.value;
-
-            rows.forEach(row => {
-                const nameAndUsn = row.textContent.toLowerCase();
-                const dept = row.getAttribute('data-department');
-                
-                const matchesSearch = nameAndUsn.includes(searchTerm);
-                const matchesDept = selectedDept === "" || dept === selectedDept;
-
-                if (matchesSearch && matchesDept) {
-                    row.style.display = "";
-                } else {
-                    row.style.display = "none";
-                }
-            });
-        }
-
-        resumeSearch.addEventListener('input', filterResumes);
-        deptFilter.addEventListener('change', filterResumes);
+        // Use a simple timeout to avoid too many requests while typing
+        let searchTimeout = null;
+        document.querySelector('.search-input').addEventListener('input', function(e) {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                this.form.submit();
+            }, 500);
+        });
     </script>
 </body>
 </html>
+
