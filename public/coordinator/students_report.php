@@ -1066,7 +1066,7 @@ $fullName = getFullName();
                                 <i class="fas fa-file-pdf" style="font-size: 48px; color: #ef4444; margin-bottom: 15px;"></i>
                                 <div style="font-weight: 700; color: #1e293b; font-size: 16px; margin-bottom: 5px;">Student Professional Resume</div>
                                 <div style="color: #64748b; font-size: 13px; margin-bottom: 20px;">Built via Lakshya Resume Builder</div>
-                                <a href="../${pdf.path}" target="_blank" class="btn-simple btn-maroon" style="padding: 12px 24px; font-size: 14px; border-radius: 8px;">
+                                <a href="../student/view_resume.php?usn=${encodeURIComponent(portfolioCurrentUsn)}" target="_blank" class="btn-simple btn-maroon" style="padding: 12px 24px; font-size: 14px; border-radius: 8px;">
                                     <i class="fas fa-download"></i> View & Download Resume
                                 </a>
                             </div>
@@ -1086,7 +1086,7 @@ $fullName = getFullName();
                         const scoreBg = score >= 80 ? '#ecfdf5' : (score >= 60 ? '#fffbeb' : '#fef2f2');
                         
                         const pdfLinks = (rep.pdf_reports || []).map(pdf => 
-                            `<a href="../${pdf.path}" target="_blank" class="btn-simple" style="padding:6px 14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:11px; text-decoration:none; display:inline-flex; align-items:center; gap:8px;">
+                            `<a href="../student/view_resume.php?usn=${encodeURIComponent(portfolioCurrentUsn)}&type=${encodeURIComponent(pdf.type)}&path=${encodeURIComponent(pdf.path)}" target="_blank" class="btn-simple" style="padding:6px 14px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:8px; font-size:11px; text-decoration:none; display:inline-flex; align-items:center; gap:8px;">
                                 <i class="fas fa-file-pdf" style="color:#ef4444;"></i> Download ${pdf.type} Report
                             </a>`
                         ).join(' ');

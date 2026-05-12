@@ -24,16 +24,22 @@ $chapters = $chapterModel->all();
 $db = getDB();
 $stmt = $db->query("SELECT setting_key, setting_value FROM system_settings");
 $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+// Live server status checks
+$gmuStatus = Database::checkConnection('gmu');
+$gmitStatus = Database::checkConnection('gmit');
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - <?php echo APP_NAME; ?></title>
     <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
     <!-- Modern Typography and Icons -->
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Chart.js for data visualization -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -48,7 +54,7 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
             --text-dark: #2b3674;
             --text-muted: #a3aed1;
             --glass-bg: rgba(255, 255, 255, 0.7);
-            --shadow: 0 20px 40px rgba(0,0,0,0.05);
+            --shadow: 0 20px 40px rgba(0, 0, 0, 0.05);
             --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
@@ -57,7 +63,7 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
             padding: 0;
             box-sizing: border-box;
         }
-        
+
         body {
             font-family: 'Outfit', sans-serif;
             background: var(--bg-color);
@@ -85,7 +91,7 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
             padding: 25px 35px;
             border-radius: 30px;
             box-shadow: var(--shadow);
-            border: 1px solid rgba(255,255,255,0.3);
+            border: 1px solid rgba(255, 255, 255, 0.3);
         }
 
         .header-title h1 {
@@ -120,7 +126,7 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
         .metric-card:hover {
             transform: translateY(-8px);
             border-color: var(--primary-gold);
-            box-shadow: 0 25px 50px rgba(0,0,0,0.1);
+            box-shadow: 0 25px 50px rgba(0, 0, 0, 0.1);
         }
 
         .metric-icon {
@@ -133,10 +139,25 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
             font-size: 28px;
         }
 
-        .icon-students { background: #E9EDFE; color: #4318FF; }
-        .icon-jobs { background: #FFF4E5; color: #FF9920; }
-        .icon-placements { background: #E2F9F2; color: #05CD99; }
-        .icon-resolution { background: #F4ECFB; color: #8C2CE2; }
+        .icon-students {
+            background: #E9EDFE;
+            color: #4318FF;
+        }
+
+        .icon-jobs {
+            background: #FFF4E5;
+            color: #FF9920;
+        }
+
+        .icon-placements {
+            background: #E2F9F2;
+            color: #05CD99;
+        }
+
+        .icon-resolution {
+            background: #F4ECFB;
+            color: #8C2CE2;
+        }
 
         .metric-info h3 {
             font-size: 14px;
@@ -162,7 +183,9 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
         }
 
         @media (max-width: 1100px) {
-            .analytics-grid { grid-template-columns: 1fr; }
+            .analytics-grid {
+                grid-template-columns: 1fr;
+            }
         }
 
         .panel {
@@ -193,10 +216,30 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
             margin-top: 20px;
         }
 
-        .res-item { margin-bottom: 20px; }
-        .res-label { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; margin-bottom: 8px; }
-        .res-bar { height: 8px; background: #EEE; border-radius: 4px; overflow: hidden; }
-        .res-progress { height: 100%; border-radius: 4px; transition: width 1s ease-in-out; }
+        .res-item {
+            margin-bottom: 20px;
+        }
+
+        .res-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+
+        .res-bar {
+            height: 8px;
+            background: #EEE;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+
+        .res-progress {
+            height: 100%;
+            border-radius: 4px;
+            transition: width 1s ease-in-out;
+        }
 
         /* Activity Feed */
         .activity-feed {
@@ -258,11 +301,20 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
             text-transform: uppercase;
         }
 
-        .badge-success { background: #E2F9F2; color: #05CD99; }
-        .badge-warning { background: #FFF4E5; color: #FF9920; }
+        .badge-success {
+            background: #E2F9F2;
+            color: #05CD99;
+        }
+
+        .badge-warning {
+            background: #FFF4E5;
+            color: #FF9920;
+        }
 
         /* Chart Tooltip Customization */
-        #deptChart { max-height: 250px; }
+        #deptChart {
+            max-height: 250px;
+        }
 
         /* Toggle Switch */
         .switch {
@@ -272,7 +324,7 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
             height: 26px;
         }
 
-        .switch input { 
+        .switch input {
             opacity: 0;
             width: 0;
             height: 0;
@@ -302,15 +354,15 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
             border-radius: 50%;
         }
 
-        input:checked + .slider {
+        input:checked+.slider {
             background-color: var(--primary-maroon);
         }
 
-        input:focus + .slider {
+        input:focus+.slider {
             box-shadow: 0 0 1px var(--primary-maroon);
         }
 
-        input:checked + .slider:before {
+        input:checked+.slider:before {
             transform: translateX(24px);
         }
 
@@ -321,11 +373,54 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
             border-radius: 6px;
             margin-left: 10px;
         }
-        .status-active { background: #fee2e2; color: #ef4444; }
-        .status-inactive { background: #e2f9f2; color: #05cd99; }
 
+        .status-active {
+            background: #fee2e2;
+            color: #ef4444;
+        }
+
+        .status-inactive {
+            background: #e2f9f2;
+            color: #05cd99;
+        }
+
+        .section-header {
+            margin: 40px 0 25px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .section-header h2 {
+            font-size: 18px;
+            font-weight: 800;
+            color: var(--text-dark);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .section-header .line {
+            flex: 1;
+            height: 1px;
+            background: #E0E5F2;
+        }
+
+        @keyframes pulse-dot {
+            0% {
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.5);
+            }
+
+            70% {
+                box-shadow: 0 0 0 5px rgba(34, 197, 94, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+            }
+        }
     </style>
 </head>
+
 <body>
     <?php include_once __DIR__ . '/includes/navbar.php'; ?>
 
@@ -336,8 +431,29 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                 <h1>Platform Command Center</h1>
                 <p>Monitoring <?php echo number_format($stats['total_students']); ?> students across GMU and GMIT</p>
             </div>
-            
+
             <div style="display: flex; gap: 20px; align-items: center;">
+                <!-- Server Status Badges -->
+                <div style="display: flex; gap: 8px; align-items: center;">
+                    <?php
+                    $servers = ['GMU' => $gmuStatus, 'GMIT' => $gmitStatus];
+                    foreach ($servers as $name => $status):
+                        $ok = $status['ok'];
+                        $bg = $ok ? '#dcfce7' : '#fee2e2';
+                        $color = $ok ? '#15803d' : '#b91c1c';
+                        $dot = $ok ? '#22c55e' : '#ef4444';
+                        $label = $ok ? 'Online' : 'Down';
+                        $title = $ok ? "{$name} server is reachable" : "Error: " . htmlspecialchars($status['error'] ?? 'Unreachable');
+                        ?>
+                        <div title="<?php echo $title; ?>"
+                            style="display:flex;align-items:center;gap:6px;background:<?php echo $bg; ?>;color:<?php echo $color; ?>;padding:6px 12px;border-radius:50px;font-size:12px;font-weight:700;cursor:default;">
+                            <span
+                                style="width:7px;height:7px;border-radius:50%;background:<?php echo $dot; ?>;<?php echo $ok ? 'animation:pulse-dot 2s infinite;' : ''; ?>"></span>
+                            <?php echo $name; ?>     <?php echo $label; ?>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+
                 <div style="text-align: right;">
                     <div style="font-weight: 700;"><?php echo htmlspecialchars($fullName); ?></div>
                     <div style="font-size: 12px; color: var(--text-muted);">Global Principal Admin</div>
@@ -345,6 +461,7 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                 <div class="avatar"><?php echo strtoupper(substr($fullName, 0, 1)); ?></div>
             </div>
         </header>
+
 
         <!-- KPI Grid -->
         <div class="metrics-grid">
@@ -360,7 +477,8 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                 <div class="metric-icon icon-jobs"><i class="fas fa-rocket"></i></div>
                 <div class="metric-info">
                     <h3>Live Postings</h3>
-                    <div class="value"><?php echo number_format($stats['active_jobs'] + $stats['active_internships']); ?></div>
+                    <div class="value">
+                        <?php echo number_format($stats['active_jobs'] + $stats['active_internships']); ?></div>
                 </div>
             </a>
 
@@ -381,16 +499,19 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
             </a>
 
             <a href="learning.php" class="metric-card" style="text-decoration: none;">
-                <div class="metric-icon icon-students" style="background: #FFF4E5; color: #FF9920;"><i class="fas fa-graduation-cap"></i></div>
+                <div class="metric-icon icon-students" style="background: #FFF4E5; color: #FF9920;"><i
+                        class="fas fa-graduation-cap"></i></div>
                 <div class="metric-info">
                     <h3>Curriculum</h3>
-                    <div class="value"><?php echo count($chapters); ?> <span style="font-size: 14px; font-weight: 500;">Chapters</span></div>
+                    <div class="value"><?php echo count($chapters); ?> <span
+                            style="font-size: 14px; font-weight: 500;">Chapters</span></div>
                 </div>
             </a>
 
             <!-- Maintenance Mode Card -->
             <div class="metric-card">
-                <div class="metric-icon" style="background: #fee2e2; color: #ef4444;"><i class="fas fa-hammer"></i></div>
+                <div class="metric-icon" style="background: #fee2e2; color: #ef4444;"><i class="fas fa-hammer"></i>
+                </div>
                 <div class="metric-info" style="flex: 1;">
                     <div style="display: flex; justify-content: space-between; align-items: center;">
                         <h3>Maintenance</h3>
@@ -400,31 +521,39 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                         </label>
                     </div>
                     <div style="display: flex; align-items: center; margin-top: 5px;">
-                        <span id="maintStatusLabel" class="maintenance-status <?php echo file_exists(ROOT_PATH . '/src/maintenance.lock') ? 'status-active' : 'status-inactive'; ?>">
+                        <span id="maintStatusLabel"
+                            class="maintenance-status <?php echo file_exists(ROOT_PATH . '/src/maintenance.lock') ? 'status-active' : 'status-inactive'; ?>">
                             <?php echo file_exists(ROOT_PATH . '/src/maintenance.lock') ? 'ACTIVE' : 'INACTIVE'; ?>
                         </span>
                     </div>
                 </div>
             </div>
+
         </div>
 
-        <!-- AI Feature Management Section -->
-        <div class="panel" style="margin-bottom: 40px; border-radius: 30px; padding: 30px;">
-            <div class="panel-header" style="margin-bottom: 25px; border-bottom: 1px solid #F4F7FE; padding-bottom: 15px;">
-                <div class="panel-title" style="font-size: 18px; font-weight: 800; color: var(--text-dark);">
-                    <i class="fas fa-microchip" style="color: var(--primary-maroon); margin-right: 10px;"></i> AI Feature Management
+        <!-- AI Feature Control Section -->
+        <div class="panel" style="margin-bottom: 30px;">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <i class="fas fa-sliders" style="color: #7c3aed;"></i> AI Feature Control
                 </div>
-                <p style="font-size: 13px; color: var(--text-muted); font-weight: 500;">Enable or disable specific student-facing AI modules</p>
+                <span style="font-size: 12px; color: var(--text-muted); font-weight: 600;">Toggle to disable features
+                    for students</span>
             </div>
-            
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 20px;">
+            <div
+                style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; padding: 20px 0 5px;">
+
                 <!-- Mock AI -->
-                <div style="background: #fafbff; padding: 20px; border-radius: 20px; border: 1px solid #f0f4ff; display: flex; align-items: center; justify-content: space-between;">
-                    <div style="display: flex; align-items: center; gap: 15px;">
-                        <div style="width: 40px; height: 40px; background: #fff7ed; color: #ea580c; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
-                            <i class="fas fa-fire"></i>
+                <div
+                    style="display: flex; align-items: center; justify-content: space-between; background: #fff7ed; padding: 16px 20px; border-radius: 16px; border: 1px solid #fed7aa;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div
+                            style="width: 40px; height: 40px; background: #ffedd5; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #ea580c;">
+                            <i class="fas fa-fire"></i></div>
+                        <div>
+                            <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Mock AI Interview</div>
+                            <div style="font-size: 0.78rem; color: #a3aed1;">AI Interview Simulator</div>
                         </div>
-                        <span style="font-weight: 700; font-size: 15px;">Mock AI Interview</span>
                     </div>
                     <label class="switch">
                         <input type="checkbox" onchange="toggleAI('feature_mock_ai', this)" <?php echo ($settings['feature_mock_ai'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
@@ -433,12 +562,16 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                 </div>
 
                 <!-- Company Guide -->
-                <div style="background: #fafbff; padding: 20px; border-radius: 20px; border: 1px solid #f0f4ff; display: flex; align-items: center; justify-content: space-between;">
-                    <div style="display: flex; align-items: center; gap: 15px;">
-                        <div style="width: 40px; height: 40px; background: #f0f9ff; color: #0284c7; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
-                            <i class="fas fa-graduation-cap"></i>
+                <div
+                    style="display: flex; align-items: center; justify-content: space-between; background: #f0f9ff; padding: 16px 20px; border-radius: 16px; border: 1px solid #bae6fd;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div
+                            style="width: 40px; height: 40px; background: #e0f2fe; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #0284c7;">
+                            <i class="fas fa-graduation-cap"></i></div>
+                        <div>
+                            <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Company Guide</div>
+                            <div style="font-size: 0.78rem; color: #a3aed1;">AI Placement Guide</div>
                         </div>
-                        <span style="font-weight: 700; font-size: 15px;">Placement Guide</span>
                     </div>
                     <label class="switch">
                         <input type="checkbox" onchange="toggleAI('feature_company_guide', this)" <?php echo ($settings['feature_company_guide'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
@@ -447,12 +580,16 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                 </div>
 
                 <!-- Resume Builder -->
-                <div style="background: #fafbff; padding: 20px; border-radius: 20px; border: 1px solid #f0f4ff; display: flex; align-items: center; justify-content: space-between;">
-                    <div style="display: flex; align-items: center; gap: 15px;">
-                        <div style="width: 40px; height: 40px; background: #fff1f2; color: #e11d48; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
-                            <i class="fas fa-file-invoice"></i>
+                <div
+                    style="display: flex; align-items: center; justify-content: space-between; background: #fff1f2; padding: 16px 20px; border-radius: 16px; border: 1px solid #fecdd3;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div
+                            style="width: 40px; height: 40px; background: #ffe4e6; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #e11d48;">
+                            <i class="fas fa-file-invoice"></i></div>
+                        <div>
+                            <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Resume Builder</div>
+                            <div style="font-size: 0.78rem; color: #a3aed1;">AI Resume Generator</div>
                         </div>
-                        <span style="font-weight: 700; font-size: 15px;">Resume Builder</span>
                     </div>
                     <label class="switch">
                         <input type="checkbox" onchange="toggleAI('feature_resume_builder', this)" <?php echo ($settings['feature_resume_builder'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
@@ -461,18 +598,23 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                 </div>
 
                 <!-- Profile Analyser -->
-                <div style="background: #fafbff; padding: 20px; border-radius: 20px; border: 1px solid #f0f4ff; display: flex; align-items: center; justify-content: space-between;">
-                    <div style="display: flex; align-items: center; gap: 15px;">
-                        <div style="width: 40px; height: 40px; background: #f5f3ff; color: #7c3aed; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
-                            <i class="fas fa-robot"></i>
+                <div
+                    style="display: flex; align-items: center; justify-content: space-between; background: #f5f3ff; padding: 16px 20px; border-radius: 16px; border: 1px solid #ddd6fe;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div
+                            style="width: 40px; height: 40px; background: #ede9fe; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #7c3aed;">
+                            <i class="fas fa-robot"></i></div>
+                        <div>
+                            <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Profile Analyser</div>
+                            <div style="font-size: 0.78rem; color: #a3aed1;">Career Architect AI</div>
                         </div>
-                        <span style="font-weight: 700; font-size: 15px;">Profile Analyser</span>
                     </div>
                     <label class="switch">
                         <input type="checkbox" onchange="toggleAI('feature_profile_analyzer', this)" <?php echo ($settings['feature_profile_analyzer'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
                         <span class="slider"></span>
                     </label>
                 </div>
+
             </div>
         </div>
 
@@ -502,26 +644,32 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                     </div>
                     <span class="badge badge-success">Live</span>
                 </div>
-                
+
                 <div class="search-box">
                     <i class="fas fa-search"></i>
                     <input type="text" id="streamSearch" placeholder="Filter activities, companies, or roles...">
                 </div>
 
                 <div class="activity-feed" id="activityFeed">
-                    <?php foreach($recentActivity as $activity): ?>
-                        <div class="feed-item" data-search="<?php echo strtolower($activity['role'] . ' ' . $activity['company_name'] . ' ' . $activity['status']); ?>">
-                            <div class="feed-icon <?php echo strtolower($activity['status']) === 'selected' ? 'icon-placements' : 'icon-jobs'; ?>">
-                                <i class="fas <?php echo strtolower($activity['status']) === 'selected' ? 'fa-check-circle' : 'fa-paper-plane'; ?>"></i>
+                    <?php foreach ($recentActivity as $activity): ?>
+                        <div class="feed-item"
+                            data-search="<?php echo strtolower($activity['role'] . ' ' . $activity['company_name'] . ' ' . $activity['status']); ?>">
+                            <div
+                                class="feed-icon <?php echo strtolower($activity['status']) === 'selected' ? 'icon-placements' : 'icon-jobs'; ?>">
+                                <i
+                                    class="fas <?php echo strtolower($activity['status']) === 'selected' ? 'fa-check-circle' : 'fa-paper-plane'; ?>"></i>
                             </div>
                             <div style="flex: 1;">
                                 <div style="display:flex; justify-content:space-between;">
-                                    <span style="font-weight: 700; font-size: 15px;"><?php echo htmlspecialchars($activity['role']); ?></span>
-                                    <span style="font-size: 11px; color: var(--text-muted);"><?php echo timeAgo($activity['activity_date']); ?></span>
+                                    <span
+                                        style="font-weight: 700; font-size: 15px;"><?php echo htmlspecialchars($activity['role']); ?></span>
+                                    <span
+                                        style="font-size: 11px; color: var(--text-muted);"><?php echo timeAgo($activity['activity_date']); ?></span>
                                 </div>
                                 <div style="font-size: 13px; color: var(--text-muted);">
-                                    <?php echo htmlspecialchars($activity['company_name']); ?> • 
-                                    <span style="font-weight: 600; color: <?php echo strtolower($activity['status']) === 'selected' ? '#05CD99' : '#3965ff'; ?>">
+                                    <?php echo htmlspecialchars($activity['company_name']); ?> •
+                                    <span
+                                        style="font-weight: 600; color: <?php echo strtolower($activity['status']) === 'selected' ? '#05CD99' : '#3965ff'; ?>">
                                         <?php echo htmlspecialchars($activity['status']); ?>
                                     </span>
                                 </div>
@@ -531,18 +679,19 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                 </div>
 
                 <div style="margin-top: 25px; padding-top: 20px; border-top: 1px solid #F4F7FE; text-align: center;">
-                    <a href="resumes.php" style="color: var(--primary-maroon); text-decoration: none; font-weight: 700; font-size: 14px;">
+                    <a href="resumes.php"
+                        style="color: var(--primary-maroon); text-decoration: none; font-weight: 700; font-size: 14px;">
                         View All Student Resumes <i class="fas fa-arrow-right"></i>
                     </a>
                 </div>
             </div>
-        </div>v>
+        </div>
     </div>
 
     <script>
         // Data for Chart.js
         const deptData = <?php echo json_encode($resumeStats['by_department']); ?>;
-        
+
         const ctx = document.getElementById('deptChart').getContext('2d');
         new Chart(ctx, {
             type: 'doughnut',
@@ -551,7 +700,7 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                 datasets: [{
                     data: deptData.map(d => d.count),
                     backgroundColor: [
-                        '#4318FF', '#05CD99', '#FF9920', '#8C2CE2', '#EF4444', 
+                        '#4318FF', '#05CD99', '#FF9920', '#8C2CE2', '#EF4444',
                         '#2b3674', '#a3aed1', '#e9c66f', '#800000', '#5b1f1f'
                     ],
                     borderWidth: 0,
@@ -575,10 +724,10 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
         });
 
         // Real-time Activity Filter
-        document.getElementById('streamSearch').addEventListener('input', function(e) {
+        document.getElementById('streamSearch').addEventListener('input', function (e) {
             const term = e.target.value.toLowerCase();
             const items = document.querySelectorAll('.feed-item');
-            
+
             items.forEach(item => {
                 const text = item.getAttribute('data-search');
                 if (text.includes(term)) {
@@ -590,21 +739,21 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
         });
 
         // Maintenance Toggle Logic
-        document.getElementById('maintToggle').addEventListener('change', async function(e) {
+        document.getElementById('maintToggle').addEventListener('change', async function (e) {
             const isActive = e.target.checked;
             const label = document.getElementById('maintStatusLabel');
-            
+
             try {
                 const formData = new FormData();
                 formData.append('action', 'toggle');
-                
+
                 const response = await fetch('maintenance_handler.php', {
                     method: 'POST',
                     body: formData
                 });
-                
+
                 const data = await response.json();
-                
+
                 if (data.success) {
                     label.innerText = data.status === 'on' ? 'ACTIVE' : 'INACTIVE';
                     label.className = `maintenance-status ${data.status === 'on' ? 'status-active' : 'status-inactive'}`;
@@ -632,7 +781,7 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                     method: 'POST',
                     body: formData
                 });
-                
+
                 const data = await res.json();
                 if (!data.success) {
                     alert('Error: ' + data.message);
@@ -645,5 +794,5 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
         }
     </script>
 </body>
-</html>
 
+</html>

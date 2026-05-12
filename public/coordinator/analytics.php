@@ -212,8 +212,7 @@ if (!empty($studentIds)) {
             ob_clean();
             header('Content-Type: application/vnd.ms-excel');
             header('Content-Disposition: attachment; filename="department_detailed_analytics_'.date('Y-m-d').'.xls"');
-            echo '<html><head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>';
+            echo '<html><head><link rel="icon" type="image/png" href="/Lakshya/assets/img/favicon.png"><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>';
         }
         
         // Fetch detailed data for mapping

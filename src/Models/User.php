@@ -12,13 +12,26 @@ class User extends Model {
     
     public function __construct() {
         parent::__construct();
-        // Initialize remote connection for GMU/GMIT tables
-        try {
-            $this->remoteDB = getDB('gmu');
-        } catch (Exception $e) {
-            error_log("Warning: Remote GMU/GMIT database not available: " . $e->getMessage());
-            $this->remoteDB = null;
+        // Remote DB is resolved lazily — see getRemoteDB()
+        // Do NOT connect here: if GMU/GMIT is down it would add a 3s
+        // timeout delay to every page that instantiates this model.
+        $this->remoteDB = null;
+    }
+
+    /**
+     * Lazy-load the remote GMU/GMIT connection.
+     * Returns null (without crashing) if the server is unreachable.
+     */
+    private function getRemoteDB() {
+        if ($this->remoteDB === null) {
+            try {
+                $this->remoteDB = getDB('gmu');
+            } catch (Exception $e) {
+                error_log('Remote DB unavailable: ' . $e->getMessage());
+                $this->remoteDB = false; // false = already tried, skip retrying
+            }
         }
+        return $this->remoteDB ?: null;
     }
     
     // Map legacy columns to application attributes if needed, but for now we'll handle in methods
@@ -33,11 +46,12 @@ class User extends Model {
         ];
         
         foreach ($institutions as $inst => $prefix) {
-            if (!$this->remoteDB) break;
-            
+            $remoteDB = $this->getRemoteDB();
+            if (!$remoteDB) break;
+
             $table = $prefix . 'users';
             $sql = "SELECT * FROM {$table} WHERE USER_NAME = ? LIMIT 1";
-            $stmt = $this->remoteDB->prepare($sql);
+            $stmt = $remoteDB->prepare($sql);
             $stmt->execute([$username]);
             $user = $stmt->fetch();
             
@@ -83,7 +97,8 @@ class User extends Model {
 
         // If institution is provided, we know where to look and what column to use
         if ($institution) {
-            if (!$this->remoteDB) return null; // Remote DB required
+            $db = $this->getRemoteDB();
+            if (!$db) return null; // Remote DB required
             
             $prefix = ($institution === INSTITUTION_GMU) ? DB_GMU_PREFIX : DB_GMIT_PREFIX;
             $table = $prefix . 'users';
@@ -95,21 +110,21 @@ class User extends Model {
                         FROM {$table} u 
                         LEFT JOIN {$prefix}ad_student_details d ON u.ENQUIRY_NO = d.enquiry_no OR u.USER_NAME = d.student_id 
                         WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
-                $stmt = $this->remoteDB->prepare($sql);
+                $stmt = $db->prepare($sql);
                 $stmt->execute([$id, $id]);
                 $user = $stmt->fetch();
             } else {
                 // GMU: Try numerical SL_NO first, fall back to USER_NAME
                 if (is_numeric($id)) {
                     $sql = "SELECT * FROM {$table} WHERE SL_NO = ? LIMIT 1";
-                    $stmt = $this->remoteDB->prepare($sql);
+                    $stmt = $db->prepare($sql);
                     $stmt->execute([$id]);
                     $user = $stmt->fetch();
                 }
                 
                 if (!$user) {
                     $sql = "SELECT * FROM {$table} WHERE USER_NAME = ? LIMIT 1";
-                    $stmt = $this->remoteDB->prepare($sql);
+                    $stmt = $db->prepare($sql);
                     $stmt->execute([$id]);
                     $user = $stmt->fetch();
                 }
@@ -192,7 +207,7 @@ class User extends Model {
         if (!$this->remoteDB) return false;
 
         // This functionality writes to REMOTE DB
-        $sql = "INSERT INTO {$DB_GMU_PREFIX}users (USER_NAME, PASSWORD, USER_GROUP, NAME, EMAIL, STATUS, LAST_UPDATED) 
+        $sql = "INSERT INTO " . DB_GMU_PREFIX . "users (USER_NAME, PASSWORD, USER_GROUP, NAME, EMAIL, STATUS, LAST_UPDATED) 
                 VALUES (?, ?, ?, ?, ?, 'ACTIVE', NOW())";
         
         // Caution: This assumes writing to GMU users table by default?
@@ -318,7 +333,19 @@ class User extends Model {
         }
         
         foreach ($institutions as $inst => $prefix) {
-            if (!$this->remoteDB) break;
+            $remoteDB = $this->getRemoteDB(); // lazy — only connects here
+            if (!$remoteDB) {
+                // $this->remoteDB === false means connection was ATTEMPTED but FAILED
+                if ($this->remoteDB === false) {
+                    return [
+                        'success' => false,
+                        'server_down' => true,
+                        'message' => 'The student portal server is currently unavailable. Please try again in a few minutes or contact your administrator.'
+                    ];
+                }
+                break;
+            }
+            $this->remoteDB = $remoteDB; // cache for subsequent loop iterations
 
             $table = $prefix . 'users';
             
@@ -388,7 +415,15 @@ class User extends Model {
                 }
             }
         }
-        
+        // If remote connection was attempted but failed, tell the student clearly
+        if ($this->remoteDB === false) {
+            return [
+                'success'     => false,
+                'server_down' => true,
+                'message'     => 'The student portal server is currently unavailable. Please try again in a few minutes or contact your administrator.'
+            ];
+        }
+
         return ['success' => false, 'message' => 'Invalid credentials'];
     }
     
@@ -449,6 +484,7 @@ class User extends Model {
             'institution' => $institution,
             'COURSE' => $row['COURSE'] ?? null,
             'DISCIPLINE' => $row['discipline'] ?? ($row['DISCIPLINE'] ?? ($row['branch'] ?? ($row['DEPT_ID'] ?? null))),
+            'department' => $row['discipline'] ?? ($row['DISCIPLINE'] ?? ($row['branch'] ?? ($row['DEPT_ID'] ?? null))),
             'photo' => (function($p) {
                 if (empty($p)) return null;
                 

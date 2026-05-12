@@ -363,7 +363,7 @@ $pagination = $paginationData['pagination'];
                                 <?php echo date('d M Y, h:i A', strtotime($r['built_at'])); ?>
                             </td>
                             <td>
-                                <a href="../<?php echo htmlspecialchars($r['pdf_path']); ?>" target="_blank" class="btn-view">
+                                <a href="../student/view_resume.php?usn=<?php echo urlencode($r['student_id']); ?>" target="_blank" class="btn-view">
                                     <i class="fas fa-external-link-alt"></i> View PDF
                                 </a>
                             </td>

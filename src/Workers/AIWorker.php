@@ -25,12 +25,12 @@ $services = [
 ];
 
 $startTime = time();
-$maxRuntime = 1800; // Auto-restart every 30 minutes to clear memory/cache
+$maxRuntime = 3600; // Auto-restart every 1 hour to clear memory/cache
 
 while (true) {
     // Check if we need to restart for memory clearance
     if (time() - $startTime > $maxRuntime) {
-        workerLog("Worker reaching max runtime of 30 minutes. Exiting gracefully to clear memory...");
+        workerLog("Worker reaching max runtime of 4 hours. Exiting gracefully to clear memory...");
         exit(0);
     }
 

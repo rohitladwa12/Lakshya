@@ -17,7 +17,7 @@ if (!$internship) die("Internship not found.");
 $userId = getUserId(); // USN/EnquiryNo
 $userModel = new User();
 $user = $userModel->find($userId, getInstitution()); // Use session institution
-$usn = $user['username'];
+$usn = ($user && isset($user['username'])) ? $user['username'] : getUsername();
 
 // Check application status
 $appModel = new InternshipApplication();

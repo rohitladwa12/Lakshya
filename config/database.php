@@ -83,11 +83,13 @@ class Database {
             $dsn = "mysql:host={$config['host']};port={$config['port']};dbname={$config['name']};charset=utf8mb4";
             
             $options = [
-                PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+                PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
                 PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
-                PDO::ATTR_EMULATE_PREPARES => false,
-                PDO::ATTR_PERSISTENT => true,
-                PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci"
+                PDO::ATTR_EMULATE_PREPARES   => false,
+                PDO::ATTR_PERSISTENT         => false, // No persistent for remote — avoids stale connections
+                PDO::MYSQL_ATTR_INIT_COMMAND => "SET NAMES utf8mb4 COLLATE utf8mb4_unicode_ci",
+                // Fail fast — don't hang the whole page if server is down
+                PDO::ATTR_TIMEOUT            => 3,
             ];
             
             $this->connections[$name] = new PDO($dsn, $config['user'], $config['pass'], $options);
@@ -104,6 +106,21 @@ class Database {
         if ($name === 'default') {
             http_response_code(500);
             die("<h1>Database Error</h1><p>Failed to connect to the main database ({$name}).</p><p>" . htmlspecialchars($exception->getMessage()) . "</p>");
+        }
+    }
+
+    /**
+     * Check if a named connection is reachable.
+     * Returns ['ok' => bool, 'error' => string|null]
+     */
+    public static function checkConnection($name) {
+        try {
+            $conn = self::getInstance()->getConnection($name);
+            if (!$conn) return ['ok' => false, 'error' => 'Could not connect'];
+            $conn->query('SELECT 1');
+            return ['ok' => true, 'error' => null];
+        } catch (Throwable $e) {
+            return ['ok' => false, 'error' => $e->getMessage()];
         }
     }
 

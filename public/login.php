@@ -63,8 +63,9 @@ if (isPost()) {
                 redirect('student/dashboard');
             }
         } else {
+            $serverDown = !empty($result['server_down']);
             $error = $result['message'];
-            trackActivity('login_failed', "Failed login for: $username", ['reason' => $error]);
+            trackActivity('login_failed', "Failed login for: $username", ['reason' => $serverDown ? 'server_down' : $error]);
         }
     }
 }
@@ -745,7 +746,16 @@ if (isPost()) {
             <p>Sign in to access your dashboard</p>
         </div>
 
-        <?php if ($error): ?>
+
+        <?php if (!empty($serverDown)): ?>
+            <div class="alert" style="background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:14px;padding:14px 18px;display:flex;align-items:flex-start;gap:12px;font-size:0.9rem;line-height:1.5;">
+                <i class="fas fa-triangle-exclamation" style="color:#f97316;font-size:1.2rem;margin-top:1px;flex-shrink:0;"></i>
+                <div>
+                    <strong style="display:block;margin-bottom:2px;">Server Unavailable</strong>
+                    <?php echo htmlspecialchars($error); ?>
+                </div>
+            </div>
+        <?php elseif ($error): ?>
             <div class="alert alert-error">
                 <i class="fas fa-circle-exclamation"></i>
                 <span><?php echo htmlspecialchars($error); ?></span>

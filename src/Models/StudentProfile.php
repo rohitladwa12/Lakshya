@@ -44,6 +44,7 @@ class StudentProfile extends Model {
             $sqlDetails = "SELECT * FROM {$prefix}ad_student_details 
                            WHERE enquiry_no = ? OR student_id = ? OR usn = ? OR (aadhar IS NOT NULL AND aadhar = ?) 
                            LIMIT 1";
+            if (!$this->remoteDB) return $this->mapToAppProfile([], $user, [], $inst);
             $stmt = $this->remoteDB->prepare($sqlDetails); // REMOTE
             $stmt->execute([$enquiryNo, $username, $username, $aadhar]);
             $details = $stmt->fetch();
@@ -72,6 +73,7 @@ class StudentProfile extends Model {
             $sqlApproved = "SELECT * FROM {$prefix}ad_student_approved 
                             WHERE usn = ? OR (aadhar IS NOT NULL AND aadhar = ?) 
                             ORDER BY academic_year DESC, sem DESC LIMIT 1";
+            if (!$this->remoteDB) return $this->mapToAppProfile([], $user, [], $inst);
             $stmtA = $this->remoteDB->prepare($sqlApproved); // REMOTE
             $stmtA->execute([$username, $aadhar]);
             $approved = $stmtA->fetch();
@@ -79,9 +81,11 @@ class StudentProfile extends Model {
             $sqlDetails = "SELECT * FROM {$prefix}ad_student_details 
                            WHERE usn = ? OR (aadhar IS NOT NULL AND aadhar = ?) 
                            LIMIT 1";
-            $stmtD = $this->remoteDB->prepare($sqlDetails); // REMOTE
-            $stmtD->execute([$username, $aadhar]);
-            $details = $stmtD->fetch();
+            if ($this->remoteDB) {
+                $stmtD = $this->remoteDB->prepare($sqlDetails); // REMOTE
+                $stmtD->execute([$username, $aadhar]);
+                $details = $stmtD->fetch();
+            }
             
             return $this->mapToAppProfile($approved ?: [], $user, $details ?: [], $inst);
         }
@@ -423,7 +427,7 @@ class StudentProfile extends Model {
                 UNION ALL
                 SELECT ad.usn, ad.course, ad.discipline, ad.academic_year, u.USER_NAME, u.NAME, u.MOBILE_NO, u.ENQUIRY_NO as user_sl_no, '" . INSTITUTION_GMIT . "' as institution, 0 as sem
                 FROM {$gmitPrefix}ad_student_details ad
-                JOIN {$gmitPrefix}users u ON (u.USER_NAME = ad.usn OR u.AADHAR = ad.aadhar)
+                JOIN {$gmitPrefix}users u ON (u.USER_NAME = ad.usn OR u.USER_NAME = ad.student_id OR u.AADHAR = ad.aadhar OR u.ENQUIRY_NO = ad.enquiry_no)
                 WHERE u.STATUS = 'ACTIVE'";
         
         $sql = "SELECT * FROM ({$sql}) as combined WHERE 1=1";

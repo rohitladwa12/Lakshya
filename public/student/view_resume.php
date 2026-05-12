@@ -25,14 +25,16 @@ if (empty($requestedUsn)) {
 
 // 3. Authorization Logic
 // Students can only see their OWN resume.
-// Admins and Coordinators can see any resume.
+// Admins, Officers, and Coordinators can see any resume.
 $canAccess = false;
+
+$privilegedRoles = [ROLE_ADMIN, ROLE_PLACEMENT_OFFICER, ROLE_INTERNSHIP_OFFICER, ROLE_DEPT_COORDINATOR, ROLE_VC];
 
 if ($currentRole === ROLE_STUDENT) {
     if (strtoupper($currentUser) === strtoupper($requestedUsn)) {
         $canAccess = true;
     }
-} else if ($currentRole === ROLE_ADMIN || $currentRole === 'coordinator') {
+} else if (in_array($currentRole, $privilegedRoles)) {
     $canAccess = true;
 }
 
@@ -75,9 +77,28 @@ if (!$canAccess) {
 }
 
 // 4. Locate the file
-$uploadDir = UPLOADS_PATH . '/resumes/Student_Resumes';
-$fileName = strtoupper($requestedUsn) . '_Resume.pdf';
-$filePath = $uploadDir . '/' . $fileName;
+$requestedPath = isset($_GET['path']) ? $_GET['path'] : '';
+$requestedType = isset($_GET['type']) ? $_GET['type'] : 'Resume';
+
+if (!empty($requestedPath)) {
+    // Security: Only allow paths within uploads/reports or uploads/resumes
+    $normalizedPath = str_replace('\\', '/', $requestedPath);
+    $isAllowedDir = (strpos($normalizedPath, 'uploads/reports/') === 0 || strpos($normalizedPath, 'uploads/resumes/') === 0);
+    $isPdf = (strtolower(pathinfo($normalizedPath, PATHINFO_EXTENSION)) === 'pdf');
+    
+    if (!$isAllowedDir || !$isPdf || strpos($normalizedPath, '..') !== false) {
+        http_response_code(403);
+        die("Access Denied: Invalid file path.");
+    }
+    
+    $filePath = ROOT_PATH . '/public/' . $normalizedPath;
+    $fileName = basename($filePath);
+} else {
+    // Default to Resume if no path provided
+    $uploadDir = UPLOADS_PATH . '/resumes/Student_Resumes';
+    $fileName = strtoupper($requestedUsn) . '_Resume.pdf';
+    $filePath = $uploadDir . '/' . $fileName;
+}
 
 if (!file_exists($filePath)) {
     http_response_code(404);
@@ -87,7 +108,7 @@ if (!file_exists($filePath)) {
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Resume Not Found - Lakshya</title>
+        <title>Document Not Found - Lakshya</title>
         <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap" rel="stylesheet">
         <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
         <style>
@@ -104,10 +125,9 @@ if (!file_exists($filePath)) {
     <body>
         <div class="error-card">
             <div class="icon"><i class="fas fa-file-circle-question"></i></div>
-            <h1>Resume Not Found</h1>
-            <p>It looks like you haven't built your resume yet, or the file was recently moved.</p>
-            <a href="resume_builder.php" class="btn">Go to Resume Builder</a>
-            <a href="javascript:history.back()" class="secondary-btn">Go Back</a>
+            <h1>Document Not Found</h1>
+            <p>The requested <?php echo htmlspecialchars(strtolower($requestedType)); ?> could not be located on the server.</p>
+            <a href="javascript:history.back()" class="btn">Go Back</a>
         </div>
     </body>
     </html>
