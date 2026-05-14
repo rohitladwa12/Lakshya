@@ -112,7 +112,7 @@ try {
                 $sqlUnified = "INSERT INTO unified_ai_assessments (
                     student_id, institution, student_name, usn, aadhar,
                     current_sem, branch, assessment_type,
-                    assessment_title, score, total_marks,
+                    company_name, score, total_marks,
                     feedback, details, status, completed_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)";
 
@@ -124,7 +124,7 @@ try {
                     $profile['aadhar'] ?? null,
                     $profile['semester'] ?? null,
                     $profile['department'] ?? null,
-                    'Certification Verification',
+                    'Skill Verification',
                     $item['title'], 
                     $score,
                     100,

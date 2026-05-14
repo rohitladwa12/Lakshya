@@ -303,11 +303,7 @@ if ($sgpa >= 9.0) {
 </head>
 <body>
 
-<div class="navbar">
-    <h1>🤖 Company AI Prep <sup>v2.2</sup></h1>
-    <div>
-        <a href="dashboard.php">← Back to Dashboard</a>
-    </div>
+<?php include 'includes/navbar.php'; ?><div style="margin-top: 100px;"></div>
 </div>
 
 <div class="prep-container">

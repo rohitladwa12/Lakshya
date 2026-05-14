@@ -1,6 +1,6 @@
 <?php
 // MUST be first: prevents PHP warnings from polluting JSON output
-ob_start();
+if (ob_get_level() === 0) ob_start();
 
 /**
  * AI HR Round Handler

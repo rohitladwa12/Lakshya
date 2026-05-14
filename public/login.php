@@ -770,6 +770,7 @@ if (isPost()) {
         <?php endif; ?>
 
         <form method="POST" action="" autocomplete="off">
+            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
 
             <div class="field">
                 <label for="username">Username / USN / Email</label>
@@ -810,18 +811,28 @@ if (isPost()) {
 </div>
 
 <script>
-    // Toggle password visibility
+    const form = document.querySelector('form');
+    const loginBtn = document.querySelector('.btn-login');
     const togglePwd = document.getElementById('togglePwd');
-    const pwdInput  = document.getElementById('password');
-    const eyeIcon   = document.getElementById('eyeIcon');
+    const passwordInput = document.getElementById('password');
+    const eyeIcon = document.getElementById('eyeIcon');
 
+    // Toggle password visibility
     togglePwd.addEventListener('click', () => {
-        const show = pwdInput.type === 'password';
-        pwdInput.type = show ? 'text' : 'password';
-        eyeIcon.className = show ? 'fas fa-eye-slash' : 'fas fa-eye';
+        const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
+        passwordInput.setAttribute('type', type);
+        eyeIcon.classList.toggle('fa-eye');
+        eyeIcon.classList.toggle('fa-eye-slash');
+    });
+
+    // Loading state on form submission
+    form.addEventListener('submit', () => {
+        loginBtn.disabled = true;
+        loginBtn.style.opacity = '0.7';
+        loginBtn.style.cursor = 'not-allowed';
+        loginBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Authenticating...';
     });
 </script>
 
 </body>
 </html>
-

@@ -3,23 +3,7 @@
  * Student Dashboard
  */
 
-ob_start();
 require_once __DIR__ . '/../../config/bootstrap.php';
-
-// 3. Handle manual cache refresh via POST (Secured)
-if (isPost() && isset($_POST['action']) && $_POST['action'] === 'refresh_cache') {
-    $dataProxy = new \App\Services\RemoteDataProxy();
-    $dataProxy->refreshCache(getUserId(), getInstitution());
-    
-    if (isAjax()) {
-        header('Content-Type: application/json');
-        echo json_encode(['success' => true]);
-        exit;
-    }
-    
-    Session::flash('success', 'Academic data synchronized successfully.');
-    redirect('student/dashboard.php');
-}
 
 // Require student role
 requireRole(ROLE_STUDENT);
@@ -27,16 +11,6 @@ requireRole(ROLE_STUDENT);
 $userId = getUserId();
 $username = getUsername();
 $fullName = getFullName();
-
-// Handle cache refresh request
-if (isset($_GET['refresh_cache']) && $_GET['refresh_cache'] == 1) {
-    $proxy = new \App\Services\RemoteDataProxy();
-    $inst = $_SESSION['institution'] ?? '';
-    $proxy->refreshCache($userId, $inst);
-    // Redirect to clean URL
-    header("Location: " . strtok($_SERVER["REQUEST_URI"], '?'));
-    exit;
-}
 
 // Check for new jobs (posted within last 7 days)
 require_once __DIR__ . '/../../src/Models/JobPosting.php';
@@ -1357,72 +1331,6 @@ if (count($feedItems) < 2) {
             background: #600000;
         }
 
-        /* Real-time Toast Notifications */
-        #notification-toast-container {
-            position: fixed;
-            bottom: 30px;
-            right: 30px;
-            z-index: 10000;
-            display: flex;
-            flex-direction: column;
-            gap: 15px;
-            pointer-events: none;
-        }
-
-        .notification-toast {
-            background: rgba(255, 255, 255, 0.95);
-            backdrop-filter: blur(10px);
-            border-left: 5px solid var(--accent-gold);
-            padding: 20px;
-            border-radius: 16px;
-            box-shadow: 0 15px 35px rgba(0,0,0,0.2);
-            width: 350px;
-            display: flex;
-            gap: 15px;
-            pointer-events: auto;
-            animation: toastSlideIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            transition: all 0.3s;
-            cursor: pointer;
-            border: 1px solid rgba(0,0,0,0.05);
-        }
-
-        @keyframes toastSlideIn {
-            from { transform: translateX(100%) scale(0.8); opacity: 0; }
-            to { transform: translateX(0) scale(1); opacity: 1; }
-        }
-
-        .toast-exit {
-            transform: translateX(120%);
-            opacity: 0;
-        }
-
-        .toast-icon {
-            width: 45px;
-            height: 45px;
-            background: var(--light-gold);
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
-            color: var(--primary-maroon);
-            font-size: 1.2rem;
-            overflow: hidden;
-        }
-
-        .toast-content h5 {
-            font-size: 0.95rem;
-            font-weight: 800;
-            color: var(--primary-maroon);
-            margin-bottom: 4px;
-        }
-
-        .toast-content p {
-            font-size: 0.8rem;
-            color: var(--text-muted);
-            line-height: 1.4;
-        }
-
         .submit-btn:disabled {
             opacity: 0.7;
             cursor: not-allowed;
@@ -1948,50 +1856,15 @@ if (count($feedItems) < 2) {
 </head>
 
 <body>
-    <!-- Instant Skeleton Loader -->
-    <div id="skeleton-screen">
-        <div class="skeleton-container">
-            <div class="skeleton-sidebar"></div>
-            <div class="skeleton-main">
-                <div class="skeleton-header"></div>
-                <div class="skeleton-grid">
-                    <div class="skeleton-card"></div>
-                    <div class="skeleton-card"></div>
-                    <div class="skeleton-card"></div>
-                    <div class="skeleton-card"></div>
-                </div>
-            </div>
-        </div>
-    </div>
-    <style>
-        #skeleton-screen {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: #f8f9fa; z-index: 9999;
-            padding: 20px;
-        }
-        .skeleton-container { display: flex; gap: 20px; height: 100%; }
-        .skeleton-sidebar { width: 280px; background: #eee; border-radius: 16px; animation: shimmer 1.5s infinite; }
-        .skeleton-main { flex: 1; display: flex; flex-direction: column; gap: 20px; }
-        .skeleton-header { height: 100px; background: #eee; border-radius: 16px; animation: shimmer 1.5s infinite; }
-        .skeleton-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 20px; }
-        .skeleton-card { height: 250px; background: #eee; border-radius: 16px; animation: shimmer 1.5s infinite; }
-        @keyframes shimmer { 0% { opacity: 0.5; } 50% { opacity: 0.8; } 100% { opacity: 0.5; } }
-    </style>
-    <?php
-    ob_flush();
-    flush();
-    ?>
-
     <?php include_once __DIR__ . '/includes/navbar.php'; ?>
 
     <div class="dashboard-container">
         <!-- Sidebar -->
         <aside class="sidebar-profile">
             <?php
-            // Use RemoteDataProxy to avoid remote DB lag
-            $dataProxy = new \App\Services\RemoteDataProxy();
-            $academicHistory = $dataProxy->getAcademicHistory($userId, $institution);
+            require_once __DIR__ . '/../../src/Models/StudentProfile.php';
+            $studentProfileModel = new StudentProfile();
+            $academicHistory = $studentProfileModel->getAcademicHistory($userId, $institution);
             $profile = $academicHistory[0] ?? null;
 
             // Bypass profile missing check for demo user
@@ -2078,9 +1951,6 @@ if (count($feedItems) < 2) {
                     <div class="card-header" style="margin-bottom: 1rem;">
                         <h3 style="font-size: 0.95rem;"><i class="fas fa-history" style="color: var(--primary-maroon);"></i>
                             Recent SGPAs</h3>
-                        <a href="javascript:void(0)" onclick="refreshAcademicCache()" title="Refresh from University DB" style="color:var(--text-muted); font-size:0.8rem;">
-                            <i class="fas fa-sync-alt" id="academic-sync-icon"></i>
-                        </a>
                     </div>
                     <?php if (count($academicHistory) > 1): ?>
                         <div style="display: flex; flex-direction: column; gap: 8px;">
@@ -2432,15 +2302,30 @@ if (count($feedItems) < 2) {
                                 <?php
                             endif; ?>
                         </div>
+
+                        <!-- <div style="margin-top: 2rem; background: #fff4e5; padding: 1.25rem; border-radius: 16px; border: 1px solid #ffe8cc;">
+                        <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+                            <div>
+                                <div style="font-size: 0.8rem; font-weight: 800; color: #e67e22; text-transform: uppercase; letter-spacing: 0.5px;">AI Resume Analyzer</div>
+                                <p style="font-size: 0.75rem; color: #d35400; margin-top: 5px;">Get a brutally honest, recruiter-level analysis in seconds.</p>
+                            </div>
+                            <div style="font-size: 1.5rem;">🕵️‍♂️</div>
+                        </div>
+                        <a href="resume_analyzer.php" style="display: inline-block; margin-top: 10px; font-size: 0.8rem; font-weight: 800; color: #e67e22; text-decoration: none; background: #fff; padding: 6px 12px; border-radius: 8px; box-shadow: 0 2px 4px rgba(230,126,34,0.1);">Analyze Now →</a>
+                    </div> -->
                     </div>
                 </div>
 
                 <?php if (!$profile): ?>
-                    <div style="background: #fff4f4; color: #c53030; padding: 2rem; border-radius: 20px; text-align: center; font-weight: 600; border: 1px solid #fecaca; margin-top: 2rem;">
-                        <i class="fas fa-exclamation-triangle" style="margin-right:8px; color:#e11d48;"></i> Profile configuration missing. Please update your details in the office.
+                    <div
+                        style="background: #fff4f4; color: #c53030; padding: 2rem; border-radius: 20px; text-align: center; font-weight: 600; border: 1px solid #fecaca;">
+                        <i class="fas fa-exclamation-triangle" style="margin-right:8px; color:#e11d48;"></i> Profile
+                        configuration missing. Please update your details in the office.
                     </div>
-                <?php endif; ?>
-            <?php endif; ?>
+                    <?php
+                endif; ?>
+                <?php
+            endif; ?>
         </main>
     </div>
 
@@ -2459,7 +2344,6 @@ if (count($feedItems) < 2) {
 
             <div class="modal-body" id="modalViewAdd">
                 <form id="portfolioForm">
-                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                     <input type="hidden" name="action" value="add">
 
                     <div class="form-group">
@@ -2594,6 +2478,9 @@ if (count($feedItems) < 2) {
         </div>
     </div>
 
+    </div>
+    </div>
+
     <!-- Verification Suggestion Modal -->
     <div id="verifySuggestionModal" class="pf-modal">
         <div class="pf-modal-content" style="max-width: 500px; text-align: center;">
@@ -2661,18 +2548,16 @@ if (count($feedItems) < 2) {
             const listView = document.getElementById('modalViewPortfolio');
             const tabs = document.querySelectorAll('.m-tab');
 
-            if (tabs) {
-                tabs.forEach(t => t.classList.remove('active'));
-            }
+            tabs.forEach(t => t.classList.remove('active'));
 
             if (tab === 'add') {
-                if (addView) addView.style.display = 'block';
-                if (listView) listView.style.display = 'none';
-                if (tabs && tabs[0]) tabs[0].classList.add('active');
+                addView.style.display = 'block';
+                listView.style.display = 'none';
+                tabs[0].classList.add('active');
             } else {
-                if (addView) addView.style.display = 'none';
-                if (listView) listView.style.display = 'block';
-                if (tabs && tabs[1]) tabs[1].classList.add('active');
+                addView.style.display = 'none';
+                listView.style.display = 'block';
+                tabs[1].classList.add('active');
                 loadPortfolioList();
             }
         }
@@ -2685,13 +2570,9 @@ if (count($feedItems) < 2) {
             loader.style.display = 'block';
 
             try {
-                const response = await fetch('portfolio_handler.php', {
+                const response = await fetch('portfolio_handler', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded',
-                        'X-CSRF-TOKEN': CSRF_TOKEN
-                    },
-                    body: new URLSearchParams({ action: 'list', csrf_token: CSRF_TOKEN })
+                    body: new URLSearchParams({ action: 'list' })
                 });
                 const result = await response.json();
 
@@ -3230,27 +3111,6 @@ if (count($feedItems) < 2) {
             });
             return groups;
         }
-
-        async function refreshAcademicCache() {
-            const icon = document.getElementById('academic-sync-icon');
-            if (icon) icon.classList.add('fa-spin');
-            
-            try {
-                const response = await fetch('dashboard.php', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                    body: new URLSearchParams({ action: 'refresh_cache' })
-                });
-                
-                if (response.ok) {
-                    location.reload();
-                }
-            } catch (e) {
-                console.error('Refresh failed', e);
-            } finally {
-                if (icon) icon.classList.remove('fa-spin');
-            }
-        }
     </script>
     <style>
         @keyframes spin {
@@ -3318,11 +3178,7 @@ if (count($feedItems) < 2) {
 
     <script>
         (function () {
-            window.addEventListener('load', function () {
-                document.getElementById('skeleton-screen').style.display = 'none';
-            });
-
-            const AVATAR_KEY = 'lakshya_avatar_id_<?php echo $userId; ?>';
+            var AVATAR_KEY = 'lakshya_avatar_<?php echo htmlspecialchars($username, ENT_QUOTES); ?>';
 
             var AVATARS = [];
             // Generate diverse 3D-like avatars using DiceBear Micah style
@@ -3346,10 +3202,8 @@ if (count($feedItems) < 2) {
                     div.dataset.id = av.id;
                     div.innerHTML = '<img src="' + av.url + '" style="width:64px;height:64px;border-radius:50%;object-fit:cover;" alt="Avatar"/>';
                     div.addEventListener('click', function () {
-                        document.querySelectorAll('.avatar-option').forEach(function (o) { 
-                            if (o) o.classList.remove('selected'); 
-                        });
-                        if (div) div.classList.add('selected');
+                        document.querySelectorAll('.avatar-option').forEach(function (o) { o.classList.remove('selected'); });
+                        div.classList.add('selected');
                         selectedAvatarId = av.id;
                     });
                     grid.appendChild(div);
@@ -3370,38 +3224,24 @@ if (count($feedItems) < 2) {
             }
 
             window.openAvatarPicker = function () {
-                const overlay = document.getElementById('avatarPickerOverlay');
-                if (overlay) {
-                    overlay.classList.add('open');
-                    buildGrid();
-                }
+                document.getElementById('avatarPickerOverlay').classList.add('open');
+                buildGrid();
             };
 
-            const closeBtn = document.getElementById('avatarPickerCloseBtn');
-            if (closeBtn) {
-                closeBtn.addEventListener('click', function () {
-                    const overlay = document.getElementById('avatarPickerOverlay');
-                    if (overlay) overlay.classList.remove('open');
-                });
-            }
+            document.getElementById('avatarPickerCloseBtn').addEventListener('click', function () {
+                document.getElementById('avatarPickerOverlay').classList.remove('open');
+            });
 
-            const overlay = document.getElementById('avatarPickerOverlay');
-            if (overlay) {
-                overlay.addEventListener('click', function (e) {
-                    if (e.target === this) this.classList.remove('open');
-                });
-            }
+            document.getElementById('avatarPickerOverlay').addEventListener('click', function (e) {
+                if (e.target === this) this.classList.remove('open');
+            });
 
-            const saveBtn = document.getElementById('avatarSaveBtn');
-            if (saveBtn) {
-                saveBtn.addEventListener('click', function () {
-                    if (!selectedAvatarId) { alert('Please select an avatar first!'); return; }
-                    localStorage.setItem(AVATAR_KEY, selectedAvatarId);
-                    applyAvatar(selectedAvatarId);
-                    const overlay = document.getElementById('avatarPickerOverlay');
-                    if (overlay) overlay.classList.remove('open');
-                });
-            }
+            document.getElementById('avatarSaveBtn').addEventListener('click', function () {
+                if (!selectedAvatarId) { alert('Please select an avatar first!'); return; }
+                localStorage.setItem(AVATAR_KEY, selectedAvatarId);
+                applyAvatar(selectedAvatarId);
+                document.getElementById('avatarPickerOverlay').classList.remove('open');
+            });
 
             // Restore avatar on page load
             var saved = localStorage.getItem(AVATAR_KEY);
@@ -3417,72 +3257,6 @@ if (count($feedItems) < 2) {
             <p>Analyzing company data & recruitment trends...</p>
         </div>
     </div>
-    <!-- Real-time Notifications UI -->
-    <div id="notification-toast-container"></div>
-
-    <script>
-        // --- REAL-TIME NOTIFICATION SYSTEM ---
-        if (!!window.EventSource) {
-            const source = new EventSource('../notifications_stream.php');
-            
-            source.addEventListener('notification', function(e) {
-                try {
-                    const data = JSON.parse(e.data);
-                    showNotificationToast(data);
-                } catch (err) {
-                    console.error("Invalid notification data", err);
-                }
-            });
-
-            source.addEventListener('error', function(e) {
-                if (e.readyState == EventSource.CLOSED) {
-                    console.log("Notification stream closed");
-                }
-            });
-        }
-
-        function showNotificationToast(data) {
-            const container = document.getElementById('notification-toast-container');
-            const toast = document.createElement('div');
-            toast.className = 'notification-toast';
-            
-            const iconHtml = data.company_logo 
-                ? `<img src="${data.company_logo}" style="width:100%;height:100%;object-fit:cover;">`
-                : `<i class="fas fa-briefcase"></i>`;
-
-            toast.innerHTML = `
-                <div class="toast-icon">${iconHtml}</div>
-                <div class="toast-content">
-                    <h5>${data.title}</h5>
-                    <p>${data.subtitle}</p>
-                    <div style="margin-top:8px; font-size:10px; font-weight:700; color:var(--accent-gold); text-transform:uppercase;">Click to view opportunity</div>
-                </div>
-            `;
-
-            toast.onclick = () => {
-                if (data.link) {
-                    navigatePost(data.link, { id: data.id });
-                }
-            };
-
-            container.appendChild(toast);
-
-            // Play notification sound
-            try {
-                const audio = new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3');
-                audio.volume = 0.3;
-                audio.play();
-            } catch(e) {}
-
-            // Auto-remove after 10 seconds
-            setTimeout(() => {
-                if (toast) {
-                    toast.classList.add('toast-exit');
-                    setTimeout(() => toast.remove(), 500);
-                }
-            }, 10000);
-        }
-    </script>
 </body>
 
 </html>

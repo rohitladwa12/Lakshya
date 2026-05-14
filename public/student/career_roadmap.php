@@ -24,20 +24,8 @@ $studentModel = new StudentProfile();
 $studentProfile = $studentModel->getProfile($userId);
 $institution = $studentProfile['institution'] ?? INSTITUTION_GMU;
 
-// Resolve student ID for database queries
-if ($institution === INSTITUTION_GMIT) {
-    if (!empty($studentProfile['id']) && $studentProfile['id'] != 0) {
-        $roadmapStudentId = $studentProfile['id'];
-    } else if (!empty($studentProfile['usn'])) {
-        $roadmapStudentId = $studentProfile['usn'];
-    } else if (!empty($studentProfile['student_id']) && $studentProfile['student_id'] != '0' && $studentProfile['student_id'] != 0) {
-        $roadmapStudentId = $studentProfile['student_id'];
-    } else {
-        $roadmapStudentId = $userId;
-    }
-} else {
-    $roadmapStudentId = $userId;
-}
+// Resolve student ID for database queries using centralized logic
+$roadmapStudentId = getStudentIdForAssessment();
 
 // Handle POST from advisor or dashboard
 if (isPost() && isset($_POST['id'])) {
@@ -564,7 +552,7 @@ function toggleResources(phaseNum) {
 
 async function trackMaterialDownload(materialId, roadmapId, url) {
     try {
-        await fetch('career_handler', {
+        await fetch('career_handler.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({
@@ -582,7 +570,7 @@ async function markVideoCompleted(videoId, roadmapId, btn) {
     btn.textContent = '...ing';
     
     try {
-        const response = await fetch('career_handler', {
+        const response = await fetch('career_handler.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
             body: JSON.stringify({
@@ -613,7 +601,7 @@ async function loadResources(phaseNum) {
     const roadmapId = <?php echo json_encode($roadmapId); ?>;
     
     try {
-        const response = await fetch('career_handler', {
+        const response = await fetch('career_handler.php', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',

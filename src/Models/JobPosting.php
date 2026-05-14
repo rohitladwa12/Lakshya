@@ -14,6 +14,63 @@ class JobPosting extends Model {
         'min_cgpa', 'eligible_courses', 'eligible_branches', 'eligible_years', 'custom_fields', 'posted_date',
         'application_deadline', 'status', 'posted_by'
     ];
+
+    /**
+     * Broadcast a notification via Redis
+     */
+    protected function broadcast($data) {
+        try {
+            $redis = \App\Helpers\RedisHelper::getInstance();
+            if ($redis->isConnected()) {
+                $redis->getClient()->publish('campus_feed', json_encode($data));
+            }
+        } catch (Exception $e) {
+            error_log("Redis Broadcast Failed: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Override create to broadcast new job
+     */
+    public function create($data) {
+        $id = parent::create($data);
+        if ($id && isset($data['status']) && $data['status'] === 'Active') {
+            $companyModel = new Company();
+            $company = $companyModel->get($data['company_id']);
+            $this->broadcast([
+                'type' => 'job_alert',
+                'id' => $id,
+                'title' => 'New Job: ' . ($data['title'] ?? 'Position Open'),
+                'subtitle' => ($company['name'] ?? 'A Company') . ' is hiring!',
+                'link' => 'jobs.php',
+                'company_logo' => $company['logo_url'] ?? null,
+                'time' => date('c')
+            ]);
+        }
+        return $id;
+    }
+
+    /**
+     * Override update to broadcast when status changes to Active
+     */
+    public function update($id, $data) {
+        $result = parent::update($id, $data);
+        if ($result && isset($data['status']) && $data['status'] === 'Active') {
+            $job = $this->getWithCompany($id);
+            if ($job) {
+                $this->broadcast([
+                    'type' => 'job_alert',
+                    'id' => $id,
+                    'title' => 'New Job: ' . $job['title'],
+                    'subtitle' => $job['company_name'] . ' is hiring!',
+                    'link' => 'jobs.php',
+                    'company_logo' => $job['company_logo'] ?? null,
+                    'time' => date('c')
+                ]);
+            }
+        }
+        return $result;
+    }
     
     /**
      * Get active jobs

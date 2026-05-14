@@ -518,34 +518,85 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         const navMenu = document.querySelector('.nav-menu');
         const dropdownToggles = document.querySelectorAll('.dropdown-container .nav-btn');
 
-        mobileToggle.addEventListener('click', function () {
-            navMenu.classList.toggle('active');
-            const icon = this.querySelector('i');
-            if (navMenu.classList.contains('active')) {
-                icon.classList.remove('fa-bars');
-                icon.classList.add('fa-times');
-                document.body.style.overflow = 'hidden';
-            } else {
-                icon.classList.add('fa-bars');
-                icon.classList.remove('fa-times');
-                document.body.style.overflow = '';
-            }
-        });
+        if (mobileToggle && navMenu) {
+            mobileToggle.addEventListener('click', function () {
+                navMenu.classList.toggle('active');
+                const icon = this.querySelector('i');
+                if (navMenu.classList.contains('active')) {
+                    if (icon) {
+                        icon.classList.remove('fa-bars');
+                        icon.classList.add('fa-times');
+                    }
+                    document.body.style.overflow = 'hidden';
+                } else {
+                    if (icon) {
+                        icon.classList.add('fa-bars');
+                        icon.classList.remove('fa-times');
+                    }
+                    document.body.style.overflow = '';
+                }
+            });
+        }
 
         dropdownToggles.forEach(toggle => {
             toggle.addEventListener('click', function (e) {
                 if (window.innerWidth <= 1024) {
-                    e.preventDefault();
                     const container = this.parentElement;
-                    container.classList.toggle('active');
-                    const chevron = this.querySelector('.fa-chevron-down');
-                    if (chevron) {
-                        chevron.style.transform = container.classList.contains('active') ? 'rotate(180deg)' : '';
+                    if (container) {
+                        e.preventDefault();
+                        container.classList.toggle('active');
+                        const chevron = this.querySelector('.fa-chevron-down');
+                        if (chevron) {
+                            chevron.style.transform = container.classList.contains('active') ? 'rotate(180deg)' : '';
+                        }
                     }
                 }
             });
         });
     });
 </script>
-<!-- Global Maintenance Interceptor -->
-<script src="<?php echo APP_URL; ?>/public/js/maintenance_interceptor.js"></script>
+<!-- Global Security Layer -->
+<script>
+    window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ""; ?>';
+    
+    (function() {
+        const token = window.CSRF_TOKEN;
+        if (!token) return;
+
+        const nativeFetch = window.fetch;
+        window.fetch = function(resource, config) {
+            if (config && config.method && config.method.toUpperCase() === 'POST') {
+                if (!config.headers) config.headers = {};
+                if (!(config.headers instanceof Headers)) {
+                    config.headers['X-CSRF-TOKEN'] = token;
+                } else {
+                    config.headers.set('X-CSRF-TOKEN', token);
+                }
+            }
+            return nativeFetch(resource, config);
+        };
+
+        // Intercept FormData to automatically inject token
+        const nativeAppend = FormData.prototype.append;
+        FormData.prototype.append = function(name, value, filename) {
+            if (name !== 'csrf_token' && !this.has('csrf_token')) {
+                nativeAppend.call(this, 'csrf_token', token);
+            }
+            return nativeAppend.apply(this, arguments);
+        };
+
+        const nativeSend = XMLHttpRequest.prototype.send;
+        XMLHttpRequest.prototype.send = function(body) {
+            if (this.readyState === 1 || true) { // Simplistic check
+                try {
+                    this.setRequestHeader('X-CSRF-TOKEN', token);
+                } catch(e) {}
+            }
+            if (body instanceof FormData && !body.has('csrf_token')) {
+                body.append('csrf_token', token);
+            }
+            return nativeSend.apply(this, arguments);
+        };
+    })();
+</script>
+<script src="<?php echo APP_URL; ?>/public/js/maintenance_interceptor.js?v=<?php echo time(); ?>"></script>

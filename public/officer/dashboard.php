@@ -4,11 +4,56 @@
  */
 
 require_once __DIR__ . '/../../config/bootstrap.php';
+
+// 1. Essential Auth (Fast)
 requireRole(ROLE_PLACEMENT_OFFICER);
 
 $userId   = getUserId();
 $fullName = getFullName();
 
+// 2. Start Immediate Rendering (Skeleton)
+if (!headers_sent()) {
+    @ini_set('zlib.output_compression', 0);
+    @ini_set('implicit_flush', 1);
+    ob_end_flush(); 
+    ob_start();
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Officer Dashboard – <?php echo APP_NAME; ?></title>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel="stylesheet" href="../assets/css/skeleton.css?v=<?php echo APP_VERSION; ?>">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- Instant Skeleton Loader -->
+    <div id="skeletonScreen" class="skeleton-screen">
+        <div class="skeleton-header shimmer"></div>
+        <div class="skeleton-body" style="grid-template-columns: 1fr;">
+            <div class="skeleton-main">
+                <div class="skeleton-stats">
+                    <div class="skeleton-stat shimmer"></div>
+                    <div class="skeleton-stat shimmer"></div>
+                    <div class="skeleton-stat shimmer"></div>
+                    <div class="skeleton-stat shimmer"></div>
+                </div>
+                <div class="skeleton-bento">
+                    <div class="skeleton-card shimmer" style="grid-column: span 2;"></div>
+                    <div class="skeleton-card shimmer"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+<?php
+// Flush skeleton
+ob_flush();
+flush();
+
+// 3. Heavy DB Queries (Slow)
 $officerModel = new PlacementOfficer();
 $stats        = $officerModel->getDashboardStats();
 $recentApps   = $officerModel->getRecentApplications(6);
@@ -17,20 +62,12 @@ $recentJobs   = $officerModel->getRecentJobs(6);
 $placedModel = new CompanyPlacedStudent();
 $placedStats = $placedModel->getStatistics();
 
-// Mock data for Chart.js - in a real app, this would come from the database
+// Mock data for Chart.js
 $chartData = [
     'labels' => ['2021', '2022', '2023', '2024', '2025'],
     'placements' => [450, 520, 610, 750, 890]
 ];
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Officer Dashboard – <?php echo APP_NAME; ?></title>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --brand: #7C0000;
@@ -442,9 +479,18 @@ $chartData = [
             }
         }
     });
+
+    // Hide Skeleton Screen after page load
+    window.addEventListener('load', function() {
+        const skeleton = document.getElementById('skeletonScreen');
+        if (skeleton) {
+            setTimeout(() => {
+                skeleton.classList.add('hidden');
+                setTimeout(() => skeleton.remove(), 500);
+            }, 300); 
+        }
+    });
 </script>
-</body>
-</html>
 </body>
 </html>
 

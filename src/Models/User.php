@@ -160,13 +160,23 @@ class User extends Model {
             $user = null;
             if ($inst === INSTITUTION_GMIT) {
                 try {
-                    $sql = "SELECT u.*, d.name as student_name, d.discipline 
-                            FROM {$table} u 
-                            LEFT JOIN {$prefix}ad_student_details d ON u.ENQUIRY_NO = d.enquiry_no OR u.USER_NAME = d.student_id 
-                            WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
+                    // Optimized: Fetch user first to avoid complex OR join on temporary tables
+                    $sql = "SELECT u.* FROM {$table} u WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
                     $stmt = $this->remoteDB->prepare($sql);
                     $stmt->execute([$id, $id]);
                     $user = $stmt->fetch();
+                    
+                    if ($user) {
+                        $enq = $user['ENQUIRY_NO'] ?? '';
+                        $sid = $user['USER_NAME'] ?? '';
+                        $sqlDet = "SELECT name as student_name, discipline FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1";
+                        $stmtDet = $this->remoteDB->prepare($sqlDet);
+                        $stmtDet->execute([$enq, $sid]);
+                        $details = $stmtDet->fetch();
+                        if ($details) {
+                            $user = array_merge($user, $details);
+                        }
+                    }
                 } catch (Exception $e) {
                     // Fallback to minimal query if columns are missing
                     $sql = "SELECT u.* FROM {$table} u WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
@@ -349,70 +359,71 @@ class User extends Model {
 
             $table = $prefix . 'users';
             
-            if ($inst === INSTITUTION_GMIT) {
-                // GMIT: Join with ad_student_details using valid keys
-                // Queries REMOTE DB
-                $sql = "SELECT u.*, d.name as student_name 
-                        FROM {$table} u 
-                        LEFT JOIN {$prefix}ad_student_details d ON u.ENQUIRY_NO = d.enquiry_no OR u.USER_NAME = d.student_id 
-                        WHERE (u.USER_NAME = ? OR u.AADHAR = ?) AND u.STATUS = 'ACTIVE' LIMIT 1";
-            } else {
-                // GMU: Join with ad_student_details to get authoritative USN and ad_student_approved for semester
-                $sql = "SELECT u.*, u.NAME as student_name, d.usn as actual_usn, ad.sem 
-                        FROM {$table} u 
-                        LEFT JOIN {$prefix}ad_student_details d ON (u.USER_NAME = d.usn OR u.AADHAR = d.aadhar)
-                        LEFT JOIN {$prefix}ad_student_approved ad ON d.usn = ad.usn
-                        WHERE (u.USER_NAME = ? OR u.AADHAR = ?) AND u.STATUS = 'ACTIVE' 
-                        ORDER BY ad.academic_year DESC, ad.sem DESC LIMIT 1";
-            }
-
-            $stmt = $this->remoteDB->prepare($sql);
+            // Optimized: Fetch user first to avoid complex joins triggering "Disk Full" errors on temp files
+            $sqlUser = "SELECT * FROM {$table} WHERE (USER_NAME = ? OR AADHAR = ?) AND STATUS = 'ACTIVE' LIMIT 1";
+            $stmt = $this->remoteDB->prepare($sqlUser);
             $stmt->execute([$username, $username]);
             $user = $stmt->fetch();
             
             if ($user) {
+                // VERIFY PASSWORD FIRST (Fastest)
                 $authenticated = false;
                 if ($inst === INSTITUTION_GMIT) {
-                    // GMIT uses bcrypt
                     $authenticated = password_verify($password, $user['PASSWORD']);
                 } else {
-                    // GMU - Migration Logic
-                    // 1. Check if already hashed (valid bcrypt)
                     if (password_verify($password, $user['PASSWORD'])) {
                         $authenticated = true;
-                    } 
-                    // 2. Fallback to plain text (Legacy)
-                    elseif ($password === $user['PASSWORD']) {
+                    } elseif ($password === $user['PASSWORD']) {
                         $authenticated = true;
-                        // MIGRATION: Update to bcrypt immediately
+                        // MIGRATION: Update to bcrypt
                         $newHash = password_hash($password, PASSWORD_BCRYPT);
-                        $upStmt = $this->remoteDB->prepare("UPDATE {$table} SET PASSWORD = ? WHERE SL_NO = ?");
-                        $upStmt->execute([$newHash, $user['SL_NO']]);
-                        logMessage("Migrated user {$user['USER_NAME']} (GMU) to Bcrypt", 'INFO');
-                    } else {
-                        $authenticated = false;
+                        $this->remoteDB->prepare("UPDATE {$table} SET PASSWORD = ? WHERE SL_NO = ?")
+                                       ->execute([$newHash, $user['SL_NO']]);
                     }
                 }
 
-                if ($authenticated) {
-                    $appUser = $this->mapToAppUser($user, $inst);
-                    
-                    // GMU Semester Gating: Only allow Sem 5, 6, 7, 8
-                    if ($inst === INSTITUTION_GMU && $appUser['role'] === 'student') {
-                        $sem = (int)($user['sem'] ?? 0);
-                        if ($sem < 5 || $sem > 8) {
-                            logMessage("Login blocked for GMU student {$user['USER_NAME']} due to Semester constraint (Sem: $sem)", 'WARNING');
-                            return ['success' => false, 'message' => 'Login is currently restricted to Semesters 5, 6, 7, and 8 for GMU students.'];
-                        }
-                    }
-
-                    return [
-                        'success' => true,
-                        'user' => $appUser
-                    ];
-                } else {
+                if (!$authenticated) {
                     return ['success' => false, 'message' => 'Invalid credentials'];
                 }
+
+                // If authenticated, NOW fetch extra details (Enrichment)
+                if ($inst === INSTITUTION_GMIT) {
+                    $enquiry = $user['ENQUIRY_NO'] ?? '';
+                    $uid = $user['USER_NAME'] ?? '';
+                    $sqlDet = "SELECT name as student_name FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1";
+                    $stmtDet = $this->remoteDB->prepare($sqlDet);
+                    $stmtDet->execute([$enquiry, $uid]);
+                    $details = $stmtDet->fetch();
+                    if ($details) $user['student_name'] = $details['student_name'];
+                } else {
+                    $usn = $user['USER_NAME'] ?? '';
+                    $aadhar = $user['AADHAR'] ?? '';
+                    $sqlDet = "SELECT d.usn as actual_usn, ad.sem 
+                               FROM {$prefix}ad_student_details d
+                               LEFT JOIN {$prefix}ad_student_approved ad ON d.usn = ad.usn
+                               WHERE d.usn = ? OR d.aadhar = ?
+                               ORDER BY ad.academic_year DESC, ad.sem DESC LIMIT 1";
+                    $stmtDet = $this->remoteDB->prepare($sqlDet);
+                    $stmtDet->execute([$usn, $aadhar]);
+                    $details = $stmtDet->fetch();
+                    if ($details) {
+                        $user['actual_usn'] = $details['actual_usn'];
+                        $user['sem'] = $details['sem'];
+                    }
+                    $user['student_name'] = $user['NAME'] ?? '';
+                }
+
+                $appUser = $this->mapToAppUser($user, $inst);
+                
+                // GMU Semester Gating
+                if ($inst === INSTITUTION_GMU && $appUser['role'] === 'student') {
+                    $sem = (int)($user['sem'] ?? 0);
+                    if ($sem < 5 || $sem > 8) {
+                        return ['success' => false, 'message' => 'Login restricted to Semesters 5-8 for GMU students.'];
+                    }
+                }
+
+                return ['success' => true, 'user' => $appUser];
             }
         }
         // If remote connection was attempted but failed, tell the student clearly

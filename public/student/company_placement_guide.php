@@ -253,21 +253,8 @@ $guideContent = $result['success'] ? $result['content'] : "Error generating guid
 </head>
 <body>
 
-<header class="guide-header">
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
-    <div class="brand">
-        <h1>Placement Strategy <sup style="font-size: 0.6rem; background: var(--primary); color: white; padding: 2px 6px; border-radius: 4px; vertical-align: top;">PREMIUM</sup></h1>
-        <span>Expert Roadmap for <?php echo htmlspecialchars($companyName); ?></span>
-    </div>
-    <div style="display: flex; gap: 12px;">
-        <a href="dashboard.php" class="btn-action btn-back">
-            <i class="fas fa-arrow-left"></i> Dashboard
-        </a>
-        <button onclick="window.print()" class="btn-action btn-print">
-            <i class="fas fa-file-pdf"></i> Download PDF Guide
-        </button>
-    </div>
-</header>
+<?php include 'includes/navbar.php'; ?>
+<div style="margin-top: 100px;"></div>
 
 <div class="main-wrapper">
     <aside class="guide-nav">

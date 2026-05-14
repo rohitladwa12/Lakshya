@@ -29,14 +29,53 @@ use App\Helpers\RedisHelper;
 
 $redisHelper = RedisHelper::getInstance();
 if ($redisHelper->isConnected()) {
-    // Register Predis as the session handler
-    $handler = new \Predis\Session\Handler($redisHelper->getClient(), [
-        'gc_maxlifetime' => 3600 * 24 // 24 hours
-    ]);
-    $handler->register();
+    try {
+        // Register Predis as the session handler
+        $handler = new \Predis\Session\Handler($redisHelper->getClient(), [
+            'gc_maxlifetime' => 3600 * 24 // 24 hours
+        ]);
+        $handler->register();
+    } catch (Exception $e) {
+        error_log("Redis Session Handler Registration Failed: " . $e->getMessage());
+        // Fall back to default PHP session handler automatically
+    }
 }
 
 require_once ROOT_PATH . '/config/session.php';
+
+// --- CSRF SECURITY SHIELD ---
+// 1. Initialize Token
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+// 2. Global Protection for all POST requests
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    // List of files that are allowed to skip CSRF (e.g., specialized webhooks)
+    $skipCSRF = ['notifications_stream.php', 'ai_worker.php'];
+    $currentFile = basename($_SERVER['PHP_SELF']);
+    
+    if (!in_array($currentFile, $skipCSRF)) {
+        $headers = function_exists('getallheaders') ? getallheaders() : [];
+        $headerToken = $headers['X-CSRF-TOKEN'] ?? $headers['x-csrf-token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+        $postToken = $_POST['csrf_token'] ?? '';
+
+        if (!hash_equals($_SESSION['csrf_token'], $headerToken) && !hash_equals($_SESSION['csrf_token'], $postToken)) {
+            $isAjax = (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest') || 
+                      !empty($headerToken) ||
+                      (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false);
+            
+            if ($isAjax) {
+                header('Content-Type: application/json');
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'Security Alert: CSRF Validation Failed.']);
+                exit;
+            } else {
+                die("Security Alert: CSRF token validation failed. Please refresh the page and try again.");
+            }
+        }
+    }
+}
 
 // Load base model
 require_once ROOT_PATH . '/src/Models/Model.php';

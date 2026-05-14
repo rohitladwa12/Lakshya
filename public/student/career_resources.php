@@ -474,7 +474,7 @@ function filterMaterials() {
 
 async function toggleBookmark(resourceId, type, button) {
     try {
-        const response = await fetch('career_handler', {
+        const response = await fetch('career_handler.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -495,7 +495,7 @@ async function toggleBookmark(resourceId, type, button) {
 
 async function markCompleted(videoId, type, button) {
     try {
-        const response = await fetch('career_handler', {
+        const response = await fetch('career_handler.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -517,7 +517,7 @@ async function markCompleted(videoId, type, button) {
 
 async function markDownloaded(materialId) {
     try {
-        await fetch('career_handler', {
+        await fetch('career_handler.php', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({

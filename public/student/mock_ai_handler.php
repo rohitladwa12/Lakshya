@@ -158,6 +158,10 @@ switch ($action) {
                         // Better: The client can pass it in the final chat message or we can store it in a session.
                         $companyNameFromInput = $input['company'] ?? 'General'; 
                         $assessmentTypeFromInput = $input['type'] ?? 'Technical';
+                        // Map to allowed ENUM values: 'Aptitude','Technical','HR','Skill Verification','Project Defense'
+                        $enumType = 'Technical';
+                        if (stripos($assessmentTypeFromInput, 'HR') !== false) $enumType = 'HR';
+                        if (stripos($assessmentTypeFromInput, 'Aptitude') !== false) $enumType = 'Aptitude';
 
                         $sqlUnified = "INSERT INTO unified_ai_assessments (
                             student_id, institution, student_name, usn, aadhar, 
@@ -174,7 +178,7 @@ switch ($action) {
                             $profile['aadhar'] ?? null,
                             $profile['semester'] ?? null,
                             $profile['department'] ?? null,
-                            $assessmentTypeFromInput ?: 'Mock AI Round',
+                            $enumType,
                             $companyNameFromInput,
                             $overallScore,
                             100, // Total marks is 100 for interviews
@@ -305,6 +309,10 @@ switch ($action) {
                 $profile = $studentModel->getByUserId($userId);
                 $companyNameFromInput = $input['company'] ?? 'General'; 
                 $assessmentTypeFromInput = $input['type'] ?? 'Technical';
+                // Map to allowed ENUM values
+                $enumType = 'Technical';
+                if (stripos($assessmentTypeFromInput, 'HR') !== false) $enumType = 'HR';
+                if (stripos($assessmentTypeFromInput, 'Aptitude') !== false) $enumType = 'Aptitude';
 
                 $sqlUnified = "INSERT INTO unified_ai_assessments (
                     student_id, institution, student_name, usn, aadhar, 
@@ -321,7 +329,7 @@ switch ($action) {
                     $profile['aadhar'] ?? null,
                     $profile['semester'] ?? null,
                     $profile['department'] ?? null,
-                    $assessmentTypeFromInput ?: 'Mock AI Round',
+                    $enumType,
                     $companyNameFromInput,
                     $overallScore,
                     100, 
@@ -370,7 +378,7 @@ switch ($action) {
         }
 
         $sessionId = $_POST['session_id'] ?? null;
-        $username = getUsername() ?? $studentIdForDb; // Fix: $username was undefined
+        $currentUser = getUsername() ?? $studentIdForDb; 
         $sem = 'Sem';
 
         if ($sessionId) {
@@ -387,7 +395,7 @@ switch ($action) {
             $sem = $profile['semester'] ?? 'Sem';
         }
 
-        $filename = "{$username}_{$sem}_{$sessionId}.pdf";
+        $filename = "{$currentUser}_{$sem}_{$sessionId}.pdf";
         $uploadDir = REPORTS_UPLOAD_PATH . '/mock_ai/';
         
         if (!is_dir($uploadDir)) {

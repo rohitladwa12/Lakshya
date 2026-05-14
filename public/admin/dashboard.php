@@ -7,11 +7,55 @@ require_once __DIR__ . '/../../config/bootstrap.php';
 require_once __DIR__ . '/../../src/Models/Admin.php';
 require_once __DIR__ . '/../../src/Models/LearningChapter.php';
 
-// Require admin role
+// 1. Essential Auth (Fast)
 requireRole(ROLE_ADMIN);
 
 $fullName = getFullName();
 
+// 2. Start Immediate Rendering (Skeleton)
+if (!headers_sent()) {
+    @ini_set('zlib.output_compression', 0);
+    @ini_set('implicit_flush', 1);
+    ob_end_flush(); 
+    ob_start();
+}
+?>
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard - <?php echo APP_NAME; ?></title>
+    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="../assets/css/skeleton.css?v=<?php echo APP_VERSION; ?>">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <!-- Instant Skeleton Loader -->
+    <div id="skeletonScreen" class="skeleton-screen">
+        <div class="skeleton-header shimmer"></div>
+        <div class="skeleton-body" style="grid-template-columns: 1fr;">
+            <div class="skeleton-main">
+                <div class="skeleton-stats">
+                    <div class="skeleton-stat shimmer"></div>
+                    <div class="skeleton-stat shimmer"></div>
+                    <div class="skeleton-stat shimmer"></div>
+                    <div class="skeleton-stat shimmer"></div>
+                </div>
+                <div class="skeleton-bento">
+                    <div class="skeleton-card shimmer"></div>
+                    <div class="skeleton-card shimmer"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+<?php
+// Flush skeleton
+ob_flush();
+flush();
+
+// 3. Heavy DB Queries (Slow)
 $adminModel = new Admin();
 $stats = $adminModel->getDashboardStats();
 $recentActivity = $adminModel->getRecentActivity(10);
@@ -29,20 +73,6 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 $gmuStatus = Database::checkConnection('gmu');
 $gmitStatus = Database::checkConnection('gmit');
 ?>
-<!DOCTYPE html>
-<html lang="en">
-
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Admin Dashboard - <?php echo APP_NAME; ?></title>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
-    <!-- Modern Typography and Icons -->
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap"
-        rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <!-- Chart.js for data visualization -->
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
             --primary-maroon: #800000;
@@ -738,8 +768,26 @@ $gmitStatus = Database::checkConnection('gmit');
             });
         });
 
-        // Maintenance Toggle Logic
-        document.getElementById('maintToggle').addEventListener('change', async function (e) {
+        // --- GLOBAL SECURITY INTERCEPTOR ---
+        const CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ""; ?>';
+        
+        // Intercept all 'fetch' calls to automatically add CSRF tokens to POST requests
+        const originalFetch = window.fetch;
+        window.fetch = function() {
+            let [resource, config] = arguments;
+            if (config && config.method && config.method.toUpperCase() === 'POST') {
+                if (!config.headers) config.headers = {};
+                if (!(config.headers instanceof Headers)) {
+                    config.headers['X-CSRF-TOKEN'] = CSRF_TOKEN;
+                } else {
+                    config.headers.set('X-CSRF-TOKEN', CSRF_TOKEN);
+                }
+            }
+            return originalFetch(resource, config);
+        };
+
+        // --- Existing Admin Logic ---
+        document.getElementById('maintToggle').addEventListener('change', async function(e) {
             const isActive = e.target.checked;
             const label = document.getElementById('maintStatusLabel');
 
@@ -792,6 +840,17 @@ $gmitStatus = Database::checkConnection('gmit');
                 el.checked = !el.checked;
             }
         }
+
+        // Hide Skeleton Screen after page load
+        window.addEventListener('load', function() {
+            const skeleton = document.getElementById('skeletonScreen');
+            if (skeleton) {
+                setTimeout(() => {
+                    skeleton.classList.add('hidden');
+                    setTimeout(() => skeleton.remove(), 500);
+                }, 300); 
+            }
+        });
     </script>
 </body>
 

@@ -1,6 +1,6 @@
 <?php
 // MUST be first: captures all PHP warnings (e.g. module load) before they pollute JSON output
-ob_start();
+if (ob_get_level() === 0) ob_start();
 
 /**
  * AI Aptitude Handler
@@ -100,10 +100,6 @@ try {
             break;
 
         case 'submit_test':
-            $companyName = post('company_name');
-            $answers = json_decode(post('answers'), true);
-            // error_log("Aptitude Submission Start: Student=" . getUsername());
-        
             $answers = json_decode($_POST['answers'] ?? '[]', true);
             $questions = json_decode($_POST['questions'] ?? '[]', true);
             $companyName = $_POST['company_name'] ?? 'Unknown';
