@@ -1,4 +1,4 @@
- <?php
+<?php
 /**
  * AI Skill Verification Quiz
  */
@@ -39,7 +39,7 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Skill Verification: <?php echo htmlspecialchars($skillName); ?> - <?php echo APP_NAME; ?></title>
@@ -338,6 +338,9 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
 </div>
 
 <script>
+    const portfolioId = <?php echo $portfolioId; ?>;
+    const CSRF_TOKEN = '<?php echo $_SESSION['csrf_token']; ?>';
+
     // --- Security Measures: Disable Copy/Paste/Right-Click ---
     document.addEventListener('contextmenu', e => e.preventDefault());
     document.addEventListener('copy', e => e.preventDefault());
@@ -395,31 +398,28 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
         startQuiz();
     }
 
-    const portfolioId = <?php echo $portfolioId; ?>;
-
     async function startQuiz() {
         try {
             console.log('Starting quiz fetch...');
             const res = await fetch('skill_verification_handler', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `action=generate_quiz&portfolio_id=${portfolioId}`
+                headers: { 
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
+                body: `action=generate_quiz&portfolio_id=${portfolioId}&csrf_token=${CSRF_TOKEN}`
             });
             
             console.log('Fetch response status:', res.status);
-            console.log('Fetch response ok:', res.ok);
             
             const responseText = await res.text();
-            console.log('Raw response:', responseText);
             
             // Try to parse as JSON
             let data;
             try {
                 data = JSON.parse(responseText);
-                console.log('Parsed JSON data:', data);
             } catch (parseError) {
                 console.error('JSON parse error:', parseError);
-                console.error('Response was not valid JSON:', responseText);
                 alert('Server returned invalid response. Check console for details.');
                 return;
             }
@@ -432,7 +432,17 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
                         if (statusRes.success && statusRes.status === 'completed') {
                             clearInterval(pollInterval);
                             const result = statusRes.result;
+                            if (result.success === false) {
+                                alert('AI Error: ' + (result.message || 'Failed to generate questions.'));
+                                window.location.href = 'dashboard';
+                                return;
+                            }
                             questions = result.questions;
+                            if (!questions || questions.length === 0) {
+                                alert('No questions were generated. Please try again.');
+                                window.location.href = 'dashboard';
+                                return;
+                            }
                             userAnswers = new Array(questions.length).fill(null);
                             renderQuestions();
                             initQuiz();
@@ -446,19 +456,16 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
                     }
                 }, 2000);
             } else if (data.success) {
-                console.log('Quiz generated successfully, questions count:', data.questions?.length);
                 questions = data.questions;
                 userAnswers = new Array(questions.length).fill(null);
                 renderQuestions();
                 initQuiz();
             } else {
-                console.log('Server returned error:', data.message);
                 alert('Error: ' + data.message);
                 window.location.href = 'dashboard';
             }
         } catch (err) {
             console.error('Fetch error:', err);
-            console.error('Error details:', err.message);
             alert('Connection error. Failed to start quiz.');
             window.location.href = 'dashboard';
         }
@@ -498,8 +505,6 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
             container.appendChild(div);
         });
     }
-
-    // ... (rest of functions) ...
 
     function selectOption(qIdx, oIdx) {
         userAnswers[qIdx] = oIdx;
@@ -558,10 +563,14 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
         try {
             const formData = new URLSearchParams();
             formData.append('action', 'submit_quiz');
+            formData.append('csrf_token', CSRF_TOKEN);
             userAnswers.forEach((ans, i) => formData.append(`answers[${i}]`, ans !== null ? ans : -1));
 
             const res = await fetch('skill_verification_handler', {
                 method: 'POST',
+                headers: {
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
                 body: formData
             });
             const data = await res.json();
@@ -656,8 +665,11 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
         try {
             const res = await fetch('skill_verification_handler', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body: `action=check_session&portfolio_id=${portfolioId}`
+                headers: { 
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
+                body: `action=check_session&portfolio_id=${portfolioId}&csrf_token=${CSRF_TOKEN}`
             });
             const data = await res.json();
             if (data.success && data.has_active) {
@@ -680,4 +692,3 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
 
 </body>
 </html>
-

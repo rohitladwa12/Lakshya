@@ -9,6 +9,65 @@ require_once __DIR__ . '/../../src/Models/Admin.php';
 // Require admin role
 requireRole(ROLE_ADMIN);
 
+// Handle POST actions (Toggle status and edit user)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    $db = getDB();
+    
+    if ($_POST['action'] === 'toggle_status' && isset($_POST['id']) && isset($_POST['role'])) {
+        $targetId = (int)$_POST['id'];
+        $targetRole = $_POST['role'];
+        $newStatus = 0;
+        
+        if ($targetRole === 'dept_coordinator') {
+            $stmt = $db->prepare("SELECT is_active FROM dept_coordinators WHERE id = ?");
+            $stmt->execute([$targetId]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($user) {
+                $newStatus = $user['is_active'] ? 0 : 1;
+                $update = $db->prepare("UPDATE dept_coordinators SET is_active = ? WHERE id = ?");
+                $update->execute([$newStatus, $targetId]);
+            }
+        } else {
+            $stmt = $db->prepare("SELECT is_active FROM app_officers WHERE id = ?");
+            $stmt->execute([$targetId]);
+            $user = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($user) {
+                $newStatus = $user['is_active'] ? 0 : 1;
+                $update = $db->prepare("UPDATE app_officers SET is_active = ? WHERE id = ?");
+                $update->execute([$newStatus, $targetId]);
+            }
+        }
+        
+        if (isset($_POST['ajax'])) {
+            header('Content-Type: application/json');
+            echo json_encode(['success' => true, 'new_status' => $newStatus]);
+            exit;
+        }
+        
+        header("Location: users.php?success=User status updated successfully");
+        exit;
+    }
+    
+    if ($_POST['action'] === 'edit_user' && isset($_POST['id']) && isset($_POST['role'])) {
+        $targetId = (int)$_POST['id'];
+        $targetRole = $_POST['role'];
+        $fName = trim($_POST['full_name']);
+        $email = trim($_POST['email']);
+        $institution = trim($_POST['institution']) ?: null;
+        
+        if ($targetRole === 'dept_coordinator') {
+            $stmt = $db->prepare("UPDATE dept_coordinators SET full_name = ?, email = ?, institution = ? WHERE id = ?");
+            $stmt->execute([$fName, $email, $institution, $targetId]);
+        } else {
+            $stmt = $db->prepare("UPDATE app_officers SET full_name = ?, email = ?, institution = ? WHERE id = ?");
+            $stmt->execute([$fName, $email, $institution, $targetId]);
+        }
+        
+        header("Location: users.php?success=User details updated successfully");
+        exit;
+    }
+}
+
 $fullName = getFullName();
 $adminModel = new Admin();
 $users = $adminModel->getUsersList();
@@ -21,6 +80,7 @@ function getRoleBadgeClass($role) {
         case 'placement_officer': return 'role-po';
         case 'internship_officer': return 'role-io';
         case 'student': return 'role-student';
+        case 'dept_coordinator': return 'role-co';
         default: return 'role-default';
     }
 }
@@ -33,7 +93,7 @@ function getRoleDisplayName($role) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>User Management - <?php echo APP_NAME; ?></title>
@@ -215,6 +275,7 @@ function getRoleDisplayName($role) {
         .role-po { background: var(--role-po-bg); color: var(--role-po-text); }
         .role-io { background: var(--role-io-bg); color: var(--role-io-text); }
         .role-student { background: var(--role-student-bg); color: var(--role-student-text); }
+        .role-co { background: #ffedd5; color: #9a3412; }
         .role-default { background: #f3f4f6; color: #1f2937; }
 
         /* Status Toggle */
@@ -302,6 +363,13 @@ function getRoleDisplayName($role) {
             </div>
         </div>
 
+        <?php if (isset($_GET['success'])): ?>
+            <div style="background: #dcfce7; color: #15803d; padding: 15px 25px; border-radius: 12px; margin-bottom: 20px; font-weight: 600; display: flex; align-items: center; gap: 10px; border: 1px solid #bcf0da;">
+                <i class="fas fa-check-circle"></i>
+                <?php echo htmlspecialchars($_GET['success']); ?>
+            </div>
+        <?php endif; ?>
+
         <div class="panel">
             <div class="panel-header">
                 <div class="panel-title">
@@ -317,7 +385,7 @@ function getRoleDisplayName($role) {
             <table class="data-table" id="usersTable">
                 <thead>
                     <tr>
-                        <th>Username / USN</th>
+                        <th>Name / Username</th>
                         <th>Email</th>
                         <th>Role</th>
                         <th>Institution</th>
@@ -330,7 +398,8 @@ function getRoleDisplayName($role) {
                     <?php foreach($users as $user): ?>
                         <tr>
                             <td>
-                                <div style="font-weight: 700;"><?php echo htmlspecialchars($user['user_name']); ?></div>
+                                <div style="font-weight: 700;"><?php echo htmlspecialchars($user['full_name'] ?: 'No Name'); ?></div>
+                                <div style="font-size: 12px; color: var(--text-muted);"><?php echo htmlspecialchars($user['username']); ?></div>
                             </td>
                             <td><?php echo htmlspecialchars($user['email'] ?: '-'); ?></td>
                             <td>
@@ -357,8 +426,21 @@ function getRoleDisplayName($role) {
                                 <?php echo date('d M Y', strtotime($user['created_at'])); ?>
                             </td>
                             <td>
-                                <button class="action-btn" title="Edit User"><i class="fas fa-edit"></i></button>
-                                <button class="action-btn" title="Toggle Status"><i class="fas fa-power-off"></i></button>
+                                <button class="action-btn edit-user-btn" 
+                                        title="Edit User" 
+                                        data-id="<?php echo $user['id']; ?>" 
+                                        data-role="<?php echo $user['role']; ?>"
+                                        data-fullname="<?php echo htmlspecialchars($user['full_name'] ?: ''); ?>"
+                                        data-email="<?php echo htmlspecialchars($user['email'] ?: ''); ?>"
+                                        data-institution="<?php echo htmlspecialchars($user['institution'] ?: ''); ?>">
+                                    <i class="fas fa-edit"></i>
+                                </button>
+                                <form method="POST" class="toggle-status-form" style="display: inline-block;">
+                                    <input type="hidden" name="action" value="toggle_status">
+                                    <input type="hidden" name="id" value="<?php echo $user['id']; ?>">
+                                    <input type="hidden" name="role" value="<?php echo $user['role']; ?>">
+                                    <button type="submit" class="action-btn" title="Toggle Status"><i class="fas fa-power-off"></i></button>
+                                </form>
                             </td>
                         </tr>
                     <?php endforeach; ?>
@@ -371,17 +453,121 @@ function getRoleDisplayName($role) {
         </div>
     </div>
 
+    <!-- Edit User Modal -->
+    <div id="editUserModal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.4); backdrop-filter: blur(5px); justify-content: center; align-items: center;">
+        <div style="background: white; border-radius: 20px; width: 100%; max-width: 500px; padding: 30px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); position: relative; margin: 20px;">
+            <h2 style="font-size: 20px; font-weight: 700; color: var(--text-dark); margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                <i class="fas fa-user-edit" style="color: var(--primary-maroon);"></i> Edit User Info
+            </h2>
+            <form method="POST">
+                <input type="hidden" name="action" value="edit_user">
+                <input type="hidden" name="id" id="edit_id">
+                <input type="hidden" name="role" id="edit_role">
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-dark); margin-bottom: 6px;">Full Name</label>
+                    <input type="text" name="full_name" id="edit_full_name" required style="width: 100%; padding: 10px 15px; border-radius: 10px; border: 1px solid #eef2f8; outline: none; font-family: inherit; font-size: 14px;">
+                </div>
+                
+                <div style="margin-bottom: 15px;">
+                    <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-dark); margin-bottom: 6px;">Email</label>
+                    <input type="text" name="email" id="edit_email" required style="width: 100%; padding: 10px 15px; border-radius: 10px; border: 1px solid #eef2f8; outline: none; font-family: inherit; font-size: 14px;">
+                </div>
+
+                <div style="margin-bottom: 20px;">
+                    <label style="display: block; font-size: 13px; font-weight: 600; color: var(--text-dark); margin-bottom: 6px;">Institution</label>
+                    <select name="institution" id="edit_institution" style="width: 100%; padding: 10px 15px; border-radius: 10px; border: 1px solid #eef2f8; outline: none; background: white; font-family: inherit; font-size: 14px; cursor: pointer;">
+                        <option value="">Global / None</option>
+                        <option value="GMU">GMU</option>
+                        <option value="GMIT">GMIT</option>
+                    </select>
+                </div>
+                
+                <div style="display: flex; justify-content: flex-end; gap: 10px;">
+                    <button type="button" onclick="closeEditModal()" style="padding: 10px 20px; border-radius: 10px; border: 1px solid #eef2f8; background: none; cursor: pointer; font-weight: 600; color: var(--text-muted); font-family: inherit;">Cancel</button>
+                    <button type="submit" style="padding: 10px 20px; border-radius: 10px; border: none; background: var(--primary-maroon); color: white; cursor: pointer; font-weight: 600; font-family: inherit;">Save Changes</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <script>
-        // Simple search filter
-        document.getElementById('userSearch').addEventListener('keyup', function() {
-            const searchTerm = this.value.toLowerCase();
-            const rows = document.querySelectorAll('#usersTable tbody tr');
+        document.addEventListener('DOMContentLoaded', function() {
+            // Simple search filter
+            const searchInput = document.getElementById('userSearch');
+            if (searchInput) {
+                searchInput.addEventListener('keyup', function() {
+                    const searchTerm = this.value.toLowerCase();
+                    const rows = document.querySelectorAll('#usersTable tbody tr');
+                    
+                    rows.forEach(row => {
+                        const text = row.textContent.toLowerCase();
+                        row.style.display = text.includes(searchTerm) ? '' : 'none';
+                    });
+                });
+            }
+
+            // Modal functions
+            const modal = document.getElementById('editUserModal');
             
-            rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                row.style.display = text.includes(searchTerm) ? '' : 'none';
+            document.querySelectorAll('.edit-user-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    document.getElementById('edit_id').value = this.dataset.id;
+                    document.getElementById('edit_role').value = this.dataset.role;
+                    document.getElementById('edit_full_name').value = this.dataset.fullname;
+                    document.getElementById('edit_email').value = this.dataset.email;
+                    document.getElementById('edit_institution').value = this.dataset.institution;
+                    if (modal) modal.style.display = 'flex';
+                });
+            });
+
+            // Close when clicking outside modal content
+            window.addEventListener('click', function(e) {
+                if (e.target === modal) {
+                    closeEditModal();
+                }
+            });
+
+            // Toggle status via AJAX
+            document.querySelectorAll('.toggle-status-form').forEach(form => {
+                form.addEventListener('submit', function(e) {
+                    e.preventDefault();
+                    if (!confirm('Are you sure you want to toggle this user\'s status?')) {
+                        return;
+                    }
+                    
+                    const formData = new FormData(this);
+                    formData.append('ajax', '1');
+                    
+                    fetch('users.php', {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success) {
+                            const row = this.closest('tr');
+                            const statusPill = row.querySelector('.status-pill');
+                            if (statusPill) {
+                                if (data.new_status === 1 || data.new_status === '1') {
+                                    statusPill.className = 'status-pill status-active';
+                                    statusPill.innerHTML = '<div class="status-dot"></div>Active';
+                                } else {
+                                    statusPill.className = 'status-pill status-inactive';
+                                    statusPill.innerHTML = '<div class="status-dot"></div>Inactive';
+                                }
+                            }
+                        }
+                    })
+                    .catch(err => console.error('Error toggling status:', err));
+                });
             });
         });
+
+        function closeEditModal() {
+            const modal = document.getElementById('editUserModal');
+            if (modal) modal.style.display = 'none';
+        }
     </script>
 </body>
 </html>

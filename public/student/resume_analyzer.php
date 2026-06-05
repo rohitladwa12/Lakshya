@@ -568,9 +568,18 @@ $error = '';
             try {
                 const res = await fetch(`ai_job_status.php?job_id=${jobId}`);
                 const data = await res.json();
-
+                if (data.success === false) {
+                    alert("AI Error: " + (data.message || "Failed to analyze resume."));
+                    document.getElementById('loadingOverlay').style.display = 'none';
+                    return;
+                }
                 if (data.status === 'completed') {
-                    renderResults(data.result);
+                    if (data.result && data.result.success === false) {
+                        alert("AI Error: " + (data.result.message || "Failed to analyze resume."));
+                        document.getElementById('loadingOverlay').style.display = 'none';
+                    } else {
+                        renderResults(data.result);
+                    }
                 } else if (data.status === 'failed') {
                     alert("Analysis failed: " + data.error);
                     document.getElementById('loadingOverlay').style.display = 'none';

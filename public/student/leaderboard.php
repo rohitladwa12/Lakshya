@@ -7,6 +7,10 @@ require_once __DIR__ . '/../../config/bootstrap.php';
 use App\Services\LeaderboardService;
 
 requireRole(ROLE_STUDENT);
+if (!isFeatureEnabled('feature_leaderboard')) {
+    Session::flash('info', 'The AI Leaderboard is temporarily disabled for maintenance or updates.');
+    redirect('/Lakshya/student/dashboard.php');
+}
 
 $myUsn = getUsername();
 $myDept = getDepartment();
@@ -17,7 +21,7 @@ $pageTitle = "Leaderboard | Lakshya";
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $pageTitle; ?></title>

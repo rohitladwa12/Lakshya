@@ -23,6 +23,9 @@ class AIService {
      * Send a request to OpenAI
      */
     public function callAPI($messages, $options = []) {
+        $startTime = microtime(true);
+        $auditMethod = $options['audit_method'] ?? 'unknown';
+
         if (empty($this->apiKey)) {
             return ['success' => false, 'message' => 'AI Service not configured (Missing API Key)'];
         }
@@ -33,6 +36,9 @@ class AIService {
             'temperature' => 0.7,
             'max_tokens' => 1000
         ], $options);
+
+        // Remove non-OpenAI parameters
+        unset($data['audit_method']);
 
         // Sanitize data to ensure valid UTF-8 for JSON
         $data = $this->utf8ize($data);
@@ -51,11 +57,11 @@ class AIService {
             'Content-Type: application/json',
             'Authorization: Bearer ' . $this->apiKey
         ]);
-        // Fix for XAMPP/Localhost SSL/Timeout issues
+        
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
-        curl_setopt($ch, CURLOPT_TIMEOUT, 120); // 2 minutes timeout
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 120); // Increased to 120s
-        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4); // Force IPv4 to avoid IPv6 resolution timeouts
+        curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 120);
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
         $response = curl_exec($ch);
         $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -67,24 +73,61 @@ class AIService {
         }
 
         curl_close($ch);
+        $latency = (int)((microtime(true) - $startTime) * 1000);
 
         if ($httpCode !== 200) {
-            return ['success' => false, 'message' => "API Error (Code $httpCode): " . $response];
+            $errorMsg = "API Error (Code $httpCode): " . $response;
+            $this->auditLog($auditMethod, $data['model'] ?? $this->model, [], $latency, 'failure', $errorMsg);
+            return ['success' => false, 'message' => $errorMsg];
         }
 
         $result = json_decode($response, true);
         $content = $result['choices'][0]['message']['content'] ?? '';
 
+        $parsedContent = $content;
+        if (isset($options['response_format']) && $options['response_format']['type'] === 'json_object') {
+            $cleanContent = preg_replace('/^```json\s*(.*?)\s*```$/s', '$1', trim($content));
+            $decoded = json_decode($cleanContent, true);
+            if (json_last_error() === JSON_ERROR_NONE) {
+                $parsedContent = $decoded;
+            }
+        }
+
+        $this->auditLog($auditMethod, $result['model'] ?? ($data['model'] ?? $this->model), $result['usage'] ?? [], $latency, 'success');
+
         return [
             'success' => true,
             'content' => $content,
-            'usage' => $result['usage'] ?? []
+            'parsed' => $parsedContent,
+            'usage' => $result['usage'] ?? [],
+            'latency' => $latency
         ];
     }
 
     /**
-     * Analyze Resume Text
+     * Internal Audit Logger for AI Operations
      */
+    private function auditLog($method, $model, $usage, $latency, $status, $error = null) {
+        try {
+            $db = getDB();
+            $stmt = $db->prepare("INSERT INTO ai_audit_logs (user_id, service_method, model, prompt_tokens, completion_tokens, total_tokens, latency_ms, status, error_message) 
+                                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+            $stmt->execute([
+                getUserId(),
+                $method,
+                $model,
+                $usage['prompt_tokens'] ?? 0,
+                $usage['completion_tokens'] ?? 0,
+                $usage['total_tokens'] ?? 0,
+                $latency,
+                $status,
+                $error
+            ]);
+        } catch (Exception $e) {
+            error_log("Failed to audit AI log: " . $e->getMessage());
+        }
+    }
+
     /**
      * Analyze Resume (Advanced / Brutal Mode)
      */
@@ -185,6 +228,7 @@ Output Format (JSON):
         ];
 
         $response = $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object'],
             'temperature' => 0.4 // Lower temperature for more consistent/strict output
         ]);
@@ -200,35 +244,28 @@ Output Format (JSON):
     }
 
     /**
-     * Refine Resume Analysis using AI
-     * 
-     * @param array $structured Parsed structured resume data
-     * @param array $scores Rule-based scores
-     * @param string $targetRole The target job role
-     * @return array
+     * Refine and surgical improvement of resume points.
      */
-    public function refineResumeAnalysis($structured, $scores, $targetRole) {
-        $systemPrompt = "You are an expert HR recruiter and technical hiring manager reviewing a resume for the role of '{$targetRole}'.
-        
-        You have received the parsed resume and some initial rule-based scores. Your job is to provide specific, highly targeted qualitative feedback to improve this resume's impact.
-        
-        Provide the response strictly as a JSON object with the following structure:
-        {
-            \"qualitative_summary\": \"A brutally honest, recruiter-level summary of the resume (2-3 sentences).\",
-            \"layout_audit\": \"Feedback on sections that might be missing or poorly structured based on the data. Leave empty if fine.\",
-            \"impact_phrases_to_use\": [\"Action verb phrase 1\", \"Action verb phrase 2\", \"...\"],
-            \"bullet_surgery\": [
-                {
-                    \"original\": \"The weakest original bullet point from their experience or projects\",
-                    \"suggested\": \"The rewritten, high-impact version using metrics and strong action verbs\",
-                    \"why\": \"A brief explanation of why the new version is better (e.g., 'Quantifies impact' or 'Highlights specific tech')\"
-                }
-            ],
-            \"strategic_advice\": [\"Actionable step 1\", \"Actionable step 2\", \"...\"],
-            \"score_adjustment\": -5 to 5 // Optional adjustment to the rule-based score
-        }
-        
-        Keep feedback direct, constructive, and highly relevant to '{$targetRole}'. Limit 'bullet_surgery' to 2-3 of the worst bullets found.";
+    public function refineResumeAnalysis($structured, $scores, $targetRole = 'Software Engineer') {
+        $systemPrompt = "You are an expert resume editor and career strategist.
+Your task is to take a structured resume analysis and provide surgical refinements.
+
+Focus on:
+1. Rewriting the 3 weakest bullet points to include STAR method and metrics.
+2. Identifying the single most critical missing skill for '{$targetRole}'.
+3. Providing a 1-sentence 'Brutal Verdict' that summarizes why this candidate might be rejected.
+
+Output Format (JSON):
+{
+    'bullet_surgery': [
+        {'original': '...', 'improved': '...', 'reason': '...'}
+    ],
+    'missing_critical_skill': '...',
+    'brutal_verdict': '...',
+    'score_adjustment': -10 to +10 // Adjust the initial score based on your deep review
+}
+
+Keep feedback direct, constructive, and highly relevant to '{$targetRole}'. Limit 'bullet_surgery' to 2-3 of the worst bullets found.";
 
         $userMessage = json_encode([
             'structured_data' => $structured,
@@ -241,6 +278,7 @@ Output Format (JSON):
         ];
 
         $response = $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object'],
             'temperature' => 0.5
         ]);
@@ -312,11 +350,6 @@ Output Format (JSON):
 
     /**
      * Advanced ATS Resume Analysis based on strict logic-based criteria.
-     * Implements Keyword matching, Experience relevance, Project relevance, and Formatting clarity.
-     * 
-     * @param string $resumeText Raw resume text
-     * @param string $jobDescription Raw job description text
-     * @return array
      */
     public function advancedATSAnalysis($resumeText, $jobDescription) {
         $systemPrompt = "You are an ELITE, SKEPTICAL, and BRUTALLY HONEST ATS (Applicant Tracking System) analyzer. Your goal is to filter out candidates who do not meet the highest standards.
@@ -442,6 +475,7 @@ RULES:
         ];
 
         $response = $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object'],
             'temperature' => 0.2 // Lower temperature for more deterministic output
         ]);
@@ -500,8 +534,6 @@ RULES:
 
     /**
      * Get a response for the Mock Interview (Student-Choice Question System)
-     * Persona: Rude, Direct, Expert Phrasing
-     * Question Types: Aptitude, Technical, HR (Student chooses)
      */
     public function getTechnicalInterviewResponse($domain, $history, $profile, $userMessage, $type = null, $projects = [], $aptitudeQuestions = [], $concept = null)
     {
@@ -576,7 +608,6 @@ RULES:
 
         $initialInstruction = "When the candidate says 'start' or 'ready', your VERY FIRST task is to ask them to choose their interview round: **Aptitude** (Logical), **Technical** ({$domain}), or **HR** (Behavioral). Once they select a round, follow its specific Question Flow below. **FLEXIBILITY:** If the user explicitly asks to switch rounds or skip to another section (e.g., 'Switch to Technical', 'I want to do HR now') at ANY point during the session, you MUST immediately accommodate their request and begin the new round's flow.";
 
-        // Reorder flow to put selected type first if available
         $flow = [
             'Aptitude' => "10 to 15 logic/MCQ questions using the bank.",
             'Technical' => "Open-ended questions (NO MCQs) tailored strictly to the role: **{$domain}**.{$conceptContext}
@@ -634,8 +665,8 @@ STRICT RULES:
    - **Step 1 (Internal Reasoning)**: First, identify the specific question you just asked and its corresponding 'Correct:' letter (A, B, C, or D) from the bank above.
    - **Step 2 (Strict Matching)**: Compare the candidate's response against that letter. Treat 'A', 'Option A', 'a', etc. as identical to 'A'.
    - **Step 3 (Feedback Generation)**: 
-       - **IF MATCH**: You MUST start with 'Correct!'. Do NOT say 'Incorrect' under any circumstances if they match. Follow with Expert Phrasing.
-       - **IF NO MATCH**: Start with 'Incorrect!'. State the correct letter and explain the logic clearly.
+        - **IF MATCH**: You MUST start with 'Correct!'. Do NOT say 'Incorrect' under any circumstances if they match. Follow with Expert Phrasing.
+        - **IF NO MATCH**: Start with 'Incorrect!'. State the correct letter and explain the logic clearly.
    - **Step 4 (Consistency)**: Your initial label ('Correct!'/'Incorrect!') MUST align with your final explanation. No contradictory statements.
 5. **Clarity & Formatting**: For all technical questions, use **bold** for key concepts and `code blocks` for technical snippets. Always use a clear `QUESTION:` header to separate the background/context from the actual task.
 6. **Domain Diversification**: You MUST rotate through a wide variety of technical domains including **OS, Networking, DBMS, DSA, System Design, OOP, Web Technologies, and Cloud**. Do not get stuck on a single topic (like Databases). Ensure each of the 5 conceptual questions covers a distinct domain.
@@ -644,10 +675,18 @@ STRICT RULES:
 9. **Termination**: If user says 'stop' or 'end', add '[END_INTERVIEW]' at the very end.";
 
         $messages = [['role' => 'system', 'content' => $systemPrompt]];
-        foreach ($history as $msg) { $messages[] = $msg; }
+        foreach ($history as $msg) {
+            // OpenAI requires content to be a string — sanitize any objects/arrays
+            if (isset($msg['content']) && !is_string($msg['content'])) {
+                $msg['content'] = is_array($msg['content']) ? json_encode($msg['content']) : (string)$msg['content'];
+            }
+            // Skip system-only internal messages not relevant to OpenAI
+            if (($msg['role'] ?? '') === 'system') continue;
+            $messages[] = $msg;
+        }
         if (!empty($userMessage)) { $messages[] = ['role' => 'user', 'content' => $userMessage]; }
 
-        return $this->callAPI($messages);
+        return $this->callAPI($messages, ['audit_method' => __FUNCTION__]);
     }
 
     /**
@@ -656,13 +695,11 @@ STRICT RULES:
     public function generateTechnicalInterviewReport($domain, $history, $type = 'Mock', $concept = null)
     {
         $conceptContext = $concept ? " The candidate was assessed for a role specifically focused on: '**{$concept}**'." : "";
-        // Extract only content from history for the transcript
         $transcript = "";
         foreach ($history as $msg) {
             $role = ucfirst($msg['role']);
             $content = $msg['content'];
 
-            // Convert raw JSON evaluations into human-readable text for the report AI
             if ($msg['role'] === 'system' && strpos($content, 'Evaluation:') === 0) {
                 $evalData = json_decode(substr($content, 12), true);
                 if ($evalData) {
@@ -716,6 +753,7 @@ STRICT RULES:
         ];
 
         $response = $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
             'max_tokens' => 4000,
             'response_format' => ['type' => 'json_object']
         ]);
@@ -724,49 +762,25 @@ STRICT RULES:
             return $response;
         }
 
-        $contentStr = $response['content'];
-        $aiData = json_decode($contentStr, true);
-        
-        $reportText = $aiData['content'] ?? $contentStr;
-        $score = $aiData['overall_score'] ?? 0;
-
-        // Fallback score extraction if JSON content is weird
-        if ($score === 0) {
-            preg_match('/"overall_score":\s*"?(\d+)"?/i', $contentStr, $m);
-            $score = isset($m[1]) ? (int)$m[1] : 0;
-        }
-        
-        // Final fallback: Look for any number before % or in sectional scores
-        if ($score === 0) {
-            preg_match('/(\d+)\s*%/', $reportText, $matches);
-            $score = isset($matches[1]) ? (int)$matches[1] : 0;
-            
-            if ($score === 0) {
-                preg_match_all('/Score:\s*(\d+)\s*\/\s*10/i', $reportText, $scoreMatches);
-                if (!empty($scoreMatches[1])) {
-                    $avg = array_sum($scoreMatches[1]) / count($scoreMatches[1]);
-                    $score = (int)($avg * 10);
-                }
-            }
-        }
+        $aiData = $response['parsed'];
+        $reportText = is_array($aiData) ? ($aiData['content'] ?? "Report generation failed.") : $aiData;
+        $score = is_array($aiData) ? ($aiData['overall_score'] ?? 0) : 0;
 
         return [
             'success' => true,
             'content' => $reportText,
-            'overall_score' => $score
+            'overall_score' => (int)$score
         ];
     }
 
     /**
-     * Generate MCQs tailored to a specific Company's industry standards
+     * Generate MCQs tailored to a specific Company
      */
     public function getCompanyAptitudeQuestions($companyName, $count = 4) {
         $systemPrompt = "You are an Elite Recruitment Paper Setter for $companyName. 
 Generate $count high-quality, unique Multiple Choice Questions (MCQs) for a recruitment screening.
 
 FOCUS: TECHNICAL APTITUDE / DOMAIN LOGIC for $companyName.
-- Include pseudo-code logic, tech fundamentals, or analytical data logic.
-- Keep it 50% General Aptitude and 50% Company/Industry specific logic.
 
 STRICT RULES:
 1. MATH ACCURACY: All calculations must be perfect.
@@ -779,6 +793,7 @@ STRICT RULES:
         ];
 
         $response = $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object'],
             'max_tokens' => 3000
         ]);
@@ -789,31 +804,15 @@ STRICT RULES:
             
             $validQuestions = [];
             foreach ($rawQuestions as $q) {
-                if (empty($q['question']) || empty($q['options']) || !is_array($q['options']) || count($q['options']) < 2) {
+                if (empty($q['question']) || empty($q['options']) || !is_array($q['options']) || count($q['options']) < 4) {
                     continue;
                 }
-                
-                if (count($q['options']) === 1 && strpos($q['options'][0], "\\n") !== false) {
-                    $q['options'] = array_values(array_filter(explode("\\n", $q['options'][0])));
-                }
-                
-                if (count($q['options']) < 4) {
-                    while(count($q['options']) < 4) $q['options'][] = "Option " . (count($q['options']) + 1);
-                }
-                $q['options'] = array_slice($q['options'], 0, 4);
-
-                // Ensure answer index is valid (0-3)
-                if (!isset($q['answer']) || $q['answer'] < 0 || $q['answer'] > 3) {
-                    $q['answer'] = 0; 
-                }
-
                 $validQuestions[] = $q;
             }
 
             return [
                 'success' => count($validQuestions) > 0,
-                'questions' => array_slice($validQuestions, 0, $count),
-                'message' => count($validQuestions) > 0 ? '' : 'Failed to generate valid questions.'
+                'questions' => array_slice($validQuestions, 0, $count)
             ];
         }
 
@@ -822,78 +821,41 @@ STRICT RULES:
 
     /**
      * Generate 10 MCQs to verify a student's proficiency in a specific skill.
-     * Calibrates difficulty based on reported level.
      */
     public function generateSkillQuiz($skill, $level = 'Intermediate') {
         $systemPrompt = "You are a Technical Assessment Expert. 
 Generate 10 high-quality Multiple Choice Questions (MCQs) to verify if a student actually knows the skill: '$skill'.
 
 DIFFICULTY CALIBRATION (Level: $level):
-- Beginner: Focus on fundamental syntax, basic concepts, and common terms.
-- Intermediate: Focus on best practices, common libraries, debugging, and slightly complex logic.
-- Expert/Advanced: Focus on architectural patterns, edge cases, performance optimization, and deep technical internals.
-
-STRICT RULES:
-1. NO TRIVIAL QUESTIONS: Avoid surface-level questions that can be googled in 2 seconds.
-2. ACCURACY: Ensure the 'answer' index (0-3) exactly matches the correct option.
-3. RANDOMIZATION: CRITICAL - Randomize the index of the correct answer (0-3) across the 10 questions. Do NOT consistently place the correct answer at index 0 or any single index. Verify that the correct answer is distributed across A, B, C, and D.
-4. EXPLANATION: Provide a clear, technical explanation for the correct answer.
-5. VARIETY: Cover different sub-topics of the skill (e.g., if Java: cover OOP, Collections, Exception Handling, etc.).
+- Beginner: Focus on fundamental syntax, basic concepts.
+- Intermediate: Best practices, common libraries, debugging.
+- Expert/Advanced: Architectural patterns, edge cases, internals.
 
 Format: Return a JSON object with a 'questions' array.
 Each question object MUST follow this EXACT structure:
 {
-    \\\"question\\\": \\\"The clear question text here\\\",
-    \\\"options\\\": [\\\"Option A\\\", \\\"Option B\\\", \\\"Option C\\\", \\\"Option D\\\"], 
-    \\\"answer\\\": 0,
-    \\\"explanation\\\": \\\"Brief clear explanation\\\"
-}
-CRITICAL: Options MUST be a unique array of exactly 4 strings. Do NOT combine them into one string.";
+    \"question\": \"The clear question text here\",
+    \"options\": [\"Option A\", \"Option B\", \"Option C\", \"Option D\"], 
+    \"answer\": 0,
+    \"explanation\": \"Brief clear explanation\"
+}";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
-            ['role' => 'user', 'content' => "Generate a 10-question verification quiz for '$skill' at the $level level. Ensure all fields are populated and options are distinct."]
+            ['role' => 'user', 'content' => "Generate a 10-question verification quiz for '$skill' at the $level level."]
         ];
 
         $response = $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object'],
             'max_tokens' => 3000
         ]);
 
         if ($response['success']) {
             $data = json_decode($response['content'], true);
-            $rawQuestions = $data['questions'] ?? [];
-            
-            // Validation & Sanitization
-            $validQuestions = [];
-            foreach ($rawQuestions as $q) {
-                if (empty($q['question']) || empty($q['options']) || !is_array($q['options']) || count($q['options']) < 2) {
-                    continue;
-                }
-                
-                // If options are combined or broken, try a basic fix or skip
-                if (count($q['options']) === 1 && strpos($q['options'][0], "\\n") !== false) {
-                    $q['options'] = array_values(array_filter(explode("\\n", $q['options'][0])));
-                }
-                
-                // Ensure exactly 4 options by padding or slicing if needed (though AI should handle 4)
-                if (count($q['options']) < 4) {
-                    while(count($q['options']) < 4) $q['options'][] = "Option " . (count($q['options']) + 1);
-                }
-                $q['options'] = array_slice($q['options'], 0, 4);
-
-                // Ensure answer index is valid (0-3)
-                if (!isset($q['answer']) || $q['answer'] < 0 || $q['answer'] > 3) {
-                    $q['answer'] = 0; 
-                }
-
-                $validQuestions[] = $q;
-            }
-
             return [
-                'success' => count($validQuestions) > 0,
-                'questions' => array_slice($validQuestions, 0, 10),
-                'message' => count($validQuestions) > 0 ? '' : 'Failed to generate valid questions.'
+                'success' => true,
+                'questions' => array_slice($data['questions'] ?? [], 0, 10)
             ];
         }
 
@@ -902,23 +864,11 @@ CRITICAL: Options MUST be a unique array of exactly 4 strings. Do NOT combine th
 
     /**
      * Generate 5 deep-dive 'Viva' questions to verify a student's project.
-     * Focuses on architectural decisions and technical choices.
      */
     public function generateProjectViva($projectTitle, $description) {
         $systemPrompt = "You are a Senior Project Evaluator. 
 Generate 5 deep-dive, analytical questions for a student to 'defend' their project: '$projectTitle'.
 Project Description: $description
-
-GOALS:
-1. Verify if the student actually built the project.
-2. Test their understanding of architectural decisions.
-3. Probe their knowledge of the technologies used.
-4. Ask about challenges and how they were solved.
-
-STRICT RULES:
-1. NO GENERIC QUESTIONS: Avoid 'What is this project?' or 'What language did you use?'.
-2. TECHNICAL FOCUS: Ask about data flow, scalability, security, or specific implementation details.
-3. ADAPTIVE: Base questions strictly on the project context provided.
 
 Format: Return a JSON object with a 'questions' array (list of 5 strings).";
 
@@ -928,6 +878,7 @@ Format: Return a JSON object with a 'questions' array (list of 5 strings).";
         ];
 
         $response = $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object']
         ]);
 
@@ -954,16 +905,6 @@ Format: Return a JSON object with a 'questions' array (list of 5 strings).";
         $systemPrompt = "You are a Senior Project Evaluator. 
 Analyze the following Project Defense (Viva) for the project: '$projectTitle'.
 
-EVALUATION CRITERIA:
-1. Technical Depth: Does the student demonstrate a deep understanding of the technologies used?
-2. Authenticity: Do the answers suggest they actually built the project?
-3. Clarity: How well did they explain their architectural decisions?
-
-STRICT RULES:
-1. Be critical but fair.
-2. Provide a score out of 100.
-3. Provide a brief (2-3 sentence) constructive feedback.
-
 Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
 
         $messages = [
@@ -972,6 +913,7 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
         ];
 
         $response = $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object']
         ]);
 
@@ -983,51 +925,29 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     }
 
     /**
-     * Get a Technical Question (Coding or Conceptual) for the new Technical Round
+     * Get a Technical Question (Coding or Conceptual)
      */
     public function getTechnicalQuestion($role, $history, $concept = null) {
         $conceptContext = $concept ? " Specifically focus on the technical concept or role of: '**{$concept}**'." : "";
         $systemPrompt = "You are a Professional, Strict Technical Interviewer for the role of '{$role}'.{$conceptContext}
         
-        YOUR GOAL: Conduct a high-quality technical screening. 
-        
-        INSTRUCTIONS:
-        1. **FLOW (Crucial):** 
-           - Evaluate the user's previous answer and provide brief, constructive feedback.
-           - **Immediately** ask a NEW, DIFFERENT question in the same response. Do NOT repeat questions or ask vague follow-ups. Keep the interview moving forward.
-        2. **QUESTIONING:**
-           - Start with conceptual questions.
-           - Progressively increase difficulty.
-           - **For Technical Roles (CS/IT/Software):** Follow the coding challenge flow.
-           - **For Circuit Branches (ECE/EEE/Robotics):** Present a mix of **Low-level Coding (C/Assembly/Verilog)** and **Circuit Design Scenarios**. Use the code workspace for hardware-related logic if appropriate.
-           - **For Non-Technical Roles (Civil, BCom, Mechanical, etc.):** Instead of 'coding', present a **'Practical Scenario'** or **'Complex Calculation'**. Ask: \"The next part is a practical industry scenario. Are you ready?\"
-           - ONLY AFTER the user replies \"yes\" or \"ready\", output `type: 'coding'` (for technical/circuit) or `type: 'conceptual'` (for non-technical) with the actual challenge.
-        4. **PRACTICAL CHALLENGES:**
-           - **Technical/Circuit:** Provide a Detailed Problem Statement, Constraints, and Examples. For ECE/EEE, focus on Embedded Systems, VLSI, or Signal Processing logic.
-           - **Non-Technical:** Provide a **Case Study, Site Scenario, or Financial Problem**. Ask for specific steps, calculations, or justifications. Do NOT force them to write code if the role is non-technical (e.g., Taxation, Site Engineering).
-           - The 'question' field should just be a short heading.
-        5. **FORMATTING:**
-           - Use **Markdown** for clarity. Break long texts into paragraphs.
-        
         OUTPUT FORMAT (JSON):
         {
             'type': 'conceptual' | 'coding',
-            'feedback': 'State if user was CORRECT or INCORRECT. Explain briefly why.',
-            'question': 'ASK A BRAND NEW TECHNICAL QUESTION OR SCENARIO. Do not repeat previous questions.',
-            // IF CODING:
-            'problem_statement': 'Detailed description with examples...',
-            'constraints': 'Time: O(n), Space: O(1)...',
-            'test_cases': [
-                {'input': '...', 'output': '...'}
-            ]
+            'feedback': '...',
+            'question': '...',
+            'problem_statement': '...',
+            'constraints': '...',
+            'test_cases': []
         }";
 
         $messages = [['role' => 'system', 'content' => $systemPrompt]];
-        foreach ($history as $msg) {
-            $messages[] = $msg;
-        }
+        foreach ($history as $msg) { $messages[] = $msg; }
 
-        $response = $this->callAPI($messages, ['response_format' => ['type' => 'json_object']]);
+        $response = $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object']
+        ]);
         
         if ($response['success']) {
             return [
@@ -1042,19 +962,13 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
      * Evaluate Code Submission
      */
     public function evaluateCode($code, $language, $problemStatement) {
-        $systemPrompt = "You are a Global Code Reviewer. Validate the student's code against the problem statement.
-        
-        CRITERIA:
-        1. Correctness (Passes all edge cases?) - 50%
-        2. Time/Space Complexity - 30%
-        3. Code Quality (Variables, Indentation) - 20%
+        $systemPrompt = "You are a Global Code Reviewer. Validate the student's code.
         
         OUTPUT (JSON):
         {
             'score': 0-10,
             'passed': true/false,
-            'feedback': 'Detailed feedback...',
-            'output_log': 'Simulated execution output...'
+            'feedback': '...'
         }";
 
         $messages = [
@@ -1062,75 +976,23 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
             ['role' => 'user', 'content' => "Problem: $problemStatement\n\nCode ($language):\n$code"]
         ];
 
-        return $this->callAPI($messages, ['response_format' => ['type' => 'json_object']]);
+        return $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object']
+        ]);
     }
-
 
     /**
      * Get HR Question (Behavioral)
      */
     public function getHRQuestion($role, $history, $projects = [], $concept = null) {
         $conceptContext = $concept ? " The candidate is applying for a role specifically focused on: '**{$concept}**'." : "";
-        // Build project context for AI
-        $projectContext = "";
-        if (!empty($projects)) {
-            $projectContext = "\n\n=== CANDIDATE'S PROJECTS ===\n";
-            foreach ($projects as $idx => $proj) {
-                $num = $idx + 1;
-                $projectContext .= "{$num}. **{$proj['title']}**\n";
-                if (!empty($proj['tech_stack'])) {
-                    $projectContext .= "   Tech Stack: {$proj['tech_stack']}\n";
-                }
-                if (!empty($proj['description'])) {
-                    $projectContext .= "   Description: {$proj['description']}\n";
-                }
-                $projectContext .= "\n";
-            }
-            
-            $projectContext .= "IMPORTANT INSTRUCTIONS FOR PROJECT QUESTIONS:
-- Ask specific questions about their technology choices (e.g., 'Why did you choose React over Angular for {project_name}?')
-- Probe into design decisions (e.g., 'What made you decide to use MongoDB instead of MySQL?')
-- Ask about challenges faced (e.g., 'What was the biggest technical challenge in {project_name}?')
-- Inquire about their role (e.g., 'Were you the sole developer or part of a team?')
-- Ask about scalability, security, or performance considerations
-- Mix 60% project-based questions with 40% standard behavioral questions
-- Reference specific projects by name when asking questions\n";
-        } else {
-            $projectContext = "\n\n=== NO PROJECTS REGISTERED ===
-INSTRUCTIONS:
-1. Since no projects are listed in the candidate's profile, YOUR FIRST PRIORITY (after introduction) is to ask the candidate to describe a technical project they have worked on recently.
-2. Once they describe a project, you must GO DEEP into their response.
-3. Ask about their tech stack, their specific role, the biggest obstacle they faced, and what they would do differently now.
-4. Don't let them give vague answers; if they say 'I built a website', ask 'What was the backend architecture? How did you handle state management?'
-5. Keep probing the same project until you are satisfied with their technical depth before moving to standard HR questions.\n";
-        }
-        
         $systemPrompt = "You are an Expert HR Manager conducting a behavioral interview for the role of '{$role}'.{$conceptContext}
-{$projectContext}
         
-        GOAL: Assess the candidate's soft skills, cultural fit, situational judgment, AND their technical decision-making through their projects.
-        
-        INSTRUCTIONS:
-        1. **Start of Interview:** If the history is empty, say: \"Welcome to the HR Round for the {$role} position. I am your AI Interviewer. Please say 'Ready' to start.\"
-        2. **Readiness Check:** If the user says \"yes\", \"ready\", \"start\", \"begin\", or similar in the most recent message:
-           - Set the JSON 'question' field to: \"Great. Let's start. Please introduce yourself.\"
-           - If they say \"no\" or ask something else, address it briefly in 'question' and ask again if they are ready.
-        3. **Questioning Strategy:** Use the STAR method (Situation, Task, Action, Result). 
-           - Ask one question at a time.
-        3. **STRICT RULE:** 
-           - **NEVER** correct the candidate if they are wrong.
-           - **NEVER** provide the 'correct' answer or better way to say it.
-           - If they fail to answer, just note it silently and move to the next question.
-           - Your job is to INTERVIEW, not TEACH.
-        4. **Listening & Follow-up:** 
-           - If their answer is vague, ask a specific follow-up.
-           - If they answer, acknowledge briefly (e.g., 'Noted', 'Okay', 'I see') and move to the next topic.
-        5. **Tone:** Neutral, Professional, Observant.
-
         OUTPUT FORMAT (JSON):
         {
-            'question': 'The text you will speak to the candidate',
-            'feedback': 'Brief feedback on their previous answer (internal note or spoken intro)'
+            'question': '...',
+            'feedback': '...'
         }";
 
         $messages = [['role' => 'system', 'content' => $systemPrompt]];
@@ -1138,7 +1000,10 @@ INSTRUCTIONS:
             if ($msg['role'] !== 'system') $messages[] = $msg;
         }
 
-        return $this->callAPI($messages, ['response_format' => ['type' => 'json_object']]);
+        return $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object']
+        ]);
     }
 
     /**
@@ -1146,194 +1011,31 @@ INSTRUCTIONS:
      */
     public function generateHRReport($role, $history, $concept = null) {
         $conceptContext = $concept ? " The candidate was assessed for a role specifically focused on: '**{$concept}**'." : "";
-        $systemPrompt = "You are a Senior Human Resources Director with 20 years of experience in technical recruitment. Generate an EXTREMELY COMPREHENSIVE, DETAILED behavioral and technical assessment report for a candidate applying for the role of '{$role}'. {$conceptContext}
+        $systemPrompt = "You are a Senior Human Resources Director. Generate an assessment report for '{$role}'. {$conceptContext}
         
-        CRITERIA TO ANALYZE IN DEPTH:
-        1. **Communication Skills**: Clarity, articulation, confidence, active listening, and ability to explain technical concepts
-        2. **Behavioral Competencies**: Leadership potential, teamwork, adaptability, conflict resolution, and STAR method usage
-        3. **Technical Understanding**: Depth of knowledge about their projects, technology choices, and problem-solving approach
-        4. **Project Experience**: Quality of project work, role clarity, challenges overcome, and technical decision-making
-        5. **Cultural Fit**: Alignment with professional standards, work ethic, and organizational values
-        6. **Problem Solving**: Approach to hypothetical situations, past challenges, and critical thinking
-
-        STRICT GRADING & REPORTING RULES:
-        1. **FAIL THE CANDIDATE (Score < 30)** IF:
-           - They answered very few questions
-           - Their answers were one-word, non-existent, or irrelevant
-           - They quit early or showed disinterest
-           - Could not explain their own projects adequately
-        2. **Score 85+ ONLY IF** they provided:
-           - Detailed, structured (STAR method) answers with specific examples
-           - Clear explanations of technology choices and design decisions
-           - Evidence of problem-solving and critical thinking
-           - Strong communication and professional demeanor
-        3. **BE EXTREMELY DETAILED**: 
-           - Write full paragraphs (minimum 3-4 sentences each) for every section
-           - Quote specific examples from the interview
-           - Provide concrete evidence for your assessments
-           - Use professional, corporate language
-           - Minimum 800-1000 words total
-
         OUTPUT FORMAT (JSON):
         {
             'overall_score': 0-100,
-            'content': '
-                <h2 style=\"color: #c10505; border-bottom: 2px solid #ddd; padding-bottom: 10px;\">Executive Summary</h2>
-                <p>Provide a comprehensive 4-5 sentence paragraph summarizing the candidate\\'s overall performance, engagement level, key strengths, main weaknesses, and final suitability for the role. Be specific about what stood out during the interview.</p>
-                
-                <h2 style=\"color: #c10505; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-top: 25px;\">Interview Performance Overview</h2>
-                <p><b>Engagement Level:</b> Describe how engaged and enthusiastic the candidate was throughout the interview. Did they show genuine interest?</p>
-                <p><b>Response Quality:</b> Analyze the depth and quality of their responses. Were they detailed or superficial? Did they use the STAR method?</p>
-                <p><b>Professional Demeanor:</b> Comment on their professionalism, confidence, and overall presentation.</p>
-                
-                <h2 style=\"color: #c10505; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-top: 25px;\">Project & Technical Assessment</h2>
-                <p><b>Project Understanding:</b> Evaluate how well they explained their projects. Could they articulate the purpose, scope, and impact? Provide specific examples from their responses.</p>
-                <p><b>Technology Choices:</b> Assess their ability to justify technology decisions. Did they explain WHY they chose certain technologies? Were their reasons sound and well-thought-out?</p>
-                <p><b>Technical Depth:</b> Analyze the depth of their technical knowledge. Did they demonstrate understanding beyond surface-level implementation? Quote specific technical discussions.</p>
-                <p><b>Problem-Solving Approach:</b> Describe how they approached technical challenges in their projects. Were they systematic and logical?</p>
-                
-                <h2 style=\"color: #c10505; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-top: 25px;\">Behavioral Competencies Analysis</h2>
-                <p><b>Communication Skills:</b> Provide a detailed analysis of their verbal communication, clarity of expression, and ability to structure responses. Rate their articulation and confidence.</p>
-                <p><b>Leadership & Initiative:</b> Discuss any evidence of leadership qualities, taking initiative, or driving projects forward. Cite specific examples from their responses.</p>
-                <p><b>Teamwork & Collaboration:</b> Evaluate their ability to work in teams, handle conflicts, and collaborate effectively. What did they say about working with others?</p>
-                <p><b>Adaptability & Learning:</b> Assess their willingness to learn, adapt to new situations, and handle change. Did they demonstrate growth mindset?</p>
-                
-                <h2 style=\"color: #c10505; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-top: 25px;\">Key Strengths</h2>
-                <ul>
-                    <li><b>Strength 1:</b> Identify a major strength with detailed explanation and specific example from the interview (minimum 2 sentences)</li>
-                    <li><b>Strength 2:</b> Another key strength with supporting evidence from their responses</li>
-                    <li><b>Strength 3:</b> Third notable strength with concrete examples</li>
-                    <li><b>Strength 4:</b> Additional strength if applicable, with detailed justification</li>
-                </ul>
-                
-                <h2 style=\"color: #c10505; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-top: 25px;\">Areas for Development</h2>
-                <ul>
-                    <li><b>Area 1:</b> Identify a weakness or gap with specific examples. Provide actionable advice on how to improve (minimum 2-3 sentences)</li>
-                    <li><b>Area 2:</b> Another development area with detailed recommendations for improvement</li>
-                    <li><b>Area 3:</b> Third area needing attention with concrete steps to address it</li>
-                    <li><b>Area 4:</b> Additional area if applicable, with improvement suggestions</li>
-                </ul>
-                
-                <h2 style=\"color: #c10505; border-bottom: 2px solid #ddd; padding-bottom: 10px; margin-top: 25px;\">Specific Recommendations</h2>
-                <p><b>For the Candidate:</b> Provide 3-4 specific, actionable recommendations for how they can improve their interview performance and professional development.</p>
-                <p><b>For the Hiring Team:</b> Offer insights on how this candidate might fit within the organization, what roles they\\'d excel in, and any concerns to address during onboarding.</p>
-                
-                <div style=\"background: #f9f9f9; padding: 20px; border-left: 5px solid #c10505; margin-top: 25px;\">
-                    <h3 style=\"margin-top: 0; color: #c10505;\">Final Verdict & Hiring Recommendation</h3>
-                    <p><b>Recommendation:</b> Clearly state: <b>STRONGLY RECOMMEND</b> / <b>RECOMMEND</b> / <b>RECOMMEND WITH RESERVATIONS</b> / <b>DO NOT RECOMMEND</b></p>
-                    <p><b>Justification:</b> Provide a detailed 3-4 sentence justification for your recommendation, summarizing the key factors that influenced your decision.</p>
-                    <p><b>Next Steps:</b> Suggest what should happen next (e.g., proceed to technical round, additional interviews, training requirements, etc.)</p>
-                </div>
-            '
-        CRITICAL Rules for HR Report:
-        1. Content MUST be valid HTML with inline CSS.
-        2. Every section must be thoroughly detailed with specific examples. 
-        3. Quote actual responses from the interview transcript when possible.
-        4. Minimum 800-1000 words total.
-        5. **NO HALLUCINATION**: If the transcript shows the candidate remained idle or gave one-word answers, provide an 'Incomplete' summary and set the score below 10.
-        6. AT THE VERY END OF THE REPORT, ADD THIS EXACT LINE:
-        Overall Performance Score: [X]%
-        (where X is the final score you assigned in the JSON)";
+            'content': 'HTML report...'
+        }";
 
         $messages = [['role' => 'system', 'content' => $systemPrompt]];
         foreach ($history as $msg) {
             if ($msg['role'] !== 'system') $messages[] = $msg;
         }
-        $messages[] = ['role' => 'user', 'content' => "Generate the extremely detailed, comprehensive final HR assessment report based on the complete interview transcript. Include specific examples and quotes from the candidate's responses. Make it thorough and professional - minimum 800-1000 words."];
 
-        return $this->callAPI($messages, [
+        $response = $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object'],
             'max_tokens' => 4000
         ]);
-    }
-
-
-    /**
-     * Generate educational coding solutions
-     */
-    public function generateCodingSolution($problem) {
-        $prompt = "You are a coding instructor teaching students. Generate TWO detailed solutions for this coding problem:
-
-Problem: {$problem['title']}
-Category: {$problem['category']}
-Difficulty: {$problem['difficulty']}
-
-Problem Statement:
-{$problem['problem_statement']}
-
-Constraints:
-{$problem['constraints']}
-
-Example:
-Input: {$problem['example_input']}
-Output: {$problem['example_output']}
-
-Please provide a DEEP EDUCATIONAL BREAKDOWN following this structure:
-
-1. BEGINNER APPROACH:
-   - **Why use a function?**: Explain the practical reason for wrapping this code in a function.
-   - **Variable Breakdown**: List every variable used and why its name/type was chosen.
-   - **Step-by-Step Plan**: Provide a plain-English logical plan BEFORE the code.
-   - **The Code**: Provide complete working code in FOUR languages: **JavaScript, Python, Java, and C++**.
-   - **Why this Loop/Logic?**: Justify the specific control flow used.
-   - **Line-by-line comments**: Explaining the \"purpose\" of each line in the code blocks.
-
-2. OPTIMIZED APPROACH:
-   - **The Goal**: What are we optimizing? (Time, Memory, or Readability?)
-   - **Optimization Technique**: Explain the core difference from the beginner approach.
-   - **Complexity Trade-off**: Explain why this is better and if there are any costs.
-   - **The Code**: Provide complete working code in FOUR languages: **JavaScript, Python, Java, and C++**.
-
-Format your response as strictly JSON with this structure:
-{
-  \"beginner\": {
-    \"why_function\": \"explanation of why we used a function here\",
-    \"variables\": \"markdown list of variables and their purposes\",
-    \"plan\": \"step by step logical plan in points\",
-    \"code\": {
-        \"javascript\": \"...\",
-        \"python\": \"...\",
-        \"java\": \"...\",
-        \"cpp\": \"...\"
-    },
-    \"why_logic\": \"explanation of why this specific logic/loop was used\"
-  },
-  \"optimized\": {
-    \"goal\": \"what is being optimized\",
-    \"technique\": \"the technique used\",
-    \"tradeoff\": \"time/memory tradeoff explanation\",
-    \"code\": {
-        \"javascript\": \"...\",
-        \"python\": \"...\",
-        \"java\": \"...\",
-        \"cpp\": \"...\"
-    }
-  }
-}
-
-Make the content feel like a personal tutor talking to a student. Avoid overly technical jargon where a simple analogy or explanation would work better.";
-
-        $messages = [
-            [
-                'role' => 'system',
-                'content' => 'You are an expert coding instructor who creates clear, educational solutions for students learning programming. You always output valid JSON.'
-            ],
-            [
-                'role' => 'user',
-                'content' => $prompt
-            ]
-        ];
-
-        $response = $this->callAPI($messages, [
-            'response_format' => ['type' => 'json_object'],
-            'temperature' => 0.4,
-            'max_tokens' => 2000
-        ]);
 
         if ($response['success']) {
+            $aiData = $response['parsed'];
             return [
                 'success' => true,
-                'solutions' => json_decode($response['content'], true)
+                'content' => is_array($aiData) ? ($aiData['content'] ?? "Report content missing.") : $aiData,
+                'overall_score' => is_array($aiData) ? ((int)($aiData['overall_score'] ?? 0)) : 0
             ];
         }
 
@@ -1341,30 +1043,73 @@ Make the content feel like a personal tutor talking to a student. Avoid overly t
     }
 
     /**
+     * Generate educational coding solutions
+     */
+    public function generateCodingSolution($problem) {
+        $systemPrompt = "You are an expert coding instructor. You must return a response strictly formatted as a valid JSON object matching the following structure:
+        {
+          \"solutions\": {
+            \"beginner\": {
+              \"why_function\": \"Explain simply why a function approach is used here.\",
+              \"plan\": [\"Step 1: ...\", \"Step 2: ...\"],
+              \"variables\": [\"varName: purpose...\"],
+              \"code\": {
+                \"javascript\": \"JavaScript code here\",
+                \"python\": \"Python code here\",
+                \"java\": \"Java code here\",
+                \"cpp\": \"C++ code here\"
+              },
+              \"why_logic\": \"Explain the core logic simply.\"
+            },
+            \"optimized\": {
+              \"goal\": \"Explain the optimization goal.\",
+              \"technique\": \"Explain the optimization technique.\",
+              \"tradeoff\": \"Explain space/time tradeoffs.\",
+              \"code\": {
+                \"javascript\": \"Optimized JavaScript code here\",
+                \"python\": \"Optimized Python code here\",
+                \"java\": \"Optimized Java code here\",
+                \"cpp\": \"Optimized C++ code here\"
+              }
+            }
+          }
+        }
+        Ensure the output is pure JSON without any surrounding markdown wraps.";
+
+        $messages = [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => "Generate coding solutions for this coding problem: {$problem['title']}"]
+        ];
+
+        return $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object'],
+            'max_tokens' => 2000
+        ]);
+    }
+
+    /**
      * Analyze Fit for a Specific Role & Company
      */
     public function analyzeTargetFit($studentData, $targetRole, $targetCompany) {
-        $systemPrompt = "You are a HIGHLY CRITICAL Recruitment Head for $targetCompany.
-Your task is to evaluate the student's profile for the specific role of '$targetRole' at $targetCompany.
-
-CRITICAL SCORING RULES:
-1. BE EXTREMELY STRICT. High scores (80+) must be reserved ONLY for students who already have professional-grade projects.
-
-Output Format (JSON):
-{
-    'fit_score': 0-100,
-    'requirement_match_chart': {
-        'labels': ['Tech Stack', 'Problem Solving', 'Domain Knowledge', 'Culture Fit'],
-        'required': [100, 100, 100, 100],
-        'possessed': [0-100, 0-100, 0-100, 0-100]
-    },
-    'company_culture_alignment': '...',
-    'technical_alignment': '...',
-    'missing_critical_skills': ['...'],
-    'interview_prep_topics': ['...'],
-    'verdict': 'Highly Recommended / Recommended / Need Development / Not Fit',
-    'custom_advice': '...'
-}";
+        $systemPrompt = "You are a Recruitment Head at $targetCompany. Evaluate the candidate's student profile for the target role: '$targetRole'.
+        
+        You must return the response strictly formatted as a valid JSON object matching this schema:
+        {
+          \"fit_score\": 0-100,
+          \"verdict\": \"Brief 1-2 sentence hiring verdict (e.g. Strongly Recommended, Potential Fit, Needs Upskilling)\",
+          \"company_culture_alignment\": \"Brief analysis of how this candidate aligns with $targetCompany values and culture\",
+          \"technical_alignment\": \"Brief analysis of technical match for '$targetRole'\",
+          \"missing_critical_skills\": [\"Skill 1\", \"Skill 2\"],
+          \"custom_advice\": \"Actionable preparation advice tailored for this specific role/company\",
+          \"interview_prep_topics\": [\"Topic 1\", \"Topic 2\", \"Topic 3\"],
+          \"requirement_match_chart\": {
+            \"labels\": [\"Skill/Domain 1\", \"Skill/Domain 2\", \"Skill/Domain 3\", \"Domain 4\", \"Domain 5\"],
+            \"possessed\": [80, 60, 45, 90, 70],
+            \"required\": [90, 80, 80, 85, 75]
+          }
+        }
+        Do not return any markdown wraps outside of valid JSON.";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
@@ -1372,32 +1117,39 @@ Output Format (JSON):
         ];
 
         return $this->callAPI($messages, [
-            'response_format' => ['type' => 'json_object'],
-            'temperature' => 0.3
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object']
         ]);
     }
 
     public function predictCareerPath($studentData) {
-        $systemPrompt = "You are a Skeptical Career Path Architect.
-Look at the student's current portfolio and predict career paths ONLY where there is hard evidence.
-
-Output Format (JSON):
-{
-    'primary_path': {
-        'title': '...',
-        'confidence': 0-100,
-        'why': '...',
-        'growth_potential': '...',
-        'skill_alignment_chart': {
-            'labels': ['Foundations', 'Advanced Tech', 'Tooling', 'Portfolio Impact'],
-            'student': [0-100, 0-100, 0-100, 0-100]
+        $systemPrompt = "You are an expert Career Path Architect. Analyze the student's profile to project their future career path.
+        
+        You must return the response strictly formatted as a valid JSON object matching this schema:
+        {
+          \"primary_path\": {
+            \"title\": \"E.g. Full-Stack Developer / Data Engineer\",
+            \"why\": \"Why this is the optimal role based on their projects/skills\",
+            \"growth_potential\": \"High / Medium / Stable\",
+            \"skill_alignment_chart\": {
+              \"labels\": [\"Skill 1\", \"Skill 2\", \"Skill 3\", \"Skill 4\", \"Skill 5\"],
+              \"student\": [90, 75, 80, 60, 85]
+            }
+          },
+          \"long_term_projection\": \"A 5-year outlook summarizing growth trajectory and what they should aim for\",
+          \"alternative_paths\": [
+            {
+              \"title\": \"Alternative Role 1\",
+              \"why\": \"Why this is a viable secondary option\"
+            },
+            {
+              \"title\": \"Alternative Role 2\",
+              \"why\": \"Why this is a viable secondary option\"
+            }
+          ],
+          \"ideal_job_titles\": [\"Job Title 1\", \"Job Title 2\", \"Job Title 3\"]
         }
-    },
-    'alternative_paths': [ {'title': '...', 'why': '...'} ],
-    'ideal_job_titles': ['...'],
-    'specialization_track': '...',
-    'long_term_projection': '...'
-}";
+        Do not return any markdown wraps outside of valid JSON.";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
@@ -1405,113 +1157,108 @@ Output Format (JSON):
         ];
 
         return $this->callAPI($messages, [
-            'response_format' => ['type' => 'json_object'],
-            'temperature' => 0.5
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object']
         ]);
     }
 
     /**
-     * Analyze Profile Match (Global Market or Specific Company Comparison)
+     * Analyze Profile Match
      */
     public function analyzeProfileMatch($studentData, $company = null) {
-        $context = $company ? "specifically for $company's recruitment standards, tech stack, and quality benchmarks" : "against the CURRENT GLOBAL TECH MARKET at ELITE STANDARDS";
+        $companyContext = $company ? " Benchmark the candidate against the requirements of '$company'." : " Benchmark the candidate against global industry standards.";
+        $systemPrompt = "You are an Elite Global Tech Career Strategist.{$companyContext}
         
-        $systemPrompt = "You are an Elite Global Tech Career Strategist.
-Your task is to analyze a student's profile $context.
-
-STRICT EVALUATION:
-1. " . ($company ? "$company READINESS SCORE" : "GLOBAL READINESS SCORE") . ": This is NOT a participation trophy. 80%+ means they are ready for a high-impact role" . ($company ? " at $company" : " at a top-tier global firm") . ". Most students should score 20-50%.
-2. SKILL OVERLAY: Be critical. If analyzing for $company, focus on their specific known tech stack and engineering culture.
-
-Output Format (JSON):
-{
-    'overall_readiness_score': 0-100,
-    'skill_distribution': {
-        'labels': ['Languages', 'Frameworks', 'Databases', 'Cloud/DevOps', 'Soft Skills', 'Tools'],
-        'student_scores': [0-100, 0-100, ...],
-        'market_avg': [0-100, 0-100, ...]
-    },
-    'skill_gap_pie': {
-        'labels': ['Skills Matched', 'Gaps Identified', 'Partial Match'],
-        'values': [number, number, number]
-    },
-    'academic_vs_industry': {
-        'labels': ['GPA Impact', 'Project Depth', 'Skill Variety', 'Market Exposure'],
-        'student': [0-100, 0-100, ...],
-        'industry_std': [0-100, 0-100, ...]
-    },
-    'market_benchmarks': [
-        " . ($company ? "{ 'category': '$company Standards', 'match_percentage': 0-100, 'summary': '...', 'missing_keys': ['...'] }," : "{ 'category': 'Big Tech (Google/Meta/MSFT)', 'match_percentage': 0-100, 'summary': '...', 'missing_keys': ['...'] },") . "
-        { 'category': 'FinTech & Enterprise IT', 'match_percentage': 0-100, 'summary': '...', 'missing_keys': ['...'] },
-        { 'category': 'Fast-Growth Startups', 'match_percentage': 0-100, 'summary': '...', 'missing_keys': ['...'] }
-    ],
-    'role_fit_analysis': [
-        {'role': 'SDE (Generalist)', 'match': 0-100},
-        {'role': 'Frontend Specialist', 'match': 0-100},
-        {'role': 'Backend / Cloud', 'match': 0-100},
-        {'role': 'Data & AI', 'match': 0-100},
-        {'role': 'DevOps / SRE', 'match': 0-100}
-    ],
-    'gap_analysis': { 'critical_missing': ['...'], 'weak_points': ['...'] },
-    'action_plan': [ 
-        {'step': 'Immediate Skill Acquisition', 'task': '...', 'priority': 'Critical', 'timeframe': '0-3 Months'},
-        {'step': 'Portfolio Strengthening', 'task': '...', 'priority': 'High', 'timeframe': '3-6 Months'},
-        {'step': 'Market Networking', 'task': '...', 'priority': 'Medium', 'timeframe': '6+ Months'}
-    ],
-    'executive_summary': '...'
-}";
-
+        You must return the response strictly formatted as a valid JSON object matching this schema:
+        {
+          \"executive_summary\": \"A high-level summary of the student's market positioning and competitiveness.\",
+          \"skill_distribution\": {
+            \"labels\": [\"Core Tech\", \"Problem Solving\", \"System Design\", \"Communication\", \"Tooling\"],
+            \"student_scores\": [75, 80, 50, 85, 65],
+            \"market_avg\": [70, 75, 60, 80, 70]
+          },
+          \"market_benchmarks\": [
+            {
+              \"category\": \"Service-Based Companies\",
+              \"match_percentage\": 85,
+              \"missing_keys\": [\"DSA\", \"SQL\"]
+            },
+            {
+              \"category\": \"Product-Based Startups\",
+              \"match_percentage\": 60,
+              \"missing_keys\": [\"React\", \"Node.js\", \"System Design\"]
+            },
+            {
+              \"category\": \"Tier-1 Tech Giants\",
+              \"match_percentage\": 40,
+              \"missing_keys\": [\"Advanced DSA\", \"System Design\", \"Cloud Computing\"]
+            }
+          ],
+          \"academic_vs_industry\": {
+            \"labels\": [\"Sem 5\", \"Sem 6\", \"Sem 7\", \"Sem 8\", \"Industry Entry\"],
+            \"student\": [50, 65, 75, 80, 85],
+            \"industry_std\": [60, 70, 80, 90, 95]
+          },
+          \"role_fit_analysis\": [
+            {
+              \"role\": \"Software Engineer\",
+              \"match\": 80
+            },
+            {
+              \"role\": \"Frontend Engineer\",
+              \"match\": 75
+            },
+            {
+              \"role\": \"DevOps Engineer\",
+              \"match\": 45
+            }
+          ],
+          \"action_plan\": [
+            {
+              \"step\": \"Step 1\",
+              \"priority\": \"Critical\",
+              \"task\": \"Actionable detail on what they need to learn or improve.\",
+              \"timeframe\": \"1 Month\"
+            },
+            {
+              \"step\": \"Step 2\",
+              \"priority\": \"High\",
+              \"task\": \"Actionable detail on projects, open source, or internship prep.\",
+              \"timeframe\": \"3 Months\"
+            }
+          ]
+        }
+        Do not return any markdown wraps outside of valid JSON.";
+        
         $messages = [
-            [
-                'role' => 'system',
-                'content' => $systemPrompt
-            ],
-            [
-                'role' => 'user',
-                'content' => "STUDENT PROFILE:\n" . json_encode($studentData)
-            ]
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => "STUDENT PROFILE:\n" . json_encode($studentData)]
         ];
 
         return $this->callAPI($messages, [
-            'response_format' => ['type' => 'json_object'],
-            'temperature' => 0.4
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object']
         ]);
     }
 
     /**
-     * Generate a detailed placement guide for a specific company
+     * Generate a detailed placement guide
      */
     public function getCompanyPlacementGuide($companyName, $studentDept = '') {
-        $deptContext = !empty($studentDept) ? "The student is from the **$studentDept** department." : "";
-        
-        $systemPrompt = "You are an Elite Placement Officer and Career Strategist.
-Your goal is to provide a comprehensive, step-by-step placement guide for a student targeting **$companyName**.
-$deptContext
-
-STRICT INSTRUCTIONS:
-1. **Specific Domain Identification**: Identify the exact sub-sector of $companyName (e.g., instead of just 'Core', identify it as 'EDA Tools', 'Semiconductors', 'FMCG', or 'Construction').
-2. **Technical Specialization**: 
-   - Mandatory: Mention the specific industry-standard tools or languages used in that sub-sector (e.g., Cadence/Synopsys tools for EDA, Revit/AutoCAD for Civil, PLC/SCADA for EEE).
-   - If the company has specific recruitment portals or exams (e.g., TCS NQT, Infosys InfyTQ, ZS Associates Case Study), you MUST mention and explain them.
-3. **No Generic Padding**: Avoid generic advice like 'Practice DSA' or 'Be confident' unless it is uniquely critical for $companyName. Every piece of advice must be specific to why $companyName is different from its competitors.
-4. **Recent Strategy**: Focus on how they have changed their hiring in the last 12-24 months (e.g., increased focus on system design, shift to virtual assessment centers, etc.).
-
-Use **Markdown** for formatting. Make it detailed, professional, and visually structured. Use bolding and lists for readability.";
+        $systemPrompt = "You are an Elite Placement Officer. Generate a guide for $companyName.";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
-            ['role' => 'user', 'content' => "Generate a domain-accurate placement guide for $companyName" . (!empty($studentDept) ? " for a $studentDept student." : ".")]
+            ['role' => 'user', 'content' => "Generate a placement guide for $companyName."]
         ];
 
         return $this->callAPI($messages, [
-            'temperature' => 0.5,
-            'max_tokens' => 3000
+            'audit_method' => __FUNCTION__
         ]);
     }
 
     /**
      * Recursive UTF-8 Sanitizer
-     * Ensures all strings in an array are valid UTF-8 to prevent JSON errors
      */
     private function utf8ize($mixed) {
         if (is_array($mixed)) {
@@ -1525,185 +1272,119 @@ Use **Markdown** for formatting. Make it detailed, professional, and visually st
     }
 
     /**
-     * Mutate a batch of aptitude questions to ensure uniqueness.
-     * Takes an array of questions and rephrases each one with new values.
+     * Mutate a batch of aptitude questions
      */
     public function mutateAptitudeBatch($questions) {
-        if (empty($questions)) return ['success' => true, 'questions' => []];
-
-        $systemPrompt = "You are an Elite Assessment Logic Mutator.
-        Your task is to take a batch of MCQs and TRANSFORM each one into a unique instance while keeping the core logic identical.
-        
-        STRICT MUTATION RULES:
-        1. CHANGE NAMES: Use different personas (e.g., if 'Alice', use 'Vikram').
-        2. CHANGE VALUES: Change numerical values but ensure the logic still works (e.g., if '5km/h', use '12km/h').
-        3. REPHRASE: Rewrite the problem statement to use different scenarios.
-        4. OPTIONS: Recalculate the correct answer based on new values. Provide exactly 4 distinct options.
-        5. CONSISTENCY: The category and complexity must remain the same.
-        
-        Output format (JSON):
+        $systemPrompt = "You are an Elite Assessment Logic Mutator. You must return the mutated questions strictly formatted as a valid JSON object.
+        The JSON format must be an array of questions:
         {
             \"questions\": [
                 {
                     \"question\": \"...\",
-                    \"options\": [\"...\", \"...\", \"...\", \"...\"],
+                    \"options\": [\"Option A\", \"Option B\", \"Option C\", \"Option D\"],
                     \"answer\": 0-3,
                     \"explanation\": \"...\",
-                    \"category\": \"...\",
-                    \"original_id\": 123
+                    \"category\": \"...\"
                 }
             ]
         }";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
-            ['role' => 'user', 'content' => "Mutate the following questions uniquely:\n" . json_encode($questions)]
+            ['role' => 'user', 'content' => "Mutate the following questions:\n" . json_encode($questions)]
         ];
 
-        $response = $this->callAPI($messages, [
-            'response_format' => ['type' => 'json_object'],
-            'max_tokens' => 4000
+        return $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object']
         ]);
-
-        if ($response['success']) {
-            $data = json_decode($response['content'], true);
-            return [
-                'success' => true,
-                'questions' => $data['questions'] ?? []
-            ];
-        }
-        return $response;
     }
 
     /**
-     * Mutate a coding challenge to be unique for a specific session.
-     * Enhanced to include student context and industry-readiness.
+     * Mutate a coding challenge
      */
     public function mutateCodingChallenge($seedProblem, $studentContext = []) {
-        $contextStr = "";
-        if (!empty($studentContext)) {
-            $contextStr = "\n\n=== CANDIDATE CONTEXT ===\n";
-            if (!empty($studentContext['projects'])) {
-                $contextStr .= "PROJECTS:\n";
-                foreach ($studentContext['projects'] as $p) {
-                    $contextStr .= "- {$p['title']}: {$p['description']}\n";
-                }
-            }
-            if (!empty($studentContext['skills'])) {
-                $contextStr .= "SKILLS: " . implode(', ', $studentContext['skills']) . "\n";
-            }
-            $contextStr .= "==========================\n";
-        }
-
-        $systemPrompt = "You are a Senior Technical Problem Architect at an Elite Tech Firm.
-        Take the provided coding problem and RE-SKIN it into a high-stakes, industry-level challenge.
+        $systemPrompt = "You are a Senior Technical Problem Architect. Your task is to take a seed coding problem and mutate it into a unique, fresh variation of similar difficulty.
         
-        STRICT OBJECTIVES:
-        1. **Algorithmic Integrity**: Keep the core algorithmic requirement (e.g., sliding window, BFS, DP) identical.
-        2. **Industry Realism**: Transform the story into a mission-critical industry scenario (e.g., low-latency trading, cloud resource scaling, real-time logistics, secure data pipeline).
-        3. **Candidate Personalization**: " . (!empty($contextStr) ? "INTEGRATE the Candidate's Context. Reference their projects or skills in the problem story to make it feel tailormade." : "Focus on general Industry Excellence.") . "
-        4. **CS Fundamentals Integration**: Explicitly mention or require understanding of CS fundamentals (DSA efficiency, OOP patterns, DBMS indexing, or OS concurrency) within the constraints or problem backstory.
-        5. **Trickiness**: The logic should be 'tricky but fair'. Add edge cases in constraints that require deep thinking.
-        
-        REQUIREMENTS:
-        - Change story, input/output variable names, and scenarios.
-        - Ensure example cases match the new scenario.
-        - Provide title, problem_statement, constraints (including complexity), example_input, and example_output.
-        
-        Return as JSON:
+        You must return a response strictly formatted as a valid JSON object matching the following structure:
         {
-            \"title\": \"Professional Industry Title\",
-            \"problem_statement\": \"...\",
-            \"constraints\": \"...\",
-            \"example_input\": \"...\",
-            \"example_output\": \"...\",
-            \"category\": \"DSA/OOP/DBMS/OS (Most relevant)\"
+            \"title\": \"Name of the mutated problem\",
+            \"problem_statement\": \"Detailed description of the mutated problem, including example inputs and outputs\",
+            \"difficulty\": \"Easy / Medium / Hard\",
+            \"constraints\": \"Any constraints on input size, complexity, etc.\",
+            \"example_input\": \"Sample input string/data\",
+            \"example_output\": \"Sample output string/data\"
         }
-        
-        {$contextStr}";
+        Ensure the output is pure JSON without any surrounding markdown wraps.";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
-            ['role' => 'user', 'content' => "Mutated Problem Request: " . json_encode($seedProblem)]
+            ['role' => 'user', 'content' => "Mutate coding problem: " . json_encode($seedProblem)]
         ];
 
         $response = $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object']
         ]);
 
         if ($response['success']) {
-            $data = json_decode($response['content'], true);
             return [
                 'success' => true,
-                'data' => $data
+                'data' => $response['parsed']
             ];
         }
         return $response;
     }
 
     /**
-     * Generate a similar MCQ question based on a given question and topic.
-     * Used for NQT practice to provide fresh variations.
+     * Generate similar MCQ
      */
     public function generateSimilarQuestion($baseQuestion, $topic) {
-        $systemPrompt = "You are an Elite Assessment Expert. 
-        Given a base question and its topic, generate a NEW, SIMILAR question.
-        The new question should test the same concept but use different values, scenarios, or phrasing.
-        
-        STRICT RULES:
-        1. CONCEPT: Must be identical to the base question.
-        2. VARIATION: Change numbers, names, or the specific scenario.
-        3. ACCURACY: Ensure the logic and correct answer are perfect.
-        4. STRUCTURE: Return exactly 4 options.
-        5. FORMAT: Return as JSON.
-        
-        Output format:
+        $systemPrompt = "You are an Elite Assessment Expert. Generate a similar question for the topic.
+        You must return the response strictly formatted as a valid JSON object:
         {
             \"question\": \"...\",
-            \"options\": [\"Opt A\", \"Opt B\", \"Opt C\", \"Opt D\"],
-            \"answer\": 0, 
-            \"explanation\": \"...\"
+            \"options\": [\"Option A\", \"Option B\", \"Option C\", \"Option D\"],
+            \"answer\": 0-3,
+            \"explanation\": \"...\",
+            \"category\": \"...\"
         }";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
-            ['role' => 'user', 'content' => "Base Topic: $topic\nBase Question: $baseQuestion\n\nGenerate a similar variation."]
-        ];
-
-        $response = $this->callAPI($messages, [
-            'response_format' => ['type' => 'json_object']
-        ]);
-
-        if ($response['success']) {
-            $data = json_decode($response['content'], true);
-            return [
-                'success' => true,
-                'question' => $data
-            ];
-        }
-        return $response;
-    }
-
-    /**
-     * Generate 5 technical questions to verify a certification.
-     */
-    public function generateCertificationQuestions($certTitle, $issuer) {
-        $systemPrompt = "You are a Technical Certification Auditor. 
-        Generate 5 deep-dive technical questions to verify if a student actually has the knowledge implied by the certification: '$certTitle' from '$issuer'.
-        
-        GOALS:
-        1. Verify technical depth in the certification domain.
-        2. Test their understanding of core concepts.
-        3. Challenge them with real-world application of the certified skills.
-        
-        Format: Return a JSON object with a 'questions' array (list of 5 strings).";
-
-        $messages = [
-            ['role' => 'system', 'content' => $systemPrompt],
-            ['role' => 'user', 'content' => "Generate 5 verification questions for certification: '$certTitle' ($issuer)"]
+            ['role' => 'user', 'content' => "Generate a similar question for $topic based on this question: " . json_encode($baseQuestion)]
         ];
 
         return $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object']
+        ]);
+    }
+
+    /**
+     * Generate certification verification questions.
+     */
+    public function generateCertificationQuestions($certTitle, $issuer) {
+        $systemPrompt = "You are a Technical Certification Auditor.
+        Generate 5 verification questions for the certification '$certTitle' ($issuer).
+        You must return the response strictly formatted as a valid JSON object:
+        {
+            \"questions\": [
+                \"Question 1\",
+                \"Question 2\",
+                \"Question 3\",
+                \"Question 4\",
+                \"Question 5\"
+            ]
+        }";
+
+        $messages = [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => "Generate 5 questions for '$certTitle' ($issuer)"]
+        ];
+
+        return $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object']
         ]);
     }
@@ -1712,30 +1393,22 @@ Use **Markdown** for formatting. Make it detailed, professional, and visually st
      * Evaluate Certification Viva
      */
     public function evaluateCertificationViva($certTitle, $issuer, $transcript) {
-        $systemPrompt = "You are a technical certification auditor. 
-        A student has claimed a certification: '$certTitle' from '$issuer'.
-        You have a transcript of a Viva session where the student was asked technical questions about the certification domain.
-        
-        Analyze the transcript and provide:
-        1. A score from 0-100 based on their conceptual understanding.
-        2. Detailed feedback on what they know well and where they lack depth.
-        3. A final 'Verified' status (Score >= 70).
-        
-        Return ONLY a JSON object:
+        $systemPrompt = "You are a technical certification auditor.
+        Evaluate the student's answers to the verification questions for the certification '$certTitle' ($issuer).
+        You must return the response strictly formatted as a valid JSON object:
         {
-            \"score\": 85,
-            \"status\": \"VERIFIED\",
-            \"feedback\": \"Student demonstrated strong knowledge of...\",
-            \"verified\": true
+            \"score\": 0-100,
+            \"feedback\": \"Detailed feedback on the student's knowledge and verification status.\"
         }";
-
-        $userPrompt = "Certification: $certTitle\nIssuer: $issuer\n\nTranscript:\n$transcript";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
-            ['role' => 'user', 'content' => $userPrompt]
+            ['role' => 'user', 'content' => "Evaluate the following transcript for $certTitle:\n\n$transcript"]
         ];
 
-        return $this->callAPI($messages, ['response_format' => ['type' => 'json_object']]);
+        return $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object']
+        ]);
     }
 }

@@ -252,7 +252,7 @@ class User extends Model {
      */
     public function authenticate($username, $password) {
         // 1. Check App Users Table (LOCAL DB) - as requested
-        $stmt = $this->db->prepare("SELECT * FROM app_officers WHERE username = ? AND is_active = 1 LIMIT 1");
+        $stmt = $this->db->prepare("SELECT * FROM app_officers WHERE username = ? LIMIT 1");
         $stmt->execute([$username]);
         $appUser = $stmt->fetch();
         
@@ -263,6 +263,12 @@ class User extends Model {
              elseif (password_verify($password, $appUser['password'])) $passMatch = true;
              
              if ($passMatch) {
+                if (!$appUser['is_active']) {
+                    return [
+                        'success' => false,
+                        'message' => 'Your login has been disabled. Please contact admin to enable it.'
+                    ];
+                }
                 // Normalize role to avoid redirect/permission mismatches (e.g. 'VC', ' vc ')
                 $normRole = strtolower(trim((string)($appUser['role'] ?? '')));
                 if (in_array($normRole, ['vice_chancellor', 'vice-chancellor', 'vice chancellor', 'vc'], true)) {
@@ -284,32 +290,17 @@ class User extends Model {
              }
         }
 
-        // 1b. Check App Officers Table (Legacy / Fallback)
-        $stmt = $this->db->prepare("SELECT * FROM app_officers WHERE username = ? AND is_active = 1 LIMIT 1");
-        $stmt->execute([$username]);
-        $officer = $stmt->fetch();
-        
-        if ($officer && $password === $officer['password']) {
-            return [
-                'success' => true,
-                'user' => [
-                    'id' => $officer['id'],
-                    'username' => $officer['username'],
-                    'email' => $officer['email'],
-                    'full_name' => $officer['full_name'],
-                    'role' => $officer['role'],
-                    'is_active' => true,
-                    'original_role' => 'APP_OFFICER',
-                    'institution' => $officer['institution']
-                ]
-            ];
-        }
-
         // 1c. Check Department Coordinators (LOCAL DB) - login by email + bcrypt
-        $stmt = $this->db->prepare("SELECT * FROM dept_coordinators WHERE email = ? AND is_active = 1 LIMIT 1");
+        $stmt = $this->db->prepare("SELECT * FROM dept_coordinators WHERE email = ? LIMIT 1");
         $stmt->execute([$username]);
         $coord = $stmt->fetch();
         if ($coord && password_verify($password, $coord['password'])) {
+            if (!$coord['is_active']) {
+                return [
+                    'success' => false,
+                    'message' => 'Your login has been disabled. Please contact admin to enable it.'
+                ];
+            }
             return [
                 'success' => true,
                 'user' => [
@@ -447,7 +438,9 @@ class User extends Model {
         
         if (in_array($group, ['VC', 'VICE_CHANCELLOR', 'VICE-CHANCELLOR', 'VICE CHANCELLOR'])) {
             $role = 'vc';
-        } elseif (in_array($group, ['ADMIN', 'PRINCIPAL', 'HOD', 'FACULTY', 'TEACHING', 'PLACEMENT'])) {
+        } elseif ($group === 'HOD' || ($row['role'] ?? '') === 'hod') {
+            $role = 'hod';
+        } elseif (in_array($group, ['ADMIN', 'PRINCIPAL', 'FACULTY', 'TEACHING', 'PLACEMENT'])) {
             $role = 'placement_officer';
         } elseif ($group === 'INTERNSHIP_OFFICER' || ($row['role'] ?? '') === 'internship_officer') {
              // Check if it comes from app_officers or remote DB
@@ -460,6 +453,11 @@ class User extends Model {
         if (isset($row['role']) && $row['role'] === 'internship_officer') {
             $role = 'internship_officer';
             $group = 'INTERNSHIP_OFFICER';
+        }
+
+        if (isset($row['role']) && $row['role'] === 'hod') {
+            $role = 'hod';
+            $group = 'HOD';
         }
 
         if (isset($row['role']) && $row['role'] === 'vc') {

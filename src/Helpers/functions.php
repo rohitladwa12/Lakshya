@@ -95,6 +95,39 @@ function formatDateTime($datetime, $format = 'Y-m-d H:i:s') {
 }
 
 /**
+ * Check rate limit for a specific key using Redis
+ * 
+ * @param string $key The identifier key (e.g. USN or IP)
+ * @param int $limit Max requests allowed
+ * @param int $seconds Time window in seconds
+ * @return bool True if within limit, False if exceeded
+ */
+function checkRateLimit($key, $limit = 5, $seconds = 60) {
+    try {
+        $redisHelper = \App\Helpers\RedisHelper::getInstance();
+        if (!$redisHelper->isConnected()) return true; 
+
+        $redis = $redisHelper->getClient();
+        $fullKey = "rate_limit:" . $key;
+        
+        $current = $redis->get($fullKey);
+        
+        if ($current !== false && (int)$current >= $limit) {
+            return false;
+        }
+        
+        $newValue = $redis->incr($fullKey);
+        if ($newValue == 1) {
+            $redis->expire($fullKey, $seconds);
+        }
+        
+        return true;
+    } catch (\Exception $e) {
+        return true; // Fail-open to avoid locking out users if Redis has issues
+    }
+}
+
+/**
  * Time ago format
  */
 function timeAgo($datetime) {
@@ -400,6 +433,10 @@ function loadEnv($path) {
     $lines = file($path, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
     foreach ($lines as $line) {
         if (strpos($line, '#') === 0) {
+            continue;
+        }
+        
+        if (strpos($line, '=') === false) {
             continue;
         }
         

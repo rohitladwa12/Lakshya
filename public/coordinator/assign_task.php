@@ -165,6 +165,7 @@ $instFilter = $filters['inst'] ?? 'all';
 $search = clean($filters['search'] ?? '');
 $min_sgpa = isset($filters['min_sgpa']) ? (float)$filters['min_sgpa'] : 0;
 $branch_filter_val = clean($filters['branch'] ?? '');
+$sem_filter_val = isset($filters['sem']) ? (int)$filters['sem'] : 0;
 
 $available_branches = array_values(array_unique(getCoordinatorDisciplineFilters($department)));
 $discipline_filter = (!empty($branch_filter_val) && in_array($branch_filter_val, $available_branches)) ? [$branch_filter_val] : $available_branches;
@@ -249,6 +250,9 @@ if ($min_sgpa > 0) {
 
 // Semester Filtering (Dynamic based on Department) & GMIT Local Check
 $semester_filter = getCoordinatorSemesterFilters($department);
+if ($sem_filter_val > 0 && in_array($sem_filter_val, $semester_filter)) {
+    $semester_filter = [$sem_filter_val];
+}
 $sem_placeholders = implode(',', array_fill(0, count($semester_filter), '?'));
 
 if ($instFilter === 'all' || $instFilter === 'gmit') {
@@ -336,7 +340,7 @@ function buildUrl($key, $val) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Assign Tasks - <?php echo APP_NAME; ?></title>
@@ -465,6 +469,18 @@ function buildUrl($key, $val) {
                 <div class="filter-item">
                     <label><i class="fas fa-graduation-cap"></i> Min SGPA</label>
                     <input type="number" name="min_sgpa" class="form-input" value="<?php echo $min_sgpa > 0 ? $min_sgpa : ''; ?>" step="0.01" min="0" max="10" placeholder="e.g. 7.5">
+                </div>
+                <div class="filter-item filter-item-wrapper">
+                    <label><i class="fas fa-calendar-alt"></i> Semester</label>
+                    <select name="sem" class="form-input">
+                        <option value="">All Semesters</option>
+                        <?php foreach (getCoordinatorSemesterFilters($department) as $s): ?>
+                            <option value="<?php echo $s; ?>" <?php echo $sem_filter_val === $s ? 'selected' : ''; ?>>
+                                Semester <?php echo $s; ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                    <i class="fas fa-chevron-down filter-icon"></i>
                 </div>
 
                 <?php if (count($available_branches) > 1): ?>
@@ -629,6 +645,7 @@ function buildUrl($key, $val) {
                 <input type="hidden" name="search" id="filterSearch" value="<?php echo htmlspecialchars($search); ?>">
                 <input type="hidden" name="min_sgpa" id="filterSgpa" value="<?php echo htmlspecialchars($min_sgpa); ?>">
                 <input type="hidden" name="branch" id="filterBranch" value="<?php echo htmlspecialchars($branch_filter_val); ?>">
+                <input type="hidden" name="sem" id="filterSem" value="<?php echo htmlspecialchars($sem_filter_val); ?>">
                 <input type="hidden" name="page" id="filterPage" value="<?php echo htmlspecialchars($page); ?>">
             </form>
 
@@ -638,6 +655,7 @@ function buildUrl($key, $val) {
                     if (key === 'search') document.getElementById('filterSearch').value = val;
                     if (key === 'min_sgpa') document.getElementById('filterSgpa').value = val;
                     if (key === 'branch') document.getElementById('filterBranch').value = val;
+                    if (key === 'sem') document.getElementById('filterSem').value = val;
                     if (key === 'page') document.getElementById('filterPage').value = val;
                     
                     // Reset page if filtering by other criteria

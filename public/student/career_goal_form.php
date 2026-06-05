@@ -29,7 +29,7 @@ $prepopulatedSkills = array_column($portfolioSkills, 'title');
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Career Goal Form - Student Portal</title>
@@ -439,8 +439,16 @@ async function pollJobStatus(jobId, onSuccess, onError) {
         try {
             const res = await fetch(`ai_job_status.php?job_id=${jobId}`);
             const data = await res.json();
+            if (data.success === false) {
+                onError(data.message || "Job not found.");
+                return;
+            }
             if (data.status === 'completed') {
-                onSuccess(data.result);
+                if (data.result && data.result.success === false) {
+                    onError(data.result.message || "AI Roadmap generation failed.");
+                } else {
+                    onSuccess(data.result);
+                }
             } else if (data.status === 'failed') {
                 onError(data.error);
             } else {

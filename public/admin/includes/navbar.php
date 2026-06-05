@@ -126,6 +126,9 @@
         <a href="activity_logs.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'activity_logs.php' ? 'active' : ''; ?>">
             <i class="fas fa-list-check"></i> Activity Logs
         </a>
+        <a href="ai_monitor.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'ai_monitor.php' ? 'active' : ''; ?>">
+            <i class="fas fa-microchip"></i> AI Performance
+        </a>
     </div>
 
     <div class="sidebar-footer">
@@ -135,4 +138,10 @@
     </div>
 </nav>
 <!-- Global Maintenance Interceptor -->
-<script src="<?php echo APP_URL; ?>/public/js/maintenance_interceptor.js"></script>
+<script src="<?php echo APP_URL; ?>/js/maintenance_interceptor.js"></script>
+
+<!-- Global Security Layer -->
+<script>
+    window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ""; ?>';
+</script>
+<script src="<?php echo APP_URL; ?>/js/security_interceptor.js?v=<?php echo time(); ?>"></script>

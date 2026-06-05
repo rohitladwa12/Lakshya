@@ -1,3 +1,4 @@
+<?php require_once __DIR__ . '/../config/bootstrap.php'; ?>
 <!DOCTYPE html>
 <html lang="en">
 
@@ -5,7 +6,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LAKSHYA — Internship & Placement Portal | GM University</title>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta name="description"
         content="GM University's premier platform for internships, placements, AI interview prep, and career development.">
     <link rel="preconnect" href="https://fonts.googleapis.com">

@@ -22,7 +22,7 @@ $taskId = $filters['task_id'] ?? 0;
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Technical Round - <?php echo htmlspecialchars($companyName); ?></title>
@@ -237,7 +237,7 @@ $taskId = $filters['task_id'] ?? 0;
     </div>
 
     <header>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
         <div style="display: flex; align-items: center; gap: 15px;">
             <i class="fas fa-terminal" style="color: var(--accent); font-size: 1.5rem;"></i>
             <div>
@@ -517,8 +517,18 @@ $taskId = $filters['task_id'] ?? 0;
                 try {
                     const res = await fetch(`ai_job_status.php?job_id=${jobId}`);
                     const data = await res.json();
-                    if (data.status === 'completed') onSuccess(data.result);
-                    else if (data.status === 'failed') onError(data.error);
+                    if (data.success === false) {
+                        onError(data.message || "Job error");
+                        return;
+                    }
+                    if (data.status === 'completed') {
+                        if (data.result && data.result.success === false) {
+                            onError(data.result.message || "AI failed to process request.");
+                        } else {
+                            onSuccess(data.result);
+                        }
+                    } else if (data.status === 'failed') onError(data.error);
+
                     else setTimeout(poll, 1500);
                 } catch (e) { onError("Polling error"); }
             };

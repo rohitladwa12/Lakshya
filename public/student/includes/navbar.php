@@ -558,45 +558,6 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
 <!-- Global Security Layer -->
 <script>
     window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ""; ?>';
-    
-    (function() {
-        const token = window.CSRF_TOKEN;
-        if (!token) return;
-
-        const nativeFetch = window.fetch;
-        window.fetch = function(resource, config) {
-            if (config && config.method && config.method.toUpperCase() === 'POST') {
-                if (!config.headers) config.headers = {};
-                if (!(config.headers instanceof Headers)) {
-                    config.headers['X-CSRF-TOKEN'] = token;
-                } else {
-                    config.headers.set('X-CSRF-TOKEN', token);
-                }
-            }
-            return nativeFetch(resource, config);
-        };
-
-        // Intercept FormData to automatically inject token
-        const nativeAppend = FormData.prototype.append;
-        FormData.prototype.append = function(name, value, filename) {
-            if (name !== 'csrf_token' && !this.has('csrf_token')) {
-                nativeAppend.call(this, 'csrf_token', token);
-            }
-            return nativeAppend.apply(this, arguments);
-        };
-
-        const nativeSend = XMLHttpRequest.prototype.send;
-        XMLHttpRequest.prototype.send = function(body) {
-            if (this.readyState === 1 || true) { // Simplistic check
-                try {
-                    this.setRequestHeader('X-CSRF-TOKEN', token);
-                } catch(e) {}
-            }
-            if (body instanceof FormData && !body.has('csrf_token')) {
-                body.append('csrf_token', token);
-            }
-            return nativeSend.apply(this, arguments);
-        };
-    })();
 </script>
-<script src="<?php echo APP_URL; ?>/public/js/maintenance_interceptor.js?v=<?php echo time(); ?>"></script>
+<script src="<?php echo APP_URL; ?>/js/security_interceptor.js?v=<?php echo time(); ?>"></script>
+<script src="<?php echo APP_URL; ?>/js/maintenance_interceptor.js?v=<?php echo time(); ?>"></script>

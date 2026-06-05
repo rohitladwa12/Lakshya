@@ -201,7 +201,7 @@ function generateReportHTML($usn, $sem, $name, $type, $score, $content) {
     return "
     <html>
     <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
         <style>
             body { font-family: sans-serif; padding: 40px; line-height: 1.6; color: #333; }
             h1 { color: #800000; border-bottom: 2px solid #800000; padding-bottom: 10px; margin-bottom: 20px; }

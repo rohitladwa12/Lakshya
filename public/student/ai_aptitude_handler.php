@@ -16,6 +16,13 @@ requireLogin();
 session_write_close();
 
 $action = post('action');
+
+// Rate Limit: 10 requests per minute
+if (!checkRateLimit("ai_aptitude_api_" . getUserId(), 10, 60)) {
+    ob_clean();
+    echo json_encode(['success' => false, 'message' => 'Too many requests. Please wait a minute.']);
+    exit;
+}
 $aiService = new AIService();
 $studentModel = new StudentProfile();
 set_time_limit(300);
@@ -25,7 +32,13 @@ header('Content-Type: application/json');
 try {
     switch ($action) {
         case 'get_questions':
-            $companyName = post('company_name');
+            // Very strict limit for generating new aptitude tests (1 per minute)
+            if (!checkRateLimit("ai_aptitude_gen_" . getUserId(), 1, 60)) {
+                ob_clean();
+                echo json_encode(['success' => false, 'message' => 'Test generation in progress or too many requests. Wait 60s.']);
+                exit;
+            }
+$companyName = post('company_name');
             $taskId = post('task_id');
             
             // Check if this is a coordinator task with manual questions
@@ -126,46 +139,6 @@ try {
                     $questions[$qIdx]['answer'] = 0;
                 }
 
-                // Prefer the option that appears as the result of reasoning (e.g. "= 90", "i.e. 180 km")
-                // over a self-contradictory "Correct answer: X" (e.g. "Correct answer: 72. ... = 90").
-                if (!empty($q['explanation']) && count($options) > 0) {
-                    $optionTrimmed = array_map(function ($o) { return trim((string)$o); }, $options);
-                    $resolvedIdx = null;
-
-                    // 1) Reasoning result: value after "=" or "i.e." or "equals" that matches an option
-                    if (preg_match_all('/(?:=\s*|i\.e\.\s*|equals?\s+)([^.\n,]+)/iu', $q['explanation'], $m)) {
-                        foreach (array_reverse($m[1]) as $captured) {
-                            $val = trim($captured);
-                            foreach ($optionTrimmed as $optIdx => $optVal) {
-                                if ($optVal !== '' && $val === $optVal) {
-                                    $resolvedIdx = (int)$optIdx;
-                                    break 2;
-                                }
-                            }
-                        }
-                    }
-                    // 2) Else use explicit "Correct answer: X" or "answer is X" if no reasoning result found
-                    if ($resolvedIdx === null) {
-                        $stated = null;
-                        if (preg_match('/\b(?:Correct answer|correct answer)\s*:\s*([^.\n,]+)/iu', $q['explanation'], $m)) {
-                            $stated = trim($m[1]);
-                        } elseif (preg_match('/\b(?:correct answer is|answer is)\s+([^.\n,]+)/iu', $q['explanation'], $m)) {
-                            $stated = trim($m[1]);
-                        }
-                        if ($stated !== null && $stated !== '') {
-                            foreach ($optionTrimmed as $optIdx => $optVal) {
-                                if ($optVal === $stated) {
-                                    $resolvedIdx = (int)$optIdx;
-                                    break;
-                                }
-                            }
-                        }
-                    }
-                    if ($resolvedIdx !== null) {
-                        $correctAnswer = $resolvedIdx;
-                        $questions[$qIdx]['answer'] = $correctAnswer;
-                    }
-                }
 
                 // If explanation doesn't mention the correct option text, prepend it for display
                 if (isset($q['explanation']) && isset($options[$correctAnswer])) {

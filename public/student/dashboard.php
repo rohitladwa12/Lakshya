@@ -28,6 +28,22 @@ $userId = getUserId();
 $username = getUsername();
 $fullName = getFullName();
 
+// Detect first visit this session for splash screen
+$showWelcomeSplash = false;
+if (empty($_SESSION['dashboard_visited'])) {
+    $showWelcomeSplash = true;
+    $_SESSION['dashboard_visited'] = true;
+}
+
+function formatExplanation($explanation) {
+    if (empty($explanation)) return '';
+    $escaped = htmlspecialchars($explanation);
+    $pattern = '/(Option\s+[A-D]\s+is|Option\s+[A-D]\s+are|Option\s+[A-D]\s+incorrect|Option\s+[A-D]\s+correct|Option\s+[A-D]:)/i';
+    $formatted = preg_replace($pattern, '<br><br><strong>$1</strong>', $escaped);
+    $formatted = preg_replace('/^(<br><br>)+/', '', $formatted);
+    return nl2br($formatted);
+}
+
 // Handle cache refresh request
 if (isset($_GET['refresh_cache']) && $_GET['refresh_cache'] == 1) {
     $proxy = new \App\Services\RemoteDataProxy();
@@ -248,6 +264,14 @@ if (count($feedItems) < 2) {
         ];
     }
 }
+
+// --- AI PERSONALIZATION ENGINE LOADING ---
+require_once __DIR__ . '/../../src/Services/StudentIntelligenceService.php';
+require_once __DIR__ . '/../../src/Services/AIService.php';
+$intelService = new \App\Services\StudentIntelligenceService();
+$aiProfile = $intelService->getStudentAIProfile($username, $institution, $fullName);
+$aiInsights = $intelService->getStudentInsights($username, $institution, $fullName);
+$dailyChallenge = $intelService->getOrCreateDailyChallenge($username, $institution, $fullName);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -256,10 +280,10 @@ if (count($feedItems) < 2) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Dashboard - <?php echo APP_NAME; ?></title>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@600;700&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         :root {
@@ -392,64 +416,84 @@ if (count($feedItems) < 2) {
 
         /* Modern Hero Banner */
         .hero-banner {
-            background: var(--gradient-maroon);
-            border-radius: 24px;
-            padding: 2.5rem 3rem;
-            color: white;
+            background: linear-gradient(135deg, rgba(128, 0, 0, 0.04) 0%, rgba(212, 175, 55, 0.04) 100%);
+            border: 1px solid rgba(128, 0, 0, 0.08);
+            border-radius: 20px;
+            padding: 1.25rem 2rem;
+            color: var(--text-main);
             display: flex;
             justify-content: space-between;
             align-items: center;
             position: relative;
             overflow: hidden;
-            box-shadow: var(--shadow-lg);
+            box-shadow: 0 8px 32px 0 rgba(128, 0, 0, 0.02);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            margin-bottom: 1rem;
         }
 
         .hero-banner::after {
             content: '';
             position: absolute;
-            top: -20%;
-            right: -10%;
-            width: 300px;
-            height: 300px;
+            bottom: -30px;
+            right: -30px;
+            width: 120px;
+            height: 120px;
             background: radial-gradient(circle, rgba(212, 175, 55, 0.15) 0%, transparent 70%);
             border-radius: 50%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        .hero-banner::before {
+            content: '';
+            position: absolute;
+            top: -30px;
+            left: -30px;
+            width: 120px;
+            height: 120px;
+            background: radial-gradient(circle, rgba(128, 0, 0, 0.08) 0%, transparent 70%);
+            border-radius: 50%;
+            z-index: 0;
+            pointer-events: none;
+        }
+
+        @keyframes wave {
+            0% { transform: rotate( 0.0deg) }
+            10% { transform: rotate(14.0deg) }
+            20% { transform: rotate(-8.0deg) }
+            30% { transform: rotate(14.0deg) }
+            40% { transform: rotate(-4.0deg) }
+            50% { transform: rotate(10.0deg) }
+            60% { transform: rotate( 0.0deg) }
+            100% { transform: rotate( 0.0deg) }
+        }
+
+        .hero-content {
+            z-index: 1;
         }
 
         .hero-content h2 {
-            font-size: 2rem;
-            font-weight: 800;
-            margin-bottom: 0.5rem;
-            letter-spacing: -1px;
+            font-family: 'Caveat', cursive;
+            font-size: 2.8rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary-maroon) 0%, #b22222 50%, var(--accent-gold) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.1rem;
+            letter-spacing: normal;
+            display: inline-block;
         }
 
         .hero-content p {
-            font-size: 1rem;
-            opacity: 0.85;
-            max-width: 500px;
-            line-height: 1.6;
+            font-size: 0.85rem;
+            color: #4b5563;
+            max-width: 580px;
+            line-height: 1.5;
+            font-weight: 500;
         }
 
-        .header-stats {
-            display: flex;
-            gap: 2rem;
-        }
 
-        .header-stat-item {
-            text-align: center;
-        }
-
-        .header-stat-item .val {
-            font-size: 2rem;
-            font-weight: 800;
-            color: var(--accent-gold);
-        }
-
-        .header-stat-item .lab {
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            opacity: 0.7;
-            font-weight: 600;
-        }
 
         /* Stats & Quick Actions */
         .quick-actions-bar {
@@ -1944,10 +1988,508 @@ if (count($feedItems) < 2) {
                 transform: rotate(360deg);
             }
         }
+
+        /* AI Personalization Zone Styling */
+        .ai-personalization-zone {
+            margin-bottom: 1.5rem;
+        }
+        
+        .ai-intel-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+        }
+        
+        @media (max-width: 1024px) {
+            .ai-intel-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .intel-card {
+            background: rgba(255, 255, 255, 0.65);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-radius: 16px;
+            padding: 1.25rem;
+            border: 1px solid rgba(128, 0, 0, 0.08);
+            box-shadow: 0 4px 20px 0 rgba(0, 0, 0, 0.03);
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            min-height: 310px;
+        }
+        
+        .intel-card:hover {
+            box-shadow: 0 10px 30px 0 rgba(128, 0, 0, 0.08);
+            border-color: rgba(128, 0, 0, 0.2);
+            transform: translateY(-2px);
+        }
+        
+        /* AI Coach Card */
+        .ai-coach-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 0.75rem;
+        }
+        
+        .coach-avatar {
+            width: 40px;
+            height: 40px;
+            background: var(--light-gold);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.25rem;
+            color: var(--primary-maroon);
+        }
+        
+        .ai-coach-header h4 {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: var(--text-main);
+        }
+        
+        .persona-badge {
+            font-size: 0.6rem;
+            background: var(--light-gold);
+            color: var(--primary-maroon);
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        
+        .predicted-role-box {
+            background: rgba(128, 0, 0, 0.02);
+            border: 1px solid rgba(128, 0, 0, 0.08);
+            border-radius: 10px;
+            padding: 10px;
+            margin-bottom: 0.75rem;
+        }
+        
+        .predicted-role-box label {
+            font-size: 0.6rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            font-weight: 700;
+            display: block;
+            margin-bottom: 2px;
+        }
+        
+        .role-title {
+            font-size: 0.95rem;
+            font-weight: 750;
+            color: var(--primary-maroon);
+            margin-bottom: 6px;
+        }
+        
+        .confidence-bar-wrap {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        
+        .conf-lbl {
+            font-size: 0.65rem;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+        
+        .conf-bar {
+            width: 100%;
+            height: 4px;
+            background: #e5e7eb;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        
+        .conf-fill {
+            height: 100%;
+            background: var(--gradient-gold);
+            border-radius: 2px;
+        }
+        
+        .ai-summary {
+            font-size: 0.8rem;
+            font-style: italic;
+            color: var(--text-muted);
+            line-height: 1.4;
+            margin-bottom: 0.75rem;
+        }
+        
+        .coach-body {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            justify-content: space-between;
+        }
+
+        .sync-profile-btn {
+            background: rgba(0, 0, 0, 0.03);
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            color: var(--text-main);
+            padding: 8px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+            width: 100%;
+            text-align: center;
+        }
+        
+        .sync-profile-btn:hover {
+            background: var(--primary-maroon);
+            color: white;
+            border-color: var(--primary-maroon);
+        }
+        
+        /* Daily Challenge Card */
+        .challenge-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 0.75rem;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            padding-bottom: 6px;
+        }
+        
+        .challenge-header .lbl {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .topic-badge {
+            font-size: 0.65rem;
+            background: #e0f2fe;
+            color: #0369a1;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-weight: 700;
+        }
+        
+        .question-text {
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-main);
+            margin-bottom: 0.75rem;
+            line-height: 1.4;
+        }
+        
+        .options-container {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin-bottom: 0.75rem;
+        }
+        
+        .option-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            background: rgba(0, 0, 0, 0.02);
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        
+        .option-item:hover {
+            background: rgba(0, 0, 0, 0.04);
+            border-color: rgba(0, 0, 0, 0.12);
+        }
+        
+        .option-item input[type="radio"] {
+            display: none;
+        }
+        
+        .option-marker {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: #fff;
+            border: 1.5px solid #cbd5e1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.65rem;
+            font-weight: 700;
+            color: var(--text-muted);
+            transition: all 0.15s;
+        }
+        
+        .option-item input[type="radio"]:checked + .option-marker {
+            background: var(--primary-maroon);
+            border-color: var(--primary-maroon);
+            color: white;
+        }
+        
+        .option-item:has(input[type="radio"]:checked) {
+            border-color: var(--primary-maroon);
+            background: rgba(128, 0, 0, 0.02);
+        }
+        
+        .option-text {
+            font-size: 0.78rem;
+            font-weight: 550;
+            color: var(--text-main);
+        }
+        
+        .challenge-submit-btn {
+            background: var(--gradient-maroon);
+            color: white;
+            border: none;
+            padding: 8px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.2s;
+            width: 100%;
+        }
+        
+        .challenge-submit-btn:hover {
+            opacity: 0.9;
+        }
+        
+        .result-message {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        
+        .result-message.correct {
+            background: #ecfdf5;
+            color: #065f46;
+            border: 1px solid #a7f3d0;
+        }
+        
+        .result-message.incorrect {
+            background: #fef2f2;
+            color: #991b1b;
+            border: 1px solid #fca5a5;
+        }
+        
+        .explanation-box {
+            background: #f8fafc;
+            border-left: 2px solid #cbd5e1;
+            padding: 8px;
+            border-radius: 4px;
+            margin-bottom: 8px;
+            font-size: 0.72rem;
+            line-height: 1.35;
+        }
+        
+        .completed-note {
+            font-size: 0.65rem;
+            color: var(--text-muted);
+            text-align: center;
+            font-style: italic;
+        }
+
+        .challenge-results-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 250px;
+            overflow-y: auto;
+            padding-right: 5px;
+        }
+        
+        .challenge-results-list::-webkit-scrollbar {
+            width: 4px;
+        }
+        
+        .challenge-results-list::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        
+        .challenge-results-list::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        
+        .challenge-results-list::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
+        }
+        
+        .challenge-nav-buttons button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        /* Insights Card */
+        .insights-header {
+            margin-bottom: 0.75rem;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+            padding-bottom: 6px;
+        }
+        
+        .insights-header h4 {
+            font-size: 0.95rem;
+            font-weight: 800;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+        
+        .insights-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-height: 230px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        
+        .insight-item {
+            display: flex;
+            gap: 8px;
+            padding: 8px 10px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            line-height: 1.35;
+            border: 1px solid transparent;
+        }
+        
+        .insight-item.warning {
+            background: #fffbeb;
+            color: #92400e;
+            border-color: #fde68a;
+        }
+        
+        .insight-item.achievement {
+            background: #f0fdf4;
+            color: #166534;
+            border-color: #bbf7d0;
+        }
+        
+        .insight-item.goal_match {
+            background: #eff6ff;
+            color: #1e40af;
+            border-color: #bfdbfe;
+        }
+        
+        .type-icon {
+            font-size: 0.95rem;
+            margin-top: 1px;
+        }
+        
+        .insight-content {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+        
+        .insight-action-link {
+            font-size: 0.68rem;
+            font-weight: 700;
+            color: inherit;
+            text-decoration: underline;
+            display: inline-flex;
+            align-items: center;
+            gap: 2px;
+        }
+        
+        .no-insights, .no-challenge {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            text-align: center;
+            padding: 1.5rem 0;
+        }
+        
+        details[open] summary i {
+            transform: rotate(180deg);
+        }
+        details summary i {
+            transition: transform 0.2s ease;
+        }
+    </style>
+
+    <!-- Welcome Splash Screen Styles (isolated) -->
+    <style>
+        #welcome-splash {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100vw !important;
+            height: 100vh !important;
+            background: radial-gradient(circle at center, #2a0000 0%, #100000 60%, #000000 100%) !important;
+            z-index: 999999 !important;
+            display: none;
+            justify-content: center !important;
+            align-items: center !important;
+            flex-direction: column !important;
+            opacity: 1;
+            transition: opacity 0.9s ease;
+        }
+        #welcome-splash.fade-out {
+            opacity: 0 !important;
+            pointer-events: none !important;
+        }
+        .splash-word {
+            font-family: 'Caveat', cursive;
+            font-size: 8rem;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 4px;
+            line-height: 1;
+            display: inline-block;
+            white-space: nowrap;
+        }
+        #splash-cursor {
+            display: inline-block;
+            width: 4px;
+            height: 0.82em;
+            background: rgba(255, 255, 255, 0.9);
+            border-radius: 2px;
+            vertical-align: middle;
+            margin-left: 6px;
+            animation: penBlink 0.65s ease infinite;
+        }
+        .splash-sub {
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: rgba(255,255,255,0.45);
+            letter-spacing: 6px;
+            text-transform: uppercase;
+            margin-top: 14px;
+            opacity: 0;
+            transition: opacity 0.8s ease;
+            text-align: center;
+            width: 100%;
+        }
+        @keyframes penBlink {
+            0%, 100% { opacity: 1; }
+            50%       { opacity: 0; }
+        }
     </style>
 </head>
 
 <body>
+    <!-- Welcome Splash Screen (First Login of Session) -->
+    <div id="welcome-splash">
+        <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+            <div id="splash-text-container" class="splash-word"></div>
+            <div class="splash-sub" id="splash-sub">Welcome to Lakshya Portal</div>
+        </div>
+    </div>
+
     <!-- Instant Skeleton Loader -->
     <div id="skeleton-screen">
         <div class="skeleton-container">
@@ -2137,10 +2679,12 @@ if (count($feedItems) < 2) {
                                     in <strong>AI Tools</strong>. It is compulsory for all internship and job applications.</p>
                             </div>
                         </div>
+                        <?php if (isFeatureEnabled('feature_resume_builder')): ?>
                         <a href="resume_builder.php" class="tb-btn"
                             style="background: var(--accent-gold); color: #000; font-weight: 800; padding: 10px 20px; border-radius: 12px; text-decoration: none; font-size: 0.85rem; border: none; cursor: pointer; transition: 0.3s; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
                             BUILD / UPLOAD NOW
                         </a>
+                        <?php endif; ?>
                     </div>
                     <style>
                         @keyframes pulseAlert {
@@ -2236,10 +2780,8 @@ if (count($feedItems) < 2) {
                 <!-- Hero Banner -->
                 <div class="hero-banner">
                     <div class="hero-content">
-                        <h2>Hello, <?php echo htmlspecialchars(explode(' ', $fullName)[0]); ?>!</h2>
-                        <p>Welcome to Lakshya. You have <strong><?php echo $activeJobsCount; ?></strong> matching job
-                            opportunities today. Your portfolio is currently <strong><?php echo $completeness; ?>%</strong>
-                            complete.</p>
+                        <h2>Hello <?php echo htmlspecialchars(explode(' ', $fullName)[0]); ?>, Welcome to Lakshya Portal <span style="-webkit-text-fill-color: initial; -webkit-background-clip: initial; background: none; font-size: 1.8rem; display: inline-block; animation: wave 2.5s infinite; transform-origin: 70% 70%;">👋</span></h2>
+                        <p>You have <strong><?php echo $activeJobsCount; ?></strong> matching job opportunities today. Your portfolio is currently <strong><?php echo $completeness; ?>%</strong> complete.</p>
 
                         <?php if (!$hasFullHistory && $isGMIT): ?>
                             <div
@@ -2251,16 +2793,6 @@ if (count($feedItems) < 2) {
                         endif; ?>
                     </div>
 
-                    <div class="header-stats">
-                        <div class="header-stat-item">
-                            <div class="val"><?php echo $activeJobsCount; ?></div>
-                            <div class="lab">Jobs</div>
-                        </div>
-                        <div class="header-stat-item">
-                            <div class="val"><?php echo count($allPortfolio); ?></div>
-                            <div class="lab">Portfolio</div>
-                        </div>
-                    </div>
                 </div>
 
                 <!-- Toolbelt -->
@@ -2275,21 +2807,27 @@ if (count($feedItems) < 2) {
                         <div class="icon"><i class="fas fa-robot" style="color: #1e3a8a;"></i></div>
                         <h4>AI Prep</h4>
                     </a>
+                    <?php if (isFeatureEnabled('feature_mock_ai')): ?>
                     <a href="mock_ai_interview"
                         class="action-tool-btn <?php echo (!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
                         <div class="icon"><i class="fas fa-fire" style="color: #ea580c;"></i></div>
                         <h4>Mock AI Prep</h4>
                     </a>
+                    <?php endif; ?>
+                    <?php if (isFeatureEnabled('feature_leaderboard')): ?>
                     <a href="leaderboard"
                         class="action-tool-btn <?php echo (!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
                         <div class="icon"><i class="fas fa-trophy" style="color: #b8860b;"></i></div>
                         <h4>Leaderboard</h4>
                     </a>
+                    <?php endif; ?>
+                    <?php if (isFeatureEnabled('feature_company_guide')): ?>
                     <a href="javascript:void(0)" onclick="openGuideModal()"
                         class="action-tool-btn <?php echo (!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
                         <div class="icon"><i class="fas fa-graduation-cap" style="color: #800000;"></i></div>
                         <h4>Company Guide</h4>
                     </a>
+                    <?php endif; ?>
                     <a href="internships"
                         class="action-tool-btn <?php echo (!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
                         <div class="icon"><i class="fas fa-search" style="color: #0d9488;"></i></div>
@@ -2302,6 +2840,171 @@ if (count($feedItems) < 2) {
                     </a>
                 </div>
 
+                <!-- AI Career Personalization Zone -->
+                <section class="ai-personalization-zone">
+                    <div class="ai-intel-grid">
+                        <!-- 1. AI Coach Profile & Insights -->
+                        <div class="intel-card ai-coach-card">
+                             <div class="ai-coach-header">
+                                  <div class="coach-avatar">
+                                       <i class="fas fa-robot"></i>
+                                  </div>
+                                  <div>
+                                       <h4 style="margin:0;">AI Career Coach</h4>
+                                       <span class="persona-badge"><?php echo htmlspecialchars($aiProfile['personality_pref'] ?? 'Professional'); ?> Mode</span>
+                                  </div>
+                             </div>
+                             
+                             <div class="coach-body">
+                                  <div class="predicted-role-box">
+                                       <label>Predicted Path</label>
+                                       <div class="role-title"><?php echo htmlspecialchars($aiProfile['predicted_role'] ?? 'Software Engineer'); ?></div>
+                                       <div class="confidence-bar-wrap">
+                                            <span class="conf-lbl">Portfolio Match: <?php echo min(85, round(($aiProfile['confidence_score'] ?? 0.5) * 100)); ?>%</span>
+                                            <div class="conf-bar"><div class="conf-fill" style="width: <?php echo min(85, (($aiProfile['confidence_score'] ?? 0.5) * 100)); ?>%"></div></div>
+                                       </div>
+                                  </div>
+                                  <p class="ai-summary">"<?php echo htmlspecialchars($aiProfile['ai_summary'] ?? 'Analyze your profile to get predictions.'); ?>"</p>
+                                  
+                                  <button onclick="syncAIProfile()" class="sync-profile-btn"><i class="fas fa-sync-alt"></i> Re-Sync Career Profile</button>
+                             </div>
+                        </div>
+
+                        <!-- 2. Daily Cognitive Micro-Challenge -->
+                        <div class="intel-card daily-challenge-card" id="challenge-card-container">
+                             <?php if ($dailyChallenge): 
+                                  $questions = $dailyChallenge['question_json'];
+                                  if (is_string($questions)) {
+                                      $questions = json_decode($questions, true);
+                                  }
+                                  if (isset($questions['questions']) && is_array($questions['questions'])) {
+                                      $questions = $questions['questions'];
+                                  }
+                                  $isMultiple = isset($questions[0]) && is_array($questions[0]);
+                                  if (!$isMultiple) {
+                                      $questions = [$questions];
+                                  }
+                                  $totalQ = count($questions);
+                                  ?>
+                                  <div class="challenge-header">
+                                       <div class="lbl"><i class="fas fa-brain"></i> Daily Challenge</div>
+                                       <span class="topic-badge"><?php echo htmlspecialchars($dailyChallenge['topic_name']); ?></span>
+                                  </div>
+                                  
+                                  <?php if ($dailyChallenge['status'] === 'pending'): ?>
+                                       <form id="daily-challenge-form" onsubmit="submitChallenge(event, <?php echo $dailyChallenge['id']; ?>, <?php echo $totalQ; ?>)">
+                                            <div class="challenge-questions-wrapper">
+                                                 <?php foreach ($questions as $qIdx => $q): ?>
+                                                      <div class="challenge-question-slide" id="q-slide-<?php echo $qIdx; ?>" style="<?php echo $qIdx === 0 ? '' : 'display: none;'; ?>">
+                                                           <div class="question-meta-row" style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;">
+                                                                <span class="q-progress-text" style="font-size:0.7rem; font-weight:700; color:var(--text-muted);">Question <?php echo ($qIdx + 1); ?> of <?php echo $totalQ; ?></span>
+                                                           </div>
+                                                           <p class="question-text"><?php echo htmlspecialchars($q['question']); ?></p>
+                                                           
+                                                           <div class="options-container">
+                                                                <?php foreach ($q['options'] as $idx => $option): ?>
+                                                                     <label class="option-item">
+                                                                          <input type="radio" name="challenge_option_<?php echo $qIdx; ?>" value="<?php echo $idx; ?>" required>
+                                                                          <span class="option-marker"><?php echo chr(65 + $idx); ?></span>
+                                                                          <span class="option-text"><?php echo htmlspecialchars($option); ?></span>
+                                                                     </label>
+                                                                <?php endforeach; ?>
+                                                           </div>
+                                                      </div>
+                                                 <?php endforeach; ?>
+                                            </div>
+                                            
+                                            <!-- Navigation Footer -->
+                                            <div class="challenge-nav-buttons" style="display: flex; gap: 8px; margin-top: 0.75rem;">
+                                                 <button type="button" class="challenge-nav-btn prev-btn" onclick="changeQuestion(-1)" style="display: none; flex: 1; background: #e2e8f0; color: #475569; border: none; padding: 8px; border-radius: 8px; font-size: 0.75rem; font-weight: 700; cursor: pointer;">Previous</button>
+                                                 <button type="button" class="challenge-nav-btn next-btn" onclick="changeQuestion(1)" style="flex: 1; background: var(--gradient-maroon); color: white; border: none; padding: 8px; border-radius: 8px; font-size: 0.75rem; font-weight: 700; cursor: pointer;">Next</button>
+                                                 <button type="submit" class="challenge-submit-btn" style="display: none; flex: 1; background: var(--gradient-maroon); color: white; border: none; padding: 8px; border-radius: 8px; font-size: 0.75rem; font-weight: 700; cursor: pointer;">Submit Answers</button>
+                                            </div>
+                                       </form>
+                                  <?php else: 
+                                       $correctCount = (int)($dailyChallenge['performance_result'] ?? 0);
+                                       ?>
+                                       <div class="challenge-completed-state">
+                                            <div class="challenge-score-summary" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; background: rgba(128, 0, 0, 0.03); padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(128, 0, 0, 0.08);">
+                                                 <span style="font-size: 0.8rem; font-weight: 700; color: var(--primary-maroon);">Your Daily Score</span>
+                                                 <span style="font-size: 0.9rem; font-weight: 800; color: var(--primary-maroon); background: white; padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(128,0,0,0.15);"><?php echo $correctCount; ?> / <?php echo $totalQ; ?> Correct</span>
+                                            </div>
+                                            
+                                            <div class="challenge-results-list">
+                                                 <?php foreach ($questions as $qIdx => $q): 
+                                                      $selected = isset($q['selected_answer']) ? (int)$q['selected_answer'] : -1;
+                                                      $correct = (int)($q['answer'] ?? 0);
+                                                      $isQCorrect = ($selected === $correct);
+                                                      ?>
+                                                      <div class="challenge-result-item" style="border: 1px solid <?php echo $isQCorrect ? '#10b981' : '#ef4444'; ?>; background: <?php echo $isQCorrect ? '#ecfdf5' : '#fef2f2'; ?>; border-radius: 10px; padding: 10px; margin-bottom: 10px;">
+                                                           <p class="question-text" style="margin-bottom:0.4rem; font-size:0.75rem; line-height: 1.35;"><?php echo htmlspecialchars($q['question']); ?></p>
+                                                           <div style="font-size:0.7rem; font-weight:600; color: #4b5563; margin-bottom:0.4rem; display:flex; flex-direction:column; gap:2px;">
+                                                                <div><strong>Your Answer:</strong> <?php echo htmlspecialchars($q['options'][$selected] ?? 'None'); ?> 
+                                                                     <?php if ($isQCorrect): ?>
+                                                                          <i class="fas fa-check-circle" style="color:#10b981; margin-left:4px;"></i>
+                                                                     <?php else: ?>
+                                                                          <i class="fas fa-times-circle" style="color:#ef4444; margin-left:4px;"></i>
+                                                                     <?php endif; ?>
+                                                                </div>
+                                                                <?php if (!$isQCorrect): ?>
+                                                                     <div><strong>Correct Answer:</strong> <?php echo htmlspecialchars($q['options'][$correct] ?? ''); ?></div>
+                                                                <?php endif; ?>
+                                                           </div>
+                                                           <details style="margin-top: 0.25rem;">
+                                                                <summary style="cursor: pointer; font-size: 0.65rem; font-weight: 700; color: var(--primary-maroon); outline: none; list-style: none; display: flex; align-items: center; gap: 4px;">
+                                                                     <i class="fas fa-chevron-down" style="font-size: 0.55rem;"></i> View Explanation
+                                                                </summary>
+                                                                <div class="explanation-box" style="margin-top: 5px; margin-bottom: 0; background: white; padding: 8px; border-radius: 6px; font-size: 0.7rem; border: 1px solid rgba(0,0,0,0.05);">
+                                                                     <p><?php echo formatExplanation($q['explanation'] ?? ''); ?></p>
+                                                                </div>
+                                                           </details>
+                                                      </div>
+                                                 <?php endforeach; ?>
+                                            </div>
+                                            
+                                            <p class="completed-note" style="margin-top:0.75rem; text-align:center; font-size:0.65rem;">Completed. Tomorrow's challenge will unlock in 24 hours.</p>
+                                       </div>
+                                  <?php endif; ?>
+                             <?php else: ?>
+                                  <div class="challenge-header">
+                                       <div class="lbl"><i class="fas fa-brain"></i> Daily Challenge</div>
+                                  </div>
+                                  <p class="no-challenge">No challenge generated today. Re-sync your AI profile to set up topics.</p>
+                             <?php endif; ?>
+                        </div>
+
+                        <!-- 3. AI Insights Feed -->
+                        <div class="intel-card insights-card">
+                             <div class="insights-header">
+                                  <h4 style="margin:0;"><i class="fas fa-lightbulb"></i> AI Insights & Actions</h4>
+                             </div>
+                             <div class="insights-list">
+                                  <?php if (!empty($aiInsights)): ?>
+                                       <?php foreach ($aiInsights as $insight): 
+                                            $typeClass = strtolower($insight['insight_type']);
+                                            $icon = 'fa-info-circle';
+                                            if ($insight['insight_type'] === 'Warning') $icon = 'fa-exclamation-triangle';
+                                            if ($insight['insight_type'] === 'Achievement') $icon = 'fa-trophy';
+                                            if ($insight['insight_type'] === 'Goal_Match') $icon = 'fa-crosshairs';
+                                            ?>
+                                            <div class="insight-item <?php echo $typeClass; ?>">
+                                                 <i class="fas <?php echo $icon; ?> type-icon"></i>
+                                                 <div class="insight-content">
+                                                      <p style="margin:0; font-weight:600;"><?php echo htmlspecialchars($insight['message']); ?></p>
+                                                      <?php if ($insight['action_link']): ?>
+                                                           <a href="<?php echo htmlspecialchars($insight['action_link']); ?>" class="insight-action-link" style="margin-top:4px;">Take Action <i class="fas fa-arrow-right"></i></a>
+                                                      <?php endif; ?>
+                                                 </div>
+                                            </div>
+                                       <?php endforeach; ?>
+                                  <?php else: ?>
+                                       <p class="no-insights">You are fully up to date! No critical recommendations at this time.</p>
+                                  <?php endif; ?>
+                             </div>
+                        </div>
+                    </div>
+                </section>
+
 
                 <!-- Bento Content -->
                 <div class="bento-grid">
@@ -2310,8 +3013,10 @@ if (count($feedItems) < 2) {
                         <div class="card-header">
                             <h3><i class="fas fa-star" style="color: var(--accent-gold);"></i> Verified Highlights</h3>
                             <div style="display: flex; gap: 10px;">
+                                <?php if (isFeatureEnabled('feature_profile_analyzer')): ?>
                                 <a href="profile_analyser" class="btn-small"
                                     style="background: var(--gradient-maroon); color:white;">AI Analyzer</a>
+                                <?php endif; ?>
                                 <button onclick="openPortfolioModal()" class="btn-small">Manage</button>
                             </div>
                         </div>
@@ -2646,6 +3351,223 @@ if (count($feedItems) < 2) {
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/js/all.min.js"></script>
     <script>
+        function formatExplanation(text) {
+            if (!text) return '';
+            const escaped = escapeHtml(text);
+            const pattern = /(Option\s+[A-D]\s+is|Option\s+[A-D]\s+are|Option\s+[A-D]\s+incorrect|Option\s+[A-D]\s+correct|Option\s+[A-D]:)/ig;
+            let formatted = escaped.replace(pattern, '<br><br><strong>$1</strong>');
+            formatted = formatted.replace(/^(<br><br>)+/, '');
+            return formatted.replace(/\n/g, '<br>');
+        }
+
+        let currentQuestionIndex = 0;
+        function changeQuestion(dir) {
+            const wrapper = document.querySelector('.challenge-questions-wrapper');
+            if (!wrapper) return;
+            const slides = wrapper.querySelectorAll('.challenge-question-slide');
+            const total = slides.length;
+            
+            if (dir > 0) {
+                const currentSlide = slides[currentQuestionIndex];
+                const checked = currentSlide.querySelector('input[type="radio"]:checked');
+                if (!checked) {
+                    showToast('Selection Required', 'Please select an option to proceed.', 'info');
+                    return;
+                }
+            }
+            
+            slides[currentQuestionIndex].style.display = 'none';
+            currentQuestionIndex += dir;
+            slides[currentQuestionIndex].style.display = '';
+            
+            const prevBtn = document.querySelector('.prev-btn');
+            const nextBtn = document.querySelector('.next-btn');
+            const submitBtn = document.querySelector('.challenge-submit-btn');
+            
+            if (prevBtn) prevBtn.style.display = (currentQuestionIndex === 0) ? 'none' : '';
+            if (nextBtn) nextBtn.style.display = (currentQuestionIndex === total - 1) ? 'none' : '';
+            if (submitBtn) submitBtn.style.display = (currentQuestionIndex === total - 1) ? '' : 'none';
+        }
+
+        async function submitChallenge(event, challengeId, totalQ) {
+            event.preventDefault();
+            const form = event.target;
+            
+            const selectedOptions = [];
+            for (let i = 0; i < totalQ; i++) {
+                const checkedRadio = form.querySelector(`input[name="challenge_option_${i}"]:checked`);
+                if (!checkedRadio) {
+                    showToast('Incomplete Challenge', 'Please answer all questions before submitting.', 'info');
+                    return;
+                }
+                selectedOptions.push(parseInt(checkedRadio.value));
+            }
+
+            const btn = form.querySelector('.challenge-submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Submitting...';
+
+            try {
+                const response = await fetch('intelligence_handler.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        action: 'submit_challenge',
+                        challenge_id: challengeId,
+                        selected_options: JSON.stringify(selectedOptions)
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    const correctCount = result.correct_count;
+                    const totalQuestions = result.total_questions;
+                    const results = result.results;
+                    
+                    const container = document.getElementById('challenge-card-container');
+                    
+                    let resultsHtml = '';
+                    results.forEach((q) => {
+                        const isCorrect = q.is_correct;
+                        resultsHtml += `
+                            <div class="challenge-result-item" style="border: 1px solid ${isCorrect ? '#10b981' : '#ef4444'}; background: ${isCorrect ? '#ecfdf5' : '#fef2f2'}; border-radius: 10px; padding: 10px; margin-bottom: 10px;">
+                                 <p class="question-text" style="margin-bottom:0.4rem; font-size:0.75rem; line-height: 1.35;">${escapeHtml(q.question)}</p>
+                                 <div style="font-size:0.7rem; font-weight:600; color: #4b5563; margin-bottom:0.4rem; display:flex; flex-direction:column; gap:2px;">
+                                      <div><strong>Your Answer:</strong> ${escapeHtml(q.options[q.selected] ?? 'None')} 
+                                           ${isCorrect ? '<i class="fas fa-check-circle" style="color:#10b981; margin-left:4px;"></i>' : '<i class="fas fa-times-circle" style="color:#ef4444; margin-left:4px;"></i>'}
+                                      </div>
+                                      ${!isCorrect ? `<div><strong>Correct Answer:</strong> ${escapeHtml(q.options[q.correct_answer] ?? '')}</div>` : ''}
+                                 </div>
+                                 <details style="margin-top: 0.25rem;">
+                                      <summary style="cursor: pointer; font-size: 0.65rem; font-weight: 700; color: var(--primary-maroon); outline: none; list-style: none; display: flex; align-items: center; gap: 4px;">
+                                           <i class="fas fa-chevron-down" style="font-size: 0.55rem;"></i> View Explanation
+                                      </summary>
+                                      <div class="explanation-box" style="margin-top: 5px; margin-bottom: 0; background: white; padding: 8px; border-radius: 6px; font-size: 0.7rem; border: 1px solid rgba(0,0,0,0.05);">
+                                           <p>${formatExplanation(q.explanation || '')}</p>
+                                      </div>
+                                 </details>
+                            </div>
+                        `;
+                    });
+
+                    let resultHtml = `
+                        <div class="challenge-header">
+                            <div class="lbl"><i class="fas fa-brain"></i> Daily Challenge</div>
+                            <span class="topic-badge">${escapeHtml(result.topic || '')}</span>
+                        </div>
+                        <div class="challenge-completed-state">
+                            <div class="challenge-score-summary" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; background: rgba(128, 0, 0, 0.03); padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(128, 0, 0, 0.08);">
+                                 <span style="font-size: 0.8rem; font-weight: 700; color: var(--primary-maroon);">Your Daily Score</span>
+                                 <span style="font-size: 0.9rem; font-weight: 800; color: var(--primary-maroon); background: white; padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(128,0,0,0.15);">${correctCount} / ${totalQuestions} Correct</span>
+                            </div>
+                            
+                            <div class="challenge-results-list">
+                                 ${resultsHtml}
+                            </div>
+                            
+                            <p class="completed-note" style="margin-top:0.75rem; text-align:center; font-size:0.65rem;">Completed. Tomorrow's challenge will unlock in 24 hours.</p>
+                        </div>
+                    `;
+                    container.innerHTML = resultHtml;
+
+                    showToast('Challenge Completed', `Mastery updated! You scored ${correctCount}/${totalQuestions}!`, 'success');
+                } else {
+                    showToast('Submission Failed', result.message || 'Unknown error occurred.', 'error');
+                    btn.disabled = false;
+                    btn.innerHTML = 'Submit Answers';
+                }
+            } catch (e) {
+                showToast('Connection Error', 'Failed to connect to the intelligence engine.', 'error');
+                btn.disabled = false;
+                btn.innerHTML = 'Submit Answers';
+            }
+        }
+
+        async function syncAIProfile() {
+            const overlay = document.querySelector('.global-loading-overlay');
+            if (overlay) {
+                overlay.style.display = 'flex';
+                const loadingTitle = overlay.querySelector('.loading-content h3');
+                const loadingText = overlay.querySelector('.loading-content p');
+                if (loadingTitle) loadingTitle.innerText = 'AI Career Coaching';
+                if (loadingText) loadingText.innerText = 'Syncing profile achievements and generating tailored challenges...';
+            }
+
+            try {
+                const response = await fetch('intelligence_handler.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        action: 'sync_profile'
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    location.reload();
+                } else {
+                    if (overlay) overlay.style.display = 'none';
+                    showToast('Sync Failed', result.message || 'Unknown error occurred.', 'error');
+                }
+            } catch (e) {
+                if (overlay) overlay.style.display = 'none';
+                showToast('Connection Error', 'Failed to reach AI Intelligence Service.', 'error');
+            }
+        }
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            return text
+                .toString()
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
+        function showToast(title, message, type = 'info') {
+            const container = document.getElementById('notification-toast-container') || createToastContainer();
+            const toast = document.createElement('div');
+            toast.className = 'notification-toast';
+            if (type === 'error') {
+                toast.style.borderColor = '#ff4d4f';
+            } else if (type === 'success') {
+                toast.style.borderColor = '#52c41a';
+            }
+
+            let icon = '<i class="fas fa-info-circle"></i>';
+            if (type === 'error') icon = '<i class="fas fa-exclamation-circle"></i>';
+            if (type === 'success') icon = '<i class="fas fa-check-circle"></i>';
+
+            toast.innerHTML = `
+                <div class="toast-icon" style="${type === 'error' ? 'color:#ff4d4f; background:#fff2f0;' : (type === 'success' ? 'color:#52c41a; background:#f6ffed;' : '')}">${icon}</div>
+                <div class="toast-content">
+                    <h5 style="${type === 'error' ? 'color:#ff4d4f;' : (type === 'success' ? 'color:#52c41a;' : '')}">${escapeHtml(title)}</h5>
+                    <p style="margin:0;">${escapeHtml(message)}</p>
+                </div>
+            `;
+            
+            container.appendChild(toast);
+
+            setTimeout(() => {
+                toast.classList.add('toast-exit');
+                setTimeout(() => toast.remove(), 500);
+            }, 4000);
+        }
+
+        function createToastContainer() {
+            let container = document.getElementById('notification-toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'notification-toast-container';
+                document.body.appendChild(container);
+            }
+            return container;
+        }
+
         function openPortfolioModal() {
             document.getElementById('portfolioModal').style.display = 'flex';
             switchModalTab('add');
@@ -3169,6 +4091,12 @@ if (count($feedItems) < 2) {
                 input.value = data[key];
                 form.appendChild(input);
             }
+            // Add CSRF Token
+            const csrfInput = document.createElement('input');
+            csrfInput.type = 'hidden';
+            csrfInput.name = 'csrf_token';
+            csrfInput.value = CSRF_TOKEN;
+            form.appendChild(csrfInput);
             document.body.appendChild(form);
             form.submit();
         }
@@ -3319,7 +4247,58 @@ if (count($feedItems) < 2) {
     <script>
         (function () {
             window.addEventListener('load', function () {
-                document.getElementById('skeleton-screen').style.display = 'none';
+                const splash  = document.getElementById('welcome-splash');
+                const skeleton = document.getElementById('skeleton-screen');
+
+                if (skeleton) skeleton.style.display = 'none';
+
+                var userId   = '<?php echo addslashes($userId); ?>';
+                var lsKey    = 'lakshya_splash_date_' + userId;
+                var today    = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD
+                var lastSeen = localStorage.getItem(lsKey);
+                var showSplash = (lastSeen !== today);
+
+                if (splash && showSplash) {
+                    localStorage.setItem(lsKey, today);
+
+                    var text      = 'Hi there!';
+                    var container = document.getElementById('splash-text-container');
+                    var subEl     = document.getElementById('splash-sub');
+
+                    // Create blinking pen cursor
+                    var cursor = document.createElement('span');
+                    cursor.id  = 'splash-cursor';
+                    container.appendChild(cursor);
+
+                    splash.style.display = 'flex';
+
+                    // Type one character at a time
+                    var idx = 0;
+                    var typing = setInterval(function () {
+                        if (idx < text.length) {
+                            var charNode = document.createTextNode(text[idx]);
+                            container.insertBefore(charNode, cursor);
+                            idx++;
+                        } else {
+                            clearInterval(typing);
+                            // Cursor blinks 3 more times then fades
+                            setTimeout(function () {
+                                cursor.style.transition = 'opacity 0.4s';
+                                cursor.style.opacity = '0';
+                                // Show subtitle
+                                if (subEl) subEl.style.opacity = '1';
+                            }, 500);
+                            // Dismiss whole splash
+                            setTimeout(function () {
+                                splash.classList.add('fade-out');
+                                setTimeout(function () { splash.remove(); }, 1000);
+                            }, 2200);
+                        }
+                    }, 130);
+
+                } else if (splash) {
+                    splash.remove();
+                }
             });
 
             const AVATAR_KEY = 'lakshya_avatar_id_<?php echo $userId; ?>';

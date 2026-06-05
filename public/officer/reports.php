@@ -110,7 +110,7 @@ $fullName = getFullName();
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Intelligence Hub - <?php echo APP_NAME; ?></title>
@@ -412,7 +412,7 @@ $fullName = getFullName();
 
     <div class="hub-container">
         <header>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
             <h1>Intelligence Hub</h1>
             <p class="subtitle">Minimalist data orchestration for placement officers.</p>
         </header>

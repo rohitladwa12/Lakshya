@@ -93,4 +93,14 @@ class QueueService {
         $result = $redis->brpop(self::$queueName, $timeout);
         return $result ? $result[1] : null;
     }
+
+    /**
+     * Get number of pending jobs
+     */
+    public static function getPendingCount() {
+        $redisHelper = RedisHelper::getInstance();
+        if (!$redisHelper->isConnected()) return 0;
+        $redis = $redisHelper->getClient();
+        return $redis->llen(self::$queueName);
+    }
 }

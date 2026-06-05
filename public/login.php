@@ -6,13 +6,57 @@
 
 require_once __DIR__ . '/../config/bootstrap.php';
 
+$mentorId = '';
+if (isset($_REQUEST['emp_id'])) {
+    $mentorId = trim((string)$_REQUEST['emp_id']);
+} elseif (isset($_REQUEST['MENTOR_ID'])) {
+    $mentorId = trim((string)$_REQUEST['MENTOR_ID']);
+} elseif (isset($_REQUEST['mentor_id'])) {
+    $mentorId = trim((string)$_REQUEST['mentor_id']);
+}
+
+if (!empty($mentorId)) {
+    $remoteDB = getDB('gmu');
+    if ($remoteDB) {
+        $stmt = $remoteDB->prepare("SELECT * FROM users WHERE ID = ? AND STATUS = 'ACTIVE' LIMIT 1");
+        $stmt->execute([$mentorId]);
+        $userRow = $stmt->fetch();
+        
+        if ($userRow) {
+            $department = trim((string)($userRow['DISCIPLINE'] ?? ''));
+            if (empty($department)) {
+                 $department = 'CSE';
+            }
+            $photo = $userRow['PHOTO'] ?? null;
+            $role = 'hod';
+            
+            Session::setUser(
+                $userRow['SL_NO'],
+                $userRow['USER_NAME'],
+                $role,
+                $userRow['NAME'] ?? $userRow['USER_NAME'],
+                'GMU',
+                $department,
+                $photo
+            );
+            
+            trackActivity('erp_auto_login', 'HOD logged in via ERP MENTOR_ID link from login page', [
+                'mentor_id' => $mentorId,
+                'department' => $department
+            ]);
+        }
+    }
+}
+
 // If already logged in, redirect to appropriate dashboard
 if (isLoggedIn()) {
     $role = Session::getRole();
     if ($role === ROLE_VC) {
-        redirect('/Lakshya/vc/index.php');
+        redirect('<?php echo APP_URL; ?>/vc/index.php');
     } elseif ($role === 'placement_officer') {
         redirect('officer/dashboard');
+    } elseif ($role === 'hod') {
+        redirect('hod/dashboard.php');
     } elseif ($role === 'admin') {
         redirect('admin/dashboard.php');
     } elseif ($role === 'internship_officer') {
@@ -48,9 +92,11 @@ if (isPost()) {
             trackActivity('login', 'User logged in successfully', ['role' => $user['role'], 'institution' => $user['institution'] ?? 'N/A']);
 
             if ($user['role'] === ROLE_VC) {
-                redirect('/Lakshya/vc/index.php');
+                redirect('<?php echo APP_URL; ?>/vc/index.php');
             } elseif ($user['role'] === 'placement_officer') {
                 redirect('officer/dashboard');
+            } elseif ($user['role'] === 'hod') {
+                redirect('hod/dashboard.php');
             } elseif ($user['role'] === 'admin') {
                 redirect('admin/dashboard.php');
             } elseif ($user['role'] === 'internship_officer') {
@@ -76,7 +122,7 @@ if (isPost()) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login — LAKSHYA | GM University</title>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
     <style>

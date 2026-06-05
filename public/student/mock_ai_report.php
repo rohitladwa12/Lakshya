@@ -1,4 +1,4 @@
-<?php
+﻿<?php
 require_once __DIR__ . '/../../config/bootstrap.php';
 require_once __DIR__ . '/../../src/Models/StudentProfile.php';
 require_once __DIR__ . '/../../src/Models/User.php';
@@ -17,6 +17,13 @@ if (isPost() && isset($_POST['session_id'])) {
     ]);
     header("Location: mock_ai_report.php");
     exit;
+}
+
+// Handle GET redirect from interview completion (e.g. ?session_id=123)
+if (!isPost() && isset($_GET['session_id']) && intval($_GET['session_id']) > 0) {
+    SessionFilterHelper::setFilters('mock_ai_report', [
+        'session_id' => intval($_GET['session_id'])
+    ]);
 }
 
 $filters = SessionFilterHelper::getFilters('mock_ai_report');
@@ -56,7 +63,7 @@ $date = date('d M Y', strtotime($session['started_at']));
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Interview Performance Report - GM University</title>

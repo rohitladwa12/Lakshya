@@ -40,7 +40,7 @@ $issuer = $cert['sub_title'];
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Certification Verification: <?php echo htmlspecialchars($certTitle); ?> - <?php echo APP_NAME; ?></title>
@@ -424,6 +424,7 @@ $issuer = $cert['sub_title'];
     let currentIdx = 0;
     let isSessionActive = false;
     const portfolioId = <?php echo $portfolioId; ?>;
+    const CSRF_TOKEN = '<?php echo $_SESSION['csrf_token']; ?>';
 
     // --- Life Cycle Management ---
 
@@ -479,15 +480,26 @@ $issuer = $cert['sub_title'];
         try {
             const res = await fetch('certification_viva_handler.php', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
                 body: JSON.stringify({ action: 'generate_viva', portfolio_id: portfolioId })
             });
             const data = await res.json();
 
             if (data.success && data.job_id) {
                 pollJobStatus(data.job_id, (questionsData) => {
-                    const qList = Array.isArray(questionsData) ? questionsData : questionsData.questions;
+                    if (questionsData.success === false) {
+                        handleException("AI Error: " + (questionsData.message || "Failed to generate questions."));
+                        return;
+                    }
+                    const qList = Array.isArray(questionsData) ? questionsData : (questionsData.questions || []);
                     questions = qList;
+                    if (questions.length === 0) {
+                        handleException("No questions generated. Please try again.");
+                        return;
+                    }
                     initializeViva();
                 }, (err) => {
                     handleException("Failed to prepare verification questions: " + err);
@@ -552,7 +564,10 @@ $issuer = $cert['sub_title'];
             try {
                 const res = await fetch(`ai_job_status.php?job_id=${jobId}`);
                 const data = await res.json();
-                
+                if (data.success === false) {
+                    onError(data.message || "Job error");
+                    return;
+                }
                 if (data.status === 'completed') {
                     onSuccess(data.result);
                 } else if (data.status === 'failed') {
@@ -576,7 +591,10 @@ $issuer = $cert['sub_title'];
         try {
             const res = await fetch('certification_viva_handler.php', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
                 body: JSON.stringify({ 
                     action: 'submit_viva', 
                     portfolio_id: portfolioId, 
@@ -587,10 +605,12 @@ $issuer = $cert['sub_title'];
 
             if (data.success && data.job_id) {
                 pollJobStatus(data.job_id, (evalData) => {
+                    if (evalData.success === false) {
+                        handleException("Evaluation Error: " + (evalData.message || "Failed to grade session."));
+                        return;
+                    }
                     persistResult(evalData);
-                }, (err) => {
-                    handleException("Analysis failure: " + err);
-                });
+                }, (err) => handleException("Evaluation Failure: " + err));
             } else {
                 handleException("Analysis request failed.");
             }
@@ -619,7 +639,10 @@ $issuer = $cert['sub_title'];
         try {
             await fetch('certification_viva_handler.php', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
                 body: JSON.stringify({
                     action: 'save_viva_result',
                     portfolio_id: portfolioId,
@@ -641,4 +664,3 @@ $issuer = $cert['sub_title'];
 
 </body>
 </html>
-

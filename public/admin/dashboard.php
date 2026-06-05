@@ -26,7 +26,7 @@ if (!headers_sent()) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard - <?php echo APP_NAME; ?></title>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../assets/css/skeleton.css?v=<?php echo APP_VERSION; ?>">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -68,10 +68,7 @@ $chapters = $chapterModel->all();
 $db = getDB();
 $stmt = $db->query("SELECT setting_key, setting_value FROM system_settings");
 $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
-
-// Live server status checks
-$gmuStatus = Database::checkConnection('gmu');
-$gmitStatus = Database::checkConnection('gmit');
+// Server status is now loaded async via JS — no blocking here
 ?>
     <style>
         :root {
@@ -464,24 +461,15 @@ $gmitStatus = Database::checkConnection('gmit');
 
             <div style="display: flex; gap: 20px; align-items: center;">
                 <!-- Server Status Badges -->
-                <div style="display: flex; gap: 8px; align-items: center;">
-                    <?php
-                    $servers = ['GMU' => $gmuStatus, 'GMIT' => $gmitStatus];
-                    foreach ($servers as $name => $status):
-                        $ok = $status['ok'];
-                        $bg = $ok ? '#dcfce7' : '#fee2e2';
-                        $color = $ok ? '#15803d' : '#b91c1c';
-                        $dot = $ok ? '#22c55e' : '#ef4444';
-                        $label = $ok ? 'Online' : 'Down';
-                        $title = $ok ? "{$name} server is reachable" : "Error: " . htmlspecialchars($status['error'] ?? 'Unreachable');
-                        ?>
-                        <div title="<?php echo $title; ?>"
-                            style="display:flex;align-items:center;gap:6px;background:<?php echo $bg; ?>;color:<?php echo $color; ?>;padding:6px 12px;border-radius:50px;font-size:12px;font-weight:700;cursor:default;">
-                            <span
-                                style="width:7px;height:7px;border-radius:50%;background:<?php echo $dot; ?>;<?php echo $ok ? 'animation:pulse-dot 2s infinite;' : ''; ?>"></span>
-                            <?php echo $name; ?>     <?php echo $label; ?>
-                        </div>
-                    <?php endforeach; ?>
+                <div style="display: flex; gap: 8px; align-items: center;" id="serverStatusBadges">
+                    <!-- GMU badge placeholder -->
+                    <div id="badge-GMU" style="display:flex;align-items:center;gap:6px;background:#f3f4f6;color:#9ca3af;padding:6px 12px;border-radius:50px;font-size:12px;font-weight:700;">
+                        <span style="width:7px;height:7px;border-radius:50%;background:#d1d5db;"></span> GMU Loading...
+                    </div>
+                    <!-- GMIT badge placeholder -->
+                    <div id="badge-GMIT" style="display:flex;align-items:center;gap:6px;background:#f3f4f6;color:#9ca3af;padding:6px 12px;border-radius:50px;font-size:12px;font-weight:700;">
+                        <span style="width:7px;height:7px;border-radius:50%;background:#d1d5db;"></span> GMIT Loading...
+                    </div>
                 </div>
 
                 <div style="text-align: right;">
@@ -641,6 +629,24 @@ $gmitStatus = Database::checkConnection('gmit');
                     </div>
                     <label class="switch">
                         <input type="checkbox" onchange="toggleAI('feature_profile_analyzer', this)" <?php echo ($settings['feature_profile_analyzer'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <!-- Leaderboard -->
+                <div
+                    style="display: flex; align-items: center; justify-content: space-between; background: #ecfdf5; padding: 16px 20px; border-radius: 16px; border: 1px solid #a7f3d0;">
+                    <div style="display: flex; align-items: center; gap: 12px;">
+                        <div
+                            style="width: 40px; height: 40px; background: #d1fae5; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #059669;">
+                            <i class="fas fa-trophy"></i></div>
+                        <div>
+                            <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Leaderboard</div>
+                            <div style="font-size: 0.78rem; color: #a3aed1;">AI Performance Ranking</div>
+                        </div>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" onchange="toggleAI('feature_leaderboard', this)" <?php echo ($settings['feature_leaderboard'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
                         <span class="slider"></span>
                     </label>
                 </div>
@@ -852,6 +858,36 @@ $gmitStatus = Database::checkConnection('gmit');
             }
         });
     </script>
+
+    <script>
+        // Load server status asynchronously — never blocks the page
+        (function() {
+            function renderBadge(id, ok, label) {
+                var el = document.getElementById('badge-' + id);
+                if (!el) return;
+                var bg    = ok ? '#dcfce7' : '#fee2e2';
+                var color = ok ? '#15803d' : '#b91c1c';
+                var dot   = ok ? '#22c55e' : '#ef4444';
+                var anim  = ok ? 'animation:pulse-dot 2s infinite;' : '';
+                el.style.background = bg;
+                el.style.color = color;
+                el.title = ok ? (id + ' server is reachable') : (id + ' is unreachable');
+                el.innerHTML = '<span style="width:7px;height:7px;border-radius:50%;background:' + dot + ';' + anim + '"></span> ' + label + ' ' + (ok ? 'Online' : 'Down');
+            }
+
+            fetch('<?php echo APP_URL; ?>/api/server_status.php', { method: 'GET' })
+                .then(function(r) { return r.json(); })
+                .then(function(data) {
+                    renderBadge('GMU',  data.gmu  && data.gmu.ok,  'GMU');
+                    renderBadge('GMIT', data.gmit && data.gmit.ok, 'GMIT');
+                })
+                .catch(function() {
+                    renderBadge('GMU',  false, 'GMU');
+                    renderBadge('GMIT', false, 'GMIT');
+                });
+        })();
+    </script>
 </body>
+
 
 </html>

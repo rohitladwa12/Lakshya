@@ -65,7 +65,7 @@ try {
             break;
         }
     }
-} catch (Exception $e) {
+} catch (\Throwable $e) {
     error_log("Notification Stream Fatal Error: " . $e->getMessage());
     echo "event: error\n";
     echo "data: " . json_encode(['message' => 'Service interruption. Please refresh.']) . "\n\n";

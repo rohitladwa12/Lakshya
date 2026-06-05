@@ -17,11 +17,14 @@ $input = json_decode(file_get_contents('php://input'), true) ?: [];
 $input = array_merge($input, $_POST);
 
 $action = $input['action'] ?? '';
+
 $userId = getUserId();
 $studentIdForDb = getStudentIdForAssessment(); // USN for GMIT, user_id for GMU (avoids 0 for GMIT)
 
-if (!$userId && !getUsername()) {
-    echo json_encode(['success' => false, 'message' => 'User not authenticated']);
+// Rate Limit: 15 requests per minute (Higher for chat sessions)
+if (!checkRateLimit("mock_ai_api_" . $userId, 15, 60)) {
+    ob_clean();
+    echo json_encode(['success' => false, 'message' => 'Too many requests. Please wait a minute.']);
     exit;
 }
 
@@ -53,7 +56,13 @@ switch ($action) {
         exit;
 
     case 'start':
-        $role = $input['role'] ?? 'AI Engineer';
+        // Strict limit for starting new mock sessions (2 per minute)
+        if (!checkRateLimit("mock_ai_start_" . $userId, 2, 60)) {
+            ob_clean();
+            echo json_encode(['success' => false, 'message' => 'Slow down! You can only start 2 sessions per minute.']);
+            exit;
+        }
+$role = $input['role'] ?? 'AI Engineer';
         $company = $input['company'] ?? 'General';
         $concept = $input['concept'] ?? '';
         $type = $input['type'] ?? 'Technical';
@@ -91,7 +100,6 @@ switch ($action) {
 
     case 'chat':
         $sessionId = $input['session_id'] ?? 0;
-        $userMessage = $input['message'] ?? '';
         
         // Fetch session
         $sql = "SELECT * FROM mock_ai_interview_sessions WHERE id = ? AND student_id = ? AND status = 'active'";
@@ -104,10 +112,26 @@ switch ($action) {
             exit;
         }
         
-        $role = $session['role_name'];
-        $concept = $session['concept'] ?? '';
-        $type = $input['type'] ?? 'Technical';
+        $role = (string)($session['role_name'] ?? '');
+        $concept = (string)($session['concept'] ?? '');
+        $type = (string)($input['type'] ?? 'Technical');
         $history = json_decode($session['conversation_history'], true) ?: [];
+
+        // Ensure $userMessage is always a plain string (never an array from json_decode)
+        $userMessage = $input['message'] ?? '';
+        if (!is_string($userMessage)) {
+            $userMessage = is_array($userMessage) ? json_encode($userMessage) : (string)$userMessage;
+        }
+
+        // Sanitize stored history to ensure all content fields are strings
+        $history = array_filter(array_map(function($msg) {
+            if (!isset($msg['role']) || !isset($msg['content'])) return null;
+            if (!is_string($msg['content'])) {
+                $msg['content'] = is_array($msg['content']) ? json_encode($msg['content']) : (string)$msg['content'];
+            }
+            return $msg;
+        }, $history));
+
         $history[] = ['role' => 'user', 'content' => $userMessage];
         
         $profile = $studentModel->getByUserId($userId);

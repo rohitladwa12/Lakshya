@@ -150,9 +150,16 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
 
     <div class="nav-right">
         <div class="user-info">
-            <div class="user-avatar"><?php echo strtoupper(substr($GLOBALS['fullName'] ?? 'V', 0, 1)); ?></div>
-            <span style="font-size:13px; font-weight:600;"><?php echo htmlspecialchars($GLOBALS['fullName'] ?? 'Vice Chancellor'); ?></span>
+            <?php $actualName = getFullName(); ?>
+            <div class="user-avatar"><?php echo strtoupper(substr($actualName ?? 'U', 0, 1)); ?></div>
+            <span style="font-size:13px; font-weight:600;"><?php echo htmlspecialchars($actualName ?? 'User'); ?></span>
         </div>
         <a href="../logout.php" class="logout-btn">Logout</a>
     </div>
 </nav>
+
+<!-- Global Security Layer -->
+<script>
+    window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ""; ?>';
+</script>
+<script src="<?php echo APP_URL; ?>/js/security_interceptor.js?v=<?php echo time(); ?>"></script>

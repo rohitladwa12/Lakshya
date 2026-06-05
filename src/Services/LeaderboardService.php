@@ -64,9 +64,9 @@ class LeaderboardService {
             // Final Total Points (Out of 100)
             $rawTotal = ($assessmentScore * 0.7) + ($portfolioScore * 0.3);
             
-            // Inactivity Penalty (Permanent Decay)
-            $inactivityDays = self::calculateInactivityPenalty($assessmentTimestamps[$lowUsn] ?? []);
-            $totalScore = max(0, $rawTotal - $inactivityDays);
+            // Inactivity Penalty (Daily Point Decay Removed)
+            $inactivityDays = 0;
+            $totalScore = $rawTotal;
 
             // Academic History (for filtering and display)
             $history = $academicHistory[$lowUsn] ?? [];

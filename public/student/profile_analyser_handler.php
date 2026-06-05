@@ -24,7 +24,7 @@ try {
     $cacheModel = new AIAnalysisCache();
 
     // 1. Fetch Student Data
-    $profile = $studentModel->getByUserId($userId);
+    $profile = $studentModel->getByUserId($userId) ?: [];
     $portfolio = $portfolioModel->getStudentPortfolio($username, $institution);
     
     // Group portfolio by category
@@ -53,10 +53,10 @@ try {
     }
 
     $studentData = [
-        'name' => $profile['name'],
-        'cgpa' => $profile['cgpa'],
-        'course' => $profile['course'],
-        'department' => $profile['department'],
+        'name' => $profile['name'] ?? $username ?? 'Student',
+        'cgpa' => $profile['cgpa'] ?? 'N/A',
+        'course' => $profile['course'] ?? 'N/A',
+        'department' => $profile['department'] ?? 'N/A',
         'technical_skills' => $skills,
         'projects' => $projects,
         'certifications' => $certs

@@ -34,6 +34,12 @@ session_write_close();
 $userId = getUserId();
 $studentIdForDb = getStudentIdForAssessment();
 
+// Rate Limit: 10 requests per minute
+if (!checkRateLimit("ai_tech_api_" . $userId, 10, 60)) {
+    ob_clean();
+    echo json_encode(['success' => false, 'message' => 'Too many requests. Please wait a minute.']);
+    exit;
+}
 $db = getDB();
 $ai = new AIService();
 $studentModel = new StudentProfile();
@@ -66,7 +72,13 @@ switch ($action) {
         exit;
 
     case 'start_session':
-        $role = $input['role'] ?? 'Software Engineer';
+        // Strict limit for starting new sessions (2 per minute)
+        if (!checkRateLimit("ai_tech_start_" . $userId, 2, 60)) {
+            ob_clean();
+            echo json_encode(['success' => false, 'message' => 'Slow down! You can only start 2 sessions per minute.']);
+            exit;
+        }
+$role = $input['role'] ?? 'Software Engineer';
         $company = $input['company'] ?? 'General';
         $concept = $input['concept'] ?? '';
         
@@ -209,7 +221,8 @@ switch ($action) {
 
             // Generate HTML for the PDF
             $html = generateReportHTML($session['usn'], $session['current_sem'] ?? 'N/A', $session['student_name'], $session['company_name'], $score, $reportText);
-            $filename = "{$session['usn']}_" . ($session['current_sem'] ?? 'Sem') . "_{$sessionId}.pdf";
+            $secureHash = sha1($session['usn'] . $sessionId . 'LAKSHYA_SALT_2024');
+            $filename = "report_" . $secureHash . ".pdf";
 
             // Decode current details to safely append
             $stmt = $db->prepare("SELECT details, started_at, usn FROM unified_ai_assessments WHERE id = ?");
@@ -253,7 +266,11 @@ switch ($action) {
             $dir = REPORTS_UPLOAD_PATH . '/technical/';
             if (!is_dir($dir)) mkdir($dir, 0777, true);
             
-            $filename = basename($_FILES['pdf']['name']);
+            $stmtHash = $db->prepare("SELECT usn FROM unified_ai_assessments WHERE id = ?");
+            $stmtHash->execute([$sessionId]);
+            $usnForHash = $stmtHash->fetchColumn();
+            $secureHash = sha1($usnForHash . $sessionId . 'LAKSHYA_SALT_2024');
+            $filename = "report_" . $secureHash . ".pdf";
             $targetPath = $dir . $filename;
             
             if (move_uploaded_file($_FILES['pdf']['tmp_name'], $targetPath)) {
@@ -314,7 +331,7 @@ function generateReportHTML($usn, $sem, $name, $role, $score, $content) {
     return "
     <html>
     <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
         <style>
             body { font-family: sans-serif; padding: 40px; line-height: 1.6; color: #333; }
             h1 { color: #800000; border-bottom: 2px solid #800000; padding-bottom: 10px; margin-bottom: 20px; }

@@ -175,3 +175,9 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         <a href="../logout.php" class="o-logout"><i class="fas fa-power-off"></i> Logout</a>
     </div>
 </nav>
+
+<!-- Global Security Layer -->
+<script>
+    window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ""; ?>';
+</script>
+<script src="<?php echo APP_URL; ?>/js/security_interceptor.js?v=<?php echo time(); ?>"></script>

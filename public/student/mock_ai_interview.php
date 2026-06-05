@@ -1027,6 +1027,7 @@ $roundType = $filters['type'] ?? 'Technical';
 </div>
 
 <script>
+    const CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
     let currentSessionId = null;
     let selectedRole = '';
     let editor = null;
@@ -1234,9 +1235,12 @@ $roundType = $filters['type'] ?? 'Technical';
     async function initiateBackendSession(role) {
         try {
             // 2. Start Session
-            const res = await fetch('mock_ai_handler', { 
+            const res = await fetch('mock_ai_handler.php', { 
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
                 body: JSON.stringify({ 
                     action: 'start', 
                     role: role, 
@@ -1289,9 +1293,12 @@ $roundType = $filters['type'] ?? 'Technical';
     // Check for active session on load
     window.addEventListener('DOMContentLoaded', async () => {
         try {
-            const res = await fetch('mock_ai_handler', {
+            const res = await fetch('mock_ai_handler.php', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
                 body: JSON.stringify({ action: 'check_active' })
             });
             const data = await res.json();
@@ -1321,9 +1328,12 @@ $roundType = $filters['type'] ?? 'Technical';
                 document.getElementById('btnStartFresh').onclick = async () => {
                     modal.style.display = 'none';
                     // Retire old session
-                    await fetch('mock_ai_handler', {
+                    await fetch('mock_ai_handler.php', {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'X-CSRF-TOKEN': CSRF_TOKEN
+                        },
                         body: JSON.stringify({ action: 'cancel_pending', session_id: data.session_id })
                     });
                 };
@@ -1368,9 +1378,12 @@ $roundType = $filters['type'] ?? 'Technical';
         typingIndicator.style.display = 'flex';
 
         try {
-            const res = await fetch('mock_ai_handler', {
+            const res = await fetch('mock_ai_handler.php', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
                 body: JSON.stringify({ 
                     action: 'chat', 
                     session_id: currentSessionId, 
@@ -1395,7 +1408,7 @@ $roundType = $filters['type'] ?? 'Technical';
                                 lockControls();
                                 addMessage('ai', 'SYSTEM: *Session concluded. Processing analytics...*');
                                 setTimeout(() => {
-                                    window.location.href = `mock_ai_report?session_id=${data.session_id}`;
+                                    window.location.href = `mock_ai_report.php?session_id=${data.session_id}`;
                                 }, 3000);
                             }
                         } else if (statusRes.status === 'failed') {
@@ -1414,7 +1427,7 @@ $roundType = $filters['type'] ?? 'Technical';
                     addMessage('ai', 'SYSTEM: *Session concluded. Processing analytics...*');
                     setTimeout(() => {
                         currentSessionId = null; // Unblock navigation
-                        window.location.href = `mock_ai_report?session_id=${data.session_id}`;
+                        window.location.href = `mock_ai_report.php?session_id=${data.session_id}`;
                     }, 3000);
                 }
             }
@@ -1446,9 +1459,12 @@ $roundType = $filters['type'] ?? 'Technical';
         consoleOut.className = 'console-out';
 
         try {
-            const res = await fetch('mock_ai_handler', {
+            const res = await fetch('mock_ai_handler.php', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
                 body: JSON.stringify({ 
                     action: 'evaluate_code', 
                     session_id: currentSessionId, 
@@ -1533,9 +1549,12 @@ $roundType = $filters['type'] ?? 'Technical';
         // Add a system log message
 
         try {
-            const res = await fetch('mock_ai_handler', {
+            const res = await fetch('mock_ai_handler.php', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
                 body: JSON.stringify({ 
                     action: 'end_session', 
                     session_id: currentSessionId,
@@ -1555,7 +1574,7 @@ $roundType = $filters['type'] ?? 'Technical';
                 addMessage('ai', 'SYSTEM: *Analysis complete. Redirecting to report...*');
                 currentSessionId = null; // Unblock navigation
                 setTimeout(() => {
-                    window.location.href = `mock_ai_report?session_id=${data.session_id}`;
+                    window.location.href = `mock_ai_report.php?session_id=${data.session_id}`;
                 }, 2000);
             } else {
                 alert('Session error: ' + data.message);

@@ -18,19 +18,43 @@ function workerLog($message) {
 workerLog("--- AI Worker Started ---");
 workerLog("Waiting for jobs...");
 
-// Service registry — worker will try each in order until method is found
 $services = [
     new AIService(),
     new CareerAdvisorAI(),
 ];
 
+// Identify this worker
+$workerId = gethostname() . "_" . getmypid();
+workerLog("Worker Identity: $workerId");
+
+function updatePulse($id, $jobCount = 0) {
+    global $redisHelper;
+    if ($redisHelper && $redisHelper->isConnected()) {
+        $redisHelper->getClient()->hset('ai_workers_pulse', $id, time());
+        $redisHelper->getClient()->hset('ai_workers_memory', $id, round(memory_get_usage() / 1024 / 1024, 2) . 'MB');
+        $redisHelper->getClient()->hset('ai_workers_jobs', $id, $jobCount);
+    }
+}
+$jobCount = 0;
+updatePulse($workerId, $jobCount);
+
 $startTime = time();
-$maxRuntime = 3600; // Auto-restart every 1 hour to clear memory/cache
+$maxRuntime = 7200; // Auto-restart every 2 hours
+$maxMemory = 128 * 1024 * 1024; // 128MB limit
+$maxJobs = 100; // Restart after 100 jobs to keep memory fresh
 
 while (true) {
-    // Check if we need to restart for memory clearance
+    // 0. Health & Memory Checks
     if (time() - $startTime > $maxRuntime) {
-        workerLog("Worker reaching max runtime of 4 hours. Exiting gracefully to clear memory...");
+        workerLog("Max runtime reached. Restarting...");
+        exit(0);
+    }
+    if (memory_get_usage() > $maxMemory) {
+        workerLog("Memory limit (128MB) reached. Current: " . round(memory_get_usage() / 1024 / 1024, 2) . "MB. Restarting...");
+        exit(0);
+    }
+    if ($jobCount >= $maxJobs) {
+        workerLog("Max jobs ($maxJobs) reached. Restarting...");
         exit(0);
     }
 
@@ -38,7 +62,8 @@ while (true) {
     $jobId = QueueService::popJob(30); // Block for 30s
     
     if (!$jobId) {
-        // No job, loop again (or check for termination signal)
+        // No job, pulse and loop again
+        updatePulse($workerId, $jobCount);
         continue;
     }
 
@@ -52,9 +77,14 @@ while (true) {
     }
 
     // 3. Update status to processing
+    $jobCount++;
+    $currentUserId = $job['user_id'] ?? 0;
+    $GLOBALS['AI_WORKER_USER_ID'] = $currentUserId;
+
     QueueService::updateJob($jobId, [
         'status' => 'processing',
-        'started_at' => time()
+        'started_at' => time(),
+        'worker_id' => $workerId
     ]);
 
     try {

@@ -1,6 +1,6 @@
 <?php
 $currentPage = basename($_SERVER['PHP_SELF']);
-$fullName = (string)getFullName();
+$fullName = (string) getFullName();
 $department = getDepartment() ?: 'General';
 include_once __DIR__ . '/../../includes/demo_protection.php';
 ?>
@@ -265,13 +265,25 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
     }
 
     @media (max-width: 1200px) {
-        .nav-left { gap: 30px; }
-        .navbar { padding: 0 30px; }
+        .nav-left {
+            gap: 30px;
+        }
+
+        .navbar {
+            padding: 0 30px;
+        }
     }
 
     @media (max-width: 1024px) {
-        .user-profile { display: none; }
-        .nav-items { display: none; } /* Could add a mobile menu here if requested */
+        .user-profile {
+            display: none;
+        }
+
+        .nav-items {
+            display: none;
+        }
+
+        /* Could add a mobile menu here if requested */
     }
 </style>
 
@@ -294,12 +306,20 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
                 </a>
             </li>
             <li>
-                <a href="students_report.php" class="nav-link <?php echo $currentPage == 'students_report.php' ? 'active' : ''; ?>">
+                <a href="students_report.php"
+                    class="nav-link <?php echo $currentPage == 'students_report.php' ? 'active' : ''; ?>">
                     <i class="fas fa-user-graduate"></i> Students & Reports
                 </a>
             </li>
             <li>
-                <a href="change_password" class="nav-link <?php echo $currentPage == 'change_password.php' ? 'active' : ''; ?>">
+                <a href="ai_monitor.php"
+                    class="nav-link <?php echo $currentPage == 'ai_monitor.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-robot"></i> Student Monitor
+                </a>
+            </li>
+            <li>
+                <a href="change_password"
+                    class="nav-link <?php echo $currentPage == 'change_password.php' ? 'active' : ''; ?>">
                     <i class="fas fa-shield-keyhole"></i> Security
                 </a>
             </li>
@@ -322,3 +342,8 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
     </div>
 </nav>
 
+<!-- Global Security Layer -->
+<script>
+    window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ""; ?>';
+</script>
+<script src="<?php echo APP_URL; ?>/js/security_interceptor.js?v=<?php echo time(); ?>"></script>

@@ -6,7 +6,17 @@
 // Application Info
 define('APP_NAME', 'GMU Placement Portal');
 define('APP_VERSION', '2.0');
-define('APP_URL', getenv('APP_URL') ?: 'http://localhost/Lakshya');
+// Dynamic Application URL detection (supports remote domains/IPs without hardcoding)
+if (php_sapi_name() !== 'cli' && isset($_SERVER['HTTP_HOST'])) {
+    $protocol = (isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] === 'on' || $_SERVER['HTTPS'] === 1 || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')) ? 'https' : 'http';
+    $host = $_SERVER['HTTP_HOST'];
+    $envUrl = getenv('APP_URL') ?: 'http://localhost/Lakshya';
+    $parsedEnv = parse_url($envUrl);
+    $path = isset($parsedEnv['path']) ? rtrim($parsedEnv['path'], '/') : '';
+    define('APP_URL', $protocol . '://' . $host . $path);
+} else {
+    define('APP_URL', getenv('APP_URL') ?: 'http://localhost/Lakshya');
+}
 
 // Database Configuration
 define('DB_MAIN_NAME', getenv('DB_NAME') ?: 'placement_portal_v2');
@@ -101,6 +111,7 @@ define('ROLE_ADMIN', 'admin');
 define('ROLE_PLACEMENT_OFFICER', 'placement_officer');
 define('ROLE_INTERNSHIP_OFFICER', 'internship_officer');
 define('ROLE_DEPT_COORDINATOR', 'dept_coordinator');
+define('ROLE_HOD', 'hod');
 define('ROLE_VC', 'vc');
 define('ROLE_DEMO', 'demo');
 
@@ -150,11 +161,16 @@ if (!function_exists('getCoordinatorDisciplineFilters')) {
                 'CSE-CS' => 'CS',
             ];
         }
-        $dept = trim((string)$department);
+        $dept = strtoupper(trim((string)$department));
 
         // Consolidate all MBA sub-branches under 'MBA' coordinator
         if ($dept === 'MBA') {
             return ['MBA', 'MBA-ADV', 'MBA-AM', 'MBA-IB', 'MBA-IE', 'MBA-INTNL', 'MBA-PF'];
+        }
+        
+        // Consolidate all BBA sub-branches under 'BBA' coordinator
+        if ($dept === 'BBA') {
+            return ['BBA', 'BBA-AI&BA', 'BBA-AM', 'BBA-B&F', 'BBA-BA', 'BBA-DM&E-COM', 'BBA-DMSM', 'BBA-GM', 'BBA-HM', 'BBA-HRM', 'BBA-IE', 'BBA-LSCM', 'BBA-MS', 'BBA-TH&EM'];
         }
 
         // Consolidate all BCA sub-branches under 'BCA' coordinator
@@ -177,13 +193,50 @@ if (!function_exists('getCoordinatorDisciplineFilters')) {
             return ['BCOM', 'BCOM-A&T', 'BCOM-AF', 'BCOM-AI', 'BCOM-AT', 'BCOM-DA&BI', 'BCOM-F&A', 'BCOM-G'];
         }
 
+        // Consolidate all BSC sub-branches under 'BSC' coordinator
+        if ($dept === 'BSC') {
+            return [
+                'BSC', 'BSC-B&TE', 'BSC-BT', 'BSC-BZ', 'BSC-C,B', 'BSC-C,CS', 'BSC-C,Z', 
+                'BSC-CB', 'BSC-CCS', 'BSC-CZ', 'BSC-E,SC', 'BSC-FS&T', 'BSC-FST', 'BSC-IM', 
+                'BSC-M,CS', 'BSC-M,P', 'BSC-MB', 'BSC-MCS', 'BSC-P,C', 'BSC-PC', 'BSC-PM', 
+                'BSC-S,CS', 'BSC-SCS'
+            ];
+        }
+
+        // Consolidate all LLB sub-branches under 'LLB' coordinator
+        if ($dept === 'LLB') {
+            return ['LLB', 'LLB-BBA', 'LLB-BCOM'];
+        }
+
+        // Consolidate all MSC sub-branches under 'MSC' coordinator
+        if ($dept === 'MSC') {
+            return ['MSC', 'MSC-AIDA', 'MSC-C', 'MSC-CY', 'MSC-DS', 'MSC-FT', 'MSC-M', 'MSC-P'];
+        }
+
+        // Consolidate all MTECH sub-branches under 'MTECH' coordinator
+        if ($dept === 'MTECH') {
+            return [
+                'MTECH', 'MTECH-AE&ITS', 'MTECH-AIHC', 'MTECH-B&GT', 'MTECH-CASE', 'MTECH-DE', 
+                'MTECH-DLDA', 'MTECH-PD&M', 'MTECH-S&GA', 'MTECH-SES&SE', 'MTECH-ST', 'MTech-IS&IOT'
+            ];
+        }
+
+        // Consolidate all PHD sub-branches under 'PHD' coordinator
+        if ($dept === 'PHD') {
+            return [
+                'PHD', 'PhD-AIM', 'PhD-BOT', 'PhD-BT', 'PhD-CA', 'PhD-CHE', 'PhD-COM', 'PhD-CSE', 
+                'PhD-CV', 'PhD-ECE', 'PhD-EEE', 'PhD-ISE', 'PhD-MAT', 'PhD-ME', 'PhD-MS', 'PhD-PHY', 
+                'PhD-RA', 'PhD-ZOO'
+            ];
+        }
+
         // Engineering specific consolidations for GMIT and GMU variants based on dept_coordinators keys
         if ($dept === 'CE') {
             return ['CE', 'CIVIL', 'CV', 'DIP CIVIL'];
         }
 
         if ($dept === 'ME') {
-            return ['ME', 'MECHANICAL', 'DIP MECH'];
+            return ['ME', 'MECHANICAL', 'DIP MECH', 'ED'];
         }
 
         if ($dept === 'ECE') {
@@ -214,13 +267,13 @@ if (!function_exists('getCoordinatorDisciplineFilters')) {
 
     function getCoordinatorSemesterFilters($department)
     {
-        $dept = trim((string)$department);
+        $dept = strtoupper(trim((string)$department));
         // PG Courses (2 years / 4 semesters)
-        if (in_array($dept, ['MBA', 'MCA', 'MCOM'])) {
+        if (in_array($dept, ['MBA', 'MCA', 'MCOM', 'MSC', 'MTECH', 'PHD'])) {
             return [1, 2, 3, 4];
         }
-        // BCA/BCOM (3 years / 6 semesters)
-        if (in_array($dept, ['BCA', 'BCOM'])) {
+        // BCA/BCOM/BBA/BSC/LLB (3 years / 6 semesters)
+        if (in_array($dept, ['BCA', 'BCOM', 'BBA', 'BSC', 'LLB'])) {
             return [1, 2, 3, 4, 5, 6];
         }
         // Engineering (4 years / 8 semesters) - show 3rd and 4th year

@@ -85,7 +85,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
             }
         }
         
-        if ($student_discipline && !in_array($student_discipline, $allowed_disciplines)) {
+        if ($student_discipline && !in_array(strtoupper(trim($student_discipline)), array_map('strtoupper', $allowed_disciplines))) {
             echo json_encode(['status' => 'error', 'message' => 'Access Denied: Student is not in your department.']);
             exit;
         }
@@ -224,9 +224,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
     }
 }
 
+// --- Filter Variable Initialization ---
+$search = clean($filters['search'] ?? '');
+$min_sgpa = isset($filters['min_sgpa']) ? (float)$filters['min_sgpa'] : 0;
+$branch_filter_val = clean($filters['branch'] ?? '');
+$sem_filter_val = isset($filters['sem']) ? (int)$filters['sem'] : 0;
+
 // --- AI Reports data ---
 $officerModel = new PlacementOfficer();
 $semester_filter = getCoordinatorSemesterFilters($department);
+if ($sem_filter_val > 0 && in_array($sem_filter_val, $semester_filter)) {
+    $semester_filter = [$sem_filter_val];
+}
 $reportFilters = ['department' => $department, 'semesters' => $semester_filter];
 if ($instFilter) $reportFilters['institution'] = $instFilter;
 // AI reports are loaded dynamically via AJAX in the student modal for this section.
@@ -261,10 +270,6 @@ $limit = 100;
 $page = $filters['page'] ?? 1;
 if ($page < 1) $page = 1;
 $offset = ($page - 1) * $limit;
-
-$search = clean($filters['search'] ?? '');
-$min_sgpa = isset($filters['min_sgpa']) ? (float)$filters['min_sgpa'] : 0;
-$branch_filter_val = clean($filters['branch'] ?? '');
 
 $available_branches = array_values(array_unique(getCoordinatorDisciplineFilters($department)));
 $discipline_filter = (!empty($branch_filter_val) && in_array($branch_filter_val, $available_branches)) ? [$branch_filter_val] : $available_branches;
@@ -598,7 +603,7 @@ $fullName = getFullName();
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Students & Reports — <?php echo htmlspecialchars($deptLabel); ?></title>
@@ -732,6 +737,18 @@ $fullName = getFullName();
                     <div class="filter-item">
                         <label>Min SGPA</label>
                         <input type="number" name="min_sgpa" value="<?php echo $min_sgpa > 0 ? htmlspecialchars($min_sgpa) : ''; ?>" step="0.01" min="0" max="10" placeholder="7.5">
+                    </div>
+                    <div class="filter-item">
+                        <label>Filter Semester</label>
+                        <select name="sem" style="padding-right: 30px;">
+                            <option value="">All Semesters</option>
+                            <?php foreach (getCoordinatorSemesterFilters($department) as $s): ?>
+                                <option value="<?php echo $s; ?>" <?php echo $sem_filter_val === $s ? 'selected' : ''; ?>>
+                                    Semester <?php echo $s; ?>
+                                </option>
+                            <?php endforeach; ?>
+                        </select>
+                        <i class="fas fa-chevron-down filter-icon"></i>
                     </div>
                     <?php if (count($available_branches) > 1): ?>
                     <div class="filter-item">

@@ -32,7 +32,7 @@ try {
     }
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
     $disc = trim((string)($row['discipline'] ?? ''));
-    if ($disc === '' || !in_array($disc, $allowedDisciplines, true)) {
+    if ($disc === '' || !in_array(strtoupper(trim($disc)), array_map('strtoupper', $allowedDisciplines))) {
         http_response_code(403);
         echo json_encode(['success' => false, 'message' => 'Access denied.']);
         exit;

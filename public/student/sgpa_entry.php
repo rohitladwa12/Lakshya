@@ -1,4 +1,4 @@
-a<?php
+<?php
 /**
  * Mandatory SGPA Entry for GMIT Students
  */
@@ -93,7 +93,7 @@ if (isPost() && !$isFrozen) {
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Update Academic History - LAKSHYA</title>
@@ -370,6 +370,7 @@ if (isPost() && !$isFrozen) {
             <?php endif; ?>
 
             <form method="POST" id="sgpaForm">
+                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                 <div class="grid">
                     <?php for ($i = 1; $i <= 8; $i++): ?>
                     <div class="form-group" id="group-<?php echo $i; ?>">

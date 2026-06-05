@@ -38,7 +38,7 @@ $projectTitle = $project['title'];
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='/Lakshya/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Project Defense: <?php echo htmlspecialchars($projectTitle); ?> - <?php echo APP_NAME; ?></title>
@@ -412,6 +412,7 @@ $projectTitle = $project['title'];
     let currentIdx = 0;
     let isSessionActive = false;
     const portfolioId = <?php echo $portfolioId; ?>;
+    const CSRF_TOKEN = '<?php echo $_SESSION['csrf_token']; ?>';
 
     document.addEventListener('DOMContentLoaded', () => {
         applyStrictSecurity();
@@ -457,14 +458,25 @@ $projectTitle = $project['title'];
         try {
             const res = await fetch('project_viva_handler.php', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
                 body: JSON.stringify({ action: 'generate_viva', portfolio_id: portfolioId })
             });
             const data = await res.json();
             if (data.success && data.job_id) {
                 pollJobStatus(data.job_id, (qData) => {
+                    if (qData.success === false) {
+                        handleException("AI Error: " + (qData.message || "Failed to generate questions."));
+                        return;
+                    }
                     const qList = Array.isArray(qData) ? qData : (qData.questions || []);
                     questions = qList;
+                    if (questions.length === 0) {
+                        handleException("No questions generated. Please try again.");
+                        return;
+                    }
                     initializeViva();
                 }, (err) => handleException("Generation Failure: " + err));
             } else handleException(data.message);
@@ -509,6 +521,10 @@ $projectTitle = $project['title'];
             try {
                 const res = await fetch(`ai_job_status.php?job_id=${jobId}`);
                 const data = await res.json();
+                if (data.success === false) {
+                    onError(data.message || "Job error");
+                    return;
+                }
                 if (data.status === 'completed') onSuccess(data.result);
                 else if (data.status === 'failed') onError(data.error);
                 else setTimeout(check, 1500);
@@ -526,12 +542,21 @@ $projectTitle = $project['title'];
         try {
             const res = await fetch('project_viva_handler.php', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
                 body: JSON.stringify({ action: 'submit_viva', portfolio_id: portfolioId, history: answers })
             });
             const data = await res.json();
             if (data.success && data.job_id) {
-                pollJobStatus(data.job_id, (evalData) => persistResult(evalData), (err) => handleException(err));
+                pollJobStatus(data.job_id, (evalData) => {
+                    if (evalData.success === false) {
+                        handleException("Evaluation Error: " + (evalData.message || "Failed to grade defense."));
+                        return;
+                    }
+                    persistResult(evalData);
+                }, (err) => handleException(err));
             } else handleException("Submission failed");
         } catch (err) { handleException("Network error"); }
     }
@@ -553,7 +578,10 @@ $projectTitle = $project['title'];
         try {
             await fetch('project_viva_handler.php', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'X-CSRF-TOKEN': CSRF_TOKEN
+                },
                 body: JSON.stringify({
                     action: 'save_viva_result',
                     portfolio_id: portfolioId,
@@ -570,4 +598,3 @@ $projectTitle = $project['title'];
 
 </body>
 </html>
-

@@ -1,6 +1,6 @@
 /**
  * Lakshya Global Security Interceptor (Hardened)
- * Automatically attaches CSRF tokens to all fetch and AJAX requests.
+ * Automatically attaches CSRF tokens to all fetch, AJAX requests, and traditional HTML POST forms.
  */
 (function() {
     console.log("Lakshya Security: Hardening Interceptor...");
@@ -87,6 +87,75 @@
         }
         return nativeSend.apply(this, arguments);
     };
+
+    // 3. Auto-inject into all traditional HTML POST forms (static and dynamic)
+    const injectToken = () => {
+        document.querySelectorAll('form[method="POST"], form[method="post"]').forEach(form => {
+            if (!form.querySelector('input[name="csrf_token"]')) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'csrf_token';
+                input.value = token;
+                form.appendChild(input);
+                console.log("Lakshya Security: Injected CSRF token into form", form);
+            }
+        });
+    };
+    
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', injectToken);
+    } else {
+        injectToken();
+    }
+    
+    // MutationObserver to watch for dynamic modals/forms being added
+    const observer = new MutationObserver((mutations) => {
+        let addedForm = false;
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    if (node.tagName === 'FORM' && node.getAttribute('method')?.toUpperCase() === 'POST') {
+                        addedForm = true;
+                    } else if (node.querySelector && node.querySelector('form[method="POST"], form[method="post"]')) {
+                        addedForm = true;
+                    }
+                }
+            }
+        }
+        if (addedForm) injectToken();
+    });
+    observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+
+    // 4. Intercept programmatic HTMLFormElement.prototype.submit() (fires synchronously before navigation)
+    const nativeSubmit = HTMLFormElement.prototype.submit;
+    HTMLFormElement.prototype.submit = function() {
+        if (this.getAttribute('method')?.toUpperCase() === 'POST' || this.method?.toUpperCase() === 'POST') {
+            if (!this.querySelector('input[name="csrf_token"]')) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'csrf_token';
+                input.value = token;
+                this.appendChild(input);
+                console.log("Lakshya Security: Injected CSRF token on programmatic submit() call");
+            }
+        }
+        return nativeSubmit.apply(this, arguments);
+    };
+
+    // 5. Intercept standard submit events (fallback for standard buttons/enter submit)
+    document.addEventListener('submit', function(event) {
+        const form = event.target;
+        if (form.getAttribute('method')?.toUpperCase() === 'POST' || form.method?.toUpperCase() === 'POST') {
+            if (!form.querySelector('input[name="csrf_token"]')) {
+                const input = document.createElement('input');
+                input.type = 'hidden';
+                input.name = 'csrf_token';
+                input.value = token;
+                form.appendChild(input);
+                console.log("Lakshya Security: Injected CSRF token on submit event");
+            }
+        }
+    }, true);
 
     console.log("Lakshya Security: Interceptor Lock Active.");
 })();

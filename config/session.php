@@ -13,11 +13,21 @@ class Session {
         }
         
         if (session_status() === PHP_SESSION_NONE) {
-            // Configure session
-            ini_set('session.cookie_httponly', 1);
-            ini_set('session.use_only_cookies', 1);
-            ini_set('session.cookie_secure', isset($_SERVER['HTTPS']) ? 1 : 0);
-            ini_set('session.cookie_samesite', 'Lax');
+            $isSecure = false;
+            if (isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] == 'on' || $_SERVER['HTTPS'] == 1)) {
+                $isSecure = true;
+            } elseif (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https') {
+                $isSecure = true;
+            }
+
+            session_set_cookie_params([
+                'lifetime' => 0,
+                'path' => '/',
+                'domain' => '',
+                'secure' => $isSecure,
+                'httponly' => true,
+                'samesite' => $isSecure ? 'None' : 'Lax'
+            ]);
             
             session_name(SESSION_NAME);
             session_start();
@@ -220,6 +230,9 @@ function requireAnyRole($roles) {
 }
 
 function getUserId() {
+    if (isset($GLOBALS['AI_WORKER_USER_ID'])) {
+        return $GLOBALS['AI_WORKER_USER_ID'];
+    }
     return Session::getUserId();
 }
 

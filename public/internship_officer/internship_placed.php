@@ -36,16 +36,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     if ($_POST['action'] === 'add') {
         try {
-            $offerLetter = '';
-            if (isset($_FILES['offer_letter']) && $_FILES['offer_letter']['error'] === 0) {
+            $offerLetters = [];
+            if (isset($_FILES['offer_letter'])) {
+                $files = $_FILES['offer_letter'];
                 $uploadDir = __DIR__ . '/../../uploads/offer_letters/';
                 if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
-                
-                $fileName = time() . '_' . $_FILES['offer_letter']['name'];
-                if (move_uploaded_file($_FILES['offer_letter']['tmp_name'], $uploadDir . $fileName)) {
-                    $offerLetter = 'uploads/offer_letters/' . $fileName;
+
+                if (is_array($files['name'])) {
+                    for ($i = 0; $i < count($files['name']); $i++) {
+                        if (isset($files['error'][$i]) && $files['error'][$i] === 0) {
+                            $fileName = time() . '_' . $i . '_' . basename($files['name'][$i]);
+                            if (move_uploaded_file($files['tmp_name'][$i], $uploadDir . $fileName)) {
+                                $offerLetters[] = 'uploads/offer_letters/' . $fileName;
+                            }
+                        }
+                    }
+                } else {
+                    if ($files['error'] === 0) {
+                        $fileName = time() . '_' . basename($files['name']);
+                        if (move_uploaded_file($files['tmp_name'], $uploadDir . $fileName)) {
+                            $offerLetters[] = 'uploads/offer_letters/' . $fileName;
+                        }
+                    }
                 }
             }
+            $offerLetter = !empty($offerLetters) ? json_encode($offerLetters) : '';
 
             $stmt = $db->prepare("INSERT INTO internship_placed_students 
                 (academic_year, name, usn, branch, college, sem, whatsapp_no, email, company_name, internship_type, internship_status, start_date, end_date, duration_months, offer_letter) 
@@ -66,41 +81,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
     } elseif ($_POST['action'] === 'edit') {
         try {
             $sl_no = $_POST['sl_no'];
-            $offerLetter = '';
             
-            // Handle optional new offer letter
-            if (isset($_FILES['offer_letter']) && $_FILES['offer_letter']['error'] === 0) {
+            // Reconstruct remaining existing offer letters from form input
+            $existingLetters = [];
+            if (isset($_POST['existing_offer_letters']) && $_POST['existing_offer_letters'] !== '') {
+                $existingLetters = json_decode($_POST['existing_offer_letters'], true);
+                if (!is_array($existingLetters)) {
+                    $existingLetters = [];
+                }
+            }
+            
+            // Handle optional new offer letters
+            $newLetters = [];
+            if (isset($_FILES['offer_letter'])) {
+                $files = $_FILES['offer_letter'];
                 $uploadDir = __DIR__ . '/../../uploads/offer_letters/';
                 if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
-                
-                $fileName = time() . '_' . $_FILES['offer_letter']['name'];
-                if (move_uploaded_file($_FILES['offer_letter']['tmp_name'], $uploadDir . $fileName)) {
-                    $offerLetter = 'uploads/offer_letters/' . $fileName;
+
+                if (is_array($files['name'])) {
+                    for ($i = 0; $i < count($files['name']); $i++) {
+                        if (isset($files['error'][$i]) && $files['error'][$i] === 0) {
+                            $fileName = time() . '_' . $i . '_' . basename($files['name'][$i]);
+                            if (move_uploaded_file($files['tmp_name'][$i], $uploadDir . $fileName)) {
+                                $newLetters[] = 'uploads/offer_letters/' . $fileName;
+                            }
+                        }
+                    }
+                } else {
+                    if ($files['error'] === 0) {
+                        $fileName = time() . '_' . basename($files['name']);
+                        if (move_uploaded_file($files['tmp_name'], $uploadDir . $fileName)) {
+                            $newLetters[] = 'uploads/offer_letters/' . $fileName;
+                        }
+                    }
                 }
             }
 
-            $sql = "UPDATE internship_placed_students SET 
+            // Merge remaining and new files
+            $mergedLetters = array_merge($existingLetters, $newLetters);
+            $offerLetter = !empty($mergedLetters) ? json_encode($mergedLetters) : '';
+
+            $stmt = $db->prepare("UPDATE internship_placed_students SET 
                     academic_year = ?, name = ?, usn = ?, branch = ?, college = ?, sem = ?, 
                     whatsapp_no = ?, email = ?, company_name = ?, internship_type = ?, 
-                    internship_status = ?, start_date = ?, end_date = ?, duration_months = ?";
+                    internship_status = ?, start_date = ?, end_date = ?, duration_months = ?,
+                    offer_letter = ?
+                    WHERE sl_no = ?");
             
-            $params = [
+            $stmt->execute([
                 $_POST['academic_year'], $_POST['name'], $_POST['usn'], $_POST['branch'], $_POST['college'], 
                 $_POST['sem'], $_POST['whatsapp_no'], $_POST['email'], $_POST['company_name'],
                 $_POST['internship_type'], $_POST['internship_status'], $_POST['start_date'],
-                $_POST['end_date'], $_POST['duration_months']
-            ];
-
-            if ($offerLetter) {
-                $sql .= ", offer_letter = ?";
-                $params[] = $offerLetter;
-            }
-
-            $sql .= " WHERE sl_no = ?";
-            $params[] = $sl_no;
-
-            $stmt = $db->prepare($sql);
-            $stmt->execute($params);
+                $_POST['end_date'], $_POST['duration_months'], $offerLetter, $sl_no
+            ]);
             
             header("Location: internship_placed.php?success=Placement record updated successfully");
             exit;
@@ -109,90 +142,115 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     } elseif ($_POST['action'] === 'import_csv') {
         try {
-            if (isset($_FILES['csv_file']) && $_FILES['csv_file']['error'] === 0) {
-                $file = $_FILES['csv_file']['tmp_name'];
-                $ext = strtolower(pathinfo($_FILES['csv_file']['name'], PATHINFO_EXTENSION));
-                
-                $rows = [];
-                if ($ext === 'csv') {
-                    $handle = fopen($file, "r");
-                    while (($data = fgetcsv($handle, 2000, ",")) !== FALSE) {
-                        $rows[] = $data;
+            if (isset($_FILES['csv_file'])) {
+                $files = $_FILES['csv_file'];
+                $filePaths = [];
+
+                if (is_array($files['name'])) {
+                    for ($i = 0; $i < count($files['name']); $i++) {
+                        if (isset($files['error'][$i]) && $files['error'][$i] === 0) {
+                            $filePaths[] = [
+                                'tmp_name' => $files['tmp_name'][$i],
+                                'name' => $files['name'][$i]
+                            ];
+                        }
                     }
-                    fclose($handle);
                 } else {
-                    $spreadsheet = IOFactory::load($file);
-                    $rows = $spreadsheet->getActiveSheet()->toArray();
+                    if ($files['error'] === 0) {
+                        $filePaths[] = [
+                            'tmp_name' => $files['tmp_name'],
+                            'name' => $files['name']
+                        ];
+                    }
                 }
 
-                if (empty($rows)) throw new Exception("The file is empty.");
-
-                // --- Smart Header Mapping (ALL fields from file) ---
-                $headers = array_map('strtolower', array_map(fn($v) => trim((string)($v ?? '')), $rows[0]));
-                $mapping = array_fill_keys([
-                    'academic_year', 'name', 'usn', 'branch', 'college', 'sem',
-                    'whatsapp_no', 'email', 'company_name', 'internship_type',
-                    'internship_status', 'start_date', 'end_date', 'duration_months'
-                ], -1);
-
-                foreach ($headers as $idx => $h) {
-                    if (strpos($h, 'year') !== false || strpos($h, 'academic') !== false) $mapping['academic_year'] = $idx;
-                    if (strpos($h, 'name') !== false && strpos($h, 'company') === false) $mapping['name'] = $idx;
-                    if (strpos($h, 'usn') !== false || $h === 'id' || $h === 'student id') $mapping['usn'] = $idx;
-                    if (strpos($h, 'branch') !== false || strpos($h, 'department') !== false || strpos($h, 'discipline') !== false) $mapping['branch'] = $idx;
-                    if (strpos($h, 'college') !== false || strpos($h, 'institution') !== false) $mapping['college'] = $idx;
-                    if ($h === 'sem' || strpos($h, 'semester') !== false) $mapping['sem'] = $idx;
-                    if (strpos($h, 'whatsapp') !== false || strpos($h, 'phone') !== false || strpos($h, 'mobile') !== false || strpos($h, 'contact') !== false) $mapping['whatsapp_no'] = $idx;
-                    if (strpos($h, 'email') !== false || strpos($h, 'mail') !== false) $mapping['email'] = $idx;
-                    if (strpos($h, 'company') !== false || strpos($h, 'organization') !== false || strpos($h, 'employer') !== false) $mapping['company_name'] = $idx;
-                    if (strpos($h, 'type') !== false || strpos($h, 'mode') !== false) $mapping['internship_type'] = $idx;
-                    if (strpos($h, 'status') !== false) $mapping['internship_status'] = $idx;
-                    if (strpos($h, 'start') !== false || strpos($h, 'from') !== false) $mapping['start_date'] = $idx;
-                    if (strpos($h, 'end') !== false || strpos($h, ' to') !== false) $mapping['end_date'] = $idx;
-                    if (strpos($h, 'duration') !== false || strpos($h, 'month') !== false) $mapping['duration_months'] = $idx;
+                if (empty($filePaths)) {
+                    throw new Exception("Please upload at least one valid CSV/Excel file.");
                 }
 
-                if ($mapping['company_name'] === -1) {
-                    throw new Exception("Could not find a 'Company' column. Please check your file headers.");
+                $totalCount = 0;
+                foreach ($filePaths as $fInfo) {
+                    $file = $fInfo['tmp_name'];
+                    $ext = strtolower(pathinfo($fInfo['name'], PATHINFO_EXTENSION));
+                    $rows = [];
+                    if ($ext === 'csv') {
+                        $handle = fopen($file, "r");
+                        while (($data = fgetcsv($handle, 2000, ",")) !== FALSE) {
+                            $rows[] = $data;
+                        }
+                        fclose($handle);
+                    } else {
+                        $spreadsheet = IOFactory::load($file);
+                        $rows = $spreadsheet->getActiveSheet()->toArray();
+                    }
+
+                    if (empty($rows)) continue;
+
+                    // --- Smart Header Mapping (ALL fields from file) ---
+                    $headers = array_map('strtolower', array_map(fn($v) => trim((string)($v ?? '')), $rows[0]));
+                    $mapping = array_fill_keys([
+                        'academic_year', 'name', 'usn', 'branch', 'college', 'sem',
+                        'whatsapp_no', 'email', 'company_name', 'internship_type',
+                        'internship_status', 'start_date', 'end_date', 'duration_months'
+                    ], -1);
+
+                    foreach ($headers as $idx => $h) {
+                        if (strpos($h, 'year') !== false || strpos($h, 'academic') !== false) $mapping['academic_year'] = $idx;
+                        if (strpos($h, 'name') !== false && strpos($h, 'company') === false) $mapping['name'] = $idx;
+                        if (strpos($h, 'usn') !== false || $h === 'id' || $h === 'student id') $mapping['usn'] = $idx;
+                        if (strpos($h, 'branch') !== false || strpos($h, 'department') !== false || strpos($h, 'discipline') !== false) $mapping['branch'] = $idx;
+                        if (strpos($h, 'college') !== false || strpos($h, 'institution') !== false) $mapping['college'] = $idx;
+                        if ($h === 'sem' || strpos($h, 'semester') !== false) $mapping['sem'] = $idx;
+                        if (strpos($h, 'whatsapp') !== false || strpos($h, 'phone') !== false || strpos($h, 'mobile') !== false || strpos($h, 'contact') !== false) $mapping['whatsapp_no'] = $idx;
+                        if (strpos($h, 'email') !== false || strpos($h, 'mail') !== false) $mapping['email'] = $idx;
+                        if (strpos($h, 'company') !== false || strpos($h, 'organization') !== false || strpos($h, 'employer') !== false) $mapping['company_name'] = $idx;
+                        if (strpos($h, 'type') !== false || strpos($h, 'mode') !== false) $mapping['internship_type'] = $idx;
+                        if (strpos($h, 'status') !== false) $mapping['internship_status'] = $idx;
+                        if (strpos($h, 'start') !== false || strpos($h, 'from') !== false) $mapping['start_date'] = $idx;
+                        if (strpos($h, 'end') !== false || strpos($h, ' to') !== false) $mapping['end_date'] = $idx;
+                        if (strpos($h, 'duration') !== false || strpos($h, 'month') !== false) $mapping['duration_months'] = $idx;
+                    }
+
+                    if ($mapping['company_name'] === -1) {
+                        throw new Exception("Could not find a 'Company' column in file: " . htmlspecialchars($fInfo['name']));
+                    }
+
+                    $stmt = $db->prepare("INSERT INTO internship_placed_students 
+                        (academic_year, name, usn, branch, college, sem, whatsapp_no, email, company_name, internship_type, internship_status, start_date, end_date, duration_months) 
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+
+                    array_shift($rows); // Remove header row
+                    foreach ($rows as $data) {
+                        if (empty(array_filter($data))) continue;
+
+                        $cell = fn($idx) => $idx !== -1 ? trim((string)($data[$idx] ?? '')) : '';
+                        $company = $cell($mapping['company_name']);
+                        if (empty($company)) continue;
+
+                        $startRaw = $cell($mapping['start_date']);
+                        $endRaw   = $cell($mapping['end_date']);
+
+                        $stmt->execute([
+                            $cell($mapping['academic_year']) ?: date('Y'),
+                            $cell($mapping['name']) ?: 'N/A',
+                            $cell($mapping['usn']) ?: 'N/A',
+                            $cell($mapping['branch']) ?: 'N/A',
+                            $cell($mapping['college']) ?: 'GMU',
+                            $cell($mapping['sem']) ?: 0,
+                            $cell($mapping['whatsapp_no']),
+                            $cell($mapping['email']),
+                            $company,
+                            $cell($mapping['internship_type']) ?: 'On-site',
+                            $cell($mapping['internship_status']) ?: 'Confirmed',
+                            !empty($startRaw) ? date('Y-m-d', strtotime($startRaw)) : null,
+                            !empty($endRaw)   ? date('Y-m-d', strtotime($endRaw))   : null,
+                            intval($cell($mapping['duration_months']))
+                        ]);
+                        $totalCount++;
+                    }
                 }
 
-                $stmt = $db->prepare("INSERT INTO internship_placed_students 
-                    (academic_year, name, usn, branch, college, sem, whatsapp_no, email, company_name, internship_type, internship_status, start_date, end_date, duration_months) 
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
-
-                $count = 0; $errors = [];
-                array_shift($rows); // Remove header row
-                foreach ($rows as $data) {
-                    if (empty(array_filter($data))) continue;
-
-                    $cell = fn($idx) => $idx !== -1 ? trim((string)($data[$idx] ?? '')) : '';
-                    $company = $cell($mapping['company_name']);
-                    if (empty($company)) continue;
-
-                    $startRaw = $cell($mapping['start_date']);
-                    $endRaw   = $cell($mapping['end_date']);
-
-                    $stmt->execute([
-                        $cell($mapping['academic_year']) ?: date('Y'),
-                        $cell($mapping['name']) ?: 'N/A',
-                        $cell($mapping['usn']) ?: 'N/A',
-                        $cell($mapping['branch']) ?: 'N/A',
-                        $cell($mapping['college']) ?: 'GMU',
-                        $cell($mapping['sem']) ?: 0,
-                        $cell($mapping['whatsapp_no']),
-                        $cell($mapping['email']),
-                        $company,
-                        $cell($mapping['internship_type']) ?: 'On-site',
-                        $cell($mapping['internship_status']) ?: 'Confirmed',
-                        !empty($startRaw) ? date('Y-m-d', strtotime($startRaw)) : null,
-                        !empty($endRaw)   ? date('Y-m-d', strtotime($endRaw))   : null,
-                        intval($cell($mapping['duration_months']))
-                    ]);
-                    $count++;
-                }
-
-                $msg = "$count records imported successfully.";
-                if (!empty($errors)) $msg .= " " . count($errors) . " rows skipped.";
+                $msg = "$totalCount records imported successfully from the uploaded spreadsheets.";
                 header("Location: internship_placed.php?success=" . urlencode($msg));
                 exit;
             } else {
@@ -250,6 +308,14 @@ $sql .= " ORDER BY sl_no ASC";
 $stmt = $db->prepare($sql);
 $stmt->execute($params);
 $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// --- Pagination Configuration ---
+$limit = 20;
+$page = isset($_REQUEST['page']) ? max(1, intval($_REQUEST['page'])) : 1;
+$offset = ($page - 1) * $limit;
+$totalRecords = count($students);
+$totalPages = ceil($totalRecords / $limit);
+$paginatedStudents = array_slice($students, $offset, $limit);
 
 // --- Analytics Aggregation ---
 $stats = [
@@ -517,6 +583,7 @@ $error = $_GET['error'] ?? '';
         <?php if ($error): ?><div class="alert alert-error"><?php echo htmlspecialchars($error); ?></div><?php endif; ?>
 
         <form method="POST" class="filter-bar">
+            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
             <div class="filter-group">
                 <label>Student Name</label>
                 <input type="text" name="f_name" class="filter-input" placeholder="Search by name..." value="<?php echo htmlspecialchars($f_name); ?>">
@@ -611,7 +678,6 @@ $error = $_GET['error'] ?? '';
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th style="width: 50px;">SL</th>
                                 <th>Year</th>
                                 <th>Name</th>
                                 <th>USN</th>
@@ -631,9 +697,8 @@ $error = $_GET['error'] ?? '';
                             </tr>
                         </thead>
                         <tbody>
-                            <?php foreach($students as $s): ?>
+                            <?php foreach($paginatedStudents as $s): ?>
                                 <tr>
-                                    <td style="font-weight: 800; color: #000; font-size: 11px;"><?php echo $s['sl_no']; ?></td>
                                     <td style="font-weight: 700; white-space: nowrap; font-size: 12px;"><?php echo htmlspecialchars($s['academic_year']); ?></td>
                                     <td>
                                         <div class="outfit" style="font-weight: 800; color: #000; white-space: nowrap; font-size: 13px;"><?php echo htmlspecialchars($s['name']); ?></div>
@@ -653,11 +718,23 @@ $error = $_GET['error'] ?? '';
                                     <td style="font-size: 11px; font-weight: 600; white-space: nowrap; color: #000;"><?php echo !empty($s['start_date']) ? date('d M, y', strtotime($s['start_date'])) : '—'; ?></td>
                                     <td style="font-size: 11px; font-weight: 600; white-space: nowrap; color: #000;"><?php echo !empty($s['end_date']) ? date('d M, y', strtotime($s['end_date'])) : '—'; ?></td>
                                     <td>
-                                        <?php if ($s['offer_letter']): ?>
-                                            <a href="../../<?php echo htmlspecialchars($s['offer_letter']); ?>" target="_blank" class="btn btn-outline" style="padding: 4px 10px; font-size: 10px; border-radius: 8px;">
-                                                <i class="fas fa-file-pdf"></i> View
+                                        <?php 
+                                        if ($s['offer_letter']): 
+                                            $letters = json_decode($s['offer_letter'], true);
+                                            if (!is_array($letters)) {
+                                                $letters = [$s['offer_letter']];
+                                            }
+                                            foreach ($letters as $idx => $letter):
+                                                $fileName = basename($letter);
+                                                $shortName = count($letters) > 1 ? "File " . ($idx + 1) : "View";
+                                        ?>
+                                            <a href="../../<?php echo htmlspecialchars($letter); ?>" target="_blank" class="btn btn-outline" style="padding: 4px 10px; font-size: 10px; border-radius: 8px; margin-bottom: 4px; display: inline-flex;" title="<?php echo htmlspecialchars($fileName); ?>">
+                                                <i class="fas fa-file-pdf"></i> <?php echo htmlspecialchars($shortName); ?>
                                             </a>
-                                        <?php else: ?>
+                                        <?php 
+                                            endforeach;
+                                        else: 
+                                        ?>
                                             <span style="color: var(--text-muted); font-size: 10px; font-weight: 600;">None</span>
                                         <?php endif; ?>
                                     </td>
@@ -667,6 +744,7 @@ $error = $_GET['error'] ?? '';
                                             <i class="fas fa-edit" style="font-size: 12px;"></i>
                                         </button>
                                         <form method="POST" style="display: inline;" onsubmit="return confirm('Delete this entry?')">
+                                            <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                                             <input type="hidden" name="action" value="delete">
                                             <input type="hidden" name="delete_id" value="<?php echo $s['sl_no']; ?>">
                                             <button type="submit" class="btn btn-outline" style="padding: 6px; border-color: #fee2e2; color: #ef4444; border-radius: 8px;">
@@ -676,13 +754,70 @@ $error = $_GET['error'] ?? '';
                                     </td>
                                 </tr>
                             <?php endforeach; ?>
-                            <?php if (empty($students)): ?>
-                                <tr><td colspan="17" style="text-align: center; padding: 80px; color: var(--text-muted); font-weight: 600;">No placement records found.</td></tr>
+                            <?php if (empty($paginatedStudents)): ?>
+                                <tr><td colspan="16" style="text-align: center; padding: 80px; color: var(--text-muted); font-weight: 600;">No placement records found.</td></tr>
                             <?php endif; ?>
                         </tbody>
                     </table>
                 </div>
-    </div>
+
+                <?php if ($totalPages > 1): ?>
+                    <div class="pagination-container" style="display: flex; justify-content: space-between; align-items: center; padding: 20px 24px; border-top: 1px solid #f1f5f9; background: #f8fafc; flex-wrap: wrap; gap: 15px;">
+                        <div style="font-size: 13px; font-weight: 600; color: var(--text-muted);">
+                            Showing <span style="color: #0f172a; font-weight: 700;"><?php echo $offset + 1; ?></span> to <span style="color: #0f172a; font-weight: 700;"><?php echo min($offset + $limit, $totalRecords); ?></span> of <span style="color: #0f172a; font-weight: 700;"><?php echo $totalRecords; ?></span> entries
+                        </div>
+                        <div class="pagination-buttons" style="display: flex; gap: 8px;">
+                            <?php 
+                            $queryParams = $_GET;
+                            $getLink = function($p) use ($queryParams) {
+                                $queryParams['page'] = $p;
+                                return '?' . http_build_query($queryParams);
+                            };
+                            ?>
+                            
+                            <?php if ($page > 1): ?>
+                                <a href="<?php echo $getLink($page - 1); ?>" class="btn btn-outline" style="padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 10px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none;">
+                                    <i class="fas fa-chevron-left" style="font-size: 11px;"></i> Previous
+                                </a>
+                            <?php endif; ?>
+
+                            <?php
+                            $startPage = max(1, $page - 2);
+                            $endPage = min($totalPages, $page + 2);
+                            
+                            if ($startPage > 1) {
+                                echo '<a href="' . $getLink(1) . '" class="btn btn-outline" style="padding: 8px 14px; font-size: 13px; font-weight: 600; border-radius: 10px; text-decoration: none;">1</a>';
+                                if ($startPage > 2) {
+                                    echo '<span style="padding: 8px; color: var(--text-muted); font-weight: 600;">...</span>';
+                                }
+                            }
+                            
+                            for ($p = $startPage; $p <= $endPage; $p++):
+                                $activeStyle = ($p === $page) ? 'background: var(--primary); color: white; border-color: var(--primary);' : '';
+                            ?>
+                                <a href="<?php echo $getLink($p); ?>" class="btn btn-outline" style="padding: 8px 14px; font-size: 13px; font-weight: 600; border-radius: 10px; text-decoration: none; <?php echo $activeStyle; ?>">
+                                    <?php echo $p; ?>
+                                </a>
+                            <?php endfor; ?>
+
+                            <?php
+                            if ($endPage < $totalPages) {
+                                if ($endPage < $totalPages - 1) {
+                                    echo '<span style="padding: 8px; color: var(--text-muted); font-weight: 600;">...</span>';
+                                }
+                                echo '<a href="' . $getLink($totalPages) . '" class="btn btn-outline" style="padding: 8px 14px; font-size: 13px; font-weight: 600; border-radius: 10px; text-decoration: none;">' . $totalPages . '</a>';
+                            }
+                            ?>
+
+                            <?php if ($page < $totalPages): ?>
+                                <a href="<?php echo $getLink($page + 1); ?>" class="btn btn-outline" style="padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 10px; display: inline-flex; align-items: center; gap: 6px; text-decoration: none;">
+                                    Next <i class="fas fa-chevron-right" style="font-size: 11px;"></i>
+                                </a>
+                            <?php endif; ?>
+                        </div>
+                    </div>
+                <?php endif; ?>
+        </div>
 
     <!-- Add/Edit Modal -->
     <div id="placedModal" class="modal">
@@ -697,6 +832,7 @@ $error = $_GET['error'] ?? '';
 
             <div class="modal-body">
                 <form id="placedForm" action="internship_placed.php" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                     <input type="hidden" name="action" id="formAction" value="add">
                     <input type="hidden" name="sl_no" id="recordId" value="">
                     
@@ -768,8 +904,10 @@ $error = $_GET['error'] ?? '';
                     </div>
 
                     <div class="form-group mt-4">
-                        <label>Offer Letter File</label>
-                        <input type="file" name="offer_letter" class="form-control" accept=".pdf,.jpg,.jpeg,.png">
+                        <label>Offer Letter File(s)</label>
+                        <input type="file" name="offer_letter[]" class="form-control" accept=".pdf,.jpg,.jpeg,.png" multiple>
+                        <input type="hidden" name="existing_offer_letters" id="existing_offer_letters" value="">
+                        <div id="existing_files_list" style="margin-top: 12px; display: flex; flex-direction: column; gap: 8px;"></div>
                     </div>
 
                     <div style="margin-top: 40px; display: flex; gap: 12px; justify-content: flex-end;">
@@ -780,7 +918,7 @@ $error = $_GET['error'] ?? '';
             </div>
         </div>
     </div>
-
+ 
     <!-- Bulk Import Modal -->
     <div id="importModal" class="modal">
         <div class="modal-content outfit" style="max-width: 500px;">
@@ -794,6 +932,7 @@ $error = $_GET['error'] ?? '';
             
             <div class="modal-body">
                 <form action="internship_placed.php" method="POST" enctype="multipart/form-data">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
                     <input type="hidden" name="action" value="import_csv">
                     
                     <div style="background: #f8fafc; padding: 20px; border-radius: 20px; border: 1px solid #f1f5f9; margin-bottom: 24px;">
@@ -807,8 +946,8 @@ $error = $_GET['error'] ?? '';
                     </div>
 
                     <div class="form-group">
-                        <label>Choose Excel/CSV File</label>
-                        <input type="file" name="csv_file" class="form-control" accept=".csv,.xlsx" required>
+                        <label>Choose Excel/CSV File(s)</label>
+                        <input type="file" name="csv_file[]" class="form-control" accept=".csv,.xlsx" required multiple>
                     </div>
 
                     <div style="margin-top: 32px; display: flex; gap: 12px; justify-content: flex-end;">
@@ -827,6 +966,10 @@ $error = $_GET['error'] ?? '';
             document.getElementById('formAction').value = 'add';
             document.getElementById('placedForm').reset();
             document.getElementById('recordId').value = '';
+            
+            // Clear existing files
+            document.getElementById('existing_offer_letters').value = '';
+            document.getElementById('existing_files_list').innerHTML = '';
             
             const m = document.getElementById('placedModal');
             m.style.display = 'flex';
@@ -851,10 +994,85 @@ $error = $_GET['error'] ?? '';
             document.getElementById('edit_start_date').value = data.start_date;
             document.getElementById('edit_end_date').value = data.end_date;
 
+            // Handle multiple offer letters listing
+            const existingLettersInput = document.getElementById('existing_offer_letters');
+            const filesListDiv = document.getElementById('existing_files_list');
+            filesListDiv.innerHTML = '';
+            
+            let letters = [];
+            if (data.offer_letter) {
+                try {
+                    letters = JSON.parse(data.offer_letter);
+                    if (!Array.isArray(letters)) {
+                        letters = [data.offer_letter];
+                    }
+                } catch(e) {
+                    letters = [data.offer_letter];
+                }
+            }
+
+            existingLettersInput.value = JSON.stringify(letters);
+            renderExistingFiles(letters);
+
             const m = document.getElementById('placedModal');
             m.style.display = 'flex';
             setTimeout(() => m.classList.add('open'), 10);
         }
+
+        function renderExistingFiles(letters) {
+            const filesListDiv = document.getElementById('existing_files_list');
+            filesListDiv.innerHTML = '';
+            if (letters.length > 0) {
+                const header = document.createElement('p');
+                header.className = 'text-xs font-black text-slate-500 uppercase tracking-wider mb-1 mt-3';
+                header.innerText = 'Uploaded Offer Letter Files:';
+                filesListDiv.appendChild(header);
+                
+                letters.forEach((filePath, idx) => {
+                    const fileName = filePath.split('/').pop().replace(/^\d+_\d*_?/, '');
+                    
+                    const row = document.createElement('div');
+                    row.style.display = 'flex';
+                    row.style.alignItems = 'center';
+                    row.style.justifyContent = 'space-between';
+                    row.style.background = '#f8fafc';
+                    row.style.padding = '8px 12px';
+                    row.style.borderRadius = '8px';
+                    row.style.border = '1px solid #e2e8f0';
+                    row.style.marginBottom = '6px';
+                    
+                    const fileLink = document.createElement('a');
+                    fileLink.href = '../../' + filePath;
+                    fileLink.target = '_blank';
+                    fileLink.style.fontSize = '12px';
+                    fileLink.style.fontWeight = '600';
+                    fileLink.style.color = '#3b82f6';
+                    fileLink.style.textDecoration = 'none';
+                    fileLink.innerHTML = `<i class="fas fa-file-pdf mr-1"></i> ${fileName}`;
+                    
+                    const removeBtn = document.createElement('button');
+                    removeBtn.type = 'button';
+                    removeBtn.style.background = 'none';
+                    removeBtn.style.border = 'none';
+                    removeBtn.style.color = '#ef4444';
+                    removeBtn.style.cursor = 'pointer';
+                    removeBtn.style.fontSize = '14px';
+                    removeBtn.innerHTML = '<i class="fas fa-times-circle"></i>';
+                    removeBtn.onclick = function() {
+                        if (confirm('Remove this file? (Changes will apply when you save)')) {
+                            letters.splice(idx, 1);
+                            document.getElementById('existing_offer_letters').value = JSON.stringify(letters);
+                            renderExistingFiles(letters);
+                        }
+                    };
+                    
+                    row.appendChild(fileLink);
+                    row.appendChild(removeBtn);
+                    filesListDiv.appendChild(row);
+                });
+            }
+        }
+
         function closeModal() {
             const m = document.getElementById('placedModal');
             m.classList.remove('open');

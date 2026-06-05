@@ -16,6 +16,8 @@ define('ROOT_PATH', dirname(__DIR__));
 // Load helper functions (needed for loadEnv)
 require_once ROOT_PATH . '/src/Helpers/functions.php';
 
+
+
 // Load environment variables
 loadEnv(ROOT_PATH . '/.env');
 
@@ -44,34 +46,48 @@ if ($redisHelper->isConnected()) {
 require_once ROOT_PATH . '/config/session.php';
 
 // --- CSRF SECURITY SHIELD ---
-// 1. Initialize Token
-if (empty($_SESSION['csrf_token'])) {
-    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
-}
+if (php_sapi_name() !== 'cli') {
+    // 1. Initialize Token
+    if (empty($_SESSION['csrf_token'])) {
+        $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+    }
 
-// 2. Global Protection for all POST requests
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    // List of files that are allowed to skip CSRF (e.g., specialized webhooks)
-    $skipCSRF = ['notifications_stream.php', 'ai_worker.php'];
-    $currentFile = basename($_SERVER['PHP_SELF']);
-    
-    if (!in_array($currentFile, $skipCSRF)) {
-        $headers = function_exists('getallheaders') ? getallheaders() : [];
-        $headerToken = $headers['X-CSRF-TOKEN'] ?? $headers['x-csrf-token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
-        $postToken = $_POST['csrf_token'] ?? '';
+    // 2. Global Protection for all POST requests
+    if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
+        // List of files that are allowed to skip CSRF (e.g., specialized webhooks)
+        $skipCSRF = ['notifications_stream.php', 'ai_worker.php'];
+        
+        // Skip CSRF check for HOD Portal SSO when MENTOR_ID or emp_id is passed
+        if (isset($_REQUEST['MENTOR_ID']) || isset($_REQUEST['mentor_id']) || isset($_REQUEST['emp_id'])) {
+            $skipCSRF[] = 'dashboard.php';
+            $skipCSRF[] = 'dashboard';
+            $skipCSRF[] = 'ai_monitor.php';
+            $skipCSRF[] = 'ai_monitor';
+            $skipCSRF[] = 'login.php';
+            $skipCSRF[] = 'login';
+        }
+        
+        $currentFile = strtolower(basename($_SERVER['SCRIPT_FILENAME']));
+        $currentFileSelf = strtolower(basename($_SERVER['PHP_SELF']));
+        
+        if (!in_array($currentFile, $skipCSRF) && !in_array($currentFileSelf, $skipCSRF)) {
+            $headers = function_exists('getallheaders') ? getallheaders() : [];
+            $headerToken = $headers['X-CSRF-TOKEN'] ?? $headers['x-csrf-token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
+            $postToken = $_POST['csrf_token'] ?? '';
 
-        if (!hash_equals($_SESSION['csrf_token'], $headerToken) && !hash_equals($_SESSION['csrf_token'], $postToken)) {
-            $isAjax = (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest') || 
-                      !empty($headerToken) ||
-                      (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false);
-            
-            if ($isAjax) {
-                header('Content-Type: application/json');
-                http_response_code(403);
-                echo json_encode(['success' => false, 'message' => 'Security Alert: CSRF Validation Failed.']);
-                exit;
-            } else {
-                die("Security Alert: CSRF token validation failed. Please refresh the page and try again.");
+            if (isset($_SESSION['csrf_token']) && !hash_equals($_SESSION['csrf_token'], $headerToken) && !hash_equals($_SESSION['csrf_token'], $postToken)) {
+                $isAjax = (isset($_SERVER['HTTP_X_REQUESTED_WITH']) && $_SERVER['HTTP_X_REQUESTED_WITH'] == 'XMLHttpRequest') || 
+                          !empty($headerToken) ||
+                          (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false);
+                
+                if ($isAjax) {
+                    header('Content-Type: application/json');
+                    http_response_code(403);
+                    echo json_encode(['success' => false, 'message' => 'CSRF token mismatch']);
+                    exit;
+                } else {
+                    die("CSRF token mismatch. Please refresh the page.");
+                }
             }
         }
     }
@@ -236,3 +252,5 @@ if (file_exists(ROOT_PATH . '/src/maintenance.lock')) {
         }
     }
 }
+
+
