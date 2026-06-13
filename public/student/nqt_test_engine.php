@@ -20,6 +20,7 @@ $fullName = getFullName();
     <title>TCS NQT Practice - Lakshya</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="report_question.js?v=<?php echo APP_VERSION; ?>"></script>
     <style>
         :root {
             --primary: #800000;
@@ -414,6 +415,18 @@ $fullName = getFullName();
             }
         }
 
+        window.reportCurrentQuestion = function() {
+            const q = questions[currentIdx];
+            window.openQuestionReportModal({
+                test_type: 'nqt',
+                test_id: selectedMode || 'nqt_aptitude',
+                question_text: q.question,
+                options: q.options,
+                correct_answer: q.answer,
+                user_answer: userAnswers[currentIdx]
+            });
+        };
+
         function renderQuestion() {
             const q = questions[currentIdx];
             const area = document.getElementById('questionArea');
@@ -426,7 +439,10 @@ $fullName = getFullName();
 
             area.innerHTML = `
                 <div class="question-card">
-                    <p style="color: var(--secondary); margin-bottom: 10px; letter-spacing: 2px;">${q.category.toUpperCase()}</p>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                        <span style="color: var(--secondary); letter-spacing: 2px; font-weight: 600;">${q.category.toUpperCase()}</span>
+                        <a href="javascript:void(0)" onclick="reportCurrentQuestion()" style="color: var(--secondary); text-decoration: none; font-size: 0.9rem; font-weight: 600;"><i class="fas fa-flag"></i> Report Issue</a>
+                    </div>
                     <h2 class="q-text">${q.question}</h2>
                     <div class="options-grid">${optionsHtml}</div>
                 </div>
@@ -491,11 +507,31 @@ $fullName = getFullName();
                     document.getElementById('resultMsg').innerText = `Success! You answered ${data.correct} out of ${data.total} correctly.`;
 
                     if (data.results && data.results.questions) {
+                        // Store finalized questions for review reporting
+                        questions = data.results.questions;
+                        userAnswers = data.results.user_answers;
+                        window.reportReviewQuestion = function(idx) {
+                            const q = questions[idx];
+                            const userAns = userAnswers[idx];
+                            window.openQuestionReportModal({
+                                test_type: 'nqt',
+                                test_id: selectedMode || 'nqt_aptitude',
+                                question_text: q.question,
+                                options: q.options,
+                                correct_answer: q.answer,
+                                user_answer: userAns
+                            });
+                        };
+
                         let html = '';
                         data.results.questions.forEach((q, idx) => {
                             const userAns = data.results.user_answers[idx];
                             const correctAns = parseInt(q.answer);
-                            html += `<div class="review-card"><div style="margin-bottom: 10px;">Q${idx+1}: ${q.question}</div>`;
+                            html += `<div class="review-card">
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                                    <div style="font-weight: 600;">Q${idx+1}: ${q.question}</div>
+                                    <button class="btn-control" style="padding: 4px 10px; font-size: 0.8rem; background: transparent; border-color: rgba(255,255,255,0.1); color: var(--secondary); cursor: pointer;" onclick="reportReviewQuestion(${idx})"><i class="fas fa-flag"></i> Report</button>
+                                </div>`;
                             q.options.forEach((opt, optIdx) => {
                                 let cls = 'review-opt';
                                 let icon = '';

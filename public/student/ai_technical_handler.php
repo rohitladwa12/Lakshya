@@ -34,8 +34,8 @@ session_write_close();
 $userId = getUserId();
 $studentIdForDb = getStudentIdForAssessment();
 
-// Rate Limit: 10 requests per minute
-if (!checkRateLimit("ai_tech_api_" . $userId, 10, 60)) {
+// Rate Limit: 60 requests per minute
+if (!checkRateLimit("ai_tech_api_" . $userId, 60, 60)) {
     ob_clean();
     echo json_encode(['success' => false, 'message' => 'Too many requests. Please wait a minute.']);
     exit;
@@ -44,15 +44,39 @@ $db = getDB();
 $ai = new AIService();
 $studentModel = new StudentProfile();
 
+// Determine if we are running in recruitment drive mode
+$driveId = isset($input['drive_id']) ? (int)$input['drive_id'] : 0;
+$usn = getUsername();
+
+$isDrive = false;
+if (!empty($input['session_id'])) {
+    $stmt = $db->prepare("SELECT drive_id FROM student_drive_attempts WHERE id = ?");
+    $stmt->execute([(int)$input['session_id']]);
+    $driveAttempt = $stmt->fetch(PDO::FETCH_ASSOC);
+    if ($driveAttempt) {
+        $isDrive = true;
+        $driveId = (int)$driveAttempt['drive_id'];
+    }
+}
+
+try {
 switch ($action) {
     case 'check_active_session':
         $company = $input['company'] ?? 'General';
         
-        $stmt = $db->prepare("SELECT id, details, started_at FROM unified_ai_assessments 
-                             WHERE student_id = ? AND assessment_type = 'Technical' 
-                             AND company_name = ? AND status = 'active' 
-                             ORDER BY started_at DESC LIMIT 1");
-        $stmt->execute([$studentIdForDb, $company]);
+        if ($driveId > 0) {
+            $stmt = $db->prepare("SELECT id, details, started_at FROM student_drive_attempts 
+                                 WHERE student_id = ? AND drive_id = ? AND round_type = 'Technical' 
+                                 AND status = 'In Progress' 
+                                 ORDER BY started_at DESC LIMIT 1");
+            $stmt->execute([$usn, $driveId]);
+        } else {
+            $stmt = $db->prepare("SELECT id, details, started_at FROM unified_ai_assessments 
+                                 WHERE student_id = ? AND assessment_type = 'Technical' 
+                                 AND company_name = ? AND status = 'active' 
+                                 ORDER BY started_at DESC LIMIT 1");
+            $stmt->execute([$studentIdForDb, $company]);
+        }
         $session = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if ($session) {
@@ -78,34 +102,88 @@ switch ($action) {
             echo json_encode(['success' => false, 'message' => 'Slow down! You can only start 2 sessions per minute.']);
             exit;
         }
-$role = $input['role'] ?? 'Software Engineer';
+        $role = $input['role'] ?? 'Software Engineer';
         $company = $input['company'] ?? 'General';
         $concept = $input['concept'] ?? '';
         
-        $sql = "INSERT INTO unified_ai_assessments (
-            student_id, institution, student_name, usn, aadhar, current_sem, branch, 
-            assessment_type, company_name, status, details, started_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Technical', ?, 'active', ?, CURRENT_TIMESTAMP)";
-
         $profile = $studentModel->getByUserId($userId);
-        
-        $stmt = $db->prepare($sql);
-        $stmt->execute([
-            $studentIdForDb,
-            getInstitution(),
-            $profile['name'] ?? getFullName(),
-            $profile['usn'] ?? getUsername(),
-            $profile['aadhar'] ?? null,
-            $profile['semester'] ?? null,
-            $profile['department'] ?? null,
-            $company,
-            json_encode([
-                'role' => $role, 
-                'concept' => $concept,
-                'history' => [],
-                'task_id' => $input['task_id'] ?? null
-            ])
-        ]);
+
+        if ($driveId > 0) {
+            // Select next attempt number
+            $stmt = $db->prepare("
+                SELECT MAX(attempt_number) FROM student_drive_attempts 
+                WHERE drive_id = ? AND student_id = ? AND round_type = 'Technical'
+            ");
+            $stmt->execute([$driveId, $usn]);
+            $nextAttemptNum = (int)$stmt->fetchColumn() + 1;
+            
+            try {
+                // Get student info snapshot
+                $stmt = $db->prepare("
+                    SELECT ads.*, u.NAME as name, u.DISCIPLINE as branch 
+                    FROM ad_student_approved ads
+                    JOIN users u ON ads.usn = u.ID
+                    WHERE ads.usn = ?
+                ");
+                $stmt->execute([$usn]);
+                $studentInfo = $stmt->fetch(PDO::FETCH_ASSOC);
+            } catch (PDOException $e) {
+                $studentInfo = false;
+            }
+            if (!$studentInfo) {
+                $studentInfo = [
+                    'year' => 'N/A',
+                    'name' => $profile['name'] ?? getFullName(),
+                    'branch' => $profile['department'] ?? 'N/A',
+                    'sem' => $profile['semester'] ?? 8
+                ];
+            }
+
+            $sql = "INSERT INTO student_drive_attempts (
+                drive_id, round_type, attempt_number, academic_year, student_id, student_name, branch, sem, 
+                status, details, started_at
+            ) VALUES (?, 'Technical', ?, ?, ?, ?, ?, ?, 'In Progress', ?, CURRENT_TIMESTAMP)";
+            
+            $stmt = $db->prepare($sql);
+            $stmt->execute([
+                $driveId,
+                $nextAttemptNum,
+                $studentInfo['year'] ?: 'N/A',
+                $usn,
+                $studentInfo['name'],
+                $studentInfo['branch'] ?: 'N/A',
+                (int)($studentInfo['sem'] ?: 8),
+                json_encode([
+                    'role' => $role,
+                    'concept' => $concept,
+                    'history' => [],
+                    'task_id' => null
+                ])
+            ]);
+        } else {
+            $sql = "INSERT INTO unified_ai_assessments (
+                student_id, institution, student_name, usn, aadhar, current_sem, branch, 
+                assessment_type, company_name, status, details, started_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Technical', ?, 'active', ?, CURRENT_TIMESTAMP)";
+
+            $stmt = $db->prepare($sql);
+            $stmt->execute([
+                $studentIdForDb,
+                getInstitution(),
+                $profile['name'] ?? getFullName(),
+                $profile['usn'] ?? getUsername(),
+                $profile['aadhar'] ?? null,
+                $profile['semester'] ?? null,
+                $profile['department'] ?? null,
+                $company,
+                json_encode([
+                    'role' => $role, 
+                    'concept' => $concept,
+                    'history' => [],
+                    'task_id' => $input['task_id'] ?? null
+                ])
+            ]);
+        }
 
         ob_clean(); echo json_encode(['success' => true, 'session_id' => $db->lastInsertId()]);
         break;
@@ -115,8 +193,13 @@ $role = $input['role'] ?? 'Software Engineer';
         $userMessage = $input['message'] ?? ''; // Can be empty for first question
         
         // Fetch session
-        $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
-        $stmt->execute([$sessionId, $studentIdForDb]);
+        if ($isDrive) {
+            $stmt = $db->prepare("SELECT * FROM student_drive_attempts WHERE id = ? AND student_id = ?");
+            $stmt->execute([$sessionId, $usn]);
+        } else {
+            $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
+            $stmt->execute([$sessionId, $studentIdForDb]);
+        }
         $session = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$session) {
@@ -133,14 +216,36 @@ $role = $input['role'] ?? 'Software Engineer';
         if (!empty($userMessage)) {
             $history[] = ['role' => 'user', 'content' => $userMessage];
             $details['history'] = $history;
-            $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ?")
-               ->execute([json_encode($details), $sessionId]);
+            if ($isDrive) {
+                $db->prepare("UPDATE student_drive_attempts SET details = ? WHERE id = ?")
+                   ->execute([json_encode($details), $sessionId]);
+            } else {
+                $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ?")
+                   ->execute([json_encode($details), $sessionId]);
+            }
             logMessage("ai_technical_handler[get_question]: Appended User Message. Session $sessionId. History Size: " . count($history), "INFO");
+        }
+
+        // Fetch Student Portfolio/Skills
+        $portfolioText = "";
+        try {
+            $stmt = $db->prepare("SELECT title, category, description FROM student_projects WHERE usn = ?");
+            $stmt->execute([$usn]);
+            $projects = $stmt->fetchAll(PDO::FETCH_ASSOC);
+            if (!empty($projects)) {
+                $portfolioText = "CANDIDATE'S REGISTERED SKILLS & PROJECTS:\n";
+                foreach ($projects as $idx => $p) {
+                    $num = $idx + 1;
+                    $portfolioText .= "{$num}. {$p['title']} [{$p['category']}]\n   Description: {$p['description']}\n";
+                }
+            }
+        } catch (Exception $e) {
+            // Ignore if table doesn't exist
         }
 
         // Offload to Async Queue
         require_once ROOT_PATH . '/src/Services/QueueService.php';
-        $jobId = \App\Services\QueueService::pushJob('getTechnicalQuestion', [$role, $history, $concept], $userId);
+        $jobId = \App\Services\QueueService::pushJob('getTechnicalQuestion', [$role, $history, $concept, $portfolioText], $userId);
         
         ob_clean(); echo json_encode([
             'success' => true, 
@@ -171,17 +276,27 @@ $role = $input['role'] ?? 'Software Engineer';
         $aiMessage = $input['message'];
         
         if (!empty($aiMessage)) {
-            $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
-            $stmt->execute([$sessionId, $studentIdForDb]);
+            if ($isDrive) {
+                $stmt = $db->prepare("SELECT details FROM student_drive_attempts WHERE id = ? AND student_id = ?");
+                $stmt->execute([$sessionId, $usn]);
+            } else {
+                $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
+                $stmt->execute([$sessionId, $studentIdForDb]);
+            }
             if ($session = $stmt->fetch(PDO::FETCH_ASSOC)) {
                 $details = json_decode($session['details'], true);
                 if (!isset($details['history'])) $details['history'] = [];
                 $details['history'][] = ['role' => 'assistant', 'content' => $aiMessage];
-                $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ?")
-                   ->execute([json_encode($details), $sessionId]);
+                if ($isDrive) {
+                    $db->prepare("UPDATE student_drive_attempts SET details = ? WHERE id = ?")
+                       ->execute([json_encode($details), $sessionId]);
+                } else {
+                    $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ?")
+                       ->execute([json_encode($details), $sessionId]);
+                }
                 logMessage("ai_technical_handler[append_ai_history]: Appended AI Message. Session $sessionId. History Size: " . count($details['history']), "INFO");
             } else {
-                logMessage("ai_technical_handler[append_ai_history]: Session $sessionId NOT FOUND for user $studentIdForDb", "ERROR");
+                logMessage("ai_technical_handler[append_ai_history]: Session $sessionId NOT FOUND", "ERROR");
             }
         }
         ob_clean(); echo json_encode(['success' => true]);
@@ -190,7 +305,11 @@ $role = $input['role'] ?? 'Software Engineer';
     case 'generate_report_data':
         $sessionId = $input['session_id'];
         
-        $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ?");
+        if ($isDrive) {
+            $stmt = $db->prepare("SELECT * FROM student_drive_attempts WHERE id = ?");
+        } else {
+            $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ?");
+        }
         $stmt->execute([$sessionId]);
         $session = $stmt->fetch(PDO::FETCH_ASSOC);
         
@@ -201,7 +320,7 @@ $role = $input['role'] ?? 'Software Engineer';
         $taskId = $details['task_id'] ?? null;
 
         // Check Minimum Time Requirement (20 mins = 1200 seconds) for assigned tasks
-        if ($taskId) {
+        if ($taskId && !$isDrive) {
             $startTime = strtotime($session['started_at']);
             $elapsed = time() - $startTime;
             if ($elapsed < 1200) {
@@ -211,89 +330,54 @@ $role = $input['role'] ?? 'Software Engineer';
             }
         }
 
-        // Generate Text Report via AI
-        session_write_close();
-        $reportRes = $ai->generateTechnicalInterviewReport($role, $history, 'Technical', $concept);
-        
-        if ($reportRes['success']) {
-            $reportText = $reportRes['content'];
-            $score = $reportRes['overall_score'];
-
-            // Generate HTML for the PDF
-            $html = generateReportHTML($session['usn'], $session['current_sem'] ?? 'N/A', $session['student_name'], $session['company_name'], $score, $reportText);
-            $secureHash = sha1($session['usn'] . $sessionId . 'LAKSHYA_SALT_2024');
-            $filename = "report_" . $secureHash . ".pdf";
-
-            // Decode current details to safely append
-            $stmt = $db->prepare("SELECT details, started_at, usn FROM unified_ai_assessments WHERE id = ?");
-            $stmt->execute([$sessionId]);
-            $sessionData = $stmt->fetch(PDO::FETCH_ASSOC);
-            $details = json_decode($sessionData['details'] ?? '{}', true);
-
-            // Finalize Status immediately so closing the browser doesn't orphan the completion
-            $db->prepare("UPDATE unified_ai_assessments 
-                          SET score = ?, feedback = ?, status = 'completed', completed_at = CURRENT_TIMESTAMP 
-                          WHERE id = ?")
-               ->execute([$score, "Report Generated (Pending PDF Save)", $sessionId]);
-               
-            // Insert into task_completions immediately if it's an assigned task
-            if (isset($details['task_id']) && $details['task_id']) {
-                $taskId = $details['task_id'];
-                $studentUsn = $sessionData['usn'] ?? getUsername();
-                $timeTaken = time() - strtotime($sessionData['started_at']);
-
-                $stmtComp = $db->prepare("INSERT INTO task_completions 
-                                      (task_id, student_id, score, time_taken) 
-                                      VALUES (?, ?, ?, ?)
-                                      ON DUPLICATE KEY UPDATE 
-                                      score = VALUES(score),
-                                      time_taken = VALUES(time_taken), 
-                                      completed_at = CURRENT_TIMESTAMP");
-                $stmtComp->execute([$taskId, $studentUsn, $score, $timeTaken]);
-                error_log("Task completion auto-recorded for Technical round. Task: $taskId, USN: $studentUsn");
+        // Check for any user interaction
+        $userInteractions = 0;
+        foreach ($history as $msg) {
+            if ($msg['role'] === 'user' && !empty(trim($msg['content']))) {
+                $userInteractions++;
             }
-
-            ob_clean(); echo json_encode(['success' => true, 'report_html' => $html, 'filename' => $filename]);
-        } else {
-            ob_clean(); echo json_encode(['success' => false, 'message' => 'Report generation failed']);
         }
-        break;
 
-    case 'save_pdf_report':
-        $sessionId = $_POST['session_id'] ?? 0;
-        
-        if (isset($_FILES['pdf']) && $_FILES['pdf']['error'] === UPLOAD_ERR_OK) {
-            $dir = REPORTS_UPLOAD_PATH . '/technical/';
-            if (!is_dir($dir)) mkdir($dir, 0777, true);
+        if ($userInteractions === 0) {
+            $score = 0;
+        } else {
+            // Generate Text Report via AI
+            session_write_close();
+            $reportRes = $ai->generateTechnicalInterviewReport($role, $history, 'Technical', $concept);
             
-            $stmtHash = $db->prepare("SELECT usn FROM unified_ai_assessments WHERE id = ?");
-            $stmtHash->execute([$sessionId]);
-            $usnForHash = $stmtHash->fetchColumn();
-            $secureHash = sha1($usnForHash . $sessionId . 'LAKSHYA_SALT_2024');
-            $filename = "report_" . $secureHash . ".pdf";
-            $targetPath = $dir . $filename;
-            
-            if (move_uploaded_file($_FILES['pdf']['tmp_name'], $targetPath)) {
-                $publicPath = "uploads/reports/technical/" . $filename;
-                
-                // Finalize DB
-                $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ?");
+            if ($reportRes['success']) {
+                $score = $reportRes['overall_score'];
+            } else {
+                ob_clean(); echo json_encode(['success' => false, 'message' => 'Report generation failed']);
+                exit;
+            }
+        }
+
+
+
+        try {
+            if ($isDrive) {
+                // Finalize Status immediately
+                $db->prepare("UPDATE student_drive_attempts 
+                              SET score = ?, status = 'Completed', completed_at = CURRENT_TIMESTAMP 
+                              WHERE id = ?")
+                   ->execute([$score, $sessionId]);
+            } else {
+                // Decode current details to safely append
+                $stmt = $db->prepare("SELECT details, started_at, usn FROM unified_ai_assessments WHERE id = ?");
                 $stmt->execute([$sessionId]);
-                $details = json_decode($stmt->fetchColumn(), true);
-                
-                $details['report_path'] = $publicPath;
-                
-                $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', details = ? WHERE id = ?")
-                   ->execute([json_encode($details), $sessionId]);
+                $sessionData = $stmt->fetch(PDO::FETCH_ASSOC);
+                $details = json_decode($sessionData['details'] ?? '{}', true);
 
+                // Finalize Status immediately so closing the browser doesn't orphan the completion
+                $db->prepare("UPDATE unified_ai_assessments 
+                              SET score = ?, feedback = ?, status = 'completed', completed_at = CURRENT_TIMESTAMP 
+                              WHERE id = ?")
+                   ->execute([$score, "Report Generated", $sessionId]);
+                   
+                // Insert into task_completions immediately if it's an assigned task
                 if (isset($details['task_id']) && $details['task_id']) {
                     $taskId = $details['task_id'];
-                    
-                    // Fetch accurate score and student info
-                    $stmtInfo = $db->prepare("SELECT score, usn, started_at FROM unified_ai_assessments WHERE id = ?");
-                    $stmtInfo->execute([$sessionId]);
-                    $sessionData = $stmtInfo->fetch(PDO::FETCH_ASSOC);
-                    $finalScore = $sessionData['score'] ?? 0;
                     $studentUsn = $sessionData['usn'] ?? getUsername();
                     $timeTaken = time() - strtotime($sessionData['started_at']);
 
@@ -304,18 +388,94 @@ $role = $input['role'] ?? 'Software Engineer';
                                           score = VALUES(score),
                                           time_taken = VALUES(time_taken), 
                                           completed_at = CURRENT_TIMESTAMP");
-                    $stmtComp->execute([$taskId, $studentUsn, $finalScore, $timeTaken]);
-                    error_log("Task completion recorded for technical round. Task: $taskId, USN: $studentUsn, Score: $finalScore, Time: $timeTaken");
+                    $stmtComp->execute([$taskId, $studentUsn, $score, $timeTaken]);
+                    error_log("Task completion auto-recorded for Technical round. Task: $taskId, USN: $studentUsn");
+                }
+            }
+            ob_clean(); echo json_encode(['success' => true, 'score' => $score]);
+        } catch (Throwable $e) {
+            ob_clean(); echo json_encode(['success' => false, 'message' => 'DB finalize failed: ' . $e->getMessage()]);
+        }
+        break;
+
+    case 'save_pdf_report':
+        $sessionId = $_POST['session_id'] ?? 0;
+        
+        if (isset($_FILES['pdf']) && $_FILES['pdf']['error'] === UPLOAD_ERR_OK) {
+            $dir = REPORTS_UPLOAD_PATH . '/technical/';
+            if (!is_dir($dir)) mkdir($dir, 0777, true);
+            
+            if ($isDrive) {
+                $stmtHash = $db->prepare("SELECT student_id as usn FROM student_drive_attempts WHERE id = ?");
+            } else {
+                $stmtHash = $db->prepare("SELECT usn FROM unified_ai_assessments WHERE id = ?");
+            }
+            $stmtHash->execute([$sessionId]);
+            $usnForHash = $stmtHash->fetchColumn();
+            $secureHash = sha1($usnForHash . $sessionId . 'LAKSHYA_SALT_2024');
+            $filename = "report_" . $secureHash . ".pdf";
+            $targetPath = $dir . $filename;
+            
+            if (move_uploaded_file($_FILES['pdf']['tmp_name'], $targetPath)) {
+                $publicPath = "uploads/reports/technical/" . $filename;
+                
+                // Finalize DB
+                if ($isDrive) {
+                    $stmt = $db->prepare("SELECT details FROM student_drive_attempts WHERE id = ?");
+                    $stmt->execute([$sessionId]);
+                    $details = json_decode($stmt->fetchColumn(), true);
+                    
+                    $details['report_path'] = $publicPath;
+                    
+                    $db->prepare("UPDATE student_drive_attempts SET status = 'Completed', details = ? WHERE id = ?")
+                       ->execute([json_encode($details), $sessionId]);
+                } else {
+                    $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ?");
+                    $stmt->execute([$sessionId]);
+                    $details = json_decode($stmt->fetchColumn(), true);
+                    
+                    $details['report_path'] = $publicPath;
+                    
+                    $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', details = ? WHERE id = ?")
+                       ->execute([json_encode($details), $sessionId]);
+
+                    if (isset($details['task_id']) && $details['task_id']) {
+                        $taskId = $details['task_id'];
+                        
+                        // Fetch accurate score and student info
+                        $stmtInfo = $db->prepare("SELECT score, usn, started_at FROM unified_ai_assessments WHERE id = ?");
+                        $stmtInfo->execute([$sessionId]);
+                        $sessionData = $stmtInfo->fetch(PDO::FETCH_ASSOC);
+                        $finalScore = $sessionData['score'] ?? 0;
+                        $studentUsn = $sessionData['usn'] ?? getUsername();
+                        $timeTaken = time() - strtotime($sessionData['started_at']);
+
+                        $stmtComp = $db->prepare("INSERT INTO task_completions 
+                                              (task_id, student_id, score, time_taken) 
+                                              VALUES (?, ?, ?, ?)
+                                              ON DUPLICATE KEY UPDATE 
+                                              score = VALUES(score),
+                                              time_taken = VALUES(time_taken), 
+                                              completed_at = CURRENT_TIMESTAMP");
+                        $stmtComp->execute([$taskId, $studentUsn, $finalScore, $timeTaken]);
+                        error_log("Task completion recorded for technical round. Task: $taskId, USN: $studentUsn, Score: $finalScore, Time: $timeTaken");
+                    }
                 }
 
                 ob_clean(); echo json_encode(['success' => true, 'path' => $publicPath]);
             } else {
-            ob_clean(); echo json_encode(['success' => false, 'message' => 'File save failed']);
+                ob_clean(); echo json_encode(['success' => false, 'message' => 'File save failed']);
             }
         } else {
             ob_clean(); echo json_encode(['success' => false, 'message' => 'No file uploaded']);
         }
         break;
+}
+} catch (Throwable $e) {
+    error_log("Technical Handler Exception: " . $e->getMessage() . "\n" . $e->getTraceAsString());
+    ob_clean();
+    echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
+    exit;
 }
 
 /**
@@ -328,35 +488,93 @@ function allowReportHtml($content) {
 }
 
 function generateReportHTML($usn, $sem, $name, $role, $score, $content) {
+    // Basic Markdown Conversion
+    $htmlContent = allowReportHtml($content);
+    $htmlContent = preg_replace('/^## (.*$)/m', '<h2>$1</h2>', $htmlContent);
+    $htmlContent = preg_replace('/^### (.*$)/m', '<h3>$1</h3>', $htmlContent);
+    $htmlContent = preg_replace('/\*\*(.*?)\*\*/', '<strong>$1</strong>', $htmlContent);
+    $htmlContent = preg_replace('/^- (.*$)/m', '<li>$1</li>', $htmlContent);
+    $htmlContent = preg_replace('/(<li>.*<\/li>)/s', '<ul>$1</ul>', $htmlContent);
+    $htmlContent = str_replace('</ul><ul>', '', $htmlContent);
+
+    // Score label
+    $label = 'BEGINNER'; $color = '#ef4444';
+    if ($score >= 80) { $label = 'EXCEPTIONAL'; $color = '#10b981'; }
+    elseif ($score >= 60) { $label = 'READY FOR HIRE'; $color = '#10b981'; }
+    elseif ($score >= 40) { $label = 'NEEDS PRACTICE'; $color = '#f59e0b'; }
+
     return "
     <html>
     <head>
-    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
+        <meta charset='UTF-8'>
+        <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
         <style>
-            body { font-family: sans-serif; padding: 40px; line-height: 1.6; color: #333; }
-            h1 { color: #800000; border-bottom: 2px solid #800000; padding-bottom: 10px; margin-bottom: 20px; }
-            h2 { color: #333; margin-top: 30px; border-bottom: 1px solid #ccc; padding-bottom: 5px; }
-            .meta { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 30px; border: 1px solid #ddd; }
-            .score-box { float: right; background: #800000; color: white; padding: 15px 25px; border-radius: 8px; font-size: 24px; font-weight: bold; }
-            .content { font-size: 14px; }
-            strong { color: #000; }
+            :root { --primary-maroon: #800000; }
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #fff; color: #333; line-height: 1.6; margin: 0; padding: 40px; }
+            .container { max-width: 900px; margin: 0 auto; background: white; border-radius: 8px; }
+            .header { border-bottom: 3px solid #800000; padding-bottom: 20px; margin-bottom: 30px; }
+            .header h1 { color: #800000; margin: 0; font-size: 2rem; text-transform: uppercase; }
+            .header p { margin: 2px 0; font-weight: 600; color: #666; }
+            .score-card { background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 30px; border-radius: 12px; margin-bottom: 35px; border-left: 5px solid #800000; display: flex; justify-content: space-between; align-items: center; }
+            .score-card h3 { margin: 0; color: #444; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px; }
+            .score-card p { margin: 5px 0 0; color: #666; font-size: 0.85rem; }
+            .score-value { text-align: right; }
+            .score-num { font-size: 3rem; font-weight: 900; color: #800000; line-height: 1; }
+            .score-label { font-size: 0.75rem; font-weight: 800; margin-top: 5px; color: {$color}; }
+            .report-body strong { color: #800000; }
+            .report-body ul { padding-left: 20px; }
+            .report-body li { margin-bottom: 8px; }
+            .report-body h2 { color: #800000; border-bottom: 1px solid #eee; padding-bottom: 5px; margin-top: 25px; font-size: 1.5rem; }
+            .report-body h3 { color: #444; margin-top: 20px; font-size: 1.2rem; }
+            .footer { margin-top: 50px; border-top: 1px solid #eee; padding-top: 20px; font-size: 0.8rem; color: #999; text-align: center; }
         </style>
     </head>
     <body>
-        <div class='score-box'>{$score}%</div>
-        <h1>Technical Assessment Report</h1>
-        <div class='meta'>
-            <p><strong>Student Name:</strong> {$name}</p>
-            <p><strong>USN:</strong> {$usn}</p>
-            <p><strong>Semester:</strong> {$sem}</p>
-            <p><strong>Role Evaluated:</strong> {$role}</p>
-            <p><strong>Date:</strong> " . date('d M Y') . "</p>
-        </div>
-        <div class='content'>
-            " . allowReportHtml($content) . "
+        <div class='container'>
+            <div class='header'>
+                <table width='100%'>
+                    <tr>
+                        <td align='left'>
+                            <h1>GM UNIVERSITY</h1>
+                            <p>Training & Placement Cell</p>
+                        </td>
+                        <td align='right'>
+                            <p>Student: {$name}</p>
+                            <p>USN: {$usn}</p>
+                            <p>Role: {$role}</p>
+                            <p>Date: " . date('d M Y') . "</p>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class='score-card'>
+                <table width='100%'>
+                    <tr>
+                        <td align='left'>
+                            <h3>Technical Assessment Score</h3>
+                            <p>Based on technical accuracy, communication, and problem-solving.</p>
+                        </td>
+                        <td align='right' class='score-value'>
+                            <div class='score-num'>{$score}<span style='font-size: 1.2rem; color: #999;'>/100</span></div>
+                            <div class='score-label'>{$label}</div>
+                        </td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class='report-body'>
+                {$htmlContent}
+            </div>
+
+            <div class='footer'>
+                This is an AI-generated assessment report by GM University Placement Portal.<br>
+                It is intended for student evaluation and preparation purposes only.
+            </div>
         </div>
     </body>
-    </html>";
+    </html>
+    ";
 }
 // Remove old function
-function old_generatePDFReport() {} 
+function old_generatePDFReport() {}

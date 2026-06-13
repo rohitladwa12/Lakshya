@@ -300,6 +300,7 @@ $fullName = getFullName();
         let recognition;
         let synth = window.speechSynthesis;
         let isListening = false;
+        let isProcessingAnswer = false;
         let isSpeaking = false;
         let voices = [];
         let silenceTimer;
@@ -354,7 +355,8 @@ $fullName = getFullName();
 
             recognition.onstart = () => {
                 isListening = true;
-                currentUtterance = "";
+                isProcessingAnswer = false;
+                clearTimeout(silenceTimer);
                 updateState("Listening", "listening");
                 document.getElementById('micBtn').classList.add('active');
             };
@@ -362,7 +364,19 @@ $fullName = getFullName();
             recognition.onend = () => {
                 isListening = false;
                 document.getElementById('micBtn').classList.remove('active');
-                if (!isSpeaking && sessionId) updateState("Ready", "neutral");
+                if (!isSpeaking && sessionId) {
+                    if (isProcessingAnswer) {
+                        updateState("Thinking", "neutral");
+                    } else {
+                        updateState("Ready", "neutral");
+                        setTimeout(() => {
+                            if (!isSpeaking && sessionId && !isListening && !isProcessingAnswer) {
+                                console.log("Auto-restarting speech recognition...");
+                                try { recognition.start(); } catch(e){}
+                            }
+                        }, 300);
+                    }
+                }
                 document.getElementById('captionArea').style.display = 'none';
             };
 
@@ -374,17 +388,27 @@ $fullName = getFullName();
                     else interim += event.results[i][0].transcript;
                 }
                 
-                if (final) {
-                    currentUtterance = (currentUtterance + " " + final).trim();
-                    showCaption(currentUtterance);
+                if (final || interim) {
                     clearTimeout(silenceTimer);
                     silenceTimer = setTimeout(() => {
                         if (currentUtterance.trim()) sendAnswer(currentUtterance);
-                    }, 2500);
+                    }, 7000);
+                }
+                if (final) {
+                    currentUtterance = (currentUtterance + " " + final).trim();
+                    showCaption(currentUtterance);
                 }
                 if (interim) {
                     const display = (currentUtterance + " " + interim).trim();
                     showCaption(display);
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.error("Speech Recognition Error:", event.error);
+                if (event.error === 'not-allowed') {
+                    alert("Microphone Access Blocked: Please click the microphone icon in your browser address bar and choose 'Allow' to participate in the interview.");
+                    updateState("Mic Blocked", "neutral");
                 }
             };
 
@@ -437,6 +461,7 @@ $fullName = getFullName();
         function speak(text) {
             if (synth.speaking) synth.cancel();
             const utterance = new SpeechSynthesisUtterance(text);
+            window.currentUtteranceObj = utterance; // Prevent GC sweeping it mid-speech
             const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Female"));
             if (preferredVoice) utterance.voice = preferredVoice;
             
@@ -448,6 +473,8 @@ $fullName = getFullName();
             };
             utterance.onend = () => {
                 isSpeaking = false;
+                isProcessingAnswer = false;
+                currentUtterance = "";
                 updateState("Ready", "neutral");
                 document.getElementById('micBtn').classList.remove('disabled');
                 recognition.start(); // Auto-start listening
@@ -457,7 +484,10 @@ $fullName = getFullName();
 
         function toggleMic() {
             if (isSpeaking) return;
-            if (isListening) recognition.stop();
+            if (isListening) {
+                isProcessingAnswer = true;
+                recognition.stop();
+            }
             else recognition.start();
         }
 
@@ -477,6 +507,7 @@ $fullName = getFullName();
         }
 
         function sendAnswer(val = "") {
+            isProcessingAnswer = true;
             if (!val) {
                 const input = document.getElementById('userInput');
                 val = input.value.trim();

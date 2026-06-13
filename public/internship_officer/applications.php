@@ -59,7 +59,7 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
         }
     }
     
-    $headers = array_merge($headers, ['Company', 'Role', 'Applied On', 'Status', 'Email', 'Phone']);
+    $headers = array_merge($headers, ['Company', 'Role', 'Applied On', 'Status', 'Email', 'Phone', 'Resume Link']);
     fputcsv($output, $headers);
     
     // CSV Data
@@ -88,13 +88,15 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             }
         }
         
+        $resumeLink = !empty($app['resume_path']) ? '=HYPERLINK("' . (APP_URL . '/student/view_resume.php?usn=' . urlencode($app['student_id'] ?? '')) . '", "View Resume")' : 'No Resume';
         $row = array_merge($row, [
             $internship['company_name'],
             $internship['internship_title'],
             date('d M Y h:i A', strtotime($app['applied_at'])),
             $app['status'],
             $app['email'] ?? 'N/A',
-            $app['phone'] ?? 'N/A'
+            $app['phone'] ?? 'N/A',
+            $resumeLink
         ]);
         
         fputcsv($output, $row);

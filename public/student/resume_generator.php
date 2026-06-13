@@ -537,6 +537,10 @@ foreach ($portfolioItems as $item) {
                     <div class="form-group">
                         <label>Professional Summary</label>
                         <textarea name="professional_summary" placeholder="A brief 2-3 line summary highlighting your key strengths and career objectives..."><?php echo htmlspecialchars($existingResume['professional_summary'] ?? ''); ?></textarea>
+                        <div style="margin-top: 10px; display: flex; align-items: center; gap: 8px;">
+                            <input type="checkbox" id="hide_summary" name="hide_summary" onchange="toggleGeneratorSection('summary', this.checked)">
+                            <label for="hide_summary" style="font-weight: normal; margin-bottom: 0; cursor: pointer;">Hide Summary from Resume</label>
+                        </div>
                     </div>
                 </div>
 
@@ -544,6 +548,10 @@ foreach ($portfolioItems as $item) {
                 <div class="form-step" data-step="2">
                     <h2 class="step-title">Education</h2>
                     <p class="step-description">Add your educational qualifications</p>
+                    <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="hide_education" name="hide_education" onchange="toggleGeneratorSection('education', this.checked)">
+                        <label for="hide_education" style="font-weight: normal; margin-bottom: 0; cursor: pointer;">Hide Education section from Resume</label>
+                    </div>
                     
                     <div id="educationList" class="list-items">
                         <!-- Education items will be added here dynamically -->
@@ -556,6 +564,10 @@ foreach ($portfolioItems as $item) {
                 <div class="form-step" data-step="3">
                     <h2 class="step-title">Work Experience</h2>
                     <p class="step-description">Add your professional work experience (optional for freshers)</p>
+                    <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="hide_experience" name="hide_experience" onchange="toggleGeneratorSection('experience', this.checked)">
+                        <label for="hide_experience" style="font-weight: normal; margin-bottom: 0; cursor: pointer;">Hide Work Experience section from Resume</label>
+                    </div>
                     
                     <div id="experienceList" class="list-items">
                         <!-- Experience items will be added here dynamically -->
@@ -568,6 +580,10 @@ foreach ($portfolioItems as $item) {
                 <div class="form-step" data-step="4">
                     <h2 class="step-title">Projects</h2>
                     <p class="step-description">Showcase your academic or personal projects</p>
+                    <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="hide_projects" name="hide_projects" onchange="toggleGeneratorSection('projects', this.checked)">
+                        <label for="hide_projects" style="font-weight: normal; margin-bottom: 0; cursor: pointer;">Hide Projects section from Resume</label>
+                    </div>
                     
                     <div id="projectsList" class="list-items">
                         <!-- Project items will be added here dynamically -->
@@ -580,6 +596,10 @@ foreach ($portfolioItems as $item) {
                 <div class="form-step" data-step="5">
                     <h2 class="step-title">Skills</h2>
                     <p class="step-description">List your technical and soft skills</p>
+                    <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="hide_skills" name="hide_skills" onchange="toggleGeneratorSection('skills', this.checked)">
+                        <label for="hide_skills" style="font-weight: normal; margin-bottom: 0; cursor: pointer;">Hide Skills section from Resume</label>
+                    </div>
                     
                     <div class="form-group">
                         <label>Technical Skills</label>
@@ -607,6 +627,10 @@ foreach ($portfolioItems as $item) {
                 <div class="form-step" data-step="6">
                     <h2 class="step-title">Certifications & Achievements</h2>
                     <p class="step-description">Add your certifications and notable achievements</p>
+                    <div style="margin-bottom: 20px; display: flex; align-items: center; gap: 8px;">
+                        <input type="checkbox" id="hide_certifications" name="hide_certifications" onchange="toggleGeneratorSection('certifications', this.checked)">
+                        <label for="hide_certifications" style="font-weight: normal; margin-bottom: 0; cursor: pointer;">Hide Certifications & Achievements section from Resume</label>
+                    </div>
                     
                     <h3 style="margin-bottom: 15px;">Certifications</h3>
                     <div id="certificationsList" class="list-items">
@@ -704,14 +728,15 @@ foreach ($portfolioItems as $item) {
     
     <script>
         // Initialize existing resume data
-        const existingResumeData = <?php echo $existingResume ? json_encode([
+        const existingResumeData = <?php echo $existingResume ? json_encode(array_merge([
             'education' => $existingResume['education'] ?? [],
             'experience' => $existingResume['experience'] ?? [],
             'projects' => $existingResume['projects'] ?? [],
             'skills' => $existingResume['skills'] ?? ['technical' => [], 'soft' => [], 'languages' => []],
             'certifications' => $existingResume['certifications'] ?? [],
-            'achievements' => $existingResume['achievements'] ?? []
-        ]) : 'null'; ?>;
+            'achievements' => $existingResume['achievements'] ?? [],
+            'hidden_sections' => $existingResume['resume_data']['hidden_sections'] ?? new stdClass()
+        ], $existingResume['resume_data'] ?? [])) : 'null'; ?>;
 
         // Portfolio data for auto-populate
         const portfolioData = <?php echo json_encode($portfolioData); ?>;

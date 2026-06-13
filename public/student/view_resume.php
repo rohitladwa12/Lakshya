@@ -96,8 +96,26 @@ if (!empty($requestedPath)) {
 } else {
     // Default to Resume if no path provided
     $uploadDir = UPLOADS_PATH . '/resumes/Student_Resumes';
-    $fileName = strtoupper($requestedUsn) . '_Resume.pdf';
-    $filePath = $uploadDir . '/' . $fileName;
+    $variants = [
+        strtoupper($requestedUsn) . '_Resume.pdf',
+        strtolower($requestedUsn) . '_Resume.pdf',
+        $requestedUsn . '_Resume.pdf'
+    ];
+    $filePath = '';
+    $fileName = '';
+    foreach ($variants as $v) {
+        $checkPath = $uploadDir . '/' . $v;
+        if (file_exists($checkPath)) {
+            $filePath = $checkPath;
+            $fileName = $v;
+            break;
+        }
+    }
+    if (empty($filePath)) {
+        // Fallback default
+        $fileName = strtoupper($requestedUsn) . '_Resume.pdf';
+        $filePath = $uploadDir . '/' . $fileName;
+    }
 }
 
 if (!file_exists($filePath)) {

@@ -11,8 +11,11 @@ requireLogin();
 
 header('Content-Type: application/json');
 
-$action = $_POST['action'] ?? ''; // Restricted to POST for state-changing safety
 requireRole(ROLE_STUDENT);
+
+$input = json_decode(file_get_contents('php://input'), true) ?: [];
+$input = array_merge($input, $_POST);
+$action = $input['action'] ?? '';
 
 $userId = getUserId();
 $username = getUsername();
@@ -26,11 +29,18 @@ try {
     switch ($action) {
         case 'check_session':
             $portfolioId = $_POST['portfolio_id'] ?? 0;
-            if (isset($_SESSION['current_skill_quiz']) && $_SESSION['current_skill_quiz']['portfolio_id'] == $portfolioId) {
+            $stmt = getDB()->prepare("SELECT quiz_data FROM active_skill_quizzes WHERE student_id = ? AND portfolio_id = ?");
+            $stmt->execute([$username, $portfolioId]);
+            $quizRow = $stmt->fetch();
+            if ($quizRow) {
+                $quizData = json_decode($quizRow['quiz_data'], true);
+                $safeQuestions = array_map(function($q) {
+                    return ['question' => $q['question'], 'options' => $q['options']];
+                }, $quizData['questions']);
                 ob_clean(); echo json_encode([
                     'success' => true,
                     'has_active' => true,
-                    'questions' => $_SESSION['current_skill_quiz']['questions']
+                    'questions' => $safeQuestions
                 ]);
             } else {
                 ob_clean(); echo json_encode(['success' => true, 'has_active' => false]);
@@ -58,21 +68,28 @@ try {
             $skill = $item['title'];
             $level = $item['sub_title'] ?: 'Intermediate';
 
-            session_write_close();
+            // Generate quiz (AI call — this is synchronous and may take a few seconds)
             $quizRes = $aiService->generateSkillQuiz($skill, $level);
             
             if ($quizRes['success']) {
-                // Re-open session to store questions
-                if (session_status() === PHP_SESSION_NONE) {
-                    session_start();
-                }
-
-                $_SESSION['current_skill_quiz'] = [
+                $quizObj = [
                     'portfolio_id' => $portfolioId,
                     'skill' => $skill,
+                    'level' => $level,
                     'questions' => $quizRes['questions'],
                     'started_at' => time()
                 ];
+                
+                // Persist quiz to database
+                $stmt = getDB()->prepare("
+                    INSERT INTO active_skill_quizzes (student_id, portfolio_id, quiz_data) 
+                    VALUES (?, ?, ?) 
+                    ON DUPLICATE KEY UPDATE quiz_data = VALUES(quiz_data)
+                ");
+                $stmt->execute([$username, $portfolioId, json_encode($quizObj)]);
+
+                // Store quiz data in session
+                $_SESSION['current_skill_quiz'] = $quizObj;
 
                 // Return questions WITHOUT the answer index for safety
                 $safeQuestions = array_map(function($q) {
@@ -94,8 +111,23 @@ try {
             break;
 
         case 'submit_quiz':
-            $answers = $_POST['answers'] ?? []; // Array of indices
-            $quizData = $_SESSION['current_skill_quiz'] ?? null;
+            $answers = $input['answers'] ?? []; // Array of indices
+            $portfolioId = $input['portfolio_id'] ?? ($_SESSION['current_skill_quiz']['portfolio_id'] ?? 0);
+            
+            $quizData = null;
+            if ($portfolioId) {
+                $stmt = getDB()->prepare("SELECT quiz_data FROM active_skill_quizzes WHERE student_id = ? AND portfolio_id = ?");
+                $stmt->execute([$username, $portfolioId]);
+                $quizRow = $stmt->fetch();
+                if ($quizRow) {
+                    $quizData = json_decode($quizRow['quiz_data'], true);
+                }
+            }
+            
+            if (!$quizData && isset($_SESSION['current_skill_quiz'])) {
+                $quizData = $_SESSION['current_skill_quiz'];
+                $portfolioId = $quizData['portfolio_id'];
+            }
 
             if (!$quizData) {
                 ob_clean(); echo json_encode(['success' => false, 'message' => 'No active quiz session found.']);
@@ -103,7 +135,6 @@ try {
             }
 
             $questions = $quizData['questions'];
-            $portfolioId = $quizData['portfolio_id'];
             $correctCount = 0;
             $results = [];
 
@@ -175,6 +206,12 @@ try {
                 } catch (Exception $e) {
                     error_log("Failed to sync skill verification to unified table: " . $e->getMessage());
                 }
+            }
+
+            // Cleanup database active quiz
+            if ($portfolioId) {
+                $stmtDel = getDB()->prepare("DELETE FROM active_skill_quizzes WHERE student_id = ? AND portfolio_id = ?");
+                $stmtDel->execute([$username, $portfolioId]);
             }
 
             // Cleanup session

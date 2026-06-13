@@ -231,11 +231,12 @@ $fullName = getFullName();
             cursor: pointer;
             border: none;
             text-decoration: none;
+            box-sizing: border-box;
         }
 
         .btn-primary { background: var(--brand-gradient); color: white; }
         .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(128, 0, 0, 0.2); }
-        .btn-view { background: var(--brand-light); color: var(--brand); font-size: 16px; padding: 10px; width: 40px; height: 40px; justify-content: center; border-radius: 10px; }
+        .btn-view { background: var(--brand-light); color: var(--brand); font-size: 16px; padding: 0; width: 40px; height: 40px; justify-content: center; align-items: center; border-radius: 10px; box-sizing: border-box; }
         .btn-view:hover { background: var(--brand); color: white; }
 
         /* Modal Glass */
@@ -405,6 +406,7 @@ $fullName = getFullName();
                 <thead>
                     <tr>
                         <th>Opportunity</th>
+                        <th>Academic Year</th>
                         <th>Location</th>
                         <th>Requirements</th>
                         <th>Deadline</th>
@@ -418,6 +420,9 @@ $fullName = getFullName();
                         <td>
                             <div class="job-title"><?php echo htmlspecialchars($job['title']); ?></div>
                             <div class="comp-name"><i class="fas fa-building"></i> <?php echo htmlspecialchars($job['company_name']); ?></div>
+                        </td>
+                        <td style="font-weight: 600; color: var(--text-dark);">
+                            <?php echo htmlspecialchars($job['academic_year'] ?? 'N/A'); ?>
                         </td>
                         <td style="color: var(--text-muted); font-weight: 500;">
                             <i class="fas fa-map-marker-alt" style="font-size: 11px;"></i> <?php echo htmlspecialchars($job['location']); ?>
@@ -436,16 +441,47 @@ $fullName = getFullName();
                             </span>
                         </td>
                         <td style="text-align: right;">
-                            <div style="display: flex; gap: 8px; justify-content: flex-end;">
+                            <form id="form_apps_<?php echo $job['id']; ?>" method="POST" style="display: none;">
+                                <input type="hidden" name="view_apps" value="<?php echo $job['id']; ?>">
+                            </form>
+                            <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
                                 <button class="btn-action btn-view" title="Edit Job" onclick='editJob(<?php echo json_encode($job, JSON_HEX_APOS | JSON_HEX_QUOT); ?>)'>
                                     <i class="fas fa-edit"></i>
                                 </button>
-                                <form method="POST" style="margin: 0;">
-                                    <input type="hidden" name="view_apps" value="<?php echo $job['id']; ?>">
-                                    <button type="submit" class="btn-action btn-view" title="Applications" style="background: #eff6ff; color: #2563eb;">
-                                        <i class="fas fa-users"></i>
-                                    </button>
-                                </form>
+                                <?php
+                                $shareUrl = APP_URL . '/student/job_details.php?code=' . encryptJobId($job['id']);
+                                $branches = json_decode($job['eligible_branches'] ?? '[]', true) ?: [];
+                                $branchesStr = !empty($branches) ? implode(', ', $branches) : 'All Branches';
+
+                                $salaryStr = 'Not Specified';
+                                if (!empty($job['salary_min']) && !empty($job['salary_max'])) {
+                                    $salaryStr = '₹' . number_format($job['salary_min'] / 100000, 1) . 'L – ₹' . number_format($job['salary_max'] / 100000, 1) . 'L per year';
+                                }
+
+                                $deadlineStr = date('M d, Y', strtotime($job['application_deadline']));
+
+                                $waMessage = "*📢 New Placement Opportunity!*\n\n"
+                                           . "*Company:* " . ($job['company_name'] ?? 'Company') . "\n"
+                                           . "*Role:* " . $job['title'] . "\n"
+                                           . "*Location:* " . $job['location'] . "\n"
+                                           . "*Salary:* " . $salaryStr . "\n"
+                                           . "*Min SGPA:* " . ($job['min_cgpa'] ?: 'Any') . "+\n"
+                                           . "*Eligible Branches:* " . $branchesStr . "\n"
+                                           . "*Deadline:* " . $deadlineStr . "\n\n"
+                                           . "*Apply here:* " . $shareUrl . "\n\n"
+                                           . "_Lakshya Placement Portal_";
+
+                                $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
+                                ?>
+                                <a href="<?php echo $waUrl; ?>" target="_blank" class="btn-action btn-view" title="Share on WhatsApp" style="background: #e8fbee; color: #128c7e;">
+                                    <i class="fab fa-whatsapp"></i>
+                                </a>
+                                <a href="job_attendance.php?job_id=<?php echo $job['id']; ?>" class="btn-action btn-view" title="Take Attendance" style="background: #fdf2f8; color: #db2777;">
+                                    <i class="fas fa-user-check"></i>
+                                </a>
+                                <button type="submit" form="form_apps_<?php echo $job['id']; ?>" class="btn-action btn-view" title="Applications" style="background: #eff6ff; color: #2563eb;">
+                                    <i class="fas fa-users"></i>
+                                </button>
                                 <?php if ($job['status'] !== 'Closed'): ?>
                                 <button class="btn-action btn-view" title="Close" style="background: #fff1f2; color: #e11d48;" onclick="closeJob(<?php echo $job['id']; ?>)">
                                     <i class="fas fa-lock"></i>
@@ -456,7 +492,7 @@ $fullName = getFullName();
                     </tr>
                     <?php endforeach; if (empty($jobs)): ?>
                     <tr>
-                        <td colspan="6" style="text-align: center; padding: 60px; color: var(--text-muted);">
+                        <td colspan="7" style="text-align: center; padding: 60px; color: var(--text-muted);">
                             <i class="fas fa-briefcase" style="font-size: 48px; opacity: 0.1; margin-bottom: 20px; display: block;"></i>
                             No job postings found matching your criteria.
                         </td>
@@ -479,8 +515,8 @@ $fullName = getFullName();
             </div>
             
             <div class="modal-tabs">
-                <button type="button" class="tab-btn active" id="tab-job-details" onclick="showTab('job-details')">1. Opportunity</button>
-                <button type="button" class="tab-btn" id="tab-company-details" onclick="showTab('company-details')">2. Company</button>
+                <button type="button" class="tab-btn active" id="tab-company-details" onclick="showTab('company-details')">1. Company</button>
+                <button type="button" class="tab-btn" id="tab-job-details" onclick="showTab('job-details')">2. Opportunity</button>
                 <button type="button" class="tab-btn" id="tab-spoc-details" onclick="showTab('spoc-details')">3. Contacts</button>
                 <button type="button" class="tab-btn" id="tab-custom-questions" onclick="showTab('custom-questions')">4. Custom</button>
             </div>
@@ -489,9 +525,47 @@ $fullName = getFullName();
                 <input type="hidden" name="action" id="formAction" value="create">
                 <input type="hidden" name="job_id" id="jobId">
 
-                <!-- Tab 1: Job Details -->
-                <div id="job-details" class="tab-content active">
+                <!-- Tab 1: Company Details -->
+                <div id="company-details" class="tab-content active">
                     <div class="form-grid">
+                        <div class="form-group">
+                            <label>Official Company Name</label>
+                            <input type="text" name="company_name" id="companyName" class="form-control" placeholder="Required">
+                        </div>
+                        <div class="form-group">
+                            <label>Industry Vertical</label>
+                            <input type="text" name="company_sector" id="companySector" class="form-control" placeholder="e.g. SaaS / AI">
+                        </div>
+                        <div class="form-group">
+                            <label>Headquarters</label>
+                            <input type="text" name="company_district" id="companyDistrict" class="form-control">
+                        </div>
+                        <div class="form-group">
+                            <label>Corporate Website</label>
+                            <input type="url" name="company_website" id="companyWebsite" class="form-control" placeholder="https://">
+                        </div>
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label>Brief Company Pitch</label>
+                            <textarea name="company_description" id="companyDescription" class="form-control" rows="3"></textarea>
+                        </div>
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label>Company Logo / Image</label>
+                            <input type="file" name="company_logo" id="companyLogo" class="form-control" accept="image/*">
+                            <div id="companyLogoPreviewContainer" style="margin-top: 10px; display: none; align-items: center; gap: 10px;">
+                                <img id="companyLogoPreview" src="" alt="Company Logo" style="max-height: 50px; border-radius: 6px; border: 1px solid #cbd5e1;">
+                                <span style="font-size: 12px; color: var(--text-muted);">Current Logo</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Tab 2: Job Details -->
+                <div id="job-details" class="tab-content">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Academic Year</label>
+                            <input type="text" name="academic_year" id="academicYear" class="form-control" required placeholder="e.g. 2025-26">
+                        </div>
                         <div class="form-group">
                             <label>Link to Company</label>
                             <input type="text" id="companySearch" class="form-control" list="existingCompanies" placeholder="Search saved companies..." oninput="onCompanySelect(this.value)">
@@ -519,6 +593,14 @@ $fullName = getFullName();
                             </select>
                         </div>
                         <div class="form-group">
+                            <label>Work Mode</label>
+                            <select name="work_mode" id="workMode" class="form-control">
+                                <option value="On-Site">On-Site</option>
+                                <option value="Remote">Remote</option>
+                                <option value="Hybrid">Hybrid</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
                             <label>Salary Range (Annual)</label>
                             <div style="display: flex; gap: 10px;">
                                 <input type="number" name="salary_min" id="salaryMin" class="form-control" placeholder="Min">
@@ -527,54 +609,69 @@ $fullName = getFullName();
                         </div>
                         <div class="form-group">
                             <label>Minimum SGPA</label>
-                            <input type="number" step="0.1" name="min_cgpa" id="minCgpa" class="form-control" required placeholder="e.g. 7.5">
+                            <input type="number" step="0.01" min="0" max="10" name="min_cgpa" id="minCgpa" class="form-control" required placeholder="e.g. 7.5">
                         </div>
-                        <div class="form-group" style="grid-column: span 2;">
+                        <div class="form-group">
                             <label>Application Deadline</label>
                             <input type="date" name="application_deadline" id="deadline" class="form-control" required min="<?php echo date('Y-m-d'); ?>">
                         </div>
                         <div class="form-group" style="grid-column: span 2;">
-                            <label>Eligible Courses</label>
-                            <div class="checkbox-group">
-                                <label class="checkbox-item"><input type="checkbox" name="eligible_courses[]" value="BTECH" class="course-check" onchange="updateBranchOptions()"> BTECH</label>
-                                <label class="checkbox-item"><input type="checkbox" name="eligible_courses[]" value="BE" class="course-check" onchange="updateBranchOptions()"> BE</label>
-                                <label class="checkbox-item"><input type="checkbox" name="eligible_courses[]" value="MCA" class="course-check" onchange="updateBranchOptions()"> MCA</label>
-                                <label class="checkbox-item"><input type="checkbox" name="eligible_courses[]" value="MBA" class="course-check" onchange="updateBranchOptions()"> MBA</label>
-                            </div>
+                            <label>Job Description</label>
+                            <textarea name="description" id="description" class="form-control" rows="3" placeholder="Describe the role and what the candidate will work on..."></textarea>
                         </div>
                         <div class="form-group" style="grid-column: span 2;">
-                            <label>Eligible Branches</label>
-                            <div class="checkbox-group" id="branchCheckboxes">
-                                <p style="color: #666; font-size: 11px;">Select a course first</p>
-                            </div>
+                            <label>Requirements / Qualifications</label>
+                            <textarea name="requirements" id="requirements" class="form-control" rows="2" placeholder="e.g. Strong DSA, proficiency in Python..."></textarea>
                         </div>
                     </div>
-                </div>
 
-                <!-- Tab 2: Company Details -->
-                <div id="company-details" class="tab-content">
-                    <div class="form-grid">
-                        <div class="form-group">
-                            <label>Official Company Name</label>
-                            <input type="text" name="company_name" id="companyName" class="form-control" required>
-                        </div>
-                        <div class="form-group">
-                            <label>Industry Vertical</label>
-                            <input type="text" name="company_sector" id="companySector" class="form-control" placeholder="e.g. SaaS / AI">
-                        </div>
-                        <div class="form-group">
-                            <label>Headquarters</label>
-                            <input type="text" name="company_district" id="companyDistrict" class="form-control">
-                        </div>
-                        <div class="form-group">
-                            <label>Corporate Website</label>
-                            <input type="url" name="company_website" id="companyWebsite" class="form-control" placeholder="https://">
-                        </div>
-                        <div class="form-group" style="grid-column: span 2;">
-                            <label>Brief Company Pitch</label>
-                            <textarea name="company_description" id="companyDescription" class="form-control" rows="3"></textarea>
+                    <!-- Eligible Years -->
+                    <div style="margin-top:20px;padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;">
+                        <label style="display:block;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px;">Eligible Year of Study</label>
+                        <div class="checkbox-group">
+                            <label class="checkbox-item"><input type="checkbox" name="eligible_years[]" value="1" class="year-check"> 1st Year</label>
+                            <label class="checkbox-item"><input type="checkbox" name="eligible_years[]" value="2" class="year-check"> 2nd Year</label>
+                            <label class="checkbox-item"><input type="checkbox" name="eligible_years[]" value="3" class="year-check"> 3rd Year</label>
+                            <label class="checkbox-item"><input type="checkbox" name="eligible_years[]" value="4" class="year-check"> 4th Year (Final)</label>
                         </div>
                     </div>
+
+                    <!-- Branch Selector (flat 4-col row, outside form-grid) -->
+                    <div style="margin-top:20px;padding:20px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;">
+                        <label style="display:block;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:14px;">Eligible Branches</label>
+                        <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:12px;align-items:end;">
+                            <div>
+                                <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;">1. Institution</label>
+                                <select id="selInstitution" class="form-control" onchange="onInstChange()">
+                                    <option value="GMIT">GMIT</option>
+                                    <option value="GMU">GMU</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;">2. Course Group</label>
+                                <select id="selCourse" class="form-control" onchange="onCourseChange()">
+                                    <option value="">Select Course</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label style="font-size:11px;font-weight:600;color:var(--text-muted);display:block;margin-bottom:6px;">3. Sub-branch (Ctrl+click multi)</label>
+                                <select id="selSubBranch" class="form-control" multiple style="height:110px;">
+                                    <option value="">Select Course First</option>
+                                </select>
+                            </div>
+                            <div style="padding-bottom:2px;">
+                                <button type="button" class="btn-action btn-primary" style="width:100%;" onclick="addSelectedBranches()">
+                                    <i class="fas fa-plus"></i> Add
+                                </button>
+                            </div>
+                        </div>
+                        <div style="margin-top:14px;min-height:36px;">
+                            <div id="selectedBranchesTags" style="display:flex;flex-wrap:wrap;gap:8px;"></div>
+                            <div id="hiddenBranchesInputs"></div>
+                            <p id="noBranchHint" style="font-size:12px;color:var(--text-muted);margin:6px 0 0;">No branches added yet — all students will be eligible.</p>
+                        </div>
+                    </div>
+
                 </div>
 
                 <!-- Tab 3: SPOC Details -->
@@ -607,127 +704,102 @@ $fullName = getFullName();
         const modal = document.getElementById('jobModal');
         const form = document.getElementById('jobForm');
 
-        // Course -> Branches Mapping
-        const COURSE_BRANCHES = {
-            'BTECH': ['CSE', 'AIML', 'ISE', 'ECE', 'EEE', 'MECH', 'CIVIL', 'BT', 'AIDS', 'CSBS'],
-            'BE': ['CSE', 'AIML', 'ISE', 'ECE', 'EEE', 'MECH', 'CIVIL'],
-            'MCOM': ['Finance', 'Accounting', 'Banking'],
-            'BCOM': ['General', 'Computers', 'Finance'],
-            'MBA': ['Finance', 'Marketing', 'HR', 'Operations', 'Business Analytics'],
-            'MCA': ['MCA'],
-            'BCA': ['BCA']
+        const HIERARCHY = {
+            'GMIT': {
+                'BE': ['CSE', 'AIML', 'ISE', 'ECE', 'EEE', 'MECH', 'CIVIL'],
+                'MBA': ['MBA'],
+                'MCA': ['MCA']
+            },
+            'GMU': {
+                'BTECH': ['CSE', 'CSE-AIML', 'ISE', 'ECE', 'EEE', 'MECH', 'CIVIL', 'BT', 'AIDS', 'CSBS', 'DS', 'CSE-DS', 'IOT', 'CSE-IOT'],
+                'MBA': ['MBA', 'MBA-ADV', 'MBA-AM', 'MBA-IB', 'MBA-IE', 'MBA-INTNL', 'MBA-PF'],
+                'BBA': ['BBA', 'BBA-AI&BA', 'BBA-AM', 'BBA-B&F', 'BBA-BA', 'BBA-DM&E-COM', 'BBA-DMSM', 'BBA-GM', 'BBA-HM', 'BBA-HRM', 'BBA-IE', 'BBA-LSCM', 'BBA-MS', 'BBA-TH&EM'],
+                'BCA': ['BCA', 'BCA-AIDA', 'BCA-CS', 'BCA-CY', 'BCA-DS', 'BCA-GENERAL'],
+                'MCOM': ['MCOM', 'MCOM-ATFA', 'MCom-AFDB', 'MCom-FAE'],
+                'MCA': ['MCA', 'MCA-AIDA', 'MCA-CY', 'MCA-DS'],
+                'BCOM': ['BCOM', 'BCOM-A&T', 'BCOM-AF', 'BCOM-AI', 'BCOM-AT', 'BCOM-DA&BI', 'BCOM-F&A', 'BCOM-G'],
+                'BSC': ['BSC', 'BSC-B&TE', 'BSC-BT', 'BSC-BZ', 'BSC-C,B', 'BSC-C,CS', 'BSC-C,Z', 'BSC-CB', 'BSC-CCS', 'BSC-CZ', 'BSC-E,SC', 'BSC-FS&T', 'BSC-FST', 'BSC-IM', 'BSC-M,CS', 'BSC-M,P', 'BSC-MB', 'BSC-MCS', 'BSC-P,C', 'BSC-PC', 'BSC-PM', 'BSC-S,CS', 'BSC-SCS'],
+                'LLB': ['LLB', 'LLB-BBA', 'LLB-BCOM'],
+                'MSC': ['MSC', 'MSC-AIDA', 'MSC-C', 'MSC-CY', 'MSC-DS', 'MSC-FT', 'MSC-M', 'MSC-P'],
+                'MTECH': ['MTECH', 'MTECH-AE&ITS', 'MTECH-AIHC', 'MTECH-B&GT', 'MTECH-CASE', 'MTECH-DE', 'MTECH-DLDA', 'MTECH-PD&M', 'MTECH-S&GA', 'MTECH-SES&SE', 'MTECH-ST', 'MTech-IS&IOT'],
+                'PHD': ['PHD', 'PhD-AIM', 'PhD-BOT', 'PhD-BT', 'PhD-CA', 'PhD-CHE', 'PhD-COM', 'PhD-CSE', 'PhD-CV', 'PhD-ECE', 'PhD-EEE', 'PhD-ISE', 'PhD-MAT', 'PhD-ME', 'PhD-MS', 'PhD-PHY', 'PhD-RA', 'PhD-ZOO']
+            }
         };
 
-        function updateBranchOptions() {
-            const container = document.getElementById('branchCheckboxes');
-            const selectedCourses = Array.from(document.querySelectorAll('.course-check:checked')).map(cb => cb.value);
+        let selectedBranches = []; // Array of objects: { inst: 'GMIT', branch: 'CSE' }
+
+        function onInstChange() {
+            const inst = document.getElementById('selInstitution').value;
+            const courseSelect = document.getElementById('selCourse');
+            courseSelect.innerHTML = '<option value="">Select Course</option>';
             
-            // Get currently checked branches to preserve selection if possibe
-            const checkedBranches = Array.from(document.querySelectorAll('.branch-check:checked')).map(cb => cb.value);
-            
-            container.innerHTML = '';
-            
-            if (selectedCourses.length === 0) {
-                container.innerHTML = '<p style="color: #666; font-size: 13px; padding: 10px;">Please select courses above to see available branches.</p>';
-                return;
+            if (HIERARCHY[inst]) {
+                Object.keys(HIERARCHY[inst]).forEach(course => {
+                    courseSelect.insertAdjacentHTML('beforeend', `<option value="${course}">${course}</option>`);
+                });
             }
-
-            const uniqueBranches = new Set();
-            
-            selectedCourses.forEach(course => {
-                const branches = COURSE_BRANCHES[course] || [];
-                branches.forEach(b => uniqueBranches.add(b));
-            });
-
-            if (uniqueBranches.size === 0) {
-                 container.innerHTML = '<p style="color: #666; font-size: 13px; padding: 10px;">No specific branches available for selected courses.</p>';
-                 return;
-            }
-
-            // sort alphabetically
-            const sortedBranches = Array.from(uniqueBranches).sort();
-            
-            sortedBranches.forEach(branch => {
-                const isChecked = checkedBranches.includes(branch) ? 'checked' : '';
-                const html = `
-                    <label class="checkbox-item">
-                        <input type="checkbox" name="eligible_branches[]" value="${branch}" class="branch-check" ${isChecked}> 
-                        ${branch}
-                    </label>
-                `;
-                container.insertAdjacentHTML('beforeend', html);
-            });
+            onCourseChange();
         }
 
-        function showTab(tabId) {
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        function onCourseChange() {
+            const inst = document.getElementById('selInstitution').value;
+            const course = document.getElementById('selCourse').value;
+            const subSelect = document.getElementById('selSubBranch');
+            subSelect.innerHTML = '';
             
-            document.getElementById(tabId).classList.add('active');
-            document.getElementById('tab-' + tabId).classList.add('active');
+            if (HIERARCHY[inst] && HIERARCHY[inst][course]) {
+                // Option to add whole course/parent branch
+                subSelect.insertAdjacentHTML('beforeend', `<option value="${course}">${course} (All sub-branches)</option>`);
+                
+                HIERARCHY[inst][course].forEach(sub => {
+                    if (sub !== course) {
+                        subSelect.insertAdjacentHTML('beforeend', `<option value="${sub}">${sub}</option>`);
+                    }
+                });
+            } else {
+                subSelect.innerHTML = '<option value="">Select Course First</option>';
+            }
+        }
+
+        function renderTags() {
+            const tagsDiv = document.getElementById('selectedBranchesTags');
+            const inputsDiv = document.getElementById('hiddenBranchesInputs');
+            tagsDiv.innerHTML = '';
+            inputsDiv.innerHTML = '';
             
-            // Mark previous tabs as completed (optional visual cue)
-            const tabs = ['job-details', 'company-details', 'spoc-details', 'custom-questions'];
-            const currentIndex = tabs.indexOf(tabId);
-            tabs.forEach((id, index) => {
-                const btn = document.getElementById('tab-' + id);
-                if (index < currentIndex) {
-                    btn.classList.add('completed');
-                } else {
-                    btn.classList.remove('completed');
+            selectedBranches.forEach((item, idx) => {
+                tagsDiv.insertAdjacentHTML('beforeend', `
+                    <span style="background: #e2e8f0; color: #1e293b; padding: 4px 10px; border-radius: 16px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; font-weight: 500;">
+                        <strong>[${item.inst}]</strong> ${item.branch}
+                        <span style="cursor: pointer; font-weight: bold; color: #ef4444;" onclick="removeBranch(${idx})">&times;</span>
+                    </span>
+                `);
+                inputsDiv.insertAdjacentHTML('beforeend', `
+                    <input type="hidden" name="eligible_branches[]" value="${item.branch}">
+                `);
+            });
+            const hint = document.getElementById('noBranchHint');
+            if (hint) hint.style.display = selectedBranches.length ? 'none' : 'block';
+        }
+
+        function addSelectedBranches() {
+            const inst = document.getElementById('selInstitution').value;
+            const subSelect = document.getElementById('selSubBranch');
+            const selectedOptions = Array.from(subSelect.selectedOptions).map(opt => opt.value).filter(val => val !== "");
+            
+            selectedOptions.forEach(val => {
+                const exists = selectedBranches.some(item => item.inst === inst && item.branch === val);
+                if (!exists) {
+                    selectedBranches.push({ inst: inst, branch: val });
                 }
             });
-        }
-
-        function addSpocRow(data = {}) {
-            const container = document.getElementById('spocList');
-            const row = document.createElement('div');
-            row.className = 'spoc-row';
-            row.innerHTML = `
-                <input type="text" name="spoc_name[]" value="${data.name || ''}" class="form-control" placeholder="Name" required>
-                <input type="text" name="spoc_designation[]" value="${data.designation || ''}" class="form-control" placeholder="Designation">
-                <input type="email" name="spoc_email[]" value="${data.email || ''}" class="form-control" placeholder="Email">
-                <input type="text" name="spoc_phone[]" value="${data.phone || ''}" class="form-control" placeholder="Phone">
-                <button type="button" class="btn-remove-spoc" onclick="this.parentElement.remove()">×</button>
-            `;
-            container.appendChild(row);
-        }
-
-    <script>
-        const modal = document.getElementById('jobModal');
-        const form = document.getElementById('jobForm');
-
-        const COURSE_BRANCHES = {
-            'BTECH': ['CSE', 'CSE-AIML', 'ISE', 'ECE', 'EEE', 'MECH', 'CIVIL', 'BT', 'AIDS', 'CSBS'],
-            'BE': ['CSE', 'AIML', 'ISE', 'ECE', 'EEE', 'MECH', 'CIVIL'],
-            'MCA': ['MCA'],
-            'MBA': ['MBA']
-        };
-
-        function updateBranchOptions() {
-            const container = document.getElementById('branchCheckboxes');
-            const selectedCourses = Array.from(document.querySelectorAll('.course-check:checked')).map(cb => cb.value);
-            const checkedBranches = Array.from(document.querySelectorAll('.branch-check:checked')).map(cb => cb.value);
             
-            container.innerHTML = '';
-            if (selectedCourses.length === 0) {
-                container.innerHTML = '<p style="color: #666; font-size: 11px;">Select a course first</p>';
-                return;
-            }
+            renderTags();
+        }
 
-            const uniqueBranches = new Set();
-            selectedCourses.forEach(course => {
-                (COURSE_BRANCHES[course] || []).forEach(b => uniqueBranches.add(b));
-            });
-
-            Array.from(uniqueBranches).sort().forEach(branch => {
-                const isChecked = checkedBranches.includes(branch) ? 'checked' : '';
-                container.insertAdjacentHTML('beforeend', `
-                    <label class="checkbox-item">
-                        <input type="checkbox" name="eligible_branches[]" value="${branch}" class="branch-check" ${isChecked}> 
-                        ${branch}
-                    </label>`);
-            });
+        function removeBranch(idx) {
+            selectedBranches.splice(idx, 1);
+            renderTags();
         }
 
         function showTab(tabId) {
@@ -742,7 +814,7 @@ $fullName = getFullName();
             const div = document.createElement('div');
             div.className = 'spoc-row';
             div.innerHTML = `
-                <input type="text" name="spoc_name[]" value="${data.name || ''}" class="form-control" placeholder="Name" required>
+                <input type="text" name="spoc_name[]" value="${data.name || ''}" class="form-control" placeholder="Name">
                 <input type="text" name="spoc_designation[]" value="${data.designation || ''}" class="form-control" placeholder="Role">
                 <input type="email" name="spoc_email[]" value="${data.email || ''}" class="form-control" placeholder="Email">
                 <input type="text" name="spoc_phone[]" value="${data.phone || ''}" class="form-control" placeholder="Phone">
@@ -776,13 +848,22 @@ $fullName = getFullName();
             document.getElementById('modalTitle').innerText = 'Post Opportunity';
             document.getElementById('formAction').value = 'create';
             form.reset();
+            document.getElementById('companyLogoPreviewContainer').style.display = 'none';
+            document.getElementById('companyLogoPreview').src = '';
             document.getElementById('companyId').value = '';
             document.getElementById('companySearch').value = '';
+            document.getElementById('academicYear').value = '';
             document.getElementById('spocList').innerHTML = '';
             document.getElementById('customQuestionsList').innerHTML = '';
             modal.style.display = 'flex';
-            showTab('job-details');
-            updateBranchOptions();
+            showTab('company-details');
+            
+            selectedBranches = [];
+            renderTags();
+            
+            document.getElementById('selInstitution').value = '<?php echo $_SESSION['user']['institution'] ?? 'GMIT'; ?>';
+            onInstChange();
+            
             addSpocRow();
         }
 
@@ -793,13 +874,17 @@ $fullName = getFullName();
             document.getElementById('formAction').value = 'update';
             document.getElementById('jobId').value = job.id;
             
+            document.getElementById('academicYear').value = job.academic_year || '';
             document.getElementById('title').value = job.title;
             document.getElementById('location').value = job.location;
             document.getElementById('jobType').value = job.job_type;
+            document.getElementById('workMode').value = job.work_mode || 'On-Site';
             document.getElementById('salaryMin').value = job.salary_min || '';
             document.getElementById('salaryMax').value = job.salary_max || '';
             document.getElementById('minCgpa').value = job.min_cgpa;
             document.getElementById('deadline').value = job.application_deadline;
+            document.getElementById('description').value = job.description || '';
+            document.getElementById('requirements').value = job.requirements || '';
             
             document.getElementById('companyId').value = job.company_id;
             document.getElementById('companyName').value = job.company_name;
@@ -808,11 +893,34 @@ $fullName = getFullName();
             await loadCompanyData(job.company_id);
 
             try {
-                const courses = JSON.parse(job.eligible_courses || '[]');
-                document.querySelectorAll('.course-check').forEach(cb => cb.checked = courses.includes(cb.value));
-                updateBranchOptions();
-                const branches = JSON.parse(job.eligible_branches || '[]');
-                document.querySelectorAll('.branch-check').forEach(cb => cb.checked = branches.includes(cb.value));
+                const rawBranches = JSON.parse(job.eligible_branches || '[]');
+                selectedBranches = [];
+                rawBranches.forEach(branch => {
+                    let inst = 'GMIT';
+                    for (const [iName, courses] of Object.entries(HIERARCHY)) {
+                        let found = false;
+                        for (const [cName, branches] of Object.entries(courses)) {
+                            if (branches.includes(branch) || cName === branch) {
+                                inst = iName;
+                                found = true;
+                                break;
+                            }
+                        }
+                        if (found) break;
+                    }
+                    selectedBranches.push({ inst: inst, branch: branch });
+                });
+            } catch(e) {
+                selectedBranches = [];
+            }
+            renderTags();
+            
+            document.getElementById('selInstitution').value = '<?php echo $_SESSION['user']['institution'] ?? 'GMIT'; ?>';
+            onInstChange();
+
+            try {
+                const years = JSON.parse(job.eligible_years || '[]');
+                document.querySelectorAll('.year-check').forEach(cb => cb.checked = years.map(String).includes(cb.value));
             } catch(e) {}
 
             try {
@@ -822,22 +930,35 @@ $fullName = getFullName();
             } catch(e) {}
 
             modal.style.display = 'flex';
-            showTab('job-details');
+            showTab('company-details');
         }
 
         async function loadCompanyData(companyId) {
             if (!companyId) return;
-            const res = await fetch(`../../api/get_company.php?id=${companyId}`);
-            const data = await res.json();
-            if (data.success) {
-                const c = data.company;
-                document.getElementById('companyName').value = c.name;
-                document.getElementById('companySector').value = c.sector || '';
-                document.getElementById('companyWebsite').value = c.website || '';
-                document.getElementById('companyDistrict').value = c.district || '';
-                document.getElementById('companyDescription').value = c.description || '';
-                document.getElementById('spocList').innerHTML = '';
-                if (data.spocs) data.spocs.forEach(s => addSpocRow(s));
+            try {
+                const res = await fetch(`../api/get_company.php?id=${companyId}`);
+                const data = await res.json();
+                if (data.success) {
+                    const c = data.company;
+                    document.getElementById('companyName').value = c.name;
+                    document.getElementById('companySector').value = c.sector || '';
+                    document.getElementById('companyWebsite').value = c.website || '';
+                    document.getElementById('companyDistrict').value = c.district || '';
+                    document.getElementById('companyDescription').value = c.description || '';
+                    const previewContainer = document.getElementById('companyLogoPreviewContainer');
+                    const previewImg = document.getElementById('companyLogoPreview');
+                    if (c.logo_url) {
+                        const baseUrl = '<?php echo APP_URL; ?>/uploads/company_images/';
+                        previewImg.src = c.logo_url.startsWith('http') ? c.logo_url : baseUrl + c.logo_url;
+                        previewContainer.style.display = 'flex';
+                    } else {
+                        previewContainer.style.display = 'none';
+                    }
+                    document.getElementById('spocList').innerHTML = '';
+                    if (data.spocs) data.spocs.forEach(s => addSpocRow(s));
+                }
+            } catch (err) {
+                console.error("Failed to load company data:", err);
             }
         }
 
@@ -864,6 +985,10 @@ $fullName = getFullName();
                 document.getElementById('companyId').value = '';
             }
         }
+
+        document.getElementById('companyName').addEventListener('input', function() {
+            document.getElementById('companySearch').value = this.value;
+        });
 
         window.onclick = e => { if (e.target === modal) closeModal(); }
     </script>

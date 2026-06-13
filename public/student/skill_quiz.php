@@ -48,6 +48,7 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="report_question.js?v=<?php echo APP_VERSION; ?>"></script>
     <style>
         :root {
             --primary-maroon: #800000;
@@ -481,6 +482,18 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
             .replace(/'/g, "&#039;");
     }
 
+    window.reportCurrentQuestion = function(idx) {
+        const q = questions[idx];
+        window.openQuestionReportModal({
+            test_type: 'skill_quiz',
+            test_id: portfolioId,
+            question_text: q.question,
+            options: q.options,
+            correct_answer: q.answer,
+            user_answer: userAnswers[idx]
+        });
+    };
+
     function renderQuestions() {
         const container = document.getElementById('questionsContainer');
         questions.forEach((q, qIdx) => {
@@ -499,7 +512,10 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
             });
 
             div.innerHTML = `
-                <div class="question-text">${escapeHtml(q.question)}</div>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 15px;">
+                    <div class="question-text" style="margin-bottom:0; flex: 1;">${escapeHtml(q.question)}</div>
+                    <a href="javascript:void(0)" onclick="reportCurrentQuestion(${qIdx})" style="color: var(--primary-maroon); text-decoration: none; font-size: 0.9rem; font-weight: 600; margin-left: 15px; white-space: nowrap;"><i class="fas fa-flag"></i> Report</a>
+                </div>
                 <div class="options-grid">${optionsHTML}</div>
             `;
             container.appendChild(div);
@@ -563,6 +579,7 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
         try {
             const formData = new URLSearchParams();
             formData.append('action', 'submit_quiz');
+            formData.append('portfolio_id', portfolioId);
             formData.append('csrf_token', CSRF_TOKEN);
             userAnswers.forEach((ans, i) => formData.append(`answers[${i}]`, ans !== null ? ans : -1));
 
@@ -612,6 +629,18 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
             msg.innerHTML = `You scored ${score}%. You need at least 70% to verify this skill. Don't worry, you can study and try again later!`;
         }
 
+        let lastQuizResults = data.results;
+        window.reportReviewQuestion = function(idx) {
+            const r = lastQuizResults[idx];
+            window.openQuestionReportModal({
+                test_type: 'skill_quiz',
+                test_id: portfolioId,
+                question_text: r.question,
+                correct_answer: r.correct_answer,
+                user_answer: r.user_answer
+            });
+        };
+
         // Render Review
         const reviewList = document.getElementById('reviewList');
         data.results.forEach((r, idx) => {
@@ -623,7 +652,10 @@ $skillLevel = $skillItem['sub_title'] ?: 'Intermediate';
             div.style.border = `1px solid ${r.is_correct ? '#b7eb8f' : '#ffa39e'}`;
             
             div.innerHTML = `
-                <div style="font-weight:700; margin-bottom: 5px;">Question ${idx+1}: ${escapeHtml(r.question)}</div>
+                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 5px;">
+                    <div style="font-weight:700; flex: 1;">Question ${idx+1}: ${escapeHtml(r.question)}</div>
+                    <a href="javascript:void(0)" onclick="reportReviewQuestion(${idx})" style="color: var(--primary-maroon); text-decoration: none; font-size: 0.85rem; font-weight: 600; margin-left: 15px; white-space: nowrap;"><i class="fas fa-flag"></i> Report</a>
+                </div>
                 <div style="font-size:0.9rem;">
                     Your Answer: <span style="font-weight:600;">${r.user_answer !== -1 ? 'Option ' + String.fromCharCode(65 + r.user_answer) : 'Unanswered'}</span> ${r.is_correct ? '✅' : '❌'}
                 </div>

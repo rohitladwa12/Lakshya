@@ -773,7 +773,12 @@ $fullName = getFullName();
                     <i class="fas fa-align-left main-icon"></i>
                     <span>Professional Summary</span>
                 </div>
-                <i class="fas fa-chevron-down section-chevron"></i>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="section-visibility-toggle" onclick="event.stopPropagation(); toggleSectionVisibility('summary')" title="Show/Hide Section on Resume" style="color: var(--muted); font-size: 1rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; transition: background 0.2s;">
+                        <i class="fas fa-eye" id="eye-summary"></i>
+                    </span>
+                    <i class="fas fa-chevron-down section-chevron"></i>
+                </div>
             </div>
             <div class="section-body">
                 <div class="field-group">
@@ -789,7 +794,12 @@ $fullName = getFullName();
                     <i class="fas fa-graduation-cap main-icon"></i>
                     <span>Education</span>
                 </div>
-                <i class="fas fa-chevron-down section-chevron"></i>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="section-visibility-toggle" onclick="event.stopPropagation(); toggleSectionVisibility('education')" title="Show/Hide Section on Resume" style="color: var(--muted); font-size: 1rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; transition: background 0.2s;">
+                        <i class="fas fa-eye" id="eye-education"></i>
+                    </span>
+                    <i class="fas fa-chevron-down section-chevron"></i>
+                </div>
             </div>
             <div class="section-body">
                 <div id="education-list"></div>
@@ -806,7 +816,12 @@ $fullName = getFullName();
                     <i class="fas fa-briefcase main-icon"></i>
                     <span>Work Experience</span>
                 </div>
-                <i class="fas fa-chevron-down section-chevron"></i>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="section-visibility-toggle" onclick="event.stopPropagation(); toggleSectionVisibility('experience')" title="Show/Hide Section on Resume" style="color: var(--muted); font-size: 1rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; transition: background 0.2s;">
+                        <i class="fas fa-eye" id="eye-experience"></i>
+                    </span>
+                    <i class="fas fa-chevron-down section-chevron"></i>
+                </div>
             </div>
             <div class="section-body">
                 <div id="experience-list"></div>
@@ -826,7 +841,12 @@ $fullName = getFullName();
                         <i class="fas fa-sync-alt"></i> Import Portfolio
                     </a>
                 </div>
-                <i class="fas fa-chevron-down section-chevron"></i>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="section-visibility-toggle" onclick="event.stopPropagation(); toggleSectionVisibility('projects')" title="Show/Hide Section on Resume" style="color: var(--muted); font-size: 1rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; transition: background 0.2s;">
+                        <i class="fas fa-eye" id="eye-projects"></i>
+                    </span>
+                    <i class="fas fa-chevron-down section-chevron"></i>
+                </div>
             </div>
             <div class="section-body">
                 <div id="projects-list"></div>
@@ -851,7 +871,12 @@ $fullName = getFullName();
                         </a>
                     </div>
                 </div>
-                <i class="fas fa-chevron-down section-chevron"></i>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="section-visibility-toggle" onclick="event.stopPropagation(); toggleSectionVisibility('skills')" title="Show/Hide Section on Resume" style="color: var(--muted); font-size: 1rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; transition: background 0.2s;">
+                        <i class="fas fa-eye" id="eye-skills"></i>
+                    </span>
+                    <i class="fas fa-chevron-down section-chevron"></i>
+                </div>
             </div>
             <div class="section-body">
                 <div id="tech-groups-list"></div>
@@ -881,7 +906,12 @@ $fullName = getFullName();
                     <i class="fas fa-certificate main-icon"></i>
                     <span>Certifications</span>
                 </div>
-                <i class="fas fa-chevron-down section-chevron"></i>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="section-visibility-toggle" onclick="event.stopPropagation(); toggleSectionVisibility('certifications')" title="Show/Hide Section on Resume" style="color: var(--muted); font-size: 1rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; transition: background 0.2s;">
+                        <i class="fas fa-eye" id="eye-certifications"></i>
+                    </span>
+                    <i class="fas fa-chevron-down section-chevron"></i>
+                </div>
             </div>
             <div class="section-body">
                 <div id="certifications-list"></div>
@@ -898,7 +928,12 @@ $fullName = getFullName();
                     <i class="fas fa-trophy main-icon"></i>
                     <span>Achievements</span>
                 </div>
-                <i class="fas fa-chevron-down section-chevron"></i>
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span class="section-visibility-toggle" onclick="event.stopPropagation(); toggleSectionVisibility('achievements')" title="Show/Hide Section on Resume" style="color: var(--muted); font-size: 1rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%; transition: background 0.2s;">
+                        <i class="fas fa-eye" id="eye-achievements"></i>
+                    </span>
+                    <i class="fas fa-chevron-down section-chevron"></i>
+                </div>
             </div>
             <div class="section-body">
                 <div id="achievements-list"></div>
@@ -932,6 +967,7 @@ $fullName = getFullName();
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
 <script src="resume_builder.js?v=<?php echo time(); ?>"></script>
+<?php renderFeatureAnnouncement('feature_resume_builder'); ?>
 </body>
 </html>
 

@@ -62,6 +62,15 @@ $recentJobs   = $officerModel->getRecentJobs(6);
 $placedModel = new CompanyPlacedStudent();
 $placedStats = $placedModel->getStatistics();
 
+// Fetch recent student feedback
+$feedbacks = [];
+try {
+    $db = getDB();
+    $feedbacks = $db->query("SELECT * FROM portal_feedback ORDER BY created_at DESC LIMIT 5")->fetchAll();
+} catch (Exception $e) {
+    error_log("Error fetching feedback: " . $e->getMessage());
+}
+
 // Mock data for Chart.js
 $chartData = [
     'labels' => ['2021', '2022', '2023', '2024', '2025'],
@@ -406,6 +415,47 @@ $chartData = [
                         </tr>
                         <?php endforeach; if (empty($recentApps)): ?>
                         <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No recent activity</td></tr>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Recent Student Feedback Card -->
+            <div class="content-card">
+                <div class="card-header">
+                    <h3>Recent Student Feedback</h3>
+                    <a href="feedback.php">View All Feedback →</a>
+                </div>
+                <table class="modern-table">
+                    <thead>
+                        <tr>
+                            <th style="width: 25%;">Student</th>
+                            <th style="width: 45%;">Comments</th>
+                            <th style="width: 30%;">Suggested Feature</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($feedbacks as $fb): ?>
+                        <tr>
+                            <td>
+                                <div style="font-weight: 700;"><?php echo htmlspecialchars($fb['student_name'] ?? 'N/A'); ?></div>
+                                <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">
+                                    <?php echo htmlspecialchars(($fb['institution'] ?? 'GMU') . (($fb['current_sem'] ?? null) ? ' • Sem ' . $fb['current_sem'] : '')); ?>
+                                </div>
+                            </td>
+                            <td style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">
+                                <?php echo $fb['general_comments'] ? htmlspecialchars(substr($fb['general_comments'], 0, 80)) . (strlen($fb['general_comments']) > 80 ? '...' : '') : '<span style="font-style:italic;opacity:0.6;">None</span>'; ?>
+                            </td>
+                            <td style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">
+                                <?php if ($fb['new_feature_title']): ?>
+                                    <strong style="color: var(--brand);"><?php echo htmlspecialchars($fb['new_feature_title']); ?></strong>
+                                <?php else: ?>
+                                    <span style="font-style:italic;opacity:0.6;">None</span>
+                                <?php endif; ?>
+                            </td>
+                        </tr>
+                        <?php endforeach; if (empty($feedbacks)): ?>
+                        <tr><td colspan="3" style="text-align: center; color: var(--text-muted);">No feedback received yet</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>

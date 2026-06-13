@@ -54,8 +54,8 @@ if (php_sapi_name() !== 'cli') {
 
     // 2. Global Protection for all POST requests
     if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
-        // List of files that are allowed to skip CSRF (e.g., specialized webhooks)
-        $skipCSRF = ['notifications_stream.php', 'ai_worker.php'];
+        // List of files that are allowed to skip CSRF (e.g., specialized webhooks, login page)
+        $skipCSRF = ['notifications_stream.php', 'ai_worker.php', 'login.php', 'login'];
         
         // Skip CSRF check for HOD Portal SSO when MENTOR_ID or emp_id is passed
         if (isset($_REQUEST['MENTOR_ID']) || isset($_REQUEST['mentor_id']) || isset($_REQUEST['emp_id'])) {
@@ -211,7 +211,7 @@ register_shutdown_function(function() {
 });
 
 // --- GLOBAL MAINTENANCE MODE CHECK ---
-if (file_exists(ROOT_PATH . '/src/maintenance.lock')) {
+if (php_sapi_name() !== 'cli' && file_exists(ROOT_PATH . '/src/maintenance.lock')) {
     $currentFile = basename($_SERVER['SCRIPT_NAME']);
     // Allow Maintenance page, Admin pages, and AJAX handlers (if admin)
     $isMaintenancePage = ($currentFile === 'maintenance.php' || $currentFile === 'login.php');

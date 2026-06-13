@@ -20,6 +20,28 @@ $coordinator = $stmt->fetch(PDO::FETCH_ASSOC);
 $department = $coordinator['department'];
 $institution = $coordinator['institution'];
 
+// Handle deadline update
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_deadline'])) {
+    $taskId = (int) $_POST['task_id'];
+    $deadlineDate = $_POST['deadline_date'] ?? '';
+    $hour = (int) ($_POST['deadline_hour'] ?? 0);
+    $minute = (int) ($_POST['deadline_minute'] ?? 0);
+    $ampm = $_POST['deadline_ampm'] ?? 'AM';
+
+    if ($ampm === 'PM' && $hour < 12)
+        $hour += 12;
+    if ($ampm === 'AM' && $hour === 12)
+        $hour = 0;
+    $newDeadline = $deadlineDate . ' ' . str_pad($hour, 2, '0', STR_PAD_LEFT) . ':' . str_pad($minute, 2, '0', STR_PAD_LEFT) . ':00';
+
+    $stmtUpdate = $db->prepare("UPDATE coordinator_tasks SET deadline = ? WHERE id = ? AND coordinator_id = ?");
+    $stmtUpdate->execute([$newDeadline, $taskId, $coordinatorId]);
+
+    $_SESSION['success_message'] = "Deadline updated successfully!";
+    header("Location: manage_tasks.php?view=" . $taskId);
+    exit;
+}
+
 // Get consolidated branch and semester filters
 $discipline_filters = getCoordinatorDisciplineFilters($department);
 $semester_filter = getCoordinatorSemesterFilters($department);
@@ -79,7 +101,7 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
         // Fetch SGPA from student_sem_sgpa table (max semester)
         $gmitStudentsWithSgpa = [];
         foreach ($gmitStudents as $student) {
-            $stmt = $localDB->prepare("SELECT sgpa, semester FROM student_sem_sgpa 
+            $stmt = $db->prepare("SELECT sgpa, semester FROM student_sem_sgpa 
                                        WHERE student_id = ? AND institution = ? AND semester IN ($sem_placeholders)
                                        ORDER BY semester DESC LIMIT 1");
             $stmt->execute(array_merge([$student['student_id'], 'GMIT'], $semester_filter));
@@ -94,7 +116,29 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
     $gmitStudents = $gmitStudentsWithSgpa;
 
     // Merge all eligible students (filtering was already done in the loops above)
-    $allStudents = array_merge($gmuStudents, $gmitStudents);
+    $rawStudents = array_merge($gmuStudents, $gmitStudents);
+    
+    // De-duplicate by student_id (case-insensitive and stripping all non-alphanumeric chars)
+    $uniqueStudents = [];
+    foreach ($rawStudents as $student) {
+        $key = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $student['student_id'] ?? ''));
+        if (!empty($key)) {
+            $uniqueStudents[$key] = $student;
+        }
+    }
+    $allStudents = array_values($uniqueStudents);
+
+    // Filter to ONLY show students assigned to this task
+    $targetStudents = json_decode($viewingTask['target_students'] ?? '[]', true) ?: [];
+    if ($viewingTask['target_type'] === 'individual' && !empty($targetStudents)) {
+        $filteredStudents = [];
+        foreach ($allStudents as $student) {
+            if (in_array($student['student_id'], $targetStudents)) {
+                $filteredStudents[] = $student;
+            }
+        }
+        $allStudents = $filteredStudents;
+    }
 
     // Fetch completion data
     $stmt = $db->prepare("SELECT student_id, score, time_taken, completed_at 
@@ -120,6 +164,7 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
         $student['completed_at'] = $completion['completed_at'] ?? null;
         $student['time_taken'] = $completion['time_taken'] ?? null;
     }
+    unset($student); // Crucial fix: break the reference before the next loop
 
     $taskStudents = $allStudents;
 }
@@ -130,6 +175,7 @@ foreach ($tasks as &$task) {
     $stmt->execute([$task['id']]);
     $task['completed_count'] = $stmt->fetchColumn();
 }
+unset($task); // Break the reference to avoid overwriting elements in the next loop
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -163,14 +209,11 @@ foreach ($tasks as &$task) {
             color: var(--text-main);
         }
 
-        .navbar-spacer {
-            height: 70px;
-        }
 
         .container {
             width: 100%;
             margin: 40px 0;
-            padding: 0 40px;
+            padding: 0 40px
         }
 
         .page-header {
@@ -439,6 +482,15 @@ foreach ($tasks as &$task) {
     <div class="navbar-spacer"></div>
 
     <div class="container">
+        <?php if (isset($_SESSION['success_message'])): ?>
+            <div
+                style="background: #d1e7dd; color: #0f5132; padding: 15px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 10px;">
+                <i class="fas fa-check-circle"></i>
+                <?php echo $_SESSION['success_message'];
+                unset($_SESSION['success_message']); ?>
+            </div>
+        <?php endif; ?>
+
         <?php if ($viewingTask): ?>
             <a href="manage_tasks.php" class="back-link">
                 <i class="fas fa-arrow-left"></i> Back to All Tasks
@@ -447,13 +499,20 @@ foreach ($tasks as &$task) {
             <div class="page-header">
                 <div>
                     <h2><?php echo htmlspecialchars($viewingTask['title']); ?></h2>
-                    <p style="color: var(--text-muted); margin-top: 8px;">
-                        <span class="task-type-badge <?php echo $viewingTask['task_type']; ?>">
+                    <p
+                        style="color: var(--text-muted); margin-top: 8px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                        <span class="task-type-badge <?php echo $viewingTask['task_type']; ?>" style="margin:0;">
                             <?php echo strtoupper($viewingTask['task_type']); ?>
                         </span>
                         <?php if ($viewingTask['company_name']): ?>
-                            | <?php echo htmlspecialchars($viewingTask['company_name']); ?>
+                            | <span><?php echo htmlspecialchars($viewingTask['company_name']); ?></span>
                         <?php endif; ?>
+                        | <span><i class="fas fa-calendar"></i> Deadline:
+                            <?php echo date('d M Y, h:i A', strtotime($viewingTask['deadline'])); ?></span>
+                        <button onclick="openEditDeadlineModal()"
+                            style="margin-left: 10px; background: none; border: 1px solid var(--primary-maroon); border-radius: 4px; padding: 4px 8px; color: var(--primary-maroon); cursor: pointer; font-size: 12px; font-weight: 600;">
+                            <i class="fas fa-edit"></i> Edit Deadline
+                        </button>
                     </p>
                 </div>
             </div>
@@ -478,7 +537,6 @@ foreach ($tasks as &$task) {
                             <th>Institution</th>
                             <th>Branch</th>
                             <th>Sem</th>
-                            <th>CGPA</th>
                             <th>Status</th>
                             <th>Score</th>
                             <th>Completed On</th>
@@ -506,13 +564,15 @@ foreach ($tasks as &$task) {
                                 <td><?php echo htmlspecialchars($student['institution']); ?></td>
                                 <td><?php echo htmlspecialchars($student['branch'] ?? 'N/A'); ?></td>
                                 <td><?php echo htmlspecialchars($student['current_sem'] ?? 'N/A'); ?></td>
-                                <td><?php echo $student['cgpa'] ? number_format($student['cgpa'], 2) : 'N/A'; ?></td>
                                 <td>
                                     <span class="status-badge status-<?php echo $student['status']; ?>">
-                                        <?php 
-                                            if ($student['status'] === 'completed') echo '✅ Completed';
-                                            elseif ($student['status'] === 'missed') echo '❌ Missed';
-                                            else echo '⏳ Pending';
+                                        <?php
+                                        if ($student['status'] === 'completed')
+                                            echo '✅ Completed';
+                                        elseif ($student['status'] === 'missed')
+                                            echo '❌ Missed';
+                                        else
+                                            echo '⏳ Pending';
                                         ?>
                                     </span>
                                 </td>
@@ -577,7 +637,8 @@ foreach ($tasks as &$task) {
                                 <?php if ($task['company_name']): ?>
                                     <i class="fas fa-building"></i> <?php echo htmlspecialchars($task['company_name']); ?><br>
                                 <?php endif; ?>
-                                <i class="fas fa-calendar"></i> Due: <?php echo date('d M Y, h:i A', strtotime($task['deadline'])); ?>
+                                <i class="fas fa-calendar"></i> Due:
+                                <?php echo date('d M Y, h:i A', strtotime($task['deadline'])); ?>
                             </div>
 
                             <div class="completion-bar">
@@ -616,6 +677,73 @@ foreach ($tasks as &$task) {
             });
         }
     </script>
+
+    <?php if ($viewingTask): ?>
+        <div id="editDeadlineModal" class="modal"
+            style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center;">
+            <div class="modal-content"
+                style="background: white; padding: 30px; border-radius: 16px; width: 90%; max-width: 500px; box-shadow: 0 10px 25px rgba(0,0,0,0.15);">
+                <h2 style="color: var(--primary-maroon); margin-bottom: 20px;">Edit Task Deadline</h2>
+                <form method="POST">
+                    <input type="hidden" name="task_id" value="<?php echo $viewingTask['id']; ?>">
+                    <input type="hidden" name="update_deadline" value="1">
+
+                    <div style="margin-bottom: 20px;">
+                        <label style="display:block; margin-bottom: 8px; font-weight: 600;">New Deadline *</label>
+                        <div style="display: flex; gap: 10px;">
+                            <?php
+                            $dt = new DateTime($viewingTask['deadline']);
+                            $curDate = $dt->format('Y-m-d');
+                            $curHour = $dt->format('h');
+                            $curMin = $dt->format('i');
+                            $curAmPm = $dt->format('A');
+                            ?>
+                            <input type="date" name="deadline_date" value="<?php echo $curDate; ?>"
+                                style="flex: 2; padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px;" required>
+                            <div style="display: flex; gap: 5px; flex: 3; align-items: center;">
+                                <select name="deadline_hour"
+                                    style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px;" required>
+                                    <?php for ($i = 1; $i <= 12; $i++):
+                                        $val = str_pad($i, 2, '0', STR_PAD_LEFT); ?>
+                                        <option value="<?php echo $i; ?>" <?php echo ($curHour == $val) ? 'selected' : ''; ?>>
+                                            <?php echo $val; ?>
+                                        </option>
+                                    <?php endfor; ?>
+                                </select>
+                                <span>:</span>
+                                <select name="deadline_minute"
+                                    style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px;" required>
+                                    <?php for ($i = 0; $i < 60; $i += 5):
+                                        $val = str_pad($i, 2, '0', STR_PAD_LEFT); ?>
+                                        <option value="<?php echo $i; ?>" <?php echo ($curMin == $val) ? 'selected' : ''; ?>>
+                                            <?php echo $val; ?>
+                                        </option>
+                                    <?php endfor; ?>
+                                </select>
+                                <select name="deadline_ampm"
+                                    style="padding: 10px; border: 1px solid #cbd5e1; border-radius: 8px;">
+                                    <option value="AM" <?php echo ($curAmPm == 'AM') ? 'selected' : ''; ?>>AM</option>
+                                    <option value="PM" <?php echo ($curAmPm == 'PM') ? 'selected' : ''; ?>>PM</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div style="display: flex; gap: 12px; margin-top: 25px;">
+                        <button type="button" onclick="closeEditDeadlineModal()"
+                            style="flex: 1; background: #e2e8f0; padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600;">Cancel</button>
+                        <button type="submit"
+                            style="flex: 1; background: var(--primary-maroon); color: white; padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600;">Save
+                            Changes</button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        <script>
+            function openEditDeadlineModal() { document.getElementById('editDeadlineModal').style.display = 'flex'; }
+            function closeEditDeadlineModal() { document.getElementById('editDeadlineModal').style.display = 'none'; }
+        </script>
+    <?php endif; ?>
 </body>
 
 </html>

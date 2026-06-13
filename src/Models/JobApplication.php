@@ -39,8 +39,8 @@ class JobApplication extends Model {
         
         // Handle Resume Logic (Global Resume)
         $userModel = new User();
-        $user = $userModel->find($studentId);
-        $usn = $user['username']; // USN
+        $user = $userModel->findByUsername($studentId) ?: $userModel->find($studentId);
+        $usn = $user ? $user['username'] : $studentId; // USN
         
         $uploadDir = RESUME_UPLOAD_PATH . '/Student_Resumes/';
         if (!is_dir($uploadDir)) {

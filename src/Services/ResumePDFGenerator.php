@@ -111,7 +111,7 @@ class ResumePDFGenerator {
                             </div>
                         </div>
 
-                        <?php if (!empty($resumeData['skills']['technical'])): ?>
+                        <?php if (!empty($resumeData['skills']['technical']) && empty($resumeData['hidden_sections']['skills'])): ?>
                         <div class="sidebar-item">
                             <div class="section-title">Technical Skills</div>
                             <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px;">
@@ -120,7 +120,7 @@ class ResumePDFGenerator {
                         </div>
                         <?php endif; ?>
 
-                        <?php if (!empty($resumeData['skills']['soft'])): ?>
+                        <?php if (!empty($resumeData['skills']['soft']) && empty($resumeData['hidden_sections']['skills'])): ?>
                         <div class="sidebar-item">
                             <div class="section-title">Soft Skills</div>
                             <div style="display: flex; flex-wrap: wrap; gap: 4px; margin-top: 10px;">
@@ -132,7 +132,9 @@ class ResumePDFGenerator {
                     <div class="main-content">
                         <div class="header">
                             <h1><?php echo htmlspecialchars($resumeData['full_name']); ?></h1>
-                            <div style="color: #666; font-size: 10pt; line-height: 1.4;"><?php echo nl2br(htmlspecialchars($resumeData['professional_summary'] ?? '')); ?></div>
+                            <?php if (!empty($resumeData['professional_summary']) && empty($resumeData['hidden_sections']['summary'])): ?>
+                                <div style="color: #666; font-size: 10pt; line-height: 1.4;"><?php echo nl2br(htmlspecialchars($resumeData['professional_summary'])); ?></div>
+                            <?php endif; ?>
                         </div>
                         <?php renderMainSections($resumeData, false); ?>
                     </div>
@@ -165,7 +167,7 @@ class ResumePDFGenerator {
     /**
      * Ensure URL has a protocol
      */
-    private static function ensureProtocol($url) {
+    public static function ensureProtocol($url) {
         if (empty($url)) return '';
         $url = trim($url);
         if (!preg_match("~^(?:f|ht)tps?://~i", $url)) {
@@ -179,12 +181,12 @@ class ResumePDFGenerator {
  * Helper to render sections in a standard way
  */
 function renderStandardSections($data) {
-    if (!empty($data['professional_summary'])): ?>
+    if (!empty($data['professional_summary']) && empty($data['hidden_sections']['summary'])): ?>
         <div class="section-title">Summary</div>
         <p style="text-align: justify;"><?php echo nl2br(htmlspecialchars($data['professional_summary'])); ?></p>
     <?php endif;
 
-    if (!empty($data['education'])): ?>
+    if (!empty($data['education']) && empty($data['hidden_sections']['education'])): ?>
         <div class="section-title">Education</div>
         <?php foreach ($data['education'] as $edu): ?>
             <div class="entry">
@@ -197,7 +199,7 @@ function renderStandardSections($data) {
         <?php endforeach;
     endif;
 
-    if (!empty($data['experience'])): ?>
+    if (!empty($data['experience']) && empty($data['hidden_sections']['experience'])): ?>
         <div class="section-title">Experience</div>
         <?php foreach ($data['experience'] as $exp): ?>
             <div class="entry">
@@ -213,12 +215,12 @@ function renderStandardSections($data) {
         <?php endforeach;
     endif;
 
-    if (!empty($data['projects'])): ?>
+    if (!empty($data['projects']) && empty($data['hidden_sections']['projects'])): ?>
         <div class="section-title">Projects</div>
         <?php foreach ($data['projects'] as $p): ?>
             <div class="entry">
                 <div class="entry-header">
-                    <span><?php echo htmlspecialchars($p['title']); ?> <?php if (!empty($p['link'])): ?><a href="<?php echo self::ensureProtocol($p['link']); ?>" target="_blank" style="font-size: 8.5pt; font-weight: normal; margin-left: 8px;">[View Project]</a><?php endif; ?></span>
+                    <span><?php echo htmlspecialchars($p['title']); ?> <?php if (!empty($p['link'])): ?><a href="<?php echo ResumePDFGenerator::ensureProtocol($p['link']); ?>" target="_blank" style="font-size: 8.5pt; font-weight: normal; margin-left: 8px;">[View Project]</a><?php endif; ?></span>
                     <span class="entry-date"><?php echo htmlspecialchars($p['duration']); ?></span>
                 </div>
                 <ul style="margin: 2px 0 0 16px; color: #333;">
@@ -236,16 +238,16 @@ function renderStandardSections($data) {
     endif;
     
     // Skills for ATS
-    if (!empty($data['skills']['technical'])): ?>
+    if (!empty($data['skills']['technical']) && empty($data['hidden_sections']['skills'])): ?>
         <div class="section-title">Skills</div>
         <p><strong>Technical:</strong> <?php echo implode(', ', array_map('htmlspecialchars', $data['skills']['technical'])); ?></p>
         <?php if (!empty($data['skills']['soft'])): ?><p><strong>Soft Skills:</strong> <?php echo implode(', ', array_map('htmlspecialchars', $data['skills']['soft'])); ?></p><?php endif; ?>
     <?php endif;
 
-    if (!empty($data['certifications']) || !empty($data['achievements'])): ?>
+    if ((!empty($data['certifications']) || !empty($data['achievements'])) && empty($data['hidden_sections']['certifications'])): ?>
         <div class="section-title">Certifications & Achievements</div>
         <?php foreach ($data['certifications'] as $c): ?>
-            <div style="margin-top: 5px; break-inside: avoid;">• <strong><?php echo htmlspecialchars($c['name']); ?></strong> (<?php echo htmlspecialchars($c['issuer'] . ', ' . $c['date']); ?>) <?php if (!empty($c['credential_url'])): ?><a href="<?php echo self::ensureProtocol($c['credential_url']); ?>" target="_blank" style="font-size: 8.5pt; margin-left: 6px;">[View Certificate]</a><?php endif; ?></div>
+            <div style="margin-top: 5px; break-inside: avoid;">• <strong><?php echo htmlspecialchars($c['name']); ?></strong> (<?php echo htmlspecialchars($c['issuer'] . ', ' . $c['date']); ?>) <?php if (!empty($c['credential_url'])): ?><a href="<?php echo ResumePDFGenerator::ensureProtocol($c['credential_url']); ?>" target="_blank" style="font-size: 8.5pt; margin-left: 6px;">[View Certificate]</a><?php endif; ?></div>
         <?php endforeach; ?>
         <?php foreach ($data['achievements'] as $a): ?>
             <div style="margin-top: 5px;">• <?php echo htmlspecialchars($a['title']); ?> (<?php echo htmlspecialchars($a['date']); ?>)</div>
@@ -257,7 +259,7 @@ function renderStandardSections($data) {
  * Helper for Modern and Minimal templates
  */
 function renderMainSections($data, $showSkills = true) {
-    if ($showSkills && !empty($data['skills']['technical'])): ?>
+    if ($showSkills && !empty($data['skills']['technical']) && empty($data['hidden_sections']['skills'])): ?>
         <div class="section-title">Skills</div>
         <div class="minimal-line"></div>
         <div style="margin-bottom: 20px;">
@@ -265,7 +267,7 @@ function renderMainSections($data, $showSkills = true) {
         </div>
     <?php endif;
 
-    if (!empty($data['education'])): ?>
+    if (!empty($data['education']) && empty($data['hidden_sections']['education'])): ?>
         <div class="section-title">Education</div>
         <div class="minimal-line"></div>
         <?php foreach ($data['education'] as $edu): ?>
@@ -279,7 +281,7 @@ function renderMainSections($data, $showSkills = true) {
         <?php endforeach;
     endif;
 
-    if (!empty($data['experience'])): ?>
+    if (!empty($data['experience']) && empty($data['hidden_sections']['experience'])): ?>
         <div class="section-title">Experience</div>
         <div class="minimal-line"></div>
         <?php foreach ($data['experience'] as $exp): ?>
@@ -296,13 +298,13 @@ function renderMainSections($data, $showSkills = true) {
         <?php endforeach;
     endif;
 
-    if (!empty($data['projects'])): ?>
+    if (!empty($data['projects']) && empty($data['hidden_sections']['projects'])): ?>
         <div class="section-title">Projects</div>
         <div class="minimal-line"></div>
         <?php foreach ($data['projects'] as $p): ?>
             <div class="entry">
                 <div class="entry-header">
-                    <span><?php echo htmlspecialchars($p['title']); ?> <?php if (!empty($p['link'])): ?><a href="<?php echo self::ensureProtocol($p['link']); ?>" target="_blank" style="font-size: 8.5pt; font-weight: normal; margin-left: 6px;">[View]</a><?php endif; ?></span>
+                    <span><?php echo htmlspecialchars($p['title']); ?> <?php if (!empty($p['link'])): ?><a href="<?php echo ResumePDFGenerator::ensureProtocol($p['link']); ?>" target="_blank" style="font-size: 8.5pt; font-weight: normal; margin-left: 6px;">[View]</a><?php endif; ?></span>
                     <span class="entry-date"><?php echo htmlspecialchars($p['duration']); ?></span>
                 </div>
                 <ul style="margin: 2px 0 0 16px; color: #444;">
@@ -319,11 +321,11 @@ function renderMainSections($data, $showSkills = true) {
         <?php endforeach;
     endif;
 
-    if (!empty($data['certifications']) || !empty($data['achievements'])): ?>
+    if ((!empty($data['certifications']) || !empty($data['achievements'])) && empty($data['hidden_sections']['certifications'])): ?>
         <div class="section-title">Certifications & Achievements</div>
         <div class="minimal-line"></div>
         <?php foreach ($data['certifications'] as $c): ?>
-            <div style="margin-top: 5px; font-size: 9.5pt; break-inside: avoid;">• <strong><?php echo htmlspecialchars($c['name']); ?></strong> (<?php echo htmlspecialchars($c['issuer'] . ', ' . $c['date']); ?>) <?php if (!empty($c['credential_url'])): ?><a href="<?php echo self::ensureProtocol($c['credential_url']); ?>" target="_blank" style="font-size: 8.5pt; margin-left: 6px;">[View]</a><?php endif; ?></div>
+            <div style="margin-top: 5px; font-size: 9.5pt; break-inside: avoid;">• <strong><?php echo htmlspecialchars($c['name']); ?></strong> (<?php echo htmlspecialchars($c['issuer'] . ', ' . $c['date']); ?>) <?php if (!empty($c['credential_url'])): ?><a href="<?php echo ResumePDFGenerator::ensureProtocol($c['credential_url']); ?>" target="_blank" style="font-size: 8.5pt; margin-left: 6px;">[View]</a><?php endif; ?></div>
         <?php endforeach; ?>
         <?php foreach ($data['achievements'] as $a): ?>
             <div style="margin-top: 5px; font-size: 9.5pt;">• <?php echo htmlspecialchars($a['title']); ?> (<?php echo htmlspecialchars($a['date']); ?>)</div>

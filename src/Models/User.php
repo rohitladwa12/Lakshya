@@ -77,7 +77,6 @@ class User extends Model {
         if ($id === null) return null;
 
         // Hardening: Handle array inputs gracefully to avoid "Array to string conversion" errors.
-        // This can happen if session user data or a full row is accidentally passed as the ID.
         if (is_array($id)) {
             $extractedId = null;
             if (isset($id['id'])) $extractedId = $id['id'];
@@ -89,7 +88,6 @@ class User extends Model {
             if ($extractedId !== null && is_scalar($extractedId)) {
                 $id = $extractedId;
             } else {
-                // If we can't find a scalar ID, log it and return null to prevent a PDO crash
                 error_log("Warning: User::find() called with an array that does not contain a recognizable scalar ID. Value: " . print_r($id, true));
                 return null;
             }
@@ -105,17 +103,26 @@ class User extends Model {
             
             $user = null;
             if ($institution === INSTITUTION_GMIT) {
-                // For GMIT, search by both Enquiry No and Username, and JOIN with ad_student_details for name
-                $sql = "SELECT u.*, d.name as student_name 
-                        FROM {$table} u 
-                        LEFT JOIN {$prefix}ad_student_details d ON u.ENQUIRY_NO = d.enquiry_no OR u.USER_NAME = d.student_id 
-                        WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
-                $stmt = $db->prepare($sql);
-                $stmt->execute([$id, $id]);
+                // For GMIT, search by both Enquiry No and Username (only if numeric, otherwise only Username)
+                if (is_numeric($id)) {
+                    $sql = "SELECT u.*, d.name as student_name 
+                            FROM {$table} u 
+                            LEFT JOIN {$prefix}ad_student_details d ON u.ENQUIRY_NO = d.enquiry_no OR u.USER_NAME = d.student_id 
+                            WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
+                    $stmt = $db->prepare($sql);
+                    $stmt->execute([$id, $id]);
+                } else {
+                    $sql = "SELECT u.*, d.name as student_name 
+                            FROM {$table} u 
+                            LEFT JOIN {$prefix}ad_student_details d ON u.USER_NAME = d.student_id 
+                            WHERE u.USER_NAME = ? LIMIT 1";
+                    $stmt = $db->prepare($sql);
+                    $stmt->execute([$id]);
+                }
                 $user = $stmt->fetch();
             } else {
-                // GMU: Try numerical SL_NO first, fall back to USER_NAME
-                if (is_numeric($id)) {
+                // GMU: Try numerical SL_NO first (only if numeric and short), fall back to USER_NAME
+                if (is_numeric($id) && strlen($id) < 10) {
                     $sql = "SELECT * FROM {$table} WHERE SL_NO = ? LIMIT 1";
                     $stmt = $db->prepare($sql);
                     $stmt->execute([$id]);
@@ -151,7 +158,7 @@ class User extends Model {
         }
 
         foreach ($institutions as $inst => $config) {
-            if (!$this->remoteDB) break;
+            if (!$this->getRemoteDB()) break;
 
             $table = $config['prefix'] . 'users';
             $idCol = $config['col'];
@@ -160,10 +167,16 @@ class User extends Model {
             $user = null;
             if ($inst === INSTITUTION_GMIT) {
                 try {
-                    // Optimized: Fetch user first to avoid complex OR join on temporary tables
-                    $sql = "SELECT u.* FROM {$table} u WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
-                    $stmt = $this->remoteDB->prepare($sql);
-                    $stmt->execute([$id, $id]);
+                    // Optimized: Fetch user first, check ENQUIRY_NO only if numeric to prevent type conversion mismatch
+                    if (is_numeric($id)) {
+                        $sql = "SELECT u.* FROM {$table} u WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
+                        $stmt = $this->remoteDB->prepare($sql);
+                        $stmt->execute([$id, $id]);
+                    } else {
+                        $sql = "SELECT u.* FROM {$table} u WHERE u.USER_NAME = ? LIMIT 1";
+                        $stmt = $this->remoteDB->prepare($sql);
+                        $stmt->execute([$id]);
+                    }
                     $user = $stmt->fetch();
                     
                     if ($user) {
@@ -178,16 +191,21 @@ class User extends Model {
                         }
                     }
                 } catch (Exception $e) {
-                    // Fallback to minimal query if columns are missing
-                    $sql = "SELECT u.* FROM {$table} u WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
-                    $stmt = $this->remoteDB->prepare($sql);
-                    $stmt->execute([$id, $id]);
+                    if (is_numeric($id)) {
+                        $sql = "SELECT u.* FROM {$table} u WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
+                        $stmt = $this->remoteDB->prepare($sql);
+                        $stmt->execute([$id, $id]);
+                    } else {
+                        $sql = "SELECT u.* FROM {$table} u WHERE u.USER_NAME = ? LIMIT 1";
+                        $stmt = $this->remoteDB->prepare($sql);
+                        $stmt->execute([$id]);
+                    }
                     $user = $stmt->fetch();
                 }
             } else {
                 // GMU: Try joining with ad_student_approved for name/discipline
                 try {
-                    $queryId = is_numeric($id) ? "u.{$idCol}" : "u.USER_NAME";
+                    $queryId = (is_numeric($id) && strlen($id) < 10) ? "u.{$idCol}" : "u.USER_NAME";
                     $sql = "SELECT u.*, ad.name as student_name, ad.discipline
                             FROM {$table} u
                             LEFT JOIN {$prefix}ad_student_approved ad ON u.USER_NAME = ad.usn
@@ -195,13 +213,31 @@ class User extends Model {
                     $stmt = $this->remoteDB->prepare($sql);
                     $stmt->execute([$id]);
                     $user = $stmt->fetch();
+
+                    // Fallback to query USER_NAME if query by SL_NO yielded no results
+                    if (!$user && $queryId === "u.{$idCol}") {
+                        $sql = "SELECT u.*, ad.name as student_name, ad.discipline
+                                FROM {$table} u
+                                LEFT JOIN {$prefix}ad_student_approved ad ON u.USER_NAME = ad.usn
+                                WHERE u.USER_NAME = ? LIMIT 1";
+                        $stmt = $this->remoteDB->prepare($sql);
+                        $stmt->execute([$id]);
+                        $user = $stmt->fetch();
+                    }
                 } catch (Exception $e) {
                     // Fallback to minimal query
-                    $queryId = is_numeric($id) ? "{$idCol}" : "USER_NAME";
+                    $queryId = (is_numeric($id) && strlen($id) < 10) ? "{$idCol}" : "USER_NAME";
                     $sql = "SELECT * FROM {$table} WHERE {$queryId} = ? LIMIT 1";
                     $stmt = $this->remoteDB->prepare($sql);
                     $stmt->execute([$id]);
                     $user = $stmt->fetch();
+
+                    if (!$user && $queryId === $idCol) {
+                        $sql = "SELECT * FROM {$table} WHERE USER_NAME = ? LIMIT 1";
+                        $stmt = $this->remoteDB->prepare($sql);
+                        $stmt->execute([$id]);
+                        $user = $stmt->fetch();
+                    }
                 }
             }
             if ($user) return $this->mapToAppUser($user, $inst);
@@ -409,8 +445,30 @@ class User extends Model {
                 // GMU Semester Gating
                 if ($inst === INSTITUTION_GMU && $appUser['role'] === 'student') {
                     $sem = (int)($user['sem'] ?? 0);
-                    if ($sem < 5 || $sem > 8) {
-                        return ['success' => false, 'message' => 'Login restricted to Semesters 5-8 for GMU students.'];
+                    $course = strtoupper($user['COURSE'] ?? '');
+                    $programme = strtoupper($user['PROGRAMME'] ?? '');
+                    
+                    $isPG = ($programme === 'PG' || in_array($course, ['MBA', 'MCA', 'MTECH', 'MCOM', 'MSC']));
+                    
+                    if (!$isPG) {
+                        // Identify 3-year UG courses (e.g. BCA, BCOM, BBA, BSC, LLB)
+                        $is3YearUG = false;
+                        foreach (['BCA', 'BCOM', 'BBA', 'BSC', 'LLB'] as $prefix) {
+                            if (strpos($course, $prefix) === 0) {
+                                $is3YearUG = true;
+                                break;
+                            }
+                        }
+                        
+                        if ($is3YearUG) {
+                            if ($sem < 3 || $sem > 6) {
+                                return ['success' => false, 'message' => 'Login restricted to Semesters 3-6 for GMU UG (3-Year) students.'];
+                            }
+                        } else {
+                            if ($sem < 5 || $sem > 8) {
+                                return ['success' => false, 'message' => 'Login restricted to Semesters 5-8 for GMU UG students.'];
+                            }
+                        }
                     }
                 }
 

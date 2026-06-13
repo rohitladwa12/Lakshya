@@ -27,6 +27,7 @@ let RD = {               // Resume Data
     },
     certifications:  [],
     achievements:    [],
+    hidden_sections: {},
 };
 
 let previewTimer  = null;
@@ -122,6 +123,13 @@ function applyResumeData(r) {
 
     (skills.soft      || []).forEach(s => addTag('soft', s));
     (skills.languages || []).forEach(s => addTag('languages', s));
+
+    // Restore hidden sections state
+    const rdData = r.resume_data || {};
+    RD.hidden_sections = rdData.hidden_sections || r.hidden_sections || {};
+    ['summary', 'education', 'experience', 'projects', 'skills', 'certifications', 'achievements'].forEach(sec => {
+        updateVisibilityUI(sec);
+    });
 }
 
 // ─── SYNC FROM PORTFOLIO ─────────────────────────────────
@@ -409,9 +417,9 @@ function tplATS() {
         ${RD.address ? `<div style="font-size:8.5pt; color:#444; margin-top:4px;">${esc(RD.address)}</div>` : ''}
       </div>
 
-      ${RD.professional_summary ? sectionHeader('Summary', m) + `<p style="text-align:justify; color:#000; margin-bottom:12px;">${esc(RD.professional_summary)}</p>` : ''}
+      ${RD.professional_summary && !isSectionHidden('summary') ? sectionHeader('Summary', m) + `<p style="text-align:justify; color:#000; margin-bottom:12px;">${esc(RD.professional_summary)}</p>` : ''}
 
-      ${RD.education.length ? sectionHeader('Education', m) + RD.education.map(e => `
+      ${RD.education.length && !isSectionHidden('education') ? sectionHeader('Education', m) + RD.education.map(e => `
         <div style="margin-bottom:8px;">
           <div style="display:flex; justify-content:space-between;">
             <strong>${esc(e.degree||'')}</strong>
@@ -420,7 +428,7 @@ function tplATS() {
           <div style="color:#000; font-style:italic;">${esc(e.institution||'')} ${e.cgpa ? `<span style="float:right;">CGPA: ${esc(e.cgpa)}</span>` : ''}</div>
         </div>`).join('') : ''}
 
-      ${RD.experience.length ? sectionHeader('Professional Experience', m) + RD.experience.map(e => `
+      ${RD.experience.length && !isSectionHidden('experience') ? sectionHeader('Professional Experience', m) + RD.experience.map(e => `
         <div style="margin-bottom:10px;">
           <div style="display:flex; justify-content:space-between;">
             <strong>${esc(e.title||'')}${e.company ? ' @ ' + esc(e.company) : ''}</strong>
@@ -430,7 +438,7 @@ function tplATS() {
           ${bulletList(e.responsibilities)}
         </div>`).join('') : ''}
 
-      ${RD.projects.length ? sectionHeader('Projects', m) + RD.projects.map(e => `
+      ${RD.projects.length && !isSectionHidden('projects') ? sectionHeader('Projects', m) + RD.projects.map(e => `
         <div style="margin-bottom:8px; break-inside:avoid;">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
             <strong>${esc(e.title||'')} ${e.link ? `<a href="${ensureProtocol(e.link)}" target="_blank" style="color:#0066cc; font-size:8.5pt; text-decoration:underline; font-weight:normal; margin-left:8px;">[View Project]</a>` : ''}</strong>
@@ -442,7 +450,7 @@ function tplATS() {
 
       ${skillsSection(m)}
 
-      ${RD.certifications.length ? sectionHeader('Certifications', m) + RD.certifications.map(c => `
+      ${RD.certifications.length && !isSectionHidden('certifications') ? sectionHeader('Certifications', m) + RD.certifications.map(c => `
         <div style="margin-bottom:5px; break-inside:avoid;">
           <div style="display:flex; justify-content:space-between;">
             <strong>${esc(c.name||'')}</strong>
@@ -452,7 +460,7 @@ function tplATS() {
           ${c.description ? `<div style="font-size:9pt; color:#444; margin-top:1px;">${esc(c.description)}</div>` : ''}
         </div>`).join('') : ''}
 
-      ${RD.achievements.length ? sectionHeader('Achievements', m) + `<ul style="margin:4px 0 12px 18px; color:#000;">` + RD.achievements.map(a => `<li><strong>${esc(a.title||'')}</strong>${a.date ? ' ('+formatDate(a.date)+')' : ''} ${a.description ? '– '+esc(a.description) : ''}</li>`).join('') + '</ul>' : ''}
+      ${RD.achievements.length && !isSectionHidden('achievements') ? sectionHeader('Achievements', m) + `<ul style="margin:4px 0 12px 18px; color:#000;">` + RD.achievements.map(a => `<li><strong>${esc(a.title||'')}</strong>${a.date ? ' ('+formatDate(a.date)+')' : ''} ${a.description ? '– '+esc(a.description) : ''}</li>`).join('') + '</ul>' : ''}
     </div>`;
 }
 
@@ -473,17 +481,17 @@ function tplModern() {
         </div>
 
         <div style="font-size:8.5pt; color:#f1f5f9; margin-bottom:18px;">
-          ${RD.email    ? `<div style="margin:5px 0;">✉ ${esc(RD.email)}</div>` : ''}
-          ${RD.phone    ? `<div style="margin:5px 0;">📞 ${esc(RD.phone)}</div>` : ''}
-          ${RD.gender   ? `<div style="margin:5px 0;">⚤ ${esc(RD.gender)}</div>` : ''}
-          ${RD.address  ? `<div style="margin:5px 0;">🏠 ${esc(RD.address)}</div>` : ''}
-          ${RD.location ? `<div style="margin:5px 0;">📍 ${esc(RD.location)}</div>` : ''}
-          ${RD.linkedin_url ? `<div style="margin:5px 0;">🔗 <a href="${ensureProtocol(RD.linkedin_url)}" target="_blank" style="color:inherit; text-decoration:underline;">LinkedIn</a></div>` : ''}
-          ${RD.github_url   ? `<div style="margin:5px 0;">💻 <a href="${ensureProtocol(RD.github_url)}" target="_blank" style="color:inherit; text-decoration:underline;">GitHub</a></div>` : ''}
-          ${RD.portfolio_url ? `<div style="margin:5px 0;">🌐 <a href="${ensureProtocol(RD.portfolio_url)}" target="_blank" style="color:inherit; text-decoration:underline;">Portfolio</a></div>` : ''}
+          ${RD.email    ? `<div style="margin:5px 0;"> ${esc(RD.email)}</div>` : ''}
+          ${RD.phone    ? `<div style="margin:5px 0;"> ${esc(RD.phone)}</div>` : ''}
+          ${RD.gender   ? `<div style="margin:5px 0;"> ${esc(RD.gender)}</div>` : ''}
+          ${RD.address  ? `<div style="margin:5px 0;"> ${esc(RD.address)}</div>` : ''}
+          ${RD.location ? `<div style="margin:5px 0;"> ${esc(RD.location)}</div>` : ''}
+          ${RD.linkedin_url ? `<div style="margin:5px 0;"> <a href="${ensureProtocol(RD.linkedin_url)}" target="_blank" style="color:inherit; text-decoration:underline;">LinkedIn</a></div>` : ''}
+          ${RD.github_url   ? `<div style="margin:5px 0;"> <a href="${ensureProtocol(RD.github_url)}" target="_blank" style="color:inherit; text-decoration:underline;">GitHub</a></div>` : ''}
+          ${RD.portfolio_url ? `<div style="margin:5px 0;"> <a href="${ensureProtocol(RD.portfolio_url)}" target="_blank" style="color:inherit; text-decoration:underline;">Portfolio</a></div>` : ''}
         </div>
 
-        ${RD.skills.technical.length ? `
+        ${RD.skills.technical.length && !isSectionHidden('skills') ? `
           <div style="color:${accentColor}; font-weight:700; font-size:9pt; text-transform:uppercase; border-bottom:1px solid #334155; padding-bottom:4px; margin-bottom:8px;">Technical Skills</div>
           <div style="margin-bottom:14px;">
             ${RD.skills.technical.map(g => `
@@ -494,7 +502,7 @@ function tplModern() {
             `).join('')}
           </div>` : ''}
 
-        ${RD.certifications.length ? `
+        ${RD.certifications.length && !isSectionHidden('certifications') ? `
           <div style="color:${accentColor}; font-weight:700; font-size:9pt; text-transform:uppercase; border-bottom:1px solid #334155; padding-bottom:4px; margin-bottom:8px;">Certifications</div>
           <div style="font-size:8.5pt; color:#f1f5f9;">
             ${RD.certifications.map(c=>`
@@ -509,24 +517,24 @@ function tplModern() {
 
       <!-- Main -->
       <div style="flex:1; padding:24px 20px;">
-        ${RD.professional_summary ? `
+        ${RD.professional_summary && !isSectionHidden('summary') ? `
           <div style="border-bottom:2px solid #e2e8f0; padding-bottom:10px; margin-bottom:14px; color:#000; font-style:italic;">${esc(RD.professional_summary)}</div>` : ''}
 
-        ${RD.education.length ? modernSection('Education', accentColor) + RD.education.map(e=>`
+        ${RD.education.length && !isSectionHidden('education') ? modernSection('Education', accentColor) + RD.education.map(e=>`
           <div style="margin-bottom:8px;">
             <strong>${esc(e.degree||'')}</strong> – ${esc(e.institution||'')}
             <span style="float:right; color:#000; font-size:9pt;">${esc(dateRange(e.start_date,e.end_date,e.ongoing))}</span>
             ${e.cgpa ? `<div style="color:#000; font-size:9pt;">CGPA: ${esc(e.cgpa)}</div>` : ''}
           </div>`).join('') : ''}
 
-        ${RD.experience.length ? modernSection('Experience', accentColor) + RD.experience.map(e=>`
+        ${RD.experience.length && !isSectionHidden('experience') ? modernSection('Experience', accentColor) + RD.experience.map(e=>`
           <div style="margin-bottom:10px;">
             <strong>${esc(e.title||'')}</strong>${e.company ? ` <span style="color:#000;">@ ${esc(e.company)}</span>` : ''}
             <span style="float:right; color:#000; font-size:9pt;">${esc(dateRange(e.start_date,e.end_date,e.ongoing))}</span>
             ${bulletList(e.responsibilities, '#000')}
           </div>`).join('') : ''}
 
-        ${RD.projects.length ? modernSection('Projects', accentColor) + RD.projects.map(e=>`
+        ${RD.projects.length && !isSectionHidden('projects') ? modernSection('Projects', accentColor) + RD.projects.map(e=>`
           <div style="margin-bottom:8px; break-inside:avoid;">
             <strong>${esc(e.title||'')}</strong>
             ${e.link ? `<a href="${ensureProtocol(e.link)}" target="_blank" style="color:#0066cc; font-size:8.5pt; text-decoration:underline; font-weight:normal; margin-left:6px;">[Link]</a>` : ''}
@@ -535,7 +543,7 @@ function tplModern() {
             <span style="float:right; color:#000; font-size:9pt;">${esc(dateRange(e.start_date,e.end_date,e.ongoing))}</span>
           </div>`).join('') : ''}
 
-        ${RD.achievements.length ? modernSection('Achievements', accentColor) + `<ul style="margin:4px 0 10px 16px; color:#000;">` + RD.achievements.map(a=>`<li>${esc(a.title||'')}${a.description ? ' – '+esc(a.description) : ''}</li>`).join('') + '</ul>' : ''}
+        ${RD.achievements.length && !isSectionHidden('achievements') ? modernSection('Achievements', accentColor) + `<ul style="margin:4px 0 10px 16px; color:#000;">` + RD.achievements.map(a=>`<li>${esc(a.title||'')}${a.description ? ' – '+esc(a.description) : ''}</li>`).join('') + '</ul>' : ''}
       </div>
     </div>`;
 }
@@ -558,21 +566,21 @@ function tplMinimal() {
       </div>
       <hr style="border:none; border-top:1px solid #000; margin-bottom:16px;">
 
-      ${RD.professional_summary ? `<p style="color:#000; margin-bottom:16px; font-size:9.5pt;">${esc(RD.professional_summary)}</p><hr style="border:none; border-top:1px solid #000; margin-bottom:16px;">` : ''}
+      ${RD.professional_summary && !isSectionHidden('summary') ? `<p style="color:#000; margin-bottom:16px; font-size:9.5pt;">${esc(RD.professional_summary)}</p><hr style="border:none; border-top:1px solid #000; margin-bottom:16px;">` : ''}
 
-      ${RD.education.length ? minSection('EDUCATION') + RD.education.map(e=>`
+      ${RD.education.length && !isSectionHidden('education') ? minSection('EDUCATION') + RD.education.map(e=>`
         <div style="margin-bottom:8px; display:flex; justify-content:space-between; align-items:baseline; break-inside:avoid;">
           <div><strong style="color:#000;">${esc(e.degree||'')}</strong> <span style="color:#000;">• ${esc(e.institution||'')}</span>${e.cgpa?`<span style="color:#000; font-size:9pt;"> • ${esc(e.cgpa)}</span>`:''}</div>
           <div style="color:#000; font-size:9pt; white-space:nowrap; margin-left:10px;">${esc(dateRange(e.start_date,e.end_date,e.ongoing))}</div>
         </div>`).join('') : ''}
 
-      ${RD.experience.length ? minSection('EXPERIENCE') + RD.experience.map(e=>`
+      ${RD.experience.length && !isSectionHidden('experience') ? minSection('EXPERIENCE') + RD.experience.map(e=>`
         <div style="margin-bottom:10px; break-inside:avoid;">
           <div style="display:flex; justify-content:space-between;"><strong style="color:#000;">${esc(e.title||'')} ${e.company?`<span style="font-weight:400; color:#000;">@ ${esc(e.company)}</span>`:''}</strong><span style="color:#000; font-size:9pt;">${esc(dateRange(e.start_date,e.end_date,e.ongoing))}</span></div>
           ${bulletList(e.responsibilities, '#000')}
         </div>`).join('') : ''}
 
-      ${RD.projects.length ? minSection('PROJECTS') + RD.projects.map(e=>`
+      ${RD.projects.length && !isSectionHidden('projects') ? minSection('PROJECTS') + RD.projects.map(e=>`
         <div style="margin-bottom:6px; break-inside:avoid;">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
             <strong style="color:#000;">${esc(e.title||'')} ${e.link ? `<a href="${ensureProtocol(e.link)}" target="_blank" style="color:#0066cc; font-size:8.5pt; text-decoration:underline; font-weight:normal; margin-left:6px;">[View]</a>` : ''}</strong>
@@ -581,14 +589,14 @@ function tplMinimal() {
           ${e.description ? `<ul style="margin:2px 0 0 14px; color:#000; font-size:9.5pt;">${e.description.split('\n').filter(l=>l.trim()).map(l=>`<li style="margin-bottom:1px;">${esc(l)}</li>`).join('')}</ul>` : ''}
         </div>`).join('') : ''}
 
-      ${(RD.skills.technical.length||RD.skills.soft.length||RD.skills.languages.length) ? minSection('SKILLS') + `
+      ${(RD.skills.technical.length||RD.skills.soft.length||RD.skills.languages.length) && !isSectionHidden('skills') ? minSection('SKILLS') + `
         ${RD.skills.technical.map(g => `
             <div style="margin-bottom:3px;"><span style="font-weight:600;">${g.category ? esc(g.category) + ': ' : 'Technical: '}</span>${g.items.map(s=>esc(s)).join(', ')}</div>
         `).join('')}
         ${RD.skills.soft.length ? `<div style="margin-bottom:3px;"><span style="font-weight:600;">Soft Skills: </span>${RD.skills.soft.map(s=>esc(s)).join(', ')}</div>` : ''}
         ${RD.skills.languages.length ? `<div style="margin-bottom:6px;"><span style="font-weight:600;">Languages: </span>${RD.skills.languages.map(s=>esc(s)).join(', ')}</div>` : ''}` : ''}
 
-      ${RD.certifications.length ? minSection('CERTIFICATIONS') + RD.certifications.map(c=>`
+      ${RD.certifications.length && !isSectionHidden('certifications') ? minSection('CERTIFICATIONS') + RD.certifications.map(c=>`
         <div style="margin-bottom:6px; break-inside:avoid;">
           <div style="display:flex; justify-content:space-between; align-items:baseline;">
             <strong>${esc(c.name||'')}</strong>
@@ -598,7 +606,7 @@ function tplMinimal() {
           ${c.description ? `<div style="font-size:9pt; color:#444; margin-top:1px;">${esc(c.description)}</div>` : ''}
         </div>`).join('') : ''}
 
-      ${RD.achievements.length ? minSection('ACHIEVEMENTS') + RD.achievements.map(a=>`<div style="margin-bottom:4px;">• <strong>${esc(a.title||'')}</strong>${a.description?' – '+esc(a.description):''}</div>`).join('') : ''}
+      ${RD.achievements.length && !isSectionHidden('achievements') ? minSection('ACHIEVEMENTS') + RD.achievements.map(a=>`<div style="margin-bottom:4px;">• <strong>${esc(a.title||'')}</strong>${a.description?' – '+esc(a.description):''}</div>`).join('') : ''}
     </div>`;
 }
 
@@ -622,7 +630,48 @@ function minSection(title) {
     return `<div style="font-size:8pt; font-weight:700; color:#9ca3af; text-transform:uppercase; letter-spacing:1px; margin:12px 0 6px; border-bottom:1px solid #f3f4f6; padding-bottom:4px; break-after:avoid;">${title}</div>`;
 }
 
+function isSectionHidden(sec) {
+    return !!(RD.hidden_sections && RD.hidden_sections[sec]);
+}
+
+function updateVisibilityUI(sec) {
+    const isHidden = isSectionHidden(sec);
+    const eye = document.getElementById('eye-' + sec);
+    const block = document.getElementById('sec-' + sec);
+    if (eye) {
+        if (isHidden) {
+            eye.className = 'fas fa-eye-slash';
+            eye.style.color = '#ef4444';
+            eye.parentElement.title = 'Hidden from Resume';
+        } else {
+            eye.className = 'fas fa-eye';
+            eye.style.color = '';
+            eye.parentElement.title = 'Visible on Resume';
+        }
+    }
+    if (block) {
+        if (isHidden) {
+            block.style.opacity = '0.6';
+            block.style.borderStyle = 'dashed';
+        } else {
+            block.style.opacity = '1';
+            block.style.borderStyle = 'solid';
+        }
+    }
+}
+
+window.toggleSectionVisibility = function(sec) {
+    if (!RD.hidden_sections) {
+        RD.hidden_sections = {};
+    }
+    RD.hidden_sections[sec] = !RD.hidden_sections[sec];
+    updateVisibilityUI(sec);
+    schedulePreview();
+    saveResume(true);
+};
+
 function skillsSection(color) {
+    if (isSectionHidden('skills')) return '';
     const hasTech = RD.skills.technical.some(g => g.items.length > 0);
     const hasSoft = RD.skills.soft.length > 0;
     const hasLang = RD.skills.languages.length > 0;

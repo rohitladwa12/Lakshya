@@ -69,8 +69,12 @@ try {
             
             $allData = $officerModel->getStudentsPaged($filters, 1, 10000);
             echo '<table border="1">';
-            echo '<tr><th>Name</th><th>Institution</th><th>USN</th><th>Sem</th><th>SGPA</th><th>10th %</th><th>12th %</th><th>Father Name</th><th>Mother Name</th><th>Address</th><th>Status</th></tr>';
+            echo '<tr><th>Name</th><th>Institution</th><th>USN</th><th>Sem</th><th>SGPA</th><th>10th %</th><th>12th %</th><th>Father Name</th><th>Mother Name</th><th>Address</th><th>Status</th><th>Resume Link</th></tr>';
             foreach ($allData['data'] as $s) {
+                $resumeFile = strtoupper($s['usn']) . '_Resume.pdf';
+                $resumePath = UPLOADS_PATH . '/resumes/Student_Resumes/' . $resumeFile;
+                $resumeLink = file_exists($resumePath) ? (APP_URL . '/student/view_resume.php?usn=' . urlencode($s['usn'])) : 'No Resume';
+
                 echo "<tr>
                         <td>".htmlspecialchars((string)$s['name'])."</td>
                         <td>".htmlspecialchars((string)$s['institution'])."</td>
@@ -83,6 +87,7 @@ try {
                         <td>".htmlspecialchars((string)$s['mother_name'])."</td>
                         <td>".htmlspecialchars((string)$s['address'])."</td>
                         <td>" . ($s['registered'] ? 'Active' : 'Pending') . "</td>
+                        <td>" . ($resumeLink !== 'No Resume' ? "<a href=\"" . htmlspecialchars($resumeLink) . "\">" . htmlspecialchars($resumeLink) . "</a>" : "No Resume") . "</td>
                       </tr>";
             }
             echo '</table>';

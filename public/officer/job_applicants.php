@@ -114,7 +114,7 @@ $applicants = $applicationModel->getByJob($jobId);
                             <td><?php echo $app['sgpa'] ?? 'N/A'; ?></td>
                             <td>
                                 <?php if ($app['resume_path']): ?>
-                                    <a href="../<?php echo $app['resume_path']; ?>" target="_blank" class="btn btn-outline btn-sm">
+                                    <a href="../student/view_resume.php?usn=<?php echo urlencode($app['usn'] ?? ''); ?>" target="_blank" class="btn btn-outline btn-sm">
                                         <i class="fas fa-file-pdf"></i> View Resume
                                     </a>
                                 <?php else: ?>

@@ -36,7 +36,7 @@ class JobPosting extends Model {
         $id = parent::create($data);
         if ($id && isset($data['status']) && $data['status'] === 'Active') {
             $companyModel = new Company();
-            $company = $companyModel->get($data['company_id']);
+            $company = $companyModel->find($data['company_id']);
             $this->broadcast([
                 'type' => 'job_alert',
                 'id' => $id,
@@ -201,22 +201,17 @@ class JobPosting extends Model {
                 $branches = json_decode($job['eligible_branches'] ?: '', true) ?: [];
                 if (!empty($branches) && !empty($profile['department'])) {
                     $studentBranch = strtoupper(trim($profile['department']));
-                    // If the student's branch is not in the list (considering GMU/GMIT mapping if needed, but for now simple check)
-                    // Assuming branches array contains compatible strings
-                    if (!in_array($studentBranch, $branches)) {
-                         // Double check for GMU vs GMIT naming (e.g. CSE-AIML vs AIML)
-                         // Simple normalization: check if any allowed branch is a substring of student branch or vice versa
-                         $matchFound = false;
-                         foreach ($branches as $allowed) {
-                             if (strpos($studentBranch, $allowed) !== false || strpos($allowed, $studentBranch) !== false) {
-                                 $matchFound = true;
-                                 break;
-                             }
-                         }
-                         if (!$matchFound) {
-                             $job['is_eligible'] = false;
-                             $job['ineligibility_reasons'][] = "Open to branches: " . implode(', ', $branches);
-                         }
+                    $equivalentBranches = getEquivalentBranches($studentBranch);
+                    $matchFound = false;
+                    foreach ($equivalentBranches as $eqBranch) {
+                        if (in_array($eqBranch, $branches)) {
+                            $matchFound = true;
+                            break;
+                        }
+                    }
+                    if (!$matchFound) {
+                        $job['is_eligible'] = false;
+                        $job['ineligibility_reasons'][] = "Open to branches: " . implode(', ', $branches);
                     }
                 }
 

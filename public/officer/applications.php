@@ -73,7 +73,7 @@ $applications = [];
 
 foreach ($rawApps as $app) {
     // Fetch student info using User model which handles remote switches
-    $student = $userModel->find($app['student_id']);
+    $student = $userModel->findByUsername($app['student_id']) ?: $userModel->find($app['student_id']);
     
     if ($student) {
         $app['student_name'] = $student['full_name'];
@@ -96,10 +96,19 @@ foreach ($rawApps as $app) {
             if ($inst === INSTITUTION_GMU) {
                 // GMU: Fetch from remote
                 $remoteDB = getDB('gmu');
-                $stmtAc = $remoteDB->prepare("SELECT a.sgpa, a.course, d.puc_percentage, d.sslc_percentage, a.sem, d.gender
+                
+                // Get current semester
+                $stmtSem = $remoteDB->prepare("SELECT sem FROM {$prefix}ad_student_approved WHERE usn = ? ORDER BY academic_year DESC, sem DESC LIMIT 1");
+                $stmtSem->execute([$app['usn']]);
+                $semRow = $stmtSem->fetch();
+                $app['current_semester'] = $semRow ? $semRow['sem'] : null;
+
+                // Get details and latest non-null/non-zero SGPA
+                $stmtAc = $remoteDB->prepare("SELECT a.sgpa, a.course, d.puc_percentage, d.sslc_percentage, d.gender
                                            FROM {$prefix}ad_student_approved a
-                                           LEFT JOIN {$prefix}ad_student_details d ON a.usn = d.student_id 
-                                           WHERE a.usn = ? LIMIT 1");
+                                           LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
+                                           WHERE a.usn = ? AND a.sgpa IS NOT NULL AND a.sgpa > 0.00
+                                           ORDER BY a.academic_year DESC, a.sem DESC LIMIT 1");
                 $stmtAc->execute([$app['usn']]);
                 $ac = $stmtAc->fetch();
                 if ($ac) {
@@ -107,17 +116,44 @@ foreach ($rawApps as $app) {
                     $app['course'] = $ac['course'];
                     $app['puc_percentage'] = $ac['puc_percentage'];
                     $app['sslc_percentage'] = $ac['sslc_percentage'];
-                    $app['current_semester'] = $ac['sem'];
                     if (!empty($ac['gender'])) $app['gender'] = $ac['gender'];
+                } else {
+                    // Fallback to any record (even if SGPA is null/0) to get course/percentages
+                    $stmtFallback = $remoteDB->prepare("SELECT a.sgpa, a.course, d.puc_percentage, d.sslc_percentage, d.gender
+                                                FROM {$prefix}ad_student_approved a
+                                                LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
+                                                WHERE a.usn = ? 
+                                                ORDER BY a.academic_year DESC, a.sem DESC LIMIT 1");
+                    $stmtFallback->execute([$app['usn']]);
+                    $fb = $stmtFallback->fetch();
+                    if ($fb) {
+                        $app['academic_sgpa'] = $fb['sgpa'] ?: 0.00;
+                        $app['course'] = $fb['course'];
+                        $app['puc_percentage'] = $fb['puc_percentage'];
+                        $app['sslc_percentage'] = $fb['sslc_percentage'];
+                        if (!empty($fb['gender'])) $app['gender'] = $fb['gender'];
+                    }
                 }
             } else {
                 // GMIT: Fetch academic history from local SGPA tracker
-                $stmtAc = $appModel->getDB()->prepare("SELECT sgpa, semester FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
+                // First, get the current semester
+                $stmtCurr = $appModel->getDB()->prepare("SELECT semester FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
+                $stmtCurr->execute([$app['usn'], INSTITUTION_GMIT]);
+                $currSemRow = $stmtCurr->fetch();
+                $app['current_semester'] = $currSemRow ? $currSemRow['semester'] : null;
+
+                // Then get the latest semester SGPA that is > 0
+                $stmtAc = $appModel->getDB()->prepare("SELECT sgpa FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND sgpa > 0.00 ORDER BY semester DESC LIMIT 1");
                 $stmtAc->execute([$app['usn'], INSTITUTION_GMIT]);
                 $ac = $stmtAc->fetch();
                 if ($ac) {
                     $app['academic_sgpa'] = $ac['sgpa'];
-                    $app['current_semester'] = $ac['semester'];
+                } else {
+                    // Fallback to current sem SGPA if all are 0
+                    $stmtAcFallback = $appModel->getDB()->prepare("SELECT sgpa FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
+                    $stmtAcFallback->execute([$app['usn'], INSTITUTION_GMIT]);
+                    $acFallback = $stmtAcFallback->fetch();
+                    $app['academic_sgpa'] = $acFallback ? $acFallback['sgpa'] : 0.00;
                 }
                 
                 // Fetch puc/sslc from remote GMIT details
@@ -162,7 +198,7 @@ $fullName = getFullName();
 // Fetch all semester SGPAs & Current Sem for the applications
 $allSgpas = [];
 $currentSems = [];
-$studentUsns = array_unique(array_filter(array_column($applications, 'usn')));
+$studentUsns = array_values(array_unique(array_filter(array_column($applications, 'usn'))));
 if (!empty($studentUsns)) {
     $placeholders = implode(',', array_fill(0, count($studentUsns), '?'));
     $sqlSgpa = "SELECT student_id, semester, sgpa, is_current FROM student_sem_sgpa WHERE student_id IN ($placeholders)";
@@ -174,6 +210,53 @@ if (!empty($studentUsns)) {
         if ($row['is_current']) {
             $currentSems[$row['student_id']] = $row['semester'];
         }
+    }
+}
+
+// Fetch drive scores for each application if it's tied to a drive
+$driveScores = [];
+if (!empty($applications)) {
+    // Collect unique job IDs to find which ones are drives
+    $jobIds = array_values(array_unique(array_column($applications, 'job_id')));
+    if (!empty($jobIds)) {
+        $inJobIds = implode(',', array_fill(0, count($jobIds), '?'));
+        $stmtDrives = $appModel->getDB()->prepare("SELECT id, job_id FROM campus_drives WHERE job_id IN ($inJobIds)");
+        $stmtDrives->execute($jobIds);
+        $drivesMap = []; // job_id => drive_id
+        while ($row = $stmtDrives->fetch()) {
+            $drivesMap[$row['job_id']] = $row['id'];
+        }
+
+        if (!empty($drivesMap)) {
+            $driveIds = array_values($drivesMap);
+            $inDriveIds = implode(',', array_fill(0, count($driveIds), '?'));
+            
+            // Get all scores per round per student for these drives
+            $sqlScores = "
+                SELECT drive_id, student_id, round_type, score, attempt_number
+                FROM student_drive_attempts
+                WHERE drive_id IN ($inDriveIds) AND score IS NOT NULL
+                ORDER BY attempt_number ASC
+            ";
+            $stmtScores = $appModel->getDB()->prepare($sqlScores);
+            $stmtScores->execute($driveIds);
+            while ($row = $stmtScores->fetch()) {
+                $driveScores[$row['drive_id']][$row['student_id']][$row['round_type']][] = $row['score'];
+            }
+        }
+        
+        // Attach scores to applications
+        foreach ($applications as &$app) {
+            $jId = $app['job_id'];
+            $app['drive_scores'] = [];
+            if (isset($drivesMap[$jId])) {
+                $dId = $drivesMap[$jId];
+                if (isset($driveScores[$dId][$app['usn']])) {
+                    $app['drive_scores'] = $driveScores[$dId][$app['usn']];
+                }
+            }
+        }
+        unset($app);
     }
 }
 
@@ -508,10 +591,19 @@ function formatResponsesForPrint($json) {
                 <table class="modern-table">
                     <thead>
                         <tr>
-                            <th>Student</th>
-                            <th>Details</th>
-                            <th>Job Interest</th>
-                            <th>Academic %</th>
+                            <th>Student Name</th>
+                            <th>USN</th>
+                            <th>Inst</th>
+                            <th>Course</th>
+                            <th>Sem</th>
+                            <th>Job Role</th>
+                            <th>Company</th>
+                            <th>SGPA</th>
+                            <th>10th %</th>
+                            <th>12th %</th>
+                            <th>Aptitude</th>
+                            <th>Tech</th>
+                            <th>HR</th>
                             <th>Applied</th>
                             <th>Status</th>
                             <th>Actions</th>
@@ -530,24 +622,69 @@ function formatResponsesForPrint($json) {
                         foreach ($pagedApps as $app): 
                             $statusClass = 'st-' . strtolower($app['status']);
                         ?>
-                        <tr data-sems='<?php echo json_encode($allSgpas[$app['usn']] ?? []); ?>'>
+                        <tr data-sems='<?php echo json_encode($allSgpas[$app['usn']] ?? []); ?>' data-resume-link="<?php echo $app['resume_path'] ? (APP_URL . '/student/view_resume.php?usn=' . urlencode($app['usn'])) : ''; ?>">
                             <td>
                                 <div class="job-title"><?php echo htmlspecialchars($app['student_name'] ?? 'N/A'); ?></div>
+                            </td>
+                            <td>
                                 <div class="usn-badge"><?php echo htmlspecialchars($app['usn'] ?? 'N/A'); ?></div>
                             </td>
                             <td>
+                                <div style="font-weight: 600;"><?php echo htmlspecialchars($app['institution'] ?? 'N/A'); ?></div>
+                            </td>
+                            <td>
                                 <div style="font-size: 13px; font-weight: 600;"><?php echo htmlspecialchars($app['course'] ?? 'N/A'); ?></div>
-                                <div style="font-size: 11px; color: var(--text-muted);">
-                                    Inst: <?php echo $app['institution']; ?> | Sem: <?php echo $currentSems[$app['usn']] ?? '?'; ?>
-                                </div>
+                            </td>
+                            <td>
+                                <div style="font-weight: 600;"><?php echo htmlspecialchars($app['current_semester'] ?? '?'); ?></div>
                             </td>
                             <td>
                                 <div class="job-title" style="font-size: 13px;"><?php echo htmlspecialchars($app['job_title'] ?? 'N/A'); ?></div>
+                            </td>
+                            <td>
                                 <div class="comp-name"><?php echo htmlspecialchars($app['company_name'] ?? 'N/A'); ?></div>
                             </td>
                             <td>
-                                <div style="font-weight: 700; color: #10b981;"><?php echo $app['academic_sgpa'] ? number_format($app['academic_sgpa'], 2) : '-'; ?> <small style="font-size: 9px; color: #64748b;">SGPA</small></div>
-                                <div style="font-size: 11px; color: var(--text-muted);">10th: <?php echo $app['sslc_percentage'] ? round($app['sslc_percentage']).'%' : '-'; ?> | 12th: <?php echo $app['puc_percentage'] ? round($app['puc_percentage']).'%' : '-'; ?></div>
+                                <div style="font-weight: 700; color: #10b981;"><?php echo $app['academic_sgpa'] ? number_format($app['academic_sgpa'], 2) : '-'; ?></div>
+                            </td>
+                            <td>
+                                <div style="font-size: 13px;"><?php echo $app['sslc_percentage'] ? round($app['sslc_percentage']).'%' : '-'; ?></div>
+                            </td>
+                            <td>
+                                <div style="font-size: 13px;"><?php echo $app['puc_percentage'] ? round($app['puc_percentage']).'%' : '-'; ?></div>
+                            </td>
+                            <td>
+                                <div style="display: flex; justify-content: center;">
+                                    <?php if (isset($app['drive_scores']['Aptitude'])): ?>
+                                        <button type="button" class="btn-action btn-view" onclick="showAttempts('Aptitude', '<?php echo addslashes($app['student_name'] ?? 'Student'); ?>', '<?php echo htmlspecialchars(json_encode($app['drive_scores']['Aptitude']), ENT_QUOTES, 'UTF-8'); ?>')" title="View Attempts">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    <?php else: ?>
+                                        <span style="color: var(--text-muted);">-</span>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                            <td>
+                                <div style="display: flex; justify-content: center;">
+                                    <?php if (isset($app['drive_scores']['Technical'])): ?>
+                                        <button type="button" class="btn-action btn-view" onclick="showAttempts('Technical', '<?php echo addslashes($app['student_name'] ?? 'Student'); ?>', '<?php echo htmlspecialchars(json_encode($app['drive_scores']['Technical']), ENT_QUOTES, 'UTF-8'); ?>')" title="View Attempts">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    <?php else: ?>
+                                        <span style="color: var(--text-muted);">-</span>
+                                    <?php endif; ?>
+                                </div>
+                            </td>
+                            <td>
+                                <div style="display: flex; justify-content: center;">
+                                    <?php if (isset($app['drive_scores']['HR'])): ?>
+                                        <button type="button" class="btn-action btn-view" onclick="showAttempts('HR', '<?php echo addslashes($app['student_name'] ?? 'Student'); ?>', '<?php echo htmlspecialchars(json_encode($app['drive_scores']['HR']), ENT_QUOTES, 'UTF-8'); ?>')" title="View Attempts">
+                                            <i class="fas fa-eye"></i>
+                                        </button>
+                                    <?php else: ?>
+                                        <span style="color: var(--text-muted);">-</span>
+                                    <?php endif; ?>
+                                </div>
                             </td>
                             <td>
                                 <div style="font-size: 13px; font-weight: 500;"><?php echo date('d M Y', strtotime($app['applied_at'])); ?></div>
@@ -563,7 +700,7 @@ function formatResponsesForPrint($json) {
                             <td>
                                 <div style="display: flex; gap: 8px;">
                                     <?php if ($app['resume_path']): ?>
-                                        <a href="../<?php echo htmlspecialchars($app['resume_path']); ?>" target="_blank" class="btn-action btn-view" title="Resume">
+                                        <a href="../student/view_resume.php?usn=<?php echo urlencode($app['usn']); ?>" target="_blank" class="btn-action btn-view" title="Resume">
                                             <i class="fas fa-file-pdf"></i>
                                         </a>
                                     <?php endif; ?>
@@ -580,7 +717,7 @@ function formatResponsesForPrint($json) {
                         </tr>
                         <?php endforeach; ?>
                         <?php if (empty($applications)): ?>
-                        <tr><td colspan="7" style="text-align: center; padding: 60px; color: var(--text-muted);">No applications found. Try adjusting filters.</td></tr>
+                        <tr><td colspan="16" style="text-align: center; padding: 60px; color: var(--text-muted);">No applications found. Try adjusting filters.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -608,6 +745,28 @@ function formatResponsesForPrint($json) {
         </div>
     </div>
 
+            </div>
+        </div>
+    </div>
+
+    <!-- Attempts Modal -->
+    <div id="attemptsModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header" style="margin-bottom: 25px;">
+                <h3 id="modalAttemptStudentName" style="font-weight: 800; text-transform: uppercase;">ASSESSMENT ATTEMPTS</h3>
+                <span class="close-modal" onclick="closeAttemptsModal()">&times;</span>
+            </div>
+            <div id="attemptsContent">
+                <table class="modern-table" style="box-shadow: none; border-radius: 12px; border: 1px solid #f1f5f9;">
+                    <thead style="background: #f8fafc;">
+                        <tr>
+                            <th style="font-size: 11px; letter-spacing: 1px;">ATTEMPT</th>
+                            <th style="font-size: 11px; letter-spacing: 1px;">SCORE</th>
+                            <th style="font-size: 11px; letter-spacing: 1px;">STATUS</th>
+                        </tr>
+                    </thead>
+                    <tbody id="attemptsTableBody"></tbody>
+                </table>
             </div>
         </div>
     </div>
@@ -739,16 +898,64 @@ function formatResponsesForPrint($json) {
 
         function closeResponsesModal() { document.getElementById('responsesModal').style.display = 'none'; }
 
+        function showAttempts(type, studentName, scoresJson) {
+            const scores = JSON.parse(scoresJson);
+            const tbody = document.getElementById('attemptsTableBody');
+            document.getElementById('modalAttemptStudentName').innerText = studentName;
+            
+            tbody.innerHTML = '';
+            
+            if (scores.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="3" style="text-align:center;">No attempts found.</td></tr>';
+            } else {
+                scores.forEach((score, index) => {
+                    const scoreNum = parseFloat(score);
+                    const color = scoreNum >= 60 ? 'var(--brand)' : '#800000';
+                    tbody.innerHTML += `
+                        <tr>
+                            <td style="font-weight: 600; color: #334155;">Attempt ${index + 1}</td>
+                            <td style="color: ${color}; font-weight: 800; font-size: 14px;">${scoreNum.toFixed(2)}%</td>
+                            <td><span style="color: #059669; font-size: 11px; font-weight: 700;">COMPLETED</span></td>
+                        </tr>`;
+                });
+            }
+            
+            document.getElementById('attemptsModal').style.display = 'flex';
+        }
+        
+        function closeAttemptsModal() {
+            document.getElementById('attemptsModal').style.display = 'none';
+        }
+
         function exportToExcel() {
             const table = document.querySelector(".modern-table");
             const rows = Array.from(table.rows);
-            // Redact complex logic for brevity in modernization, but keep core functional
             const rawData = rows.map((row, rowIndex) => {
                 const cells = Array.from(row.cells);
-                return cells.map(cell => cell.innerText.split('\n')[0].trim());
+                const rowData = cells.map(cell => cell.innerText.split('\n')[0].trim());
+                if (rowIndex === 0) {
+                    rowData.push("Resume Link");
+                } else {
+                    const resumeLink = row.getAttribute("data-resume-link") || "";
+                    rowData.push(resumeLink);
+                }
+                return rowData;
             });
             const wb = XLSX.utils.book_new();
             const ws = XLSX.utils.aoa_to_sheet(rawData);
+            
+            // Format resume links as clickable hyperlinks
+            const colIndex = rawData[0].length - 1;
+            for (let r = 1; r < rawData.length; r++) {
+                const url = rawData[r][colIndex];
+                if (url && url !== "No Resume" && url.startsWith("http")) {
+                    const cellAddress = XLSX.utils.encode_cell({ c: colIndex, r: r });
+                    if (ws[cellAddress]) {
+                        ws[cellAddress].l = { Target: url, Tooltip: "Click to open resume" };
+                    }
+                }
+            }
+            
             XLSX.utils.book_append_sheet(wb, ws, "Applications");
             XLSX.writeFile(wb, `Applications_${new Date().toISOString().split('T')[0]}.xlsx`);
         }
@@ -757,6 +964,7 @@ function formatResponsesForPrint($json) {
             if (event.target.className === 'modal') {
                 closeSgpaModal();
                 closeResponsesModal();
+                closeAttemptsModal();
             }
         }
     </script>

@@ -827,6 +827,7 @@ if (!$hasSkillsOrProjects) {
             return '#e67e22'; // Critical/Low
         }
     </script>
+<?php renderFeatureAnnouncement('feature_profile_analyzer'); ?>
 </body>
 </html>
 

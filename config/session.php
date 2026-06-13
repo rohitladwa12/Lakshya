@@ -53,7 +53,7 @@ class Session {
             // Regenerate session ID periodically for security
             if (!isset($_SESSION['created'])) {
                 $_SESSION['created'] = time();
-            } else if (time() - $_SESSION['created'] > 1800) { // 30 minutes
+            } else if (time() - $_SESSION['created'] > 3600) { // 60 minutes
                 session_regenerate_id(true);
                 $_SESSION['created'] = time();
             }

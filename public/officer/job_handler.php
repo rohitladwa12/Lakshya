@@ -27,8 +27,12 @@ switch ($action) {
         try {
             // 1. Handle Company Details
             $companyId = post('company_id');
+            $companyName = trim(post('company_name'));
+            if (empty($companyName)) {
+                throw new Exception("Company name is required. Please fill in the Company tab before saving.");
+            }
             $companyData = [
-                'name' => post('company_name'),
+                'name' => $companyName,
                 'sector' => post('company_sector'),
                 'industry' => post('company_industry') ?: post('company_sector'),
                 'website' => post('company_website') ?: null,
@@ -42,7 +46,7 @@ switch ($action) {
             if (!empty($_FILES['company_logo']['name'])) {
                 $ext = pathinfo($_FILES['company_logo']['name'], PATHINFO_EXTENSION);
                 $logoName = 'logo_' . time() . '.' . $ext;
-                $uploadDir = PHOTO_UPLOAD_PATH . '/logos/';
+                $uploadDir = COMPANY_IMAGES_UPLOAD_PATH . '/';
                 if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
                 
                 if (move_uploaded_file($_FILES['company_logo']['tmp_name'], $uploadDir . $logoName)) {
@@ -101,6 +105,7 @@ switch ($action) {
             // 3. Handle Job Details
             $jobData = [
                 'company_id' => $companyId,
+                'academic_year' => post('academic_year'),
                 'title' => post('title'),
                 'description' => post('description'),
                 'requirements' => post('requirements') ?: null,
@@ -112,8 +117,23 @@ switch ($action) {
                 'salary_max' => post('salary_max') !== '' ? post('salary_max') : null,
                 'currency' => post('currency') ?: 'INR',
                 'min_cgpa' => post('min_cgpa') !== '' ? post('min_cgpa') : 0.00,
-                'eligible_courses' => json_encode($_POST['eligible_courses'] ?? []),
-                'eligible_branches' => json_encode($_POST['eligible_branches'] ?? []),
+                'eligible_courses' => (function() {
+                    $eligibleBranches = $_POST['eligible_branches'] ?? [];
+                    $eligibleCourses = [];
+                    foreach ($eligibleBranches as $branch) {
+                        $parts = explode('-', $branch);
+                        $parent = $parts[0];
+                        $nonEngCourses = ['BCA', 'MBA', 'BBA', 'MCA', 'MCOM', 'BCOM', 'BSC', 'LLB', 'MSC', 'MTECH', 'PHD'];
+                        if (in_array($parent, $nonEngCourses)) {
+                            $eligibleCourses[] = $parent;
+                        } else {
+                            // Engineering: include BOTH BE and BTECH to cover GMU and GMIT students
+                            $eligibleCourses[] = 'BE';
+                            $eligibleCourses[] = 'BTECH';
+                        }
+                    }
+                    return json_encode(array_values(array_unique($eligibleCourses)));
+                })(),
                 'eligible_branches' => json_encode($_POST['eligible_branches'] ?? []),
                 'eligible_years' => json_encode($_POST['eligible_years'] ?? []),
                 'custom_fields' => (function() {

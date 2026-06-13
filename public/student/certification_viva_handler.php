@@ -7,6 +7,7 @@ ob_start();
 
 require_once __DIR__ . '/../../config/bootstrap.php';
 requireLogin();
+requireRole(ROLE_STUDENT);
 
 header('Content-Type: application/json');
 
@@ -18,7 +19,8 @@ $institution = $_SESSION['institution'] ?? 'GMU';
 require_once __DIR__ . '/../../src/Services/AIService.php';
 $aiService = new AIService();
 
-$input = json_decode(file_get_contents('php://input'), true) ?? $_POST;
+$input = json_decode(file_get_contents('php://input'), true) ?: [];
+$input = array_merge($input, $_POST);
 $action = $input['action'] ?? '';
 
 try {
@@ -74,7 +76,7 @@ try {
 
         case 'save_viva_result':
             $portfolioId = $input['portfolio_id'] ?? 0;
-            $score = $input['score'] ?? 0;
+            $score = (float)($input['score'] ?? 0);
             $feedback = $input['feedback'] ?? '';
             $history = $input['history'] ?? [];
 

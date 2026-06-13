@@ -56,10 +56,10 @@ class LeaderboardService {
             $squarePenalty = pow($attemptedCount / 3.0, 3); // Cubic Penalty for partial participation
             $assessmentScore = $weightedScore * $squarePenalty;
 
-            // Portfolio Score (30% weight - Strict: 25 skills, 10 projects)
+            // Portfolio Score (30% weight - Strict: 50 skills, 25 projects)
             $pS = $portfolioData[$lowUsn]['Skill'] ?? 0;
             $pP = $portfolioData[$lowUsn]['Project'] ?? 0;
-            $portfolioScore = min(50, $pS * 2) + min(50, $pP * 5);
+            $portfolioScore = min(50, $pS * 1) + min(50, $pP * 2);
 
             // Final Total Points (Out of 100)
             $rawTotal = ($assessmentScore * 0.7) + ($portfolioScore * 0.3);

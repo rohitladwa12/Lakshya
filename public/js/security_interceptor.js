@@ -50,8 +50,22 @@
                         }
                     } else if (typeof config.body === 'string') {
                         console.log("Lakshya Security: Appending to String Body");
-                        if (!config.body.includes('csrf_token=')) {
-                            config.body += (config.body ? '&' : '') + 'csrf_token=' + encodeURIComponent(token);
+                        const trimmed = config.body.trim();
+                        const isJson = trimmed.startsWith('{') || trimmed.startsWith('[');
+                        if (isJson) {
+                            try {
+                                const parsed = JSON.parse(config.body);
+                                if (parsed && typeof parsed === 'object') {
+                                    parsed.csrf_token = token;
+                                    config.body = JSON.stringify(parsed);
+                                }
+                            } catch (e) {
+                                console.warn("Lakshya Security: Failed parsing JSON body to inject csrf_token", e);
+                            }
+                        } else {
+                            if (!config.body.includes('csrf_token=')) {
+                                config.body += (config.body ? '&' : '') + 'csrf_token=' + encodeURIComponent(token);
+                            }
                         }
                     } else if (!config.body) {
                         console.log("Lakshya Security: Creating Body");

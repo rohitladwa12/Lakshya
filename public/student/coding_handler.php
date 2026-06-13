@@ -25,6 +25,8 @@ $userId = getUserId();
 
 $db = getDB();
 $studentModel = new StudentProfile();
+$studentProfile = $studentModel->getProfile($userId);
+session_write_close();
 
 // Get correct student ID based on institution (same logic as career advisor)
 function getStudentIdForCoding($studentProfile, $institution, $userId) {
@@ -55,7 +57,6 @@ switch ($action) {
         $search = $input['search'] ?? null;
         
         // Get student's progress for each problem
-        $studentProfile = $studentModel->getProfile($userId);
         $institution = $studentProfile['institution'] ?? INSTITUTION_GMU;
         $studentId = getStudentIdForCoding($studentProfile, $institution, $userId);
 
@@ -104,7 +105,6 @@ switch ($action) {
         }
         
         // Get student's progress
-        $studentProfile = $studentModel->getProfile($userId);
         $institution = $studentProfile['institution'] ?? INSTITUTION_GMU;
         $studentId = getStudentIdForCoding($studentProfile, $institution, $userId);
         
@@ -125,7 +125,7 @@ switch ($action) {
         $language = $input['language'] ?? 'JavaScript';
         $status = $input['status'] ?? 'attempted'; // attempted, solved, mastered
         
-        $studentProfile = $studentModel->getProfile($userId);
+        // Student profile already loaded
         $institution = $studentProfile['institution'] ?? INSTITUTION_GMU;
         $studentId = getStudentIdForCoding($studentProfile, $institution, $userId);
         
@@ -156,7 +156,7 @@ switch ($action) {
         
     case 'get_progress_stats':
         // Get student's overall progress statistics
-        $studentProfile = $studentModel->getProfile($userId);
+        // Student profile already loaded
         $institution = $studentProfile['institution'] ?? INSTITUTION_GMU;
         $studentId = getStudentIdForCoding($studentProfile, $institution, $userId);
         

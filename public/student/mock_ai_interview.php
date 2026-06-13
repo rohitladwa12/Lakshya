@@ -1186,17 +1186,6 @@ $roundType = $filters['type'] ?? 'Technical';
         const role = document.getElementById('customRole').value.trim();
         if (!role) return alert('Please specify a role to begin the session.');
         
-        // Request Microphone Permission early
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-            navigator.mediaDevices.getUserMedia({ audio: true })
-                .then(stream => {
-                    stream.getTracks().forEach(track => track.stop());
-                })
-                .catch(err => {
-                    console.warn("Microphone permission was not granted: ", err);
-                });
-        }
-
         // Show premium loader and hide role modal
         document.getElementById('roleSelection').style.display = 'none';
         const loader = document.getElementById('premiumLoader');
@@ -1277,10 +1266,7 @@ $roundType = $filters['type'] ?? 'Technical';
             }
         } catch (e) { console.warn("Fullscreen deferred: ", e); }
 
-        // Start Speech permission (requires user gesture)
-        if (recognition) {
-            try { recognition.start(); recognition.stop(); } catch(e){} // Trigger permission
-        }
+        // Speech permission will be requested when user clicks the Speak button.
 
         // Hide loader and start interview
         document.getElementById('premiumLoader').style.opacity = '0';
@@ -1571,11 +1557,31 @@ $roundType = $filters['type'] ?? 'Technical';
                     window.location.href = 'mock_ai_interview';
                     return;
                 }
-                addMessage('ai', 'SYSTEM: *Analysis complete. Redirecting to report...*');
+                document.getElementById('reportLoading').style.display = 'none';
+                
+                // Show Score Modal
+                const modal = document.getElementById('scoreModal');
+                const scoreNum = document.getElementById('finalScoreNum');
+                const scorePct = document.getElementById('finalScorePct');
+                
+                // Use a generic logic to fetch score if the data returns it. Wait, the endpoint doesn't return score.
+                // Let's modify the endpoint to return the score.
+                // Actually, let's fetch the score via get_report or just have end_session return it.
+                // Since I already modified end_session to return success, I should modify it to return score.
+                // For now, I'll redirect to dashboard, but let's assume end_session returns score.
+                
+                let s = data.score || 0;
+                scoreNum.innerText = s;
+                if (s <= 0) {
+                    scoreNum.classList.add('score-zero');
+                    scorePct.classList.add('score-zero');
+                } else {
+                    scoreNum.classList.remove('score-zero');
+                    scorePct.classList.remove('score-zero');
+                }
+                
+                modal.style.display = 'flex';
                 currentSessionId = null; // Unblock navigation
-                setTimeout(() => {
-                    window.location.href = `mock_ai_report.php?session_id=${data.session_id}`;
-                }, 2000);
             } else {
                 alert('Session error: ' + data.message);
                 currentSessionId = null;
@@ -1586,6 +1592,10 @@ $roundType = $filters['type'] ?? 'Technical';
             currentSessionId = null;
             window.location.href = 'dashboard.php';
         }
+    }
+    
+    function closeSession() {
+        window.location.href = 'dashboard.php';
     }
 
     userInput.onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };

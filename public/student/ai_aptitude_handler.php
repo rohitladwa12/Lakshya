@@ -252,7 +252,7 @@ $companyName = post('company_name');
             echo json_encode(['success' => false, 'message' => 'Invalid action.']);
             break;
     }
-} catch (Exception $e) {
+} catch (Throwable $e) {
     error_log("Aptitude Handler Exception: " . $e->getMessage() . "\n" . $e->getTraceAsString());
     ob_clean();
     echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);

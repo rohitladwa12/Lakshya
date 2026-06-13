@@ -49,6 +49,7 @@ $userAnswers = $details['user_answers'] ?? [];
     <title>AI Assessment Report - <?php echo htmlspecialchars($assessment['company_name']); ?></title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="report_question.js?v=<?php echo APP_VERSION; ?>"></script>
     <style>
         :root {
             --primary: #800000;
@@ -204,9 +205,12 @@ $userAnswers = $details['user_answers'] ?? [];
             <div class="question-item <?php echo $isCorrect ? 'correct' : 'wrong'; ?>">
                 <div class="q-header">
                     <span>Question <?php echo $idx + 1; ?></span>
-                    <span style="color: <?php echo $isCorrect ? 'var(--success)' : 'var(--error)'; ?>; font-weight: 700;">
-                        <?php echo $isCorrect ? 'CORRECT' : 'INCORRECT'; ?>
-                    </span>
+                    <div style="display: flex; gap: 15px; align-items: center;">
+                        <span style="color: <?php echo $isCorrect ? 'var(--success)' : 'var(--error)'; ?>; font-weight: 700;">
+                            <?php echo $isCorrect ? 'CORRECT' : 'INCORRECT'; ?>
+                        </span>
+                        <a href="javascript:void(0)" onclick='reportReportQuestion(<?php echo $idx; ?>)' style="color: var(--secondary); text-decoration: none; font-size: 0.85rem; font-weight: 600;"><i class="fas fa-flag"></i> Report</a>
+                    </div>
                 </div>
                 <div class="q-text"><?php echo htmlspecialchars($q['question']); ?></div>
                 <div class="options-review">
@@ -240,6 +244,35 @@ $userAnswers = $details['user_answers'] ?? [];
     </div>
 </div>
 
+<script>
+    const questions = <?php echo json_encode($questions); ?>;
+    const userAnswers = <?php echo json_encode($userAnswers); ?>;
+    const testId = <?php echo json_encode($id); ?>;
+    const testType = <?php echo json_encode($assessment['assessment_type']); ?>;
+
+    window.reportReportQuestion = function(idx) {
+        const q = questions[idx];
+        const userAns = userAnswers[idx];
+        
+        // Map unified assessment_type to reported_questions test_type
+        let testTypeKey = 'mock_ai';
+        if (testType === 'Skill Verification') {
+            testTypeKey = 'skill_quiz';
+        } else if (testType === 'TCS NQT Practice' || testType === 'NQT') {
+            testTypeKey = 'nqt';
+        } else if (testType === 'Campus Recruitment' || testType === 'Campus Drive') {
+            testTypeKey = 'campus_drive';
+        }
+
+        window.openQuestionReportModal({
+            test_type: testTypeKey,
+            test_id: testId,
+            question_text: q.question,
+            options: q.options,
+            correct_answer: q.answer,
+            user_answer: userAns
+        });
+    };
+</script>
 </body>
 </html>
-

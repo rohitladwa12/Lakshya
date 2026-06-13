@@ -68,6 +68,16 @@ $chapters = $chapterModel->all();
 $db = getDB();
 $stmt = $db->query("SELECT setting_key, setting_value FROM system_settings");
 $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+// Fetch student feedback
+$feedbacks = [];
+$totalFeedbacksCount = 0;
+try {
+    $totalFeedbacksCount = (int)$db->query("SELECT COUNT(*) FROM portal_feedback")->fetchColumn();
+    $feedbacks = $db->query("SELECT * FROM portal_feedback ORDER BY created_at DESC LIMIT 5")->fetchAll();
+} catch (Exception $e) {
+    error_log("Error fetching feedbacks: " . $e->getMessage());
+}
 // Server status is now loaded async via JS — no blocking here
 ?>
     <style>
@@ -445,6 +455,78 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                 box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
             }
         }
+
+        /* Feedback styles */
+        .feedback-table-container {
+            max-height: 500px;
+            overflow-y: auto;
+            border-radius: 16px;
+            border: 1px solid #E0E5F2;
+            margin-top: 20px;
+        }
+
+        .feedback-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        .feedback-table th {
+            background: #F4F7FE;
+            padding: 16px 20px;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-dark);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+            border-bottom: 1px solid #E0E5F2;
+        }
+
+        .feedback-table td {
+            padding: 18px 20px;
+            border-bottom: 1px solid #F4F7FE;
+            font-size: 14px;
+            vertical-align: top;
+            color: var(--text-dark);
+        }
+
+        .feedback-table tr:hover {
+            background: #FAFBFF;
+        }
+
+        .feedback-badge-inst {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+        
+        .feedback-badge-gmu {
+            background: #E2F9F2;
+            color: #05CD99;
+        }
+        
+        .feedback-badge-gmit {
+            background: #E9EDFE;
+            color: #4318FF;
+        }
+
+        .feedback-badge-feature {
+            background: #FFF4E5;
+            color: #FF9920;
+            font-weight: 700;
+            font-size: 11px;
+            padding: 4px 8px;
+            border-radius: 6px;
+            display: inline-block;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+        }
     </style>
 </head>
 
@@ -563,92 +645,164 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
 
                 <!-- Mock AI -->
                 <div
-                    style="display: flex; align-items: center; justify-content: space-between; background: #fff7ed; padding: 16px 20px; border-radius: 16px; border: 1px solid #fed7aa;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <div
-                            style="width: 40px; height: 40px; background: #ffedd5; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #ea580c;">
-                            <i class="fas fa-fire"></i></div>
-                        <div>
-                            <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Mock AI Interview</div>
-                            <div style="font-size: 0.78rem; color: #a3aed1;">AI Interview Simulator</div>
+                    style="display: flex; flex-direction: column; background: #fff7ed; padding: 16px 20px; border-radius: 16px; border: 1px solid #fed7aa; gap: 10px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div
+                                style="width: 40px; height: 40px; background: #ffedd5; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #ea580c;">
+                                <i class="fas fa-fire"></i></div>
+                            <div>
+                                <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Mock AI Interview</div>
+                                <div style="font-size: 0.78rem; color: #a3aed1;">AI Interview Simulator</div>
+                            </div>
                         </div>
+                        <label class="switch">
+                            <input type="checkbox" onchange="toggleAI('feature_mock_ai', this)" <?php echo ($settings['feature_mock_ai'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
+                            <span class="slider"></span>
+                        </label>
                     </div>
-                    <label class="switch">
-                        <input type="checkbox" onchange="toggleAI('feature_mock_ai', this)" <?php echo ($settings['feature_mock_ai'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
-                        <span class="slider"></span>
-                    </label>
+                    <div style="display: flex; align-items: flex-start; gap: 8px; border-top: 1px solid rgba(234, 88, 12, 0.15); padding-top: 8px;">
+                        <textarea 
+                               placeholder="Add announcement message..." 
+                               onchange="updateAnnouncement('feature_mock_ai', this)"
+                               style="flex: 1; font-size: 0.75rem; padding: 6px 10px; border: 1px solid #fed7aa; border-radius: 8px; background: #fff; outline: none; font-family: inherit; resize: vertical; min-height: 40px; height: 40px; max-height: 120px;"><?php echo htmlspecialchars($settings['feature_mock_ai_message'] ?? '', ENT_QUOTES, 'UTF-8'); ?></textarea>
+                        <i class="fas fa-bullhorn" style="font-size: 0.78rem; color: #ea580c; cursor: help; margin-top: 8px;" title="Message shown to students once on login/visit"></i>
+                    </div>
                 </div>
 
                 <!-- Company Guide -->
                 <div
-                    style="display: flex; align-items: center; justify-content: space-between; background: #f0f9ff; padding: 16px 20px; border-radius: 16px; border: 1px solid #bae6fd;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <div
-                            style="width: 40px; height: 40px; background: #e0f2fe; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #0284c7;">
-                            <i class="fas fa-graduation-cap"></i></div>
-                        <div>
-                            <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Company Guide</div>
-                            <div style="font-size: 0.78rem; color: #a3aed1;">AI Placement Guide</div>
+                    style="display: flex; flex-direction: column; background: #f0f9ff; padding: 16px 20px; border-radius: 16px; border: 1px solid #bae6fd; gap: 10px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div
+                                style="width: 40px; height: 40px; background: #e0f2fe; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #0284c7;">
+                                <i class="fas fa-graduation-cap"></i></div>
+                            <div>
+                                <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Company Guide</div>
+                                <div style="font-size: 0.78rem; color: #a3aed1;">AI Placement Guide</div>
+                            </div>
                         </div>
+                        <label class="switch">
+                            <input type="checkbox" onchange="toggleAI('feature_company_guide', this)" <?php echo ($settings['feature_company_guide'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
+                            <span class="slider"></span>
+                        </label>
                     </div>
-                    <label class="switch">
-                        <input type="checkbox" onchange="toggleAI('feature_company_guide', this)" <?php echo ($settings['feature_company_guide'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
-                        <span class="slider"></span>
-                    </label>
+                    <div style="display: flex; align-items: flex-start; gap: 8px; border-top: 1px solid rgba(2, 132, 199, 0.15); padding-top: 8px;">
+                        <textarea 
+                               placeholder="Add announcement message..." 
+                               onchange="updateAnnouncement('feature_company_guide', this)"
+                               style="flex: 1; font-size: 0.75rem; padding: 6px 10px; border: 1px solid #bae6fd; border-radius: 8px; background: #fff; outline: none; font-family: inherit; resize: vertical; min-height: 40px; height: 40px; max-height: 120px;"><?php echo htmlspecialchars($settings['feature_company_guide_message'] ?? '', ENT_QUOTES, 'UTF-8'); ?></textarea>
+                        <i class="fas fa-bullhorn" style="font-size: 0.78rem; color: #0284c7; cursor: help; margin-top: 8px;" title="Message shown to students once on login/visit"></i>
+                    </div>
                 </div>
 
                 <!-- Resume Builder -->
                 <div
-                    style="display: flex; align-items: center; justify-content: space-between; background: #fff1f2; padding: 16px 20px; border-radius: 16px; border: 1px solid #fecdd3;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <div
-                            style="width: 40px; height: 40px; background: #ffe4e6; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #e11d48;">
-                            <i class="fas fa-file-invoice"></i></div>
-                        <div>
-                            <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Resume Builder</div>
-                            <div style="font-size: 0.78rem; color: #a3aed1;">AI Resume Generator</div>
+                    style="display: flex; flex-direction: column; background: #fff1f2; padding: 16px 20px; border-radius: 16px; border: 1px solid #fecdd3; gap: 10px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div
+                                style="width: 40px; height: 40px; background: #ffe4e6; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #e11d48;">
+                                <i class="fas fa-file-invoice"></i></div>
+                            <div>
+                                <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Resume Builder</div>
+                                <div style="font-size: 0.78rem; color: #a3aed1;">AI Resume Generator</div>
+                            </div>
                         </div>
+                        <label class="switch">
+                            <input type="checkbox" onchange="toggleAI('feature_resume_builder', this)" <?php echo ($settings['feature_resume_builder'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
+                            <span class="slider"></span>
+                        </label>
                     </div>
-                    <label class="switch">
-                        <input type="checkbox" onchange="toggleAI('feature_resume_builder', this)" <?php echo ($settings['feature_resume_builder'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
-                        <span class="slider"></span>
-                    </label>
+                    <div style="display: flex; align-items: flex-start; gap: 8px; border-top: 1px solid rgba(225, 29, 72, 0.15); padding-top: 8px;">
+                        <textarea 
+                               placeholder="Add announcement message..." 
+                               onchange="updateAnnouncement('feature_resume_builder', this)"
+                               style="flex: 1; font-size: 0.75rem; padding: 6px 10px; border: 1px solid #fecdd3; border-radius: 8px; background: #fff; outline: none; font-family: inherit; resize: vertical; min-height: 40px; height: 40px; max-height: 120px;"><?php echo htmlspecialchars($settings['feature_resume_builder_message'] ?? '', ENT_QUOTES, 'UTF-8'); ?></textarea>
+                        <i class="fas fa-bullhorn" style="font-size: 0.78rem; color: #e11d48; cursor: help; margin-top: 8px;" title="Message shown to students once on login/visit"></i>
+                    </div>
                 </div>
 
                 <!-- Profile Analyser -->
                 <div
-                    style="display: flex; align-items: center; justify-content: space-between; background: #f5f3ff; padding: 16px 20px; border-radius: 16px; border: 1px solid #ddd6fe;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <div
-                            style="width: 40px; height: 40px; background: #ede9fe; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #7c3aed;">
-                            <i class="fas fa-robot"></i></div>
-                        <div>
-                            <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Profile Analyser</div>
-                            <div style="font-size: 0.78rem; color: #a3aed1;">Career Architect AI</div>
+                    style="display: flex; flex-direction: column; background: #f5f3ff; padding: 16px 20px; border-radius: 16px; border: 1px solid #ddd6fe; gap: 10px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div
+                                style="width: 40px; height: 40px; background: #ede9fe; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #7c3aed;">
+                                <i class="fas fa-robot"></i></div>
+                            <div>
+                                <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Profile Analyser</div>
+                                <div style="font-size: 0.78rem; color: #a3aed1;">Career Architect AI</div>
+                            </div>
                         </div>
+                        <label class="switch">
+                            <input type="checkbox" onchange="toggleAI('feature_profile_analyzer', this)" <?php echo ($settings['feature_profile_analyzer'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
+                            <span class="slider"></span>
+                        </label>
                     </div>
-                    <label class="switch">
-                        <input type="checkbox" onchange="toggleAI('feature_profile_analyzer', this)" <?php echo ($settings['feature_profile_analyzer'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
-                        <span class="slider"></span>
-                    </label>
+                    <div style="display: flex; align-items: flex-start; gap: 8px; border-top: 1px solid rgba(124, 58, 237, 0.15); padding-top: 8px;">
+                        <textarea 
+                               placeholder="Add announcement message..." 
+                               onchange="updateAnnouncement('feature_profile_analyzer', this)"
+                               style="flex: 1; font-size: 0.75rem; padding: 6px 10px; border: 1px solid #ddd6fe; border-radius: 8px; background: #fff; outline: none; font-family: inherit; resize: vertical; min-height: 40px; height: 40px; max-height: 120px;"><?php echo htmlspecialchars($settings['feature_profile_analyzer_message'] ?? '', ENT_QUOTES, 'UTF-8'); ?></textarea>
+                        <i class="fas fa-bullhorn" style="font-size: 0.78rem; color: #7c3aed; cursor: help; margin-top: 8px;" title="Message shown to students once on login/visit"></i>
+                    </div>
                 </div>
 
                 <!-- Leaderboard -->
                 <div
-                    style="display: flex; align-items: center; justify-content: space-between; background: #ecfdf5; padding: 16px 20px; border-radius: 16px; border: 1px solid #a7f3d0;">
-                    <div style="display: flex; align-items: center; gap: 12px;">
-                        <div
-                            style="width: 40px; height: 40px; background: #d1fae5; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #059669;">
-                            <i class="fas fa-trophy"></i></div>
-                        <div>
-                            <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Leaderboard</div>
-                            <div style="font-size: 0.78rem; color: #a3aed1;">AI Performance Ranking</div>
+                    style="display: flex; flex-direction: column; background: #ecfdf5; padding: 16px 20px; border-radius: 16px; border: 1px solid #a7f3d0; gap: 10px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div
+                                style="width: 40px; height: 40px; background: #d1fae5; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #059669;">
+                                <i class="fas fa-trophy"></i></div>
+                            <div>
+                                <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">Leaderboard</div>
+                                <div style="font-size: 0.78rem; color: #a3aed1;">AI Performance Ranking</div>
+                            </div>
                         </div>
+                        <label class="switch">
+                            <input type="checkbox" onchange="toggleAI('feature_leaderboard', this)" <?php echo ($settings['feature_leaderboard'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
+                            <span class="slider"></span>
+                        </label>
                     </div>
-                    <label class="switch">
-                        <input type="checkbox" onchange="toggleAI('feature_leaderboard', this)" <?php echo ($settings['feature_leaderboard'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
-                        <span class="slider"></span>
-                    </label>
+                    <div style="display: flex; align-items: flex-start; gap: 8px; border-top: 1px solid rgba(5, 150, 105, 0.15); padding-top: 8px;">
+                        <textarea 
+                               placeholder="Add announcement message..." 
+                               onchange="updateAnnouncement('feature_leaderboard', this)"
+                               style="flex: 1; font-size: 0.75rem; padding: 6px 10px; border: 1px solid #a7f3d0; border-radius: 8px; background: #fff; outline: none; font-family: inherit; resize: vertical; min-height: 40px; height: 40px; max-height: 120px;"><?php echo htmlspecialchars($settings['feature_leaderboard_message'] ?? '', ENT_QUOTES, 'UTF-8'); ?></textarea>
+                        <i class="fas fa-bullhorn" style="font-size: 0.78rem; color: #059669; cursor: help; margin-top: 8px;" title="Message shown to students once on login/visit"></i>
+                    </div>
+                </div>
+
+                <!-- AI Tutor -->
+                <div
+                    style="display: flex; flex-direction: column; background: #f0fdfa; padding: 16px 20px; border-radius: 16px; border: 1px solid #99f6e4; gap: 10px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <div
+                                style="width: 40px; height: 40px; background: #ccfbf1; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #0d9488;">
+                                <i class="fas fa-chalkboard-user"></i></div>
+                            <div>
+                                <div style="font-weight: 700; font-size: 0.95rem; color: #2b3674;">AI Tutor</div>
+                                <div style="font-size: 0.78rem; color: #a3aed1;">1-on-1 Learning Assistant</div>
+                            </div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" onchange="toggleAI('feature_ai_tutor', this)" <?php echo ($settings['feature_ai_tutor'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 8px; border-top: 1px solid rgba(13, 148, 136, 0.15); padding-top: 8px;">
+                        <textarea 
+                               placeholder="Add announcement message..." 
+                               onchange="updateAnnouncement('feature_ai_tutor', this)"
+                               style="flex: 1; font-size: 0.75rem; padding: 6px 10px; border: 1px solid #99f6e4; border-radius: 8px; background: #fff; outline: none; font-family: inherit; resize: vertical; min-height: 40px; height: 40px; max-height: 120px;"><?php echo htmlspecialchars($settings['feature_ai_tutor_message'] ?? '', ENT_QUOTES, 'UTF-8'); ?></textarea>
+                        <i class="fas fa-bullhorn" style="font-size: 0.78rem; color: #0d9488; cursor: help; margin-top: 8px;" title="Message shown to students once on login/visit"></i>
+                    </div>
                 </div>
 
             </div>
@@ -721,6 +875,105 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
                     </a>
                 </div>
             </div>
+        </div>
+
+        <!-- Student Feedback & Suggestions Panel -->
+        <div class="panel" style="margin-top: 30px;">
+            <div class="panel-header">
+                <div class="panel-title">
+                    <i class="fas fa-comments" style="color: var(--primary-maroon);"></i> Recent Student Feedback
+                </div>
+                <span style="background: #E9EDFE; color: #4318FF; padding: 6px 14px; border-radius: 50px; font-size: 12px; font-weight: 700;">
+                    <?php echo $totalFeedbacksCount; ?> Submissions
+                </span>
+            </div>
+
+            <?php if (empty($feedbacks)): ?>
+                <div style="text-align: center; padding: 50px 20px; color: var(--text-muted);">
+                    <i class="fas fa-comment-slash" style="font-size: 48px; margin-bottom: 15px;"></i>
+                    <p style="font-size: 16px; font-weight: 600;">No feedback submissions yet.</p>
+                </div>
+            <?php else: ?>
+                <div class="feedback-table-container">
+                    <table class="feedback-table">
+                        <thead>
+                            <tr>
+                                <th style="width: 15%;">Submitted At</th>
+                                <th style="width: 25%;">Student Info</th>
+                                <th style="width: 30%;">General Comments</th>
+                                <th style="width: 30%;">Suggested Feature</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($feedbacks as $fb): ?>
+                                <tr class="feedback-row" data-search="<?php 
+                                    echo strtolower(
+                                        ($fb['student_name'] ?? '') . ' ' . 
+                                        ($fb['student_id'] ?? '') . ' ' . 
+                                        ($fb['branch'] ?? '') . ' ' . 
+                                        ($fb['general_comments'] ?? '') . ' ' . 
+                                        ($fb['new_feature_title'] ?? '') . ' ' . 
+                                        ($fb['new_feature_description'] ?? '')
+                                    ); 
+                                ?>">
+                                    <td style="font-size: 13px; color: var(--text-muted); font-weight: 500;">
+                                        <?php echo date('d M Y', strtotime($fb['created_at'])); ?>
+                                        <div style="font-size: 11px; margin-top: 4px;"><?php echo date('h:i A', strtotime($fb['created_at'])); ?></div>
+                                    </td>
+                                    <td>
+                                        <div style="font-weight: 700; color: var(--text-dark);"><?php echo htmlspecialchars($fb['student_name'] ?? 'N/A'); ?></div>
+                                        <div style="font-size: 12px; color: var(--text-muted); margin-top: 2px;"><?php echo htmlspecialchars($fb['student_id'] ?? 'N/A'); ?></div>
+                                        <div style="margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center;">
+                                            <span class="feedback-badge-inst feedback-badge-<?php echo strtolower($fb['institution'] ?? 'gmu'); ?>">
+                                                <?php echo htmlspecialchars($fb['institution'] ?? 'GMU'); ?>
+                                            </span>
+                                            <?php if (($fb['current_sem'] ?? null) || ($fb['branch'] ?? null)): ?>
+                                                <span style="font-size: 11px; color: #475569; background: #f1f5f9; padding: 4px 8px; border-radius: 6px; font-weight: 600;">
+                                                    <?php 
+                                                        $parts = [];
+                                                        if ($fb['current_sem'] ?? null) $parts[] = 'Sem ' . $fb['current_sem'];
+                                                        if ($fb['branch'] ?? null) $parts[] = $fb['branch'];
+                                                        echo htmlspecialchars(implode(' • ', $parts));
+                                                    ?>
+                                                </span>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+                                    <td>
+                                        <?php if ($fb['general_comments']): ?>
+                                            <div style="line-height: 1.5; color: #334155; font-size: 13px;">
+                                                <?php echo nl2br(htmlspecialchars($fb['general_comments'])); ?>
+                                            </div>
+                                        <?php else: ?>
+                                            <span style="color: var(--text-muted); font-style: italic; font-size: 13px;">None</span>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <?php if ($fb['new_feature_title']): ?>
+                                            <span class="feedback-badge-feature">Feature Idea</span>
+                                            <strong style="display: block; font-size: 13px; color: var(--primary-maroon); margin-bottom: 4px;">
+                                                <?php echo htmlspecialchars($fb['new_feature_title']); ?>
+                                            </strong>
+                                            <div style="font-size: 13px; color: #475569; line-height: 1.5;">
+                                                <?php echo nl2br(htmlspecialchars($fb['new_feature_description'])); ?>
+                                            </div>
+                                        <?php else: ?>
+                                            <span style="color: var(--text-muted); font-style: italic; font-size: 13px;">None</span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+
+                <div style="margin-top: 25px; padding-top: 20px; border-top: 1px solid #F4F7FE; text-align: center;">
+                    <a href="feedback.php"
+                        style="color: var(--primary-maroon); text-decoration: none; font-weight: 700; font-size: 14px;">
+                        View All Student Feedback & Suggestions <i class="fas fa-arrow-right"></i>
+                    </a>
+                </div>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -844,6 +1097,46 @@ $settings = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
             } catch (e) {
                 console.error('Feature toggle network error', e);
                 el.checked = !el.checked;
+            }
+        }
+
+        async function updateAnnouncement(key, el) {
+            const message = el.value;
+            const parent = el.parentElement;
+            const icon = parent.querySelector('i');
+            const originalClass = icon.className;
+            
+            // Show saving status
+            icon.className = 'fas fa-spinner fa-spin';
+            
+            try {
+                const formData = new FormData();
+                formData.append('key', key + '_message');
+                formData.append('value', message);
+                formData.append('action', 'update_setting');
+
+                const res = await fetch('settings_handler.php', {
+                    method: 'POST',
+                    body: formData
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    icon.className = 'fas fa-check';
+                    icon.style.color = '#10b981';
+                    setTimeout(() => {
+                        icon.className = originalClass;
+                        icon.style.color = '';
+                    }, 2000);
+                } else {
+                    alert('Error saving announcement: ' + data.message);
+                    icon.className = originalClass;
+                    icon.style.color = '#ef4444';
+                }
+            } catch (e) {
+                console.error('Announcement save network error', e);
+                icon.className = originalClass;
+                icon.style.color = '#ef4444';
             }
         }
 

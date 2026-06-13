@@ -4,20 +4,63 @@ use App\Helpers\SessionFilterHelper;
 
 requireLogin();
 
-// Handle POST from Assigned Task
-if (isPost() && (isset($_POST['company']) || isset($_POST['task_id']))) {
-    SessionFilterHelper::setFilters('ai_technical_round', [
-        'company' => $_POST['company'] ?? 'General',
-        'concept' => $_POST['concept'] ?? '',
-        'task_id' => $_POST['task_id'] ?? 0
-    ]);
-    header("Location: ai_technical_round.php");
-    exit;
-}
+$driveId = isset($_GET['drive_id']) ? (int)$_GET['drive_id'] : 0;
+$companyName = 'General';
+$taskId = 0;
+$concept = '';
+$roleName = 'Software Engineer';
 
-$filters = SessionFilterHelper::getFilters('ai_technical_round');
-$companyName = $filters['company'] ?? 'General';
-$taskId = $filters['task_id'] ?? 0;
+if ($driveId > 0) {
+    $db = getDB();
+    $usn = getUsername();
+    // Fetch drive details
+    $stmt = $db->prepare("
+        SELECT cd.*, jp.title as job_title, jp.id as job_id, c.name as company_name 
+        FROM campus_drives cd
+        JOIN job_postings jp ON cd.job_id = jp.id
+        LEFT JOIN companies c ON jp.company_id = c.id
+        WHERE cd.id = ?
+    ");
+    $stmt->execute([$driveId]);
+    $drive = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$drive) {
+        die("Recruitment drive not found.");
+    }
+    // Enforce applied check
+    $stmt = $db->prepare("
+        SELECT COUNT(*) FROM job_applications 
+        WHERE job_id = ? AND student_id = ?
+    ");
+    $stmt->execute([$drive['job_id'], $usn]);
+    if ($stmt->fetchColumn() == 0) {
+        die("Access denied. Only applied students can access this recruitment drive round.");
+    }
+    
+    // Check if the round is actually active
+    if (!$drive['technical_active']) {
+        die("The Technical Round for this recruitment drive is currently disabled.");
+    }
+
+    $companyName = $drive['company_name'];
+    $roleName = $drive['job_title'];
+    $concept = $drive['technical_topics']; // Topics are the concepts
+} else {
+    // Handle POST from Assigned Task
+    if (isPost() && (isset($_POST['company']) || isset($_POST['task_id']))) {
+        SessionFilterHelper::setFilters('ai_technical_round', [
+            'company' => $_POST['company'] ?? 'General',
+            'concept' => $_POST['concept'] ?? '',
+            'task_id' => $_POST['task_id'] ?? 0
+        ]);
+        header("Location: ai_technical_round.php");
+        exit;
+    }
+
+    $filters = SessionFilterHelper::getFilters('ai_technical_round');
+    $companyName = $filters['company'] ?? 'General';
+    $taskId = $filters['task_id'] ?? 0;
+    $concept = $filters['concept'] ?? '';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -170,6 +213,35 @@ $taskId = $filters['task_id'] ?? 0;
 
         .hidden { display: none !important; }
 
+        /* Score Modal */
+        #scoreModal {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
+            z-index: 9999; display: flex; align-items: center; justify-content: center;
+        }
+        .score-card {
+            background: linear-gradient(145deg, #1e1e2f, #11111a);
+            padding: 50px; border-radius: 24px; text-align: center;
+            border: 2px solid #333; box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            max-width: 500px; width: 90%; color: white;
+            animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .score-title { font-size: 24px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; font-weight: 600; }
+        .score-number { font-size: 80px; font-weight: 900; color: #10b981; line-height: 1; text-shadow: 0 0 20px rgba(16, 185, 129, 0.4); margin-bottom: 5px; }
+        .score-percentage { font-size: 30px; font-weight: 700; color: #10b981; }
+        .score-zero { color: #ef4444; text-shadow: 0 0 20px rgba(239, 68, 68, 0.4); }
+        .score-desc { font-size: 16px; color: #bbb; margin-bottom: 40px; }
+        .btn-continue {
+            background: #800000; color: white; border: none; padding: 15px 40px;
+            border-radius: 12px; font-size: 18px; font-weight: 700; cursor: pointer;
+            transition: all 0.3s; width: 100%; box-shadow: 0 10px 20px rgba(128,0,0,0.3);
+        }
+        .btn-continue:hover { background: #a50000; transform: translateY(-3px); }
+
         /* Timer Styles */
         #sessionTimer {
             background: rgba(0,0,0,0.3);
@@ -228,8 +300,8 @@ $taskId = $filters['task_id'] ?? 0;
                 The AI interviewer is strict and expects precise answers.<br>
                 You will face both <strong>Conceptual</strong> questions and <strong>Practical Industry Scenarios</strong>.
             </p>
-            <div style="margin-bottom: 20px;">
-                <input type="text" id="roleInput" placeholder="Enter specific role (e.g. Backend Dev)" value="Software Engineer" 
+            <div style="margin-bottom: 20px; <?php echo $driveId > 0 ? 'display:none;' : ''; ?>">
+                <input type="text" id="roleInput" placeholder="Enter specific role (e.g. Backend Dev)" value="<?php echo htmlspecialchars($roleName); ?>" 
                        style="padding: 10px; width: 100%; max-width: 300px; text-align: center;">
             </div>
             <button onclick="startSession()" class="btn-send" style="padding: 15px 40px; font-size: 1.1rem;">Start Interface</button>
@@ -298,6 +370,18 @@ $taskId = $filters['task_id'] ?? 0;
         </div>
     </div>
 
+    <!-- Score Modal -->
+    <div id="scoreModal" class="hidden">
+        <div class="score-card">
+            <div class="score-title">Assessment Complete</div>
+            <div>
+                <span id="finalScoreNum" class="score-number">0</span><span id="finalScorePct" class="score-percentage">%</span>
+            </div>
+            <div class="score-desc">Your technical performance has been evaluated.</div>
+            <button class="btn-continue" onclick="closeSession()">Continue</button>
+        </div>
+    </div>
+
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/mode/python/python.min.js"></script>
@@ -325,8 +409,11 @@ $taskId = $filters['task_id'] ?? 0;
     </div>
 
     <script>
+        window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
         let sessionId = null;
         let company = "<?php echo addslashes($companyName); ?>";
+        let driveId = <?php echo $driveId; ?>;
+        let concept = "<?php echo addslashes($concept); ?>";
         let editor;
         let currentProblem = null; 
         let isSessionActive = false; // Track session state
@@ -385,7 +472,7 @@ $taskId = $filters['task_id'] ?? 0;
             const roleInput = document.getElementById('roleInput').value;
             
             // 1. Check for Active Session Resumption
-            const checkRes = await apiCall({ action: 'check_active_session', company: company });
+            const checkRes = await apiCall({ action: 'check_active_session', company: company, drive_id: driveId });
             
             if (checkRes.success && checkRes.has_active) {
                 if (confirm("You have an active session for this company. Would you like to resume?")) {
@@ -441,7 +528,7 @@ $taskId = $filters['task_id'] ?? 0;
             }
 
             // API Call to start
-            const res = await apiCall({ action: 'start_session', role: role, company: company, task_id: "<?php echo $taskId; ?>" });
+            const res = await apiCall({ action: 'start_session', role: role, company: company, task_id: "<?php echo $taskId; ?>", drive_id: driveId, concept: concept });
             if (res.success) {
                 sessionId = res.session_id;
                 isSessionActive = true; 
@@ -503,7 +590,7 @@ $taskId = $filters['task_id'] ?? 0;
                 } else {
                     hideTyping();
                     isProcessing = false;
-                    alert("Failed to reach AI.");
+                    alert(res.message || "Failed to reach AI.");
                 }
             } catch (e) {
                 hideTyping();
@@ -621,7 +708,7 @@ $taskId = $filters['task_id'] ?? 0;
         }
 
         async function endSession() {
-            if (!confirm("Are you sure? This will generate your report.")) return;
+            if (!confirm("Are you sure? This will end your session and generate your score.")) return;
             
             isSessionActive = false; // Disable enforcement for report generation
             if (document.fullscreenElement) {
@@ -633,42 +720,29 @@ $taskId = $filters['task_id'] ?? 0;
             // 1. Get Report Data
             const res = await apiCall({ action: 'generate_report_data', session_id: sessionId });
             
+            document.getElementById('loadingOverlay').classList.add('hidden');
             if (res.success) {
-                // 2. Client-side PDF Generation
-                const element = document.createElement('div');
-                element.innerHTML = res.report_html; // Backend returns HTML string
+                const modal = document.getElementById('scoreModal');
+                const scoreNum = document.getElementById('finalScoreNum');
+                const scorePct = document.getElementById('finalScorePct');
                 
-                const opt = {
-                    margin: 1,
-                    filename: res.filename, // usn_sem.pdf
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { scale: 2 },
-                    jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
-                };
-
-                // Generate and Upload
-                html2pdf().set(opt).from(element).outputPdf('blob').then(async (pdfBlob) => {
-                    const formData = new FormData();
-                    formData.append('action', 'save_pdf_report');
-                    formData.append('session_id', sessionId);
-                    formData.append('pdf', pdfBlob, res.filename);
-                    
-                    const uploadRes = await fetch('ai_technical_handler', { method: 'POST', body: formData });
-                    const uploadData = await uploadRes.json();
-                    
-                    if (uploadData.success) {
-                        // Trigger download
-                        html2pdf().set(opt).from(element).save();
-                        setTimeout(() => { window.location.href = 'dashboard.php'; }, 2000);
-                    } else {
-                        document.getElementById('loadingOverlay').classList.add('hidden');
-                        alert("Failed to save report to server.");
-                    }
-                });
+                scoreNum.innerText = res.score;
+                if (res.score <= 0) {
+                    scoreNum.classList.add('score-zero');
+                    scorePct.classList.add('score-zero');
+                } else {
+                    scoreNum.classList.remove('score-zero');
+                    scorePct.classList.remove('score-zero');
+                }
+                
+                modal.classList.remove('hidden');
             } else {
-                document.getElementById('loadingOverlay').classList.add('hidden');
-                alert("Failed to generate report data.");
+                alert("Failed to generate score data.");
             }
+        }
+        
+        function closeSession() {
+            window.location.href = driveId > 0 ? `student_drive.php?drive_id=${driveId}` : 'dashboard.php';
         }
 
         function activateCodingMode(data) {
@@ -686,9 +760,24 @@ $taskId = $filters['task_id'] ?? 0;
             try {
                 const formData = new FormData();
                 for (const k in data) formData.append(k, data[k]);
+                formData.append('csrf_token', window.CSRF_TOKEN);
                 
-                const response = await fetch('ai_technical_handler', { method: 'POST', body: formData });
-                return await response.json();
+                const response = await fetch('ai_technical_handler', {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': window.CSRF_TOKEN },
+                    body: formData
+                });
+                const responseClone = response.clone();
+                let result;
+                try {
+                    result = await response.json();
+                } catch (jsonErr) {
+                    const rawText = await responseClone.text();
+                    console.error('Failed to parse JSON response:', jsonErr, 'Raw response:', rawText);
+                    alert("Server returned an invalid response. Error: " + rawText.substring(0, 300));
+                    return { success: false };
+                }
+                return result;
             } catch (e) {
                 console.error(e);
                 alert("Connection Error");

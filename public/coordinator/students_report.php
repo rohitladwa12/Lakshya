@@ -228,7 +228,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
 $search = clean($filters['search'] ?? '');
 $min_sgpa = isset($filters['min_sgpa']) ? (float)$filters['min_sgpa'] : 0;
 $branch_filter_val = clean($filters['branch'] ?? '');
-$sem_filter_val = isset($filters['sem']) ? (int)$filters['sem'] : 0;
+// Default semester: query actual highest sem with students in this dept
+$semester_filter_range = getCoordinatorSemesterFilters($department);
+if (!array_key_exists('sem', $filters)) {
+    $disc_temp = array_values(array_unique(getCoordinatorDisciplineFilters($department)));
+    $ph_d = implode(',', array_fill(0, count($disc_temp), '?'));
+    $ph_s = implode(',', array_fill(0, count($semester_filter_range), '?'));
+    try {
+        $dbTmp = getDB('gmu');
+        $stmtMs = $dbTmp->prepare("SELECT MAX(sem) FROM " . DB_GMU_PREFIX . "ad_student_approved WHERE discipline IN ($ph_d) AND sem IN ($ph_s)");
+        $stmtMs->execute(array_merge($disc_temp, $semester_filter_range));
+        $sem_filter_val = (int)($stmtMs->fetchColumn() ?: 0);
+    } catch (Exception $e) {
+        $sem_filter_val = 0;
+    }
+} else {
+    $sem_filter_val = (int)($filters['sem'] ?? 0);
+}
 
 // --- AI Reports data ---
 $officerModel = new PlacementOfficer();
@@ -303,7 +319,7 @@ $combinedDetails = "
      FROM {$gmitPrefix}ad_student_details)
 ";
 
-$where_clauses = ["asa.registered = 1"];
+$where_clauses = []; // No registered filter — students in latest sem are always valid
 $params = [];
 
 if ($instFilter) {
@@ -408,12 +424,16 @@ if (isset($filters['export']) && $section === 'details') {
     echo '<tr><th>Institution</th><th>USN</th><th>Name</th><th>Sem</th><th>Aadhar</th><th>Faculty</th><th>Discipline</th><th>Programme</th><th>Father</th><th>Mother</th><th>Parent Mobile</th>';
     echo '<th>Applied Jobs</th>';
     for($i=1; $i<=8; $i++) echo "<th>Sem $i SGPA</th>";
-    echo '<th>PUC %</th><th>SSLC %</th><th>Mobile</th><th>Email</th></tr>';
+    echo '<th>PUC %</th><th>SSLC %</th><th>Mobile</th><th>Email</th><th>Resume Link</th></tr>';
     foreach($all_students as $s) {
         $sgpaData = getSemesterSGPACoord($db, $localDB, $s['usn'], $s['aadhar'], $s['institution']);
         $appCount = $localDB->prepare("SELECT COUNT(*) FROM job_applications WHERE student_id = ?");
         $appCount->execute([$s['usn']]);
         $count = $appCount->fetchColumn();
+
+        $resumeFile = strtoupper($s['usn']) . '_Resume.pdf';
+        $resumePath = UPLOADS_PATH . '/resumes/Student_Resumes/' . $resumeFile;
+        $resumeLink = file_exists($resumePath) ? (APP_URL . '/student/view_resume.php?usn=' . urlencode($s['usn'])) : 'No Resume';
 
         echo "<tr>";
         $currentSem = $s['sem'];
@@ -427,7 +447,7 @@ if (isset($filters['export']) && $section === 'details') {
         echo "<td>{$s['father_name']}</td><td>{$s['mother_name']}</td><td>{$s['parent_mobile']}</td>";
         echo "<td>{$count}</td>";
         foreach ($sgpaData as $val) echo "<td>" . ($val !== null ? number_format($val, 2) : '-') . "</td>";
-        echo "<td>" . ($s['puc_percentage'] ?? '-') . "</td><td>" . ($s['sslc_percentage'] ?? '-') . "</td><td>{$s['student_mobile']}</td><td>{$s['email_id']}</td>";
+        echo "<td>" . ($s['puc_percentage'] ?? '-') . "</td><td>" . ($s['sslc_percentage'] ?? '-') . "</td><td>{$s['student_mobile']}</td><td>{$s['email_id']}</td><td>" . ($resumeLink !== 'No Resume' ? "<a href=\"" . htmlspecialchars($resumeLink) . "\">" . htmlspecialchars($resumeLink) . "</a>" : "No Resume") . "</td>";
         echo "</tr>";
     }
 
@@ -1131,7 +1151,7 @@ $fullName = getFullName();
                         `;
                     }).join('') + '</div>';
                 }
- else {
+          else {
                     document.getElementById('portfolioAI').innerHTML = '<div style="padding:40px; text-align:center; color:var(--text-muted); font-size:13px;"><i class="fas fa-robot" style="font-size:24px; display:block; margin-bottom:10px; opacity:0.3;"></i>No AI Assessments record found.</div>';
                 }
             } catch (e) {

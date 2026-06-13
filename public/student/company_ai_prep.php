@@ -437,6 +437,7 @@ if ($sgpa >= 9.0) {
     }
 </script>
 
+<?php renderFeatureAnnouncement('feature_mock_ai'); ?>
 </body>
 </html>
 

@@ -239,15 +239,27 @@ class Admin extends Model {
                                 
                                 if ($usnToFind === null || !is_scalar($usnToFind)) continue;
 
-                                // SELECT * is safer against missing columns
-                                $stmt = $conn->prepare("SELECT * FROM {$prefix}{$table} WHERE usn = ? OR student_id = ? OR aadhar = ? LIMIT 1");
-                                $stmt->execute([$usnToFind, $usnToFind, $usnToFind]);
-                                $remoteUser = $stmt->fetch(PDO::FETCH_ASSOC);
-                                
-                                if (!$remoteUser && $inst === 'gmu') {
-                                    $stmt = $conn->prepare("SELECT * FROM {$prefix}ad_student_details WHERE usn = ? OR student_id = ? OR aadhar = ? LIMIT 1");
-                                    $stmt->execute([$usnToFind, $usnToFind, $usnToFind]);
+                                if ($inst === 'gmit') {
+                                    $stmt = $conn->prepare("SELECT * FROM ad_student_details WHERE student_id = ? OR usn = ? OR aadhar_no = ? OR aadhar = ? LIMIT 1");
+                                    $stmt->execute([$usnToFind, $usnToFind, $usnToFind, $usnToFind]);
                                     $remoteUser = $stmt->fetch(PDO::FETCH_ASSOC);
+                                } else {
+                                    $remoteUser = null;
+                                    // GMU ad_student_approved
+                                    try {
+                                        $stmt = $conn->prepare("SELECT * FROM {$prefix}ad_student_approved WHERE usn = ? OR aadhar = ? LIMIT 1");
+                                        $stmt->execute([$usnToFind, $usnToFind]);
+                                        $remoteUser = $stmt->fetch(PDO::FETCH_ASSOC);
+                                    } catch (Throwable $e) {}
+                                    
+                                    // Fallback to GMU ad_student_details
+                                    if (!$remoteUser) {
+                                        try {
+                                            $stmt = $conn->prepare("SELECT * FROM {$prefix}ad_student_details WHERE usn = ? OR student_id = ? OR aadhar_no = ? LIMIT 1");
+                                            $stmt->execute([$usnToFind, $usnToFind, $usnToFind]);
+                                            $remoteUser = $stmt->fetch(PDO::FETCH_ASSOC);
+                                        } catch (Throwable $e) {}
+                                    }
                                 }
 
                                 if ($remoteUser) {

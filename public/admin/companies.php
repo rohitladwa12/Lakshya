@@ -282,7 +282,7 @@ $companies = $adminModel->getCompaniesList();
                                 <div class="company-info">
                                     <div class="company-logo">
                                         <?php if ($c['logo_url']): ?>
-                                            <img src="<?php echo htmlspecialchars($c['logo_url']); ?>" alt="Logo">
+                                            <img src="<?php echo (strpos($c['logo_url'], 'http') === 0) ? htmlspecialchars($c['logo_url']) : APP_URL . '/uploads/company_images/' . htmlspecialchars($c['logo_url']); ?>" alt="Logo">
                                         <?php else: ?>
                                             <i class="fas fa-industry"></i>
                                         <?php endif; ?>

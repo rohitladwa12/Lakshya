@@ -778,9 +778,14 @@ try {
                 <h2>HOD Dashboard</h2>
                 <p><?php echo htmlspecialchars($deptLabel); ?> • Academic Tracking</p>
             </div>
-            <a href="ai_monitor.php" class="quick-monitor-btn">
-                <i class="fas fa-robot"></i> Monitor Student Engagement
-            </a>
+            <div style="display: flex; gap: 15px;">
+                <a href="campus_drives.php" class="quick-monitor-btn" style="background-color: #d97706; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.2);">
+                    <i class="fas fa-briefcase"></i> View Campus Drives
+                </a>
+                <a href="ai_monitor.php" class="quick-monitor-btn">
+                    <i class="fas fa-robot"></i> Monitor Student Engagement
+                </a>
+            </div>
         </div>
 
         <!-- Metric summaries -->

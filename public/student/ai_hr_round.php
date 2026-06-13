@@ -4,20 +4,62 @@ use App\Helpers\SessionFilterHelper;
 
 requireLogin();
 
-// Handle POST from Assigned Task
-if (isPost() && (isset($_POST['company']) || isset($_POST['task_id']))) {
-    SessionFilterHelper::setFilters('ai_hr_round', [
-        'company' => $_POST['company'] ?? 'General',
-        'concept' => $_POST['concept'] ?? '',
-        'task_id' => $_POST['task_id'] ?? 0
-    ]);
-    header("Location: ai_hr_round.php");
-    exit;
-}
+$driveId = isset($_GET['drive_id']) ? (int)$_GET['drive_id'] : 0;
+$companyName = 'General';
+$taskId = 0;
+$concept = '';
+$roleName = 'Software Engineer';
 
-$filters = SessionFilterHelper::getFilters('ai_hr_round');
-$companyName = $filters['company'] ?? 'General';
-$taskId = $filters['task_id'] ?? 0;
+if ($driveId > 0) {
+    $db = getDB();
+    $usn = getUsername();
+    // Fetch drive details
+    $stmt = $db->prepare("
+        SELECT cd.*, jp.title as job_title, jp.id as job_id, c.name as company_name 
+        FROM campus_drives cd
+        JOIN job_postings jp ON cd.job_id = jp.id
+        LEFT JOIN companies c ON jp.company_id = c.id
+        WHERE cd.id = ?
+    ");
+    $stmt->execute([$driveId]);
+    $drive = $stmt->fetch(PDO::FETCH_ASSOC);
+    if (!$drive) {
+        die("Recruitment drive not found.");
+    }
+    // Enforce applied check
+    $stmt = $db->prepare("
+        SELECT COUNT(*) FROM job_applications 
+        WHERE job_id = ? AND student_id = ?
+    ");
+    $stmt->execute([$drive['job_id'], $usn]);
+    if ($stmt->fetchColumn() == 0) {
+        die("Access denied. Only applied students can access this recruitment drive round.");
+    }
+    
+    // Check if the round is active
+    if (!$drive['hr_active']) {
+        die("The HR Round for this recruitment drive is currently disabled.");
+    }
+
+    $companyName = $drive['company_name'];
+    $roleName = $drive['job_title'];
+} else {
+    // Handle POST from Assigned Task
+    if (isPost() && (isset($_POST['company']) || isset($_POST['task_id']))) {
+        SessionFilterHelper::setFilters('ai_hr_round', [
+            'company' => $_POST['company'] ?? 'General',
+            'concept' => $_POST['concept'] ?? '',
+            'task_id' => $_POST['task_id'] ?? 0
+        ]);
+        header("Location: ai_hr_round.php");
+        exit;
+    }
+
+    $filters = SessionFilterHelper::getFilters('ai_hr_round');
+    $companyName = $filters['company'] ?? 'General';
+    $taskId = $filters['task_id'] ?? 0;
+    $concept = $filters['concept'] ?? '';
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -217,6 +259,35 @@ $taskId = $filters['task_id'] ?? 0;
             100% { box-shadow: 0 0 0 0 rgba(193, 5, 5, 0); }
         }
 
+        /* Score Modal */
+        #scoreModal {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
+            z-index: 9999; display: flex; align-items: center; justify-content: center;
+        }
+        .score-card {
+            background: linear-gradient(145deg, #1e1e2f, #11111a);
+            padding: 50px; border-radius: 24px; text-align: center;
+            border: 2px solid #333; box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            max-width: 500px; width: 90%; color: white;
+            animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .score-title { font-size: 24px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; font-weight: 600; }
+        .score-number { font-size: 80px; font-weight: 900; color: #10b981; line-height: 1; text-shadow: 0 0 20px rgba(16, 185, 129, 0.4); margin-bottom: 5px; }
+        .score-percentage { font-size: 30px; font-weight: 700; color: #10b981; }
+        .score-zero { color: #ef4444; text-shadow: 0 0 20px rgba(239, 68, 68, 0.4); }
+        .score-desc { font-size: 16px; color: #bbb; margin-bottom: 40px; }
+        .btn-continue {
+            background: #800000; color: white; border: none; padding: 15px 40px;
+            border-radius: 12px; font-size: 18px; font-weight: 700; cursor: pointer;
+            transition: all 0.3s; width: 100%; box-shadow: 0 10px 20px rgba(128,0,0,0.3);
+        }
+        .btn-continue:hover { background: #a50000; transform: translateY(-3px); }
+
         /* Loading Overlay */
         .loading-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
@@ -307,7 +378,7 @@ $taskId = $filters['task_id'] ?? 0;
                 The AI will assess your communication confidence, cultural fit, and problem-solving examples.<br>
                 <strong>Please allow Microphone Access.</strong>
             </p>
-            <input type="text" id="roleInput" placeholder="Specific Role (e.g. Manager)" value="Software Engineer" style="padding: 10px; width: 200px; text-align: center; margin-bottom: 20px;">
+            <input type="text" id="roleInput" placeholder="Specific Role (e.g. Manager)" value="<?php echo htmlspecialchars($roleName); ?>" style="padding: 10px; width: 200px; text-align: center; margin-bottom: 20px; <?php echo $driveId > 0 ? 'display:none;' : ''; ?>">
             <br>
             <button onclick="startSession()" style="padding: 15px 40px; font-size: 1.1rem; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer;">Start Interview</button>
         </div>
@@ -317,6 +388,18 @@ $taskId = $filters['task_id'] ?? 0;
         <div class="loading-spinner"></div>
         <h2 style="margin: 0; letter-spacing: 2px;">GENERATING REPORT</h2>
         <p style="color: rgba(255,255,255,0.6); margin-top: 10px;">Please wait while AI evaluates your behavioral performance...</p>
+    </div>
+
+    <!-- Score Modal -->
+    <div id="scoreModal" class="hidden">
+        <div class="score-card">
+            <div class="score-title">Assessment Complete</div>
+            <div>
+                <span id="finalScoreNum" class="score-number">0</span><span id="finalScorePct" class="score-percentage">%</span>
+            </div>
+            <div class="score-desc">Your HR interview performance has been evaluated.</div>
+            <button class="btn-continue" onclick="closeSession()">Continue</button>
+        </div>
     </div>
 
     <!-- Security Warning Overlay -->
@@ -356,15 +439,19 @@ $taskId = $filters['task_id'] ?? 0;
     </div>
 
     <script>
-        const SILENCE_MS = 3000; // Mic turns off after 3 sec of no speech
+        window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
+        const SILENCE_MS = 7000; // Mic turns off after 7 sec of no speech
 
         let sessionId = null;
         let company = "<?php echo addslashes($companyName); ?>";
+        let driveId = <?php echo $driveId; ?>;
+        let concept = "<?php echo addslashes($concept); ?>";
         let isSessionActive = false;
         let recognition;
         let synth = window.speechSynthesis;
         let isListening = false;
         let isSpeaking = false;
+        let isProcessingAnswer = false; // Flag to prevent auto-restart when submitting
         let silenceTimer = null;
         let currentUtterance = '';      // Accumulated final text for current answer
         let userInterimEl = null;       // DOM element for live "You: ..." interim line
@@ -398,22 +485,41 @@ $taskId = $filters['task_id'] ?? 0;
 
             recognition.onstart = () => {
                 isListening = true;
-                currentUtterance = '';
+                isProcessingAnswer = false;
                 clearSilenceTimer();
-                updateState("Listening... (stops after 3 sec silence)", "listening");
+                updateState("Listening... (stops after 7 sec silence)", "listening");
                 document.getElementById('micBtn').innerHTML = '<i class="fas fa-microphone"></i>';
                 document.getElementById('micBtn').classList.add('active');
-                addUserInterimLine('');
+                if (!userInterimEl) {
+                    addUserInterimLine(currentUtterance);
+                }
             };
 
             recognition.onend = () => {
                 isListening = false;
                 document.getElementById('micBtn').innerHTML = '<i class="fas fa-microphone-slash"></i>';
                 document.getElementById('micBtn').classList.remove('active');
-                if (!isSpeaking && isSessionActive) updateState("Your turn...", "neutral");
+                
+                if (!isSpeaking && isSessionActive) {
+                    if (isProcessingAnswer) {
+                        updateState("Processing...", "neutral");
+                    } else {
+                        updateState("Your turn...", "neutral");
+                        // Auto-restart if the browser stopped it unexpectedly during user speaking turn
+                        setTimeout(() => {
+                            if (!isSpeaking && isSessionActive && !isListening && !isProcessingAnswer) {
+                                console.log("Auto-restarting speech recognition...");
+                                startListening();
+                            }
+                        }, 300);
+                    }
+                }
+                
                 if (userInterimEl && !userInterimEl.classList.contains('final')) {
-                    userInterimEl.remove();
-                    userInterimEl = null;
+                    if (isProcessingAnswer) {
+                        userInterimEl.remove();
+                        userInterimEl = null;
+                    }
                 }
             };
 
@@ -427,17 +533,27 @@ $taskId = $filters['task_id'] ?? 0;
                         interim += event.results[i][0].transcript;
                     }
                 }
+                if (final || interim) {
+                    clearSilenceTimer();
+                    silenceTimer = setTimeout(() => onSilenceComplete(), SILENCE_MS);
+                }
                 if (final) {
                     currentUtterance = (currentUtterance + ' ' + final).trim();
                     updateUserInterimLine(currentUtterance);
                     showCaption(currentUtterance);
-                    clearSilenceTimer();
-                    silenceTimer = setTimeout(() => onSilenceComplete(), SILENCE_MS);
                 }
                 if (interim) {
                     const display = (currentUtterance + ' ' + interim).trim();
                     updateUserInterimLine(display);
                     showCaption(display);
+                }
+            };
+
+            recognition.onerror = (event) => {
+                console.error("Speech Recognition Error:", event.error);
+                if (event.error === 'not-allowed') {
+                    alert("Microphone Access Blocked: Please click the microphone icon in your browser address bar and choose 'Allow' to participate in the interview.");
+                    updateState("Mic Blocked", "neutral");
                 }
             };
             
@@ -492,7 +608,7 @@ $taskId = $filters['task_id'] ?? 0;
             const roleInput = document.getElementById('roleInput').value;
             
             // Check for active session first for resumption
-            const checkRes = await apiCall({ action: 'check_active_session', company: company });
+            const checkRes = await apiCall({ action: 'check_active_session', company: company, drive_id: driveId });
             
             if (checkRes.success && checkRes.has_active) {
                 if (confirm("You have an active session for this company. Would you like to resume?")) {
@@ -533,7 +649,7 @@ $taskId = $filters['task_id'] ?? 0;
                 await document.documentElement.requestFullscreen().catch(err=>console.log(err));
             }
 
-            const res = await apiCall({ action: 'start_session', role: role, company: company, task_id: "<?php echo $taskId; ?>" });
+            const res = await apiCall({ action: 'start_session', role: role, company: company, task_id: "<?php echo $taskId; ?>", drive_id: driveId, concept: concept });
             if (res.success) {
                 sessionId = res.session_id;
                 isSessionActive = true;
@@ -649,6 +765,7 @@ $taskId = $filters['task_id'] ?? 0;
             if (!isListening || !isSessionActive) return;
             const text = currentUtterance.trim();
             if (text) {
+                isProcessingAnswer = true;
                 recognition.stop();
                 finalizeUserTranscriptLine(text);
                 updateState("Processing...", "neutral");
@@ -658,6 +775,7 @@ $taskId = $filters['task_id'] ?? 0;
 
         function processUserAnswer(text) {
             clearSilenceTimer();
+            isProcessingAnswer = true;
             recognition.stop();
             if (userInterimEl && !userInterimEl.classList.contains('final')) {
                 finalizeUserTranscriptLine(text);
@@ -670,6 +788,7 @@ $taskId = $filters['task_id'] ?? 0;
             if (synth.speaking) synth.cancel();
             
             const utterance = new SpeechSynthesisUtterance(text);
+            window.currentUtteranceObj = utterance; // Prevent GC sweeping it mid-speech
             
             // Prefer a female/natural sounding voice if available
             const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Zira") || v.name.includes("Female"));
@@ -685,6 +804,8 @@ $taskId = $filters['task_id'] ?? 0;
             };
             utterance.onend = () => {
                 isSpeaking = false;
+                isProcessingAnswer = false;
+                currentUtterance = ''; // Clear for new question!
                 updateState("Your turn...", "neutral");
                 document.getElementById('micBtn').classList.remove('disabled');
                 // Auto start listening after AI speaks
@@ -705,6 +826,7 @@ $taskId = $filters['task_id'] ?? 0;
                 clearSilenceTimer();
                 const text = currentUtterance.trim();
                 if (text) {
+                    isProcessingAnswer = true;
                     recognition.stop();
                     finalizeUserTranscriptLine(text);
                     updateState("Processing...", "neutral");
@@ -784,7 +906,7 @@ $taskId = $filters['task_id'] ?? 0;
         }
 
         async function endSession() {
-            if (!confirm("End Interview & Generate Report?")) return;
+            if (!confirm("End Interview & Generate Score?")) return;
             
             isSessionActive = false;
             stopSpeaking();
@@ -793,55 +915,56 @@ $taskId = $filters['task_id'] ?? 0;
             // 1. Get Data
             const res = await apiCall({ action: 'generate_report_data', session_id: sessionId });
             
+            document.getElementById('loadingOverlay').classList.add('hidden');
             if (res.success) {
-                // 2. Generate PDF
-                const element = document.createElement('div');
-                element.innerHTML = res.report_html;
+                const modal = document.getElementById('scoreModal');
+                const scoreNum = document.getElementById('finalScoreNum');
+                const scorePct = document.getElementById('finalScorePct');
                 
-                const opt = {
-                    margin: 0.5,
-                    filename: res.filename,
-                    image: { type: 'jpeg', quality: 0.98 },
-                    html2canvas: { scale: 2 },
-                    jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
-                };
-
-                // FAST DOWNLOAD for User (Don't wait for upload)
-                html2pdf().set(opt).from(element).save();
-
-                // Background Upload
-                html2pdf().set(opt).from(element).outputPdf('blob').then(async (pdfBlob) => {
-                    const formData = new FormData();
-                    formData.append('action', 'save_pdf_report');
-                    formData.append('session_id', sessionId);
-                    formData.append('pdf', pdfBlob, res.filename);
-                    
-                    // Upload silently
-                    const uploadRes = await fetch('ai_hr_handler', { method: 'POST', body: formData });
-                    console.log("Upload status:", await uploadRes.json());
-                    
-                    // Redirect after a short delay
-                    setTimeout(() => window.location.href = 'dashboard.php', 2000);
-                });
+                scoreNum.innerText = res.score;
+                if (res.score <= 0) {
+                    scoreNum.classList.add('score-zero');
+                    scorePct.classList.add('score-zero');
+                } else {
+                    scoreNum.classList.remove('score-zero');
+                    scorePct.classList.remove('score-zero');
+                }
+                
+                modal.classList.remove('hidden');
             } else {
-                document.getElementById('loadingOverlay').classList.add('hidden');
-                alert("Report Generation Failed: " + (res.message || "Unknown Error"));
-                updateState("Error Generating Report", "neutral");
+                alert("Score Generation Failed: " + (res.message || "Unknown Error"));
+                updateState("Error Generating Score", "neutral");
             }
+        }
+        
+        function closeSession() {
+            window.location.href = driveId > 0 ? `student_drive.php?drive_id=${driveId}` : 'dashboard.php';
         }
 
         async function apiCall(data) {
             try {
                 const formData = new FormData();
                 for (const k in data) formData.append(k, data[k]);
+                formData.append('csrf_token', window.CSRF_TOKEN);
                 const response = await fetch('ai_hr_handler', { 
                     method: 'POST', 
                     body: formData,
                     headers: {
-                        'Accept': 'application/json'
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': window.CSRF_TOKEN
                     }
                 });
-                return await response.json();
+                const responseClone = response.clone();
+                let result;
+                try {
+                    result = await response.json();
+                } catch (jsonErr) {
+                    const rawText = await responseClone.text();
+                    console.error('Failed to parse JSON response:', jsonErr, 'Raw response:', rawText);
+                    alert("Server returned an invalid response. Error: " + rawText.substring(0, 300));
+                    return { success: false };
+                }
+                return result;
             } catch (e) {
                 console.error(e);
                 alert("Error connecting to server. Check console.");

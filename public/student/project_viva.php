@@ -576,7 +576,7 @@ $projectTitle = $project['title'];
         }
 
         try {
-            await fetch('project_viva_handler.php', {
+            const saveRes = await fetch('project_viva_handler.php', {
                 method: 'POST',
                 headers: { 
                     'Content-Type': 'application/json',
@@ -590,6 +590,14 @@ $projectTitle = $project['title'];
                     history: answers
                 })
             });
+            if (!saveRes.ok) {
+                console.error('Failed to save viva result — HTTP', saveRes.status);
+                return;
+            }
+            const saveData = await saveRes.json();
+            if (!saveData.success) {
+                console.error('Failed to save viva result:', saveData.message);
+            }
         } catch (err) { console.error("Persistence error", err); }
     }
 

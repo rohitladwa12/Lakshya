@@ -536,3 +536,277 @@ function requireFeature($featureKey, $featureName = 'This feature') {
     exit;
     }
 }
+
+/**
+ * Get equivalent synonym branches (without hierarchical grouping)
+ */
+function getSynonymBranches($branchName) {
+    $branch = strtoupper(trim($branchName));
+    
+    // Group definitions of true equivalent branch synonyms (cross-institutional synonyms)
+    $groups = [
+        ['CSE', 'CS', 'DIP CSE', 'CSE-CSE'],
+        ['AIML', 'CSE-AIML', 'AIDS', 'CSE - AIML', 'CSE-AI&ML'],
+        ['ISE', 'IS'],
+        ['ECE', 'EC', 'DIP EC'],
+        ['EEE', 'EE', 'DIP EEE'],
+        ['MECH', 'ME', 'MECHANICAL', 'DIP MECH', 'ED'],
+        ['CIVIL', 'CV', 'CE', 'DIP CIVIL'],
+        ['BT', 'BIOTECH', 'BIOTECHNOLOGY'],
+        ['CSBS'],
+        ['DS', 'CSE-DS'],
+        ['IOT', 'CSE-IOT']
+    ];
+    
+    foreach ($groups as $group) {
+        if (in_array($branch, $group)) {
+            return $group;
+        }
+    }
+    
+    // Fallback for CSE prefix
+    if (strpos($branch, 'CSE-') === 0) {
+        return [$branch, substr($branch, 4)];
+    }
+    
+    return [$branch];
+}
+
+/**
+ * Get equivalent branches for a given branch name to handle GMU vs GMIT name differences
+ * and hierarchical compatibility (e.g. BCA-CS matches job BCA, but BCA-DS does not match job BCA-CS).
+ */
+function getEquivalentBranches($branchName) {
+    $branch = strtoupper(trim($branchName));
+    
+    $synonyms = getSynonymBranches($branch);
+    $allCompat = $synonyms;
+    
+    // Group definitions of parent courses
+    $courseGroups = [
+        ['MBA', 'MBA-ADV', 'MBA-AM', 'MBA-IB', 'MBA-IE', 'MBA-INTNL', 'MBA-PF'],
+        ['BBA', 'BBA-AI&BA', 'BBA-AM', 'BBA-B&F', 'BBA-BA', 'BBA-DM&E-COM', 'BBA-DMSM', 'BBA-GM', 'BBA-HM', 'BBA-HRM', 'BBA-IE', 'BBA-LSCM', 'BBA-MS', 'BBA-TH&EM'],
+        ['BCA', 'BCA-AIDA', 'BCA-CS', 'BCA-CY', 'BCA-DS', 'BCA-GENERAL'],
+        ['MCOM', 'MCOM-ATFA', 'MCOM-AFDB', 'MCOM-FAE'],
+        ['MCA', 'MCA-AIDA', 'MCA-CY', 'MCA-DS'],
+        ['BCOM', 'BCOM-A&T', 'BCOM-AF', 'BCOM-AI', 'BCOM-AT', 'BCOM-DA&BI', 'BCOM-F&A', 'BCOM-G'],
+        [
+            'BSC', 'BSC-B&TE', 'BSC-BT', 'BSC-BZ', 'BSC-C,B', 'BSC-C,CS', 'BSC-C,Z', 
+            'BSC-CB', 'BSC-CCS', 'BSC-CZ', 'BSC-E,SC', 'BSC-FS&T', 'BSC-FST', 'BSC-IM', 
+            'BSC-M,CS', 'BSC-M,P', 'BSC-MB', 'BSC-MCS', 'BSC-P,C', 'BSC-PC', 'BSC-PM', 
+            'BSC-S,CS', 'BSC-SCS'
+        ],
+        ['LLB', 'LLB-BBA', 'LLB-BCOM'],
+        ['MSC', 'MSC-AIDA', 'MSC-C', 'MSC-CY', 'MSC-DS', 'MSC-FT', 'MSC-M', 'MSC-P'],
+        [
+            'MTECH', 'MTECH-AE&ITS', 'MTECH-AIHC', 'MTECH-B&GT', 'MTECH-CASE', 'MTECH-DE', 
+            'MTECH-DLDA', 'MTECH-PD&M', 'MTECH-S&GA', 'MTECH-SES&SE', 'MTECH-ST', 'MTECH-IS&IOT'
+        ],
+        [
+            'PHD', 'PHD-AIM', 'PHD-BOT', 'PHD-BT', 'PHD-CA', 'PHD-CHE', 'PHD-COM', 'PHD-CSE', 
+            'PHD-CV', 'PHD-ECE', 'PHD-EEE', 'PHD-ISE', 'PHD-MAT', 'PHD-ME', 'PHD-MS', 'PHD-PHY', 
+            'PHD-RA', 'PHD-ZOO'
+        ]
+    ];
+    
+    // Check if the student branch (or any of its synonyms) belongs to any course group
+    foreach ($courseGroups as $group) {
+        $inGroup = false;
+        foreach ($synonyms as $syn) {
+            if (in_array($syn, $group)) {
+                $inGroup = true;
+                break;
+            }
+        }
+        if ($inGroup) {
+            // Parent is the first item in the group
+            $parent = $group[0];
+            $parentSynonyms = getSynonymBranches($parent);
+            $allCompat = array_merge($allCompat, $parentSynonyms);
+        }
+    }
+    
+    return array_values(array_unique($allCompat));
+}
+
+/**
+ * Encrypt/Obfuscate Job ID for URLs
+ */
+function encryptJobId($id) {
+    $key = "LakshyaJobKey";
+    $str = (string)$id;
+    $result = '';
+    for ($i = 0; $i < strlen($str); $i++) {
+        $char = $str[$i];
+        $keychar = $key[($i % strlen($key))];
+        $result .= chr(ord($char) ^ ord($keychar));
+    }
+    return str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($result));
+}
+
+/**
+ * Decrypt/De-obfuscate Job ID from URLs
+ */
+function decryptJobId($code) {
+    if (empty($code)) return 0;
+    $key = "LakshyaJobKey";
+    $data = str_replace(['-', '_'], ['+', '/'], $code);
+    $mod = strlen($data) % 4;
+    if ($mod) {
+        $data .= str_repeat('=', 4 - $mod);
+    }
+    $str = base64_decode($data);
+    if ($str === false) return 0;
+    
+    $result = '';
+    for ($i = 0; $i < strlen($str); $i++) {
+        $char = $str[$i];
+        $keychar = $key[($i % strlen($key))];
+        $result .= chr(ord($char) ^ ord($keychar));
+    }
+    return is_numeric($result) ? (int)$result : 0;
+}
+
+/**
+ * Render an announcement popup for a feature if set by admin
+ * @param string $featureKey
+ */
+function renderFeatureAnnouncement($featureKey) {
+    try {
+        $db = getDB();
+        if (!$db) return;
+        
+        $stmt = $db->prepare("SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1");
+        $stmt->execute([$featureKey . '_message']);
+        $message = $stmt->fetchColumn();
+        
+        if (empty($message)) return;
+        
+        $escapedMessage = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
+        $jsKey = 'seen_announcement_' . $featureKey;
+        
+        ?>
+        <style>
+            .announcement-overlay {
+                position: fixed;
+                inset: 0;
+                background: rgba(15, 23, 42, 0.4);
+                backdrop-filter: blur(12px);
+                -webkit-backdrop-filter: blur(12px);
+                z-index: 9999;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                opacity: 0;
+                transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                pointer-events: none;
+                padding: 20px;
+            }
+            .announcement-overlay.show {
+                opacity: 1;
+                pointer-events: all;
+            }
+            .announcement-box {
+                background: rgba(255, 255, 255, 0.95);
+                border: 1px solid rgba(255, 255, 255, 0.85);
+                box-shadow: 0 30px 80px rgba(0, 0, 0, 0.15);
+                border-radius: 24px;
+                max-width: 450px;
+                width: 100%;
+                padding: 24px;
+                text-align: center;
+                transform: translateY(30px) scale(0.95);
+                transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                font-family: 'Outfit', 'Inter', sans-serif;
+            }
+            .announcement-overlay.show .announcement-box {
+                transform: translateY(0) scale(1);
+            }
+            .announcement-icon {
+                width: 50px;
+                height: 50px;
+                background: rgba(128, 0, 0, 0.08);
+                color: #800000;
+                font-size: 20px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-radius: 16px;
+                margin: 0 auto 12px;
+                box-shadow: inset 0 2px 8px rgba(128, 0, 0, 0.05);
+            }
+            .announcement-title {
+                font-size: 1.25rem;
+                font-weight: 800;
+                color: #1e293b;
+                margin-bottom: 8px;
+                letter-spacing: -0.02em;
+            }
+            .announcement-content {
+                font-size: 0.92rem;
+                color: #475569;
+                line-height: 1.5;
+                margin-bottom: 20px;
+                font-weight: 500;
+                white-space: pre-wrap;
+            }
+            .announcement-btn {
+                background: linear-gradient(135deg, #800000 0%, #5b1f1f 100%);
+                color: white;
+                border: none;
+                padding: 10px 24px;
+                font-size: 0.88rem;
+                font-weight: 700;
+                border-radius: 12px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                box-shadow: 0 8px 16px rgba(128, 0, 0, 0.2);
+            }
+            .announcement-btn:hover {
+                transform: translateY(-1px);
+                box-shadow: 0 10px 20px rgba(128, 0, 0, 0.25);
+                opacity: 0.95;
+            }
+            .announcement-btn:active {
+                transform: translateY(0);
+            }
+        </style>
+        <div id="announcement-modal" class="announcement-overlay" style="display: none;">
+            <div class="announcement-box">
+                <div class="announcement-icon">
+                    <i class="fas fa-bullhorn"></i>
+                </div>
+                <h3 class="announcement-title">Announcement</h3>
+                <div class="announcement-content"><?php echo $escapedMessage; ?></div>
+                <button onclick="dismissAnnouncement()" class="announcement-btn">Got it, thanks!</button>
+            </div>
+        </div>
+        <script>
+            document.addEventListener("DOMContentLoaded", function() {
+                var message = <?php echo json_encode($message); ?>;
+                var key = <?php echo json_encode($jsKey); ?>;
+                var seen = localStorage.getItem(key);
+                if (seen !== message) {
+                    var modal = document.getElementById("announcement-modal");
+                    modal.style.display = "flex";
+                    setTimeout(function() {
+                        modal.classList.add("show");
+                    }, 50);
+                }
+            });
+            function dismissAnnouncement() {
+                var message = <?php echo json_encode($message); ?>;
+                var key = <?php echo json_encode($jsKey); ?>;
+                localStorage.setItem(key, message);
+                var modal = document.getElementById("announcement-modal");
+                modal.classList.remove("show");
+                setTimeout(function() {
+                    modal.style.display = "none";
+                }, 400);
+            }
+        </script>
+        <?php
+    } catch (\Exception $e) {
+        // Fail silently
+    }
+}

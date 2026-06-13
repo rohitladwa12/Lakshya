@@ -251,7 +251,7 @@ if ($action === 'save_resume' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             'full_name', 'email', 'phone', 'location', 'gender', 'address',
             'linkedin_url', 'github_url', 'portfolio_url', 'professional_summary',
             'education', 'experience', 'projects', 'skills',
-            'certifications', 'achievements', 'template_id',
+            'certifications', 'achievements', 'template_id', 'hidden_sections',
         ];
 
         $resumeData = [];

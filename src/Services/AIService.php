@@ -63,8 +63,26 @@ class AIService {
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 120);
         curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
-        $response = curl_exec($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $maxRetries = 3;
+        $attempt = 0;
+        $response = false;
+        $httpCode = 0;
+        
+        while ($attempt < $maxRetries) {
+            $response = curl_exec($ch);
+            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            
+            if (!curl_errno($ch) && $httpCode >= 500 && $httpCode < 600) {
+                // OpenAI internal server error or gateway timeout. Retry after a delay.
+                $attempt++;
+                if ($attempt < $maxRetries) {
+                    sleep(2);
+                    continue;
+                }
+            } else {
+                break;
+            }
+        }
         
         if (curl_errno($ch)) {
             $error = curl_error($ch);
@@ -636,7 +654,8 @@ RULES:
         $aptitudeContext
 
         INTERVIEW STRUCTURE:
-- Be DIRECT and FIRM. If an answer is correct, say 'Correct!' and provide Expert Phrasing.
+- Be DIRECT, SKEPTICAL, and FIRM. Evaluate technical answers strictly: if the candidate's explanation lacks technical depth, does not use proper industry terminology, or is vague, do NOT mark it as correct. Explicitly point out what is missing or incorrect, explain the proper concepts, and ask them to clarify or provide a better explanation.
+- If an answer is fully correct and uses precise terminology, say 'Correct!' and provide Expert Phrasing.
 - If wrong, say 'Incorrect!' and explain the correct logic clearly.
 - NO contradictory feedback. Use digits for all numbers.
 - Encourage use of the '🎤 Speak' button. Use English only.
@@ -742,7 +761,10 @@ STRICT RULES:
         ##  Final Verdict: Readiness (Junior/Mid/Senior).
 
         STRICT RULES:
-        - Be honest and constructive. 
+        - Be brutally honest, highly critical, and constructive. Do not sugarcoat.
+        - Evaluate technical answers with high rigor: if the candidate gives generic, vague, or superficial explanations without using precise technical terminology (e.g. key terms, architectural concepts, exact keywords), penalize them heavily.
+        - In the Technical section, if coding/practical tasks were presented and the candidate failed to write correct code or failed the evaluation, cap their Technical section score to a maximum of 4/10.
+        - To prevent score inflation, DO NOT give overall scores above 80 unless the candidate demonstrated senior, industry-ready expertise with exact terminology and logic. Average, mediocre, or theoretical-only answers must receive scores between 40 and 60.
         - DO NOT hallucinate if transcript is empty.
         - The 'content' field should contain the formatted report text.
         - Ensure 'overall_score' is a number between 0 and 100.";
@@ -927,9 +949,16 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Get a Technical Question (Coding or Conceptual)
      */
-    public function getTechnicalQuestion($role, $history, $concept = null) {
+    public function getTechnicalQuestion($role, $history, $concept = null, $portfolio = '') {
         $conceptContext = $concept ? " Specifically focus on the technical concept or role of: '**{$concept}**'." : "";
         $systemPrompt = "You are a Professional, Strict Technical Interviewer for the role of '{$role}'.{$conceptContext}
+        You MUST ask questions based on the role, the concepts mentioned, AND the student's portfolio skills.
+        You MUST also ask coding questions.
+        
+        PORTFOLIO SKILLS & PROJECTS:
+        {$portfolio}
+        
+        If this is the VERY FIRST message (history is empty), you MUST simply ask: 'Welcome to the Technical Round. Are you ready to start?' and wait for their response. Do not ask a technical question yet.
         
         OUTPUT FORMAT (JSON):
         {
@@ -939,7 +968,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
             'problem_statement': '...',
             'constraints': '...',
             'test_cases': []
-        }";
+        }
+        (For the initial greeting, set 'type' to 'conceptual' and put the greeting in 'question' and leave problem_statement empty)";
 
         $messages = [['role' => 'system', 'content' => $systemPrompt]];
         foreach ($history as $msg) { $messages[] = $msg; }
@@ -987,7 +1017,21 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
      */
     public function getHRQuestion($role, $history, $projects = [], $concept = null) {
         $conceptContext = $concept ? " The candidate is applying for a role specifically focused on: '**{$concept}**'." : "";
+        
+        $portfolioContext = "";
+        if (!empty($projects)) {
+            $portfolioContext = "\nCANDIDATE'S PORTFOLIO / SKILLS / PROJECTS:\n";
+            foreach ($projects as $idx => $p) {
+                $num = $idx + 1;
+                $portfolioContext .= "{$num}. Title: {$p['title']} (Category: {$p['category']})\n   Description: {$p['description']}\n";
+            }
+        }
+        
         $systemPrompt = "You are an Expert HR Manager conducting a behavioral interview for the role of '{$role}'.{$conceptContext}
+        You MUST ask questions which were mentioned by the officer (concepts), basic HR questions, and also ask about the candidate's portfolio skills/projects.
+        {$portfolioContext}
+        
+        If this is the VERY FIRST message (history is empty), you MUST simply ask: 'Welcome to the HR Round. Are you ready to start?' and wait for their response. Do not ask an HR question yet.
         
         OUTPUT FORMAT (JSON):
         {
@@ -1411,4 +1455,51 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
             'response_format' => ['type' => 'json_object']
         ]);
     }
+
+    /**
+     * Generate MCQ questions for a specific Campus Drive round based on selected topics
+     */
+    public function generateDriveRoundQuestions($roundType, $topics, $questionCount, $driveName = 'Company') {
+        $systemPrompt = "You are an Elite Recruitment Question Architect for a recruitment drive named '$driveName'.
+        Your task is to generate exactly $questionCount high-quality, professional, and unique Multiple Choice Questions (MCQs) for the **$roundType** round.
+        
+        The questions must target these specific topics: '$topics'.
+        
+        STRICT RULES:
+        1. Accuracy: All questions, choices, answers, and explanations must be 100% accurate.
+        2. Format: Return a JSON object with a single 'questions' array.
+        3. Structure: Each question object MUST follow this EXACT structure:
+        {
+            \"question\": \"The clear question text here\",
+            \"options\": [\"Option A text\", \"Option B text\", \"Option C text\", \"Option D text\"],
+            \"answer\": 0, // 0 for A, 1 for B, 2 for C, 3 for D
+            \"explanation\": \"Brief explanation of why the answer is correct\",
+            \"category\": \"Target Topic Name\"
+        }
+        Do not include any markup like ```json in the raw response, return only valid JSON.";
+
+        $messages = [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => "Generate $questionCount MCQs for the $roundType round on topics: '$topics'. Output JSON only."]
+        ];
+
+        $response = $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object'],
+            'max_tokens' => 4000,
+            'temperature' => 0.5
+        ]);
+
+        if ($response['success']) {
+            $data = $response['parsed'];
+            if (isset($data['questions']) && is_array($data['questions'])) {
+                return [
+                    'success' => true,
+                    'questions' => array_slice($data['questions'], 0, $questionCount)
+                ];
+            }
+        }
+        return ['success' => false, 'message' => $response['message'] ?? 'Failed to parse AI response.'];
+    }
 }
+

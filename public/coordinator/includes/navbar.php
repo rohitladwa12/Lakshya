@@ -42,7 +42,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0 50px;
+        padding: 0 30px;
         box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
         z-index: 2000;
         border-bottom: 2px solid var(--primary-gold);
@@ -51,7 +51,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
     .nav-left {
         display: flex;
         align-items: center;
-        gap: 50px;
+        gap: 25px;
     }
 
     .nav-brand {
@@ -110,7 +110,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
 
     .nav-items {
         display: flex;
-        gap: 10px;
+        gap: 6px;
         list-style: none;
         margin: 0;
         padding: 0;
@@ -119,14 +119,14 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
     .nav-link {
         color: rgba(255, 255, 255, 0.75);
         text-decoration: none;
-        font-size: 14px;
+        font-size: 13.5px;
         font-weight: 600;
-        padding: 10px 20px;
+        padding: 8px 14px;
         border-radius: 100px;
         transition: var(--transition);
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
         position: relative;
     }
 
@@ -180,7 +180,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
     .nav-right {
         display: flex;
         align-items: center;
-        gap: 30px;
+        gap: 15px;
     }
 
     .user-profile {
@@ -302,7 +302,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         <ul class="nav-items">
             <li>
                 <a href="dashboard.php" class="nav-link <?php echo $currentPage == 'dashboard.php' ? 'active' : ''; ?>">
-                    <i class="fas fa-grid-2"></i> Dashboard
+                    <i class="fas fa-chart-pie"></i> Dashboard
                 </a>
             </li>
             <li>
@@ -318,9 +318,15 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
                 </a>
             </li>
             <li>
-                <a href="change_password"
+                <a href="feedback.php"
+                    class="nav-link <?php echo $currentPage == 'feedback.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-comments"></i> Feedback
+                </a>
+            </li>
+            <li>
+                <a href="change_password.php"
                     class="nav-link <?php echo $currentPage == 'change_password.php' ? 'active' : ''; ?>">
-                    <i class="fas fa-shield-keyhole"></i> Security
+                    <i class="fas fa-shield-halved"></i> Security
                 </a>
             </li>
         </ul>

@@ -16,7 +16,7 @@ if (!$internship) die("Internship not found.");
 
 $userId = getUserId(); // USN/EnquiryNo
 $userModel = new User();
-$user = $userModel->find($userId, getInstitution()); // Use session institution
+$user = $userModel->findByUsername($userId) ?: $userModel->find($userId, getInstitution()); // Use session institution
 $usn = ($user && isset($user['username'])) ? $user['username'] : getUsername();
 
 // Check application status
@@ -28,7 +28,7 @@ $error = '';
 
 // Check for existing resume for UI / Application logic
 $existingResumePath = 'uploads/resumes/Student_Resumes/' . $usn . '_Resume.pdf';
-$fullResumePath = __DIR__ . '/../../public/' . $existingResumePath;
+$fullResumePath = RESUME_UPLOAD_PATH . '/Student_Resumes/' . $usn . '_Resume.pdf';
 $hasResumeFile = file_exists($fullResumePath);
 
 // Handle Application

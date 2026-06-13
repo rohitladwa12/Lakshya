@@ -45,6 +45,7 @@ define('REPORTS_UPLOAD_PATH', UPLOADS_PATH . '/reports');
 define('RESUME_UPLOAD_PATH', UPLOADS_PATH . '/resumes');
 define('PHOTO_UPLOAD_PATH', UPLOADS_PATH . '/photos');
 define('DOCUMENT_UPLOAD_PATH', UPLOADS_PATH . '/documents');
+define('COMPANY_IMAGES_UPLOAD_PATH', UPLOADS_PATH . '/company_images');
 
 // File Upload Limits
 define('MAX_RESUME_SIZE', 5 * 1024 * 1024); // 5MB
@@ -134,6 +135,7 @@ $uploadDirs = [
     RESUME_UPLOAD_PATH,
     PHOTO_UPLOAD_PATH,
     DOCUMENT_UPLOAD_PATH,
+    COMPANY_IMAGES_UPLOAD_PATH,
     LOGS_PATH
 ];
 

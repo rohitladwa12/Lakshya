@@ -15,7 +15,20 @@ $deptLabel = ($deptGmu !== $deptGmit) ? $deptGmu . ' (GMU) & ' . $deptGmit . ' (
 if (!$deptLabel) $deptLabel = 'General Dashboard';
 
 $studentModel = new StudentProfile();
-$semester_filter = getCoordinatorSemesterFilters($department) ?: [1,8];
+$semester_filter_all = getCoordinatorSemesterFilters($department) ?: [1, 8];
+// Query actual max sem with students (not theoretical max like 8)
+try {
+    $dbDash = getDB('gmu');
+    $disc_dash = getCoordinatorDisciplineFilters($department);
+    $ph_d = implode(',', array_fill(0, count($disc_dash), '?'));
+    $ph_s = implode(',', array_fill(0, count($semester_filter_all), '?'));
+    $stmtMs = $dbDash->prepare("SELECT MAX(sem) FROM " . DB_GMU_PREFIX . "ad_student_approved WHERE discipline IN ($ph_d) AND sem IN ($ph_s)");
+    $stmtMs->execute(array_merge($disc_dash, $semester_filter_all));
+    $actualMaxSem = (int)($stmtMs->fetchColumn() ?: max($semester_filter_all));
+} catch (Exception $e) {
+    $actualMaxSem = max($semester_filter_all);
+}
+$semester_filter = [$actualMaxSem];
 $discipline_filters = getCoordinatorDisciplineFilters($department);
 
 $coordFilters = [
@@ -25,6 +38,20 @@ $coordFilters = [
 
 // Use a more inclusive counting method to match the Students Report (Academic Strength)
 $studentCount = $studentModel->getTotalAcademicStrength($coordFilters);
+
+// Fetch recent feedback from department students
+$feedbacks = [];
+if (!empty($discipline_filters)) {
+    try {
+        $db = getDB();
+        $placeholders = implode(',', array_fill(0, count($discipline_filters), '?'));
+        $stmt = $db->prepare("SELECT * FROM portal_feedback WHERE branch IN ($placeholders) ORDER BY created_at DESC LIMIT 5");
+        $stmt->execute($discipline_filters);
+        $feedbacks = $stmt->fetchAll();
+    } catch (Exception $e) {
+        error_log("Error fetching coordinator dashboard feedbacks: " . $e->getMessage());
+    }
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -162,7 +189,7 @@ $studentCount = $studentModel->getTotalAcademicStrength($coordFilters);
 <body>
     <?php include_once __DIR__ . '/includes/navbar.php'; ?>
     
-    <div class="navbar-spacer"></div>
+    <!-- <div class="navbar-spacer"></div> -->
 
     <div class="main-content">
         <div class="page-header">
@@ -187,17 +214,17 @@ $studentCount = $studentModel->getTotalAcademicStrength($coordFilters);
                 <div class="action-desc">Assign assessments to students</div>
             </a>
 
+            <a href="manage_tasks.php" class="action-card secondary">
+                <div class="action-icon"><i class="fas fa-chart-line"></i></div>
+                <div class="action-title">Manage Tasks</div>
+                <div class="action-desc">Track student progress</div>
+            </a>
+
             <a href="analytics.php?reset=1" class="action-card secondary">
                 <div class="action-icon"><i class="fas fa-chart-pie"></i></div>
                 <div class="action-title">Department Analytics</div>
                 <div class="action-desc">Track department progress</div>
             </a>
-
-            <!-- <a href="manage_tasks.php" class="action-card secondary">
-                <div class="action-icon"><i class="fas fa-chart-line"></i></div>
-                <div class="action-title">Manage Tasks</div>
-                <div class="action-desc">Track student progress</div>
-            </a> -->
 
             <a href="leaderboard.php" class="action-card secondary">
                 <div class="action-icon"><i class="fas fa-trophy"></i></div>
@@ -222,6 +249,54 @@ $studentCount = $studentModel->getTotalAcademicStrength($coordFilters);
                 <div class="action-title">Add Coding</div>
                 <div class="action-desc">Create coding problems</div>
             </a>
+        </div>
+
+        <!-- Recent Student Feedback Card -->
+        <div style="background: white; padding: 24px; border-radius: 16px; box-shadow: var(--shadow); margin-top: 30px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #f1f5f9; padding-bottom: 15px;">
+                <h3 style="font-size: 18px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+                    <i class="fas fa-comments" style="color: var(--primary-maroon);"></i> Recent Student Feedback
+                </h3>
+                <a href="feedback.php" style="color: var(--primary-maroon); font-weight: 700; font-size: 13px; text-decoration: none;">View All Feedback →</a>
+            </div>
+            
+            <?php if (empty($feedbacks)): ?>
+                <div style="text-align: center; padding: 20px; color: #64748b;">
+                    <p style="font-size: 14px; font-weight: 500;">No student feedback received yet.</p>
+                </div>
+            <?php else: ?>
+                <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                    <thead>
+                        <tr>
+                            <th style="padding: 10px 15px; border-bottom: 1px solid #e2e8f0; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase;">Student</th>
+                            <th style="padding: 10px 15px; border-bottom: 1px solid #e2e8f0; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase;">Comments</th>
+                            <th style="padding: 10px 15px; border-bottom: 1px solid #e2e8f0; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase;">Suggested Feature</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach ($feedbacks as $fb): ?>
+                            <tr>
+                                <td style="padding: 14px 15px; border-bottom: 1px solid #f1f5f9; font-size: 14px;">
+                                    <div style="font-weight: 700; color: #1e293b;"><?php echo htmlspecialchars($fb['student_name'] ?? 'N/A'); ?></div>
+                                    <div style="font-size: 11px; color: #64748b; margin-top: 2px;">
+                                        <?php echo htmlspecialchars(($fb['institution'] ?? 'GMU') . (($fb['current_sem'] ?? null) ? ' • Sem ' . $fb['current_sem'] : '')); ?>
+                                    </div>
+                                </td>
+                                <td style="padding: 14px 15px; border-bottom: 1px solid #f1f5f9; font-size: 13px; color: #64748b; line-height: 1.4;">
+                                    <?php echo $fb['general_comments'] ? htmlspecialchars(substr($fb['general_comments'], 0, 80)) . (strlen($fb['general_comments']) > 80 ? '...' : '') : '<span style="font-style:italic;opacity:0.6;">None</span>'; ?>
+                                </td>
+                                <td style="padding: 14px 15px; border-bottom: 1px solid #f1f5f9; font-size: 13px; color: #64748b; line-height: 1.4;">
+                                    <?php if ($fb['new_feature_title']): ?>
+                                        <strong style="color: var(--primary-maroon);"><?php echo htmlspecialchars($fb['new_feature_title']); ?></strong>
+                                    <?php else: ?>
+                                        <span style="font-style:italic;opacity:0.6;">None</span>
+                                    <?php endif; ?>
+                                </td>
+                            </tr>
+                        <?php endforeach; ?>
+                    </tbody>
+                </table>
+            <?php endif; ?>
         </div>
     </div>
 

@@ -85,15 +85,106 @@ if ($totalRegisteredUsers === 0) {
 }
 
 // Login Counts over multiple intervals
-$loginsToday = $db->query("SELECT COUNT(*) FROM activity_logs WHERE action = 'login' AND DATE(created_at) = CURDATE()")->fetchColumn() ?: 42;
-$loginsThisWeek = $db->query("SELECT COUNT(*) FROM activity_logs WHERE action = 'login' AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)")->fetchColumn() ?: 185;
-$loginsThisMonth = $db->query("SELECT COUNT(*) FROM activity_logs WHERE action = 'login' AND created_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)")->fetchColumn() ?: 620;
+// Logins in selected period + trend vs prior period
+$stmtLp = $db->prepare("SELECT COUNT(*) FROM activity_logs WHERE action = 'login' AND created_at >= :s AND created_at <= :e");
+$stmtLp->execute([':s' => $startDate . ' 00:00:00', ':e' => $endDate . ' 23:59:59']);
+$loginsInPeriod = (int)$stmtLp->fetchColumn();
 
-// Currently Active Users (within the last 15 minutes)
-$activeUsersCount = $db->query("SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 15 MINUTE)")->fetchColumn() ?: 8;
+$periodDays    = max(1, round((strtotime($endDate) - strtotime($startDate)) / 86400));
+$prevEndDate   = date('Y-m-d', strtotime($startDate . ' -1 day'));
+$prevStartDate = date('Y-m-d', strtotime($prevEndDate . ' -' . $periodDays . ' days'));
 
-// Session Duration & Failed Attempts
-$averageSessionDuration = 24.5; // minutes average default
+$stmtLpPrev = $db->prepare("SELECT COUNT(*) FROM activity_logs WHERE action = 'login' AND created_at >= :s AND created_at <= :e");
+$stmtLpPrev->execute([':s' => $prevStartDate . ' 00:00:00', ':e' => $prevEndDate . ' 23:59:59']);
+$prevLogins = (int)$stmtLpPrev->fetchColumn();
+$loginsTrend = null;
+if ($prevLogins > 0) {
+    $loginsTrendVal = round((($loginsInPeriod - $prevLogins) / $prevLogins) * 100, 1);
+    $loginsTrend = ($loginsTrendVal >= 0 ? '+' : '') . $loginsTrendVal . '% vs prior period';
+} elseif ($loginsInPeriod > 0) {
+    $loginsTrend = 'New activity';
+}
+
+// Active unique users in selected period + trend
+$stmtAp = $db->prepare("SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE created_at >= :s AND created_at <= :e");
+$stmtAp->execute([':s' => $startDate . ' 00:00:00', ':e' => $endDate . ' 23:59:59']);
+$activeUsersInPeriod = (int)$stmtAp->fetchColumn();
+
+$stmtApPrev = $db->prepare("SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE created_at >= :s AND created_at <= :e");
+$stmtApPrev->execute([':s' => $prevStartDate . ' 00:00:00', ':e' => $prevEndDate . ' 23:59:59']);
+$prevActive = (int)$stmtApPrev->fetchColumn();
+$activeTrend = null;
+if ($prevActive > 0) {
+    $activeTrendVal = round((($activeUsersInPeriod - $prevActive) / $prevActive) * 100, 1);
+    $activeTrend = ($activeTrendVal >= 0 ? '+' : '') . $activeTrendVal . '% vs prior period';
+} elseif ($activeUsersInPeriod > 0) {
+    $activeTrend = 'New activity';
+}
+
+// Keep legacy vars for backward compat (used in other queries below)
+$loginsToday    = $db->query("SELECT COUNT(*) FROM activity_logs WHERE action = 'login' AND DATE(created_at) = CURDATE()")->fetchColumn() ?: 0;
+$loginsThisWeek = $db->query("SELECT COUNT(*) FROM activity_logs WHERE action = 'login' AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)")->fetchColumn() ?: 0;
+$loginsThisMonth = $loginsInPeriod; // alias
+$activeUsersCount = $activeUsersInPeriod;
+
+// Session Duration — match each login to the next logout for the same user (cap at 8h to exclude overnight)
+try {
+    $sessionDurationResult = $db->prepare("
+        SELECT ROUND(AVG(duration_minutes), 1) as avg_dur,
+               COUNT(*) as session_count
+        FROM (
+            SELECT
+                l.user_id,
+                TIMESTAMPDIFF(MINUTE, l.created_at,
+                    (SELECT MIN(lo.created_at)
+                     FROM activity_logs lo
+                     WHERE lo.user_id = l.user_id
+                       AND lo.action = 'logout'
+                       AND lo.created_at > l.created_at
+                       AND lo.created_at <= DATE_ADD(l.created_at, INTERVAL 8 HOUR)
+                    )
+                ) AS duration_minutes
+            FROM activity_logs l
+            WHERE l.action = 'login'
+              AND l.created_at >= :start
+              AND l.created_at <= :end
+            HAVING duration_minutes IS NOT NULL AND duration_minutes > 0
+        ) sessions
+    ");
+    $sessionDurationResult->execute([':start' => $startDate . ' 00:00:00', ':end' => $endDate . ' 23:59:59']);
+    $sessionRow = $sessionDurationResult->fetch(PDO::FETCH_ASSOC);
+    $averageSessionDuration = $sessionRow['avg_dur'] ?? null;
+
+    // Trend: compare to prior period of same length
+    $periodDays = max(1, (strtotime($endDate) - strtotime($startDate)) / 86400);
+    $prevEnd   = date('Y-m-d', strtotime($startDate . ' -1 day'));
+    $prevStart = date('Y-m-d', strtotime($prevEnd . ' -' . (int)$periodDays . ' days'));
+    $sessionDurationPrev = $db->prepare("
+        SELECT ROUND(AVG(duration_minutes), 1)
+        FROM (
+            SELECT TIMESTAMPDIFF(MINUTE, l.created_at,
+                (SELECT MIN(lo.created_at) FROM activity_logs lo
+                 WHERE lo.user_id = l.user_id AND lo.action = 'logout'
+                   AND lo.created_at > l.created_at
+                   AND lo.created_at <= DATE_ADD(l.created_at, INTERVAL 8 HOUR))
+            ) AS duration_minutes
+            FROM activity_logs l
+            WHERE l.action = 'login'
+              AND l.created_at >= :start AND l.created_at <= :end
+            HAVING duration_minutes IS NOT NULL AND duration_minutes > 0
+        ) s
+    ");
+    $sessionDurationPrev->execute([':start' => $prevStart . ' 00:00:00', ':end' => $prevEnd . ' 23:59:59']);
+    $prevAvg = (float)($sessionDurationPrev->fetchColumn() ?: 0);
+    $sessionTrend = null;
+    if ($prevAvg > 0 && $averageSessionDuration !== null) {
+        $sessionTrendVal = round((($averageSessionDuration - $prevAvg) / $prevAvg) * 100, 1);
+        $sessionTrend = ($sessionTrendVal >= 0 ? '+' : '') . $sessionTrendVal . '%';
+    }
+} catch (Throwable $e) {
+    $averageSessionDuration = null;
+    $sessionTrend = null;
+}
 $failedLoginAttempts = $db->query("SELECT COUNT(*) FROM activity_logs WHERE action = 'login_failed'")->fetchColumn() ?: 12;
 $uniqueUsersLogged = $db->query("SELECT COUNT(DISTINCT user_id) FROM activity_logs WHERE action = 'login'")->fetchColumn() ?: 134;
 
@@ -316,8 +407,8 @@ if ($activeTab === 'audit' || $activeTab === 'dashboard') {
     if ($activeTab === 'dashboard') {
         // Extremely light query for dashboard tab (Limit 5 without dates or index scans)
         $auditSql = "SELECT l.*, 
-                            COALESCE(u1.NAME, u2.NAME) as user_name, 
-                            COALESCE(u1.USER_NAME, u2.USER_NAME) as usn 
+                            COALESCE(u1.NAME, u2.NAME, l.user_id) as user_name, 
+                            COALESCE(u1.USER_NAME, u2.USER_NAME, l.user_id) as usn 
                      FROM activity_logs l
                      LEFT JOIN users u1 ON l.user_id = u1.SL_NO
                      LEFT JOIN users u2 ON l.user_id = u2.USER_NAME
@@ -327,8 +418,8 @@ if ($activeTab === 'audit' || $activeTab === 'dashboard') {
         // Fully indexed search query for logs tab
         $auditParams = [':start' => $startDate . ' 00:00:00', ':end' => $endDate . ' 23:59:59'];
         $auditSql = "SELECT l.*, 
-                            COALESCE(u1.NAME, u2.NAME) as user_name, 
-                            COALESCE(u1.USER_NAME, u2.USER_NAME) as usn 
+                            COALESCE(u1.NAME, u2.NAME, l.user_id) as user_name, 
+                            COALESCE(u1.USER_NAME, u2.USER_NAME, l.user_id) as usn 
                      FROM activity_logs l
                      LEFT JOIN users u1 ON l.user_id = u1.SL_NO
                      LEFT JOIN users u2 ON l.user_id = u2.USER_NAME
@@ -801,31 +892,43 @@ $fullName = getFullName();
                         <div class="metric-info">
                             <h3>Total Registered</h3>
                             <div class="value"><?php echo number_format($totalRegisteredUsers); ?></div>
-                            <div class="metric-growth">+4.2% growth</div>
+                            <div class="metric-growth" style="color:#64748b;font-size:10px;">All-time cohort</div>
                         </div>
                     </div>
                     <div class="metric-card">
                         <div class="metric-icon icon-blue"><i class="fas fa-user-check"></i></div>
                         <div class="metric-info">
-                            <h3>Active (Today)</h3>
-                            <div class="value"><?php echo number_format($activeUsersCount); ?></div>
-                            <div class="metric-growth">+12% this week</div>
+                            <h3>Active in Period</h3>
+                            <div class="value"><?php echo number_format($activeUsersInPeriod); ?></div>
+                            <div class="metric-growth" style="color: <?php echo ($activeTrend && $activeTrend[0] === '-') ? '#ef4444' : '#05CD99'; ?>">
+                                <?php echo $activeTrend ?? 'No prior data'; ?>
+                            </div>
                         </div>
                     </div>
                     <div class="metric-card">
                         <div class="metric-icon icon-green"><i class="fas fa-sign-in-alt"></i></div>
                         <div class="metric-info">
-                            <h3>Logins Today</h3>
-                            <div class="value"><?php echo number_format($loginsToday); ?></div>
-                            <div class="metric-growth">+8.5% today</div>
+                            <h3>Logins in Period</h3>
+                            <div class="value"><?php echo number_format($loginsInPeriod); ?></div>
+                            <div class="metric-growth" style="color: <?php echo ($loginsTrend && $loginsTrend[0] === '-') ? '#ef4444' : '#05CD99'; ?>">
+                                <?php echo $loginsTrend ?? 'No prior data'; ?>
+                            </div>
                         </div>
                     </div>
                     <div class="metric-card">
                         <div class="metric-icon icon-orange"><i class="fas fa-hourglass-half"></i></div>
                         <div class="metric-info">
                             <h3>Avg Session</h3>
-                            <div class="value"><?php echo $averageSessionDuration; ?>m</div>
-                            <div class="metric-growth">+3% trend</div>
+                            <div class="value">
+                                <?php if ($averageSessionDuration !== null): ?>
+                                    <?php echo $averageSessionDuration; ?>m
+                                <?php else: ?>
+                                    <span style="font-size:14px;color:#94a3b8;">No data</span>
+                                <?php endif; ?>
+                            </div>
+                            <div class="metric-growth" style="color: <?php echo ($sessionTrend && $sessionTrend[0] === '-') ? '#ef4444' : '#05CD99'; ?>">
+                                <?php echo $sessionTrend ?? 'vs prev period'; ?>
+                            </div>
                         </div>
                     </div>
                 </div>

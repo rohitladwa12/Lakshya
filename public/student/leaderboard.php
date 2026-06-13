@@ -1111,6 +1111,7 @@ $pageTitle = "Leaderboard | Lakshya";
         fetchRankings();
         setInterval(fetchRankings, 30000);
     </script>
+    <?php renderFeatureAnnouncement('feature_leaderboard'); ?>
 </body>
 </html>
 

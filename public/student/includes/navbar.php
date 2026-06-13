@@ -3,6 +3,19 @@ $currentPage = basename($_SERVER['PHP_SELF']);
 $fullName = getFullName();
 $institution = getInstitution();
 include_once __DIR__ . '/../../includes/demo_protection.php';
+
+// Check unread feedback replies
+$db = getDB();
+$unreadFeedbackCount = 0;
+if ($db && getUsername()) {
+    try {
+        $stmt = $db->prepare("SELECT COUNT(*) FROM portal_feedback WHERE student_id = ? AND admin_reply IS NOT NULL AND reply_read = 0");
+        $stmt->execute([getUsername()]);
+        $unreadFeedbackCount = (int)$stmt->fetchColumn();
+    } catch (Exception $e) {
+        // Safe fallback
+    }
+}
 ?>
 <!-- Fonts and Icons -->
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
@@ -140,6 +153,18 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
 
     .nav-btn.active i {
         color: var(--primary-maroon);
+    }
+
+    @keyframes pulse {
+        0% {
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+        }
+        70% {
+            box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+        }
+        100% {
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+        }
     }
 
     /* Dropdown Logic */
@@ -468,7 +493,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
                     <!--<a href="resume_analyzer.php" class="dropdown-item">
                         <i class="fas fa-microscope" style="color: #4f46e5; background: rgba(79,70,229,0.1);"></i> AI Resume Analyzer
                     </a> -->
-                    <a href="https://gmu.ac.in/tutor/login.php" class="dropdown-item">
+                    <a href="sso_redirect.php" class="dropdown-item">
                         <i class="fas fa-graduation-cap" style="color: #1e3a8a; background: rgba(30,58,138,0.1);"></i>
                         AI Tutor
                     </a>
@@ -489,6 +514,14 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
                         Practice
                     </a>
                 </div>
+            </li>
+            <li class="nav-item">
+                <a href="feedback.php" class="nav-btn <?php echo $currentPage == 'feedback.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-comment-alt" style="color: #0d9488;"></i> Feedback
+                    <?php if ($unreadFeedbackCount > 0): ?>
+                        <span style="display: inline-block; width: 8px; height: 8px; background-color: #ef4444; border-radius: 50%; margin-left: 4px; box-shadow: 0 0 0 2px white; animation: pulse 2s infinite;" title="<?php echo $unreadFeedbackCount; ?> new reply"></span>
+                    <?php endif; ?>
+                </a>
             </li>
         </ul>
     </div>

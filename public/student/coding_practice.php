@@ -5,16 +5,20 @@
  */
 
 require_once __DIR__ . '/../../config/bootstrap.php';
+require_once __DIR__ . '/../../src/Models/StudentProfile.php';
 
 requireRole(ROLE_STUDENT);
 
 $userId = getUserId();
 $fullName = getFullName();
+
+// Warm up the student profile session cache for AJAX calls
+$studentModel = new StudentProfile();
+$studentModel->getProfile($userId);
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coding Practice - <?php echo APP_NAME; ?></title>
@@ -328,7 +332,19 @@ $fullName = getFullName();
                     body: JSON.stringify({ action: 'get_categories' })
                 });
 
-                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    console.error('Failed to parse categories JSON. Raw text:', text);
+                    throw new Error('Invalid JSON response');
+                }
+
                 if (data.success) {
                     const select = document.getElementById('categoryFilter');
                     // Keep the "All Categories" option
@@ -339,6 +355,8 @@ $fullName = getFullName();
                         option.textContent = category;
                         select.appendChild(option);
                     });
+                } else {
+                    throw new Error(data.message || 'Failed to load categories');
                 }
             } catch (error) {
                 console.error('Failed to load categories:', error);
@@ -353,11 +371,25 @@ $fullName = getFullName();
                     body: JSON.stringify({ action: 'get_progress_stats' })
                 });
 
-                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    console.error('Failed to parse stats JSON. Raw text:', text);
+                    throw new Error('Invalid JSON response');
+                }
+
                 if (data.success) {
                     progressStats = data.stats;
                     document.getElementById('totalSolved').textContent = data.stats.total_solved;
                     document.getElementById('totalAttempted').textContent = data.stats.total_attempted;
+                } else {
+                    throw new Error(data.message || 'Failed to load stats');
                 }
             } catch (error) {
                 console.error('Failed to load stats:', error);
@@ -372,18 +404,32 @@ $fullName = getFullName();
                     body: JSON.stringify({ action: 'get_problems' })
                 });
 
-                const data = await response.json();
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                const text = await response.text();
+                let data;
+                try {
+                    data = JSON.parse(text);
+                } catch (e) {
+                    console.error('Failed to parse problems JSON. Raw text:', text);
+                    throw new Error('Invalid JSON response');
+                }
+
                 if (data.success) {
                     allProblems = data.problems;
                     document.getElementById('totalProblems').textContent = allProblems.length;
                     displayProblems(allProblems);
+                } else {
+                    throw new Error(data.message || 'Failed to load problems');
                 }
             } catch (error) {
                 console.error('Failed to load problems:', error);
                 document.getElementById('problemsContainer').innerHTML = `
                     <div class="empty-state">
                         <i class="fas fa-exclamation-triangle"></i>
-                        <p>Failed to load problems. Please try again.</p>
+                        <p>Failed to load problems: ${error.message}</p>
                     </div>
                 `;
             }

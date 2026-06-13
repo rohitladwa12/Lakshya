@@ -8,12 +8,20 @@ require_once __DIR__ . '/Model.php';
 class StudentProfile extends Model {
     protected $table;
     protected $primaryKey = 'SL_NO';
-    protected $remoteDB;
+    private $remoteDBConnection = null;
     
     public function __construct() {
         parent::__construct();
-        // Initialize remote connection for GMU/GMIT tables
-        $this->remoteDB = getDB('gmu');
+    }
+
+    public function __get($name) {
+        if ($name === 'remoteDB') {
+            if ($this->remoteDBConnection === null) {
+                $this->remoteDBConnection = getDB('gmu');
+            }
+            return $this->remoteDBConnection;
+        }
+        return null;
     }
     
     // Legacy table doesn't have these, but we map standard accessors to them
@@ -27,7 +35,9 @@ class StudentProfile extends Model {
      */
     public function getByUserId($userId, $institution = null) {
         $userModel = new User();
-        $user = $userModel->find($userId, $institution);
+        // Use findByUsername so string USNs like 'GMIT23AI80' are looked up correctly.
+        // find($id) does a numeric/PK lookup that can match the wrong student via loose MySQL comparison.
+        $user = $userModel->findByUsername($userId) ?: $userModel->find($userId, $institution);
         
         if (!$user) return null;
         
@@ -40,29 +50,42 @@ class StudentProfile extends Model {
             // GMIT: Map app USER_NAME to student_id or use ENQUIRY_NO
             $enquiryNo = $user['id'];
 
-            // Since username/aadhar are already extracted above, we use them directly
-            $sqlDetails = "SELECT * FROM {$prefix}ad_student_details 
-                           WHERE enquiry_no = ? OR student_id = ? OR usn = ? OR (aadhar IS NOT NULL AND aadhar = ?) 
-                           LIMIT 1";
-            if (!$this->remoteDB) return $this->mapToAppProfile([], $user, [], $inst);
-            $stmt = $this->remoteDB->prepare($sqlDetails); // REMOTE
-            $stmt->execute([$enquiryNo, $username, $username, $aadhar]);
-            $details = $stmt->fetch();
+            $details = [];
+            if ($this->remoteDB) {
+                // Query by USN/aadhar first (most reliable), fall back to enquiry_no
+                $sqlDetails = "SELECT * FROM {$prefix}ad_student_details
+                               WHERE usn = ? OR student_id = ? LIMIT 1";
+                $stmt = $this->remoteDB->prepare($sqlDetails);
+                $stmt->execute([$username, $username]);
+                $row = $stmt->fetch();
+
+                // Only use this row if it actually belongs to this student
+                if ($row && (
+                    strtoupper($row['usn'] ?? '') === strtoupper($username) ||
+                    strtoupper($row['student_id'] ?? '') === strtoupper($username)
+                )) {
+                    $details = $row;
+                }
+            }
 
             // Fetch Current Semester & SGPA from student_sem_sgpa for GMIT (LOCAL)
-            $sqlCurrent = "SELECT semester, sgpa FROM student_sem_sgpa 
-                           WHERE student_id = ? AND institution = ? AND is_current = 1 
+            $sqlCurrent = "SELECT semester, sgpa FROM student_sem_sgpa
+                           WHERE student_id = ? AND institution = ? AND is_current = 1
                            LIMIT 1";
             $stmtC = $this->db->prepare($sqlCurrent); // LOCAL
-            $stmtC->execute([$username, INSTITUTION_GMIT]); // Using username (student_id)
+            $stmtC->execute([$username, INSTITUTION_GMIT]);
             $currentData = $stmtC->fetch();
 
             $mapped = $this->mapToAppProfile([], $user, $details ?: [], $inst);
+
+            // Always trust the ERP user record for course & department — it's the authoritative source
+            $mapped['course']     = $user['COURSE']     ?? ($user['raw']['COURSE']     ?? $mapped['course']);
+            $mapped['department'] = $user['DISCIPLINE'] ?? ($user['raw']['DISCIPLINE'] ?? $mapped['department']);
+
             if ($currentData) {
                 $mapped['semester'] = $currentData['semester'];
-                $mapped['sgpa'] = $currentData['sgpa'];
-                $mapped['cgpa'] = $currentData['sgpa']; 
-                // Derive year if missing
+                $mapped['sgpa']     = $currentData['sgpa'];
+                $mapped['cgpa']     = $currentData['sgpa'];
                 if (empty($mapped['year_of_study']) && !empty($mapped['semester'])) {
                     $mapped['year_of_study'] = ceil((int)$mapped['semester'] / 2);
                 }
@@ -95,14 +118,21 @@ class StudentProfile extends Model {
      * Alias for getByUserId - used by Career Advisor
      */
     public function getProfile($userId) {
-        return $this->getByUserId($userId);
+        if (session_status() === PHP_SESSION_ACTIVE && isset($_SESSION['student_profile_' . $userId])) {
+            return $_SESSION['student_profile_' . $userId];
+        }
+        $profile = $this->getByUserId($userId);
+        if ($profile && session_status() === PHP_SESSION_ACTIVE) {
+            $_SESSION['student_profile_' . $userId] = $profile;
+        }
+        return $profile;
     }
 
     public function getAcademicHistory($userId, $institution = null) {
         if (!$userId) return [];
         
         $userModel = new User();
-        $user = $userModel->find($userId, $institution);
+        $user = $userModel->findByUsername($userId) ?: $userModel->find($userId, $institution);
         
         // CRITICAL FIX: If User::find() fails or returns demo user, use session data directly
         if (!$user || $user['username'] === 'demo' || $user['id'] === 0) {
@@ -320,7 +350,8 @@ class StudentProfile extends Model {
     public function isEligibleForJob($userId, $jobRequirements) {
         // Default to strict check if min_cgpa is set
         if (isset($jobRequirements['min_cgpa']) && $jobRequirements['min_cgpa'] > 0) {
-            return $this->isEligibleStrict($userId, $jobRequirements['min_cgpa'], $jobRequirements);
+            $check = $this->isEligibleStrict($userId, $jobRequirements['min_cgpa'], $jobRequirements);
+            return $check['eligible'];
         }
         
         $profile = $this->getByUserId($userId);
@@ -349,62 +380,80 @@ class StudentProfile extends Model {
     public function isEligibleStrict($userId, $threshold, $jobRequirements = []) {
         $profile = $this->getByUserId($userId);
         $history = $this->getAcademicHistory($userId);
-        
-        if (empty($history)) {
+
+        if (empty($history) && $threshold > 0) {
             return ['eligible' => false, 'reasons' => ["Academic history not found"]];
         }
 
-        // Derive current semester if not explicitly marked
-        $currentSem = (isset($profile['semester']) && $profile['semester'] > 0) ? (int)$profile['semester'] : 0;
-        if ($currentSem === 0) {
-            $latestSemRecord = 0;
-            foreach($history as $h) {
-                if ((int)$h['semester'] > $latestSemRecord) $latestSemRecord = (int)$h['semester'];
+        // Derive current semester from history (highest sem recorded)
+        $currentSem = (isset($profile['semester']) && (int)$profile['semester'] > 0)
+            ? (int)$profile['semester'] : 0;
+        if ($currentSem === 0 && !empty($history)) {
+            foreach ($history as $h) {
+                if ((int)($h['semester'] ?? 0) > $currentSem) {
+                    $currentSem = (int)$h['semester'];
+                }
             }
-            $currentSem = $latestSemRecord + 1; // Assume student is in the semester following their latest record
         }
 
         $eligible = true;
-        $reasons = [];
+        $reasons  = [];
 
-        // Check all semesters BEFORE the current one
-        $checkedSems = 0;
-        foreach ($history as $sem) {
-            $semNum = (int)($sem['semester'] ?? 0);
-            
-            if ($semNum >= $currentSem) {
-                continue;
-            }
-
-            $checkedSems++;
-            if ($sem['sgpa'] < $threshold) {
-                $eligible = false;
-                $reasons[] = "SGPA in Semester $semNum ({$sem['sgpa']}) is below required $threshold";
+        // --- SGPA check: all completed semesters must meet threshold ---
+        if ($threshold > 0) {
+            $checkedSems = 0;
+            foreach ($history as $sem) {
+                $semNum = (int)($sem['semester'] ?? 0);
+                if ($semNum === 0 || $semNum >= $currentSem) continue; // skip current/future
+                $checkedSems++;
+                if ((float)$sem['sgpa'] < (float)$threshold) {
+                    $eligible = false;
+                    $reasons[] = "SGPA in Semester $semNum ({$sem['sgpa']}) is below required $threshold";
+                }
             }
         }
 
-        // Check Course & Year (using latest profile data)
-        $latestProfile = $history[0]; 
-        
-        if (isset($jobRequirements['eligible_courses'])) {
+        // --- Course check: use $profile (reliable getByUserId result) ---
+        if (!empty($jobRequirements['eligible_courses'])) {
             $courses = json_decode($jobRequirements['eligible_courses'], true);
-            if ($courses && !in_array($latestProfile['course'], $courses)) {
+            $studentCourse = strtoupper(trim($profile['course'] ?? ''));
+            if (!empty($courses) && $studentCourse !== '' && !in_array($studentCourse, $courses)) {
                 $eligible = false;
-                $reasons[] = "Course {$latestProfile['course']} is not eligible for this job";
+                $reasons[] = "Course $studentCourse is not eligible for this job";
             }
         }
 
-        if (isset($jobRequirements['eligible_years'])) {
+        // --- Year of study check: use $profile ---
+        if (!empty($jobRequirements['eligible_years'])) {
             $years = json_decode($jobRequirements['eligible_years'], true);
-            $studentYear = $latestProfile['year_of_study'] ?? (isset($latestProfile['semester']) ? ceil((int)$latestProfile['semester'] / 2) : 0);
-            if ($years && !in_array($studentYear, $years)) {
+            // Derive year: prefer profile, fallback to currentSem
+            $studentYear = (int)($profile['year_of_study'] ?? ($currentSem > 0 ? ceil($currentSem / 2) : 0));
+            if (!empty($years) && $studentYear > 0 && !in_array((string)$studentYear, array_map('strval', $years))) {
                 $eligible = false;
                 $reasons[] = "Students in year $studentYear are not eligible for this job";
             }
         }
 
+        // --- Branch check: use $profile ---
+        if (!empty($jobRequirements['eligible_branches'])) {
+            $branches = json_decode($jobRequirements['eligible_branches'], true);
+            $studentBranch = strtoupper(trim($profile['department'] ?? ''));
+            if (!empty($branches) && $studentBranch !== '') {
+                $equivalentBranches = getEquivalentBranches($studentBranch);
+                $matchFound = false;
+                foreach ($equivalentBranches as $eqBranch) {
+                    if (in_array($eqBranch, $branches)) { $matchFound = true; break; }
+                }
+                if (!$matchFound) {
+                    $eligible = false;
+                    $reasons[] = "Branch $studentBranch is not eligible (Open to: " . implode(', ', $branches) . ")";
+                }
+            }
+        }
+
         return ['eligible' => $eligible, 'reasons' => $reasons];
     }
+
     
     /**
      * Get all students with profiles
@@ -415,20 +464,18 @@ class StudentProfile extends Model {
         
         // REMOTE JOIN (GMU uses SL_NO, GMIT uses ENQUIRY_NO for user id). Include sem for coordinator 5-8 filter.
         // We use a subquery for GMU to only get the LATEST administrative row per USN to avoid duplication.
-        $sql = "SELECT ad.usn, ad.course, ad.discipline, ad.academic_year, u.USER_NAME, u.NAME, u.MOBILE_NO, u.SL_NO as user_sl_no, '" . INSTITUTION_GMU . "' as institution, ad.sem
+        $sql = "SELECT ad.usn, ad.course, ad.discipline, ad.academic_year, IFNULL(u.USER_NAME, ad.usn) as USER_NAME, IFNULL(u.NAME, ad.name) as NAME, u.MOBILE_NO, IFNULL(u.SL_NO, 0) as user_sl_no, '" . INSTITUTION_GMU . "' as institution, ad.sem
                 FROM {$gmuPrefix}ad_student_approved ad
                 INNER JOIN (
                     SELECT usn, MAX(SL_NO) as max_sl 
                     FROM {$gmuPrefix}ad_student_approved 
                     GROUP BY usn
                 ) latest ON ad.usn = latest.usn AND ad.SL_NO = latest.max_sl
-                JOIN {$gmuPrefix}users u ON u.USER_NAME = ad.usn
-                WHERE u.STATUS = 'ACTIVE'
+                LEFT JOIN {$gmuPrefix}users u ON u.USER_NAME = ad.usn AND u.STATUS = 'ACTIVE'
                 UNION ALL
-                SELECT ad.usn, ad.course, ad.discipline, ad.academic_year, u.USER_NAME, u.NAME, u.MOBILE_NO, u.ENQUIRY_NO as user_sl_no, '" . INSTITUTION_GMIT . "' as institution, 0 as sem
+                SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.course, ad.discipline, ad.academic_year, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as NAME, u.MOBILE_NO, IFNULL(u.ENQUIRY_NO, 0) as user_sl_no, '" . INSTITUTION_GMIT . "' as institution, 0 as sem
                 FROM {$gmitPrefix}ad_student_details ad
-                JOIN {$gmitPrefix}users u ON (u.USER_NAME = ad.usn OR u.USER_NAME = ad.student_id OR u.AADHAR = ad.aadhar OR u.ENQUIRY_NO = ad.enquiry_no)
-                WHERE u.STATUS = 'ACTIVE'";
+                LEFT JOIN {$gmitPrefix}users u ON (u.USER_NAME = ad.usn OR u.USER_NAME = ad.student_id OR u.AADHAR = ad.aadhar OR u.ENQUIRY_NO = ad.enquiry_no) AND u.STATUS = 'ACTIVE'";
         
         $sql = "SELECT * FROM ({$sql}) as combined WHERE 1=1";
                 
@@ -547,7 +594,7 @@ class StudentProfile extends Model {
             SELECT IFNULL(NULLIF(usn, ''), student_id) as usn, discipline, 0 as sem, 1 as registered, '" . INSTITUTION_GMIT . "' as institution FROM {$gmitPrefix}ad_student_details
         )";
 
-        $where_clauses = ["registered = 1"];
+        $where_clauses = []; // No registered filter — matches students_report.php and assign_task.php
         $params = [];
 
         if (!empty($filters['discipline'])) {
@@ -614,15 +661,13 @@ class StudentProfile extends Model {
 
         // REMOTE JOIN (include sem for coordinator 5-8 filter)
         $sql = "SELECT * FROM (
-                    SELECT ad.usn, ad.name, ad.discipline, u.USER_NAME, u.NAME as user_name, u.SL_NO as user_sl_no, u.MOBILE_NO, ad.course, ad.academic_year, '" . INSTITUTION_GMU . "' as institution, ad.sem
+                    SELECT ad.usn, ad.name, ad.discipline, IFNULL(u.USER_NAME, ad.usn) as USER_NAME, IFNULL(u.NAME, ad.name) as user_name, IFNULL(u.SL_NO, 0) as user_sl_no, u.MOBILE_NO, ad.course, ad.academic_year, '" . INSTITUTION_GMU . "' as institution, ad.sem
                     FROM {$gmuPrefix}ad_student_approved ad
-                    JOIN {$gmuPrefix}users u ON u.USER_NAME = ad.usn
-                    WHERE u.STATUS = 'ACTIVE'
+                    LEFT JOIN {$gmuPrefix}users u ON u.USER_NAME = ad.usn AND u.STATUS = 'ACTIVE'
                     UNION ALL
-                    SELECT ad.usn, ad.name, ad.discipline, u.USER_NAME, u.NAME as user_name, u.ENQUIRY_NO as user_sl_no, u.MOBILE_NO, ad.course, ad.academic_year, '" . INSTITUTION_GMIT . "' as institution, 0 as sem
+                    SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.name, ad.discipline, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as user_name, IFNULL(u.ENQUIRY_NO, 0) as user_sl_no, u.MOBILE_NO, ad.course, ad.academic_year, '" . INSTITUTION_GMIT . "' as institution, 0 as sem
                     FROM {$gmitPrefix}ad_student_details ad
-                    JOIN {$gmitPrefix}users u ON (u.USER_NAME = ad.usn OR u.AADHAR = ad.aadhar)
-                    WHERE u.STATUS = 'ACTIVE'
+                    LEFT JOIN {$gmitPrefix}users u ON (u.USER_NAME = ad.usn OR u.USER_NAME = ad.student_id OR u.AADHAR = ad.aadhar_no OR u.AADHAR = ad.aadhar OR u.ENQUIRY_NO = ad.enquiry_no) AND u.STATUS = 'ACTIVE'
                 ) as combined
                 WHERE (name LIKE ? OR usn LIKE ? OR USER_NAME LIKE ?)";
         $params = [$searchTerm, $searchTerm, $searchTerm];

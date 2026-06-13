@@ -23,6 +23,24 @@ class StudentIntelligenceService {
             $stmt->execute([$studentId]);
             $profile = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
 
+            if (empty($profile)) {
+                $studentModel = new \StudentProfile();
+                $userModel = new \User();
+                $user = $userModel->findByUsername($studentId);
+                if ($user) {
+                    $profile = $studentModel->getByUserId($user['id'], $institution) ?: [];
+                }
+            }
+
+            if (empty($profile)) {
+                $profile = [
+                    'name' => $studentName ?: $studentId,
+                    'department' => 'N/A',
+                    'course' => 'N/A',
+                    'cgpa' => 'N/A'
+                ];
+            }
+
             // 2. Fetch portfolio items
             $stmt = $this->db->prepare("SELECT * FROM student_portfolio WHERE student_id = ? AND institution = ?");
             $stmt->execute([$studentId, $institution]);
@@ -111,7 +129,7 @@ class StudentIntelligenceService {
             ]);
 
             // 4. Initialize high-priority mastery topics based on skills
-            $this->initializeTopicMastery($studentId, $institution, $profile['name'] ?? $studentName, $skills);
+            $this->initializeTopicMastery($studentId, $institution, $profile['name'] ?? $studentName, $skills, $profile);
 
             return ['success' => true, 'data' => $aiData];
         } catch (Exception $e) {
@@ -141,16 +159,125 @@ class StudentIntelligenceService {
     /**
      * Initialize Topic Mastery rows if they don't exist
      */
-    private function initializeTopicMastery($studentId, $institution, $studentName, $skills) {
-        // Default fundamental topics to track if student has zero skills
-        $defaultTopics = [
+    /**
+     * Map student's branch/department to relevant default topics
+     */
+    public function getDefaultTopicsForBranch($department, $course) {
+        $dept = strtoupper(trim($department ?? ''));
+        $crs = strtoupper(trim($course ?? ''));
+
+        // 1. MBA, BBA, BCOM (Management/Business)
+        if ($dept === 'MBA' || strpos($dept, 'BBA') !== false || strpos($dept, 'BCOM') !== false || $crs === 'MBA' || $crs === 'BBA' || $crs === 'BCOM') {
+            return [
+                ['name' => 'Business Strategy', 'category' => 'Technical'],
+                ['name' => 'Marketing Management', 'category' => 'Technical'],
+                ['name' => 'Financial Accounting', 'category' => 'Technical'],
+                ['name' => 'Human Resource Management', 'category' => 'Technical'],
+                ['name' => 'Operations & Supply Chain', 'category' => 'Technical'],
+                ['name' => 'Corporate Finance', 'category' => 'Technical'],
+                ['name' => 'Quantitative Aptitude', 'category' => 'Aptitude'],
+                ['name' => 'Logical Reasoning', 'category' => 'Aptitude'],
+                ['name' => 'Verbal Communication', 'category' => 'HR']
+            ];
+        }
+
+        // 2. Civil Engineering (CE)
+        if ($dept === 'CE' || strpos($dept, 'CIVIL') !== false) {
+            return [
+                ['name' => 'Site Engineering', 'category' => 'Technical'],
+                ['name' => 'Concrete Technology', 'category' => 'Technical'],
+                ['name' => 'Surveying & CAD', 'category' => 'Technical'],
+                ['name' => 'Structural Analysis', 'category' => 'Technical'],
+                ['name' => 'Geotechnical Engineering', 'category' => 'Technical'],
+                ['name' => 'Environmental Engineering', 'category' => 'Technical'],
+                ['name' => 'Quantitative Aptitude', 'category' => 'Aptitude'],
+                ['name' => 'Logical Reasoning', 'category' => 'Aptitude'],
+                ['name' => 'Verbal Communication', 'category' => 'HR']
+            ];
+        }
+
+        // 3. Mechanical Engineering (ME / MECH / RA / ED)
+        if ($dept === 'ME' || $dept === 'MECH' || strpos($dept, 'MECHANICAL') !== false || $dept === 'RA' || $dept === 'ED') {
+            return [
+                ['name' => 'Thermodynamics', 'category' => 'Technical'],
+                ['name' => 'Fluid Mechanics', 'category' => 'Technical'],
+                ['name' => 'Machine Design & CAD', 'category' => 'Technical'],
+                ['name' => 'Strength of Materials', 'category' => 'Technical'],
+                ['name' => 'Manufacturing Technology', 'category' => 'Technical'],
+                ['name' => 'Control Systems & Robotics', 'category' => 'Technical'],
+                ['name' => 'Quantitative Aptitude', 'category' => 'Aptitude'],
+                ['name' => 'Logical Reasoning', 'category' => 'Aptitude'],
+                ['name' => 'Verbal Communication', 'category' => 'HR']
+            ];
+        }
+
+        // 4. Biotechnology (BT)
+        if ($dept === 'BT' || strpos($dept, 'BIOTECH') !== false || strpos($dept, 'BIOTECHNOLOGY') !== false) {
+            return [
+                ['name' => 'Biochemistry', 'category' => 'Technical'],
+                ['name' => 'Genetic Engineering', 'category' => 'Technical'],
+                ['name' => 'Bioinformatics', 'category' => 'Technical'],
+                ['name' => 'Cell Biology & Immunology', 'category' => 'Technical'],
+                ['name' => 'Bioprocess Engineering', 'category' => 'Technical'],
+                ['name' => 'Molecular Biology', 'category' => 'Technical'],
+                ['name' => 'Quantitative Aptitude', 'category' => 'Aptitude'],
+                ['name' => 'Logical Reasoning', 'category' => 'Aptitude'],
+                ['name' => 'Verbal Communication', 'category' => 'HR']
+            ];
+        }
+
+        // 5. Electronics / Electrical Engineering (ECE, EEE, EIE)
+        if ($dept === 'ECE' || $dept === 'EEE' || $dept === 'EIE' || strpos($dept, 'ELECTRONICS') !== false || strpos($dept, 'ELECTRICAL') !== false) {
+            return [
+                ['name' => 'Digital Electronics', 'category' => 'Technical'],
+                ['name' => 'Embedded Systems', 'category' => 'Technical'],
+                ['name' => 'Basic Programming', 'category' => 'Technical'],
+                ['name' => 'Analog Circuits & Signals', 'category' => 'Technical'],
+                ['name' => 'Microprocessors & VLSI', 'category' => 'Technical'],
+                ['name' => 'Power Systems & Control', 'category' => 'Technical'],
+                ['name' => 'Quantitative Aptitude', 'category' => 'Aptitude'],
+                ['name' => 'Logical Reasoning', 'category' => 'Aptitude'],
+                ['name' => 'Verbal Communication', 'category' => 'HR']
+            ];
+        }
+
+        // 6. MSc, BSc, Pure Sciences
+        if (strpos($dept, 'MSC') !== false || strpos($dept, 'BSC') !== false || $crs === 'MSC' || $crs === 'BSC') {
+            return [
+                ['name' => 'Research Methodology', 'category' => 'Technical'],
+                ['name' => 'Data Analysis & Statistics', 'category' => 'Technical'],
+                ['name' => 'Scientific Writing', 'category' => 'Technical'],
+                ['name' => 'Advanced Mathematics', 'category' => 'Technical'],
+                ['name' => 'Environmental Sciences', 'category' => 'Technical'],
+                ['name' => 'Core Scientific Concepts', 'category' => 'Technical'],
+                ['name' => 'Quantitative Aptitude', 'category' => 'Aptitude'],
+                ['name' => 'Logical Reasoning', 'category' => 'Aptitude'],
+                ['name' => 'Verbal Communication', 'category' => 'HR']
+            ];
+        }
+
+        // Default (CSE, ISE, MCA, BCA, and fallback for others)
+        return [
             ['name' => 'Data Structures', 'category' => 'Technical'],
             ['name' => 'Algorithms', 'category' => 'Technical'],
             ['name' => 'SQL & Databases', 'category' => 'Technical'],
+            ['name' => 'Operating Systems', 'category' => 'Technical'],
+            ['name' => 'Computer Networks', 'category' => 'Technical'],
+            ['name' => 'Object-Oriented Programming', 'category' => 'Technical'],
             ['name' => 'Quantitative Aptitude', 'category' => 'Aptitude'],
             ['name' => 'Logical Reasoning', 'category' => 'Aptitude'],
             ['name' => 'Verbal Communication', 'category' => 'HR']
         ];
+    }
+
+    /**
+     * Initialize Topic Mastery rows if they don't exist
+     */
+    private function initializeTopicMastery($studentId, $institution, $studentName, $skills, $profile = []) {
+        $department = $profile['department'] ?? 'N/A';
+        $course = $profile['course'] ?? 'N/A';
+
+        $defaultTopics = $this->getDefaultTopicsForBranch($department, $course);
 
         // Parse skills to identify other custom topics
         foreach ($skills as $skill) {
@@ -210,12 +337,37 @@ class StudentIntelligenceService {
             if (!$topic) {
                 // If no topics mapped yet, sync profile first to seed topics
                 $this->getStudentAIProfile($studentId, $institution, $studentName);
+
+                // Fetch student profile to get department/course for fallback topic
+                $pStmt = $this->db->prepare("SELECT * FROM student_profiles WHERE usn = ? LIMIT 1");
+                $pStmt->execute([$studentId]);
+                $profile = $pStmt->fetch(PDO::FETCH_ASSOC) ?: [];
+                if (empty($profile)) {
+                    $studentModel = new \StudentProfile();
+                    $userModel = new \User();
+                    $user = $userModel->findByUsername($studentId);
+                    if ($user) {
+                        $profile = $studentModel->getByUserId($user['id'], $institution) ?: [];
+                    }
+                }
+
+                $department = $profile['department'] ?? 'N/A';
+                $course = $profile['course'] ?? 'N/A';
+                $defaults = $this->getDefaultTopicsForBranch($department, $course);
+                $fallbackTopic = $defaults[0]['name'] ?? 'Quantitative Aptitude';
+
                 $stmt->execute([$studentId, $institution]);
-                $topic = $stmt->fetchColumn() ?: 'SQL & Databases';
+                $topic = $stmt->fetchColumn() ?: $fallbackTopic;
             }
 
             // 3. Generate exactly 5 MCQs using AIService
-            $systemPrompt = "You are a Senior Technical Examiner. Generate exactly 5 highly challenging multiple choice questions (MCQs) on the topic: '{$topic}'.
+            $scenarioInstruction = "";
+            $lowerTopic = strtolower($topic);
+            if (strpos($lowerTopic, 'verbal') !== false || strpos($lowerTopic, 'communication') !== false || strpos($lowerTopic, 'hr') !== false || strpos($lowerTopic, 'business') !== false) {
+                $scenarioInstruction = " Frame the questions within a professional corporate or technical workspace context (e.g., explaining technical concepts to stakeholders, handling communication conflicts in engineering teams, professional email/communication etiquette in corporate environments, or technical HR scenario behavior).";
+            }
+
+            $systemPrompt = "You are a Senior Professional Examiner. Generate exactly 5 highly challenging multiple choice questions (MCQs) on the topic: '{$topic}'.{$scenarioInstruction}
             You must return a response strictly formatted as a valid JSON array of objects, where each object matches the following structure:
             [
               {
@@ -428,7 +580,15 @@ class StudentIntelligenceService {
             $stmt->execute([$studentId, $institution]);
             $insights = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-            if (empty($insights)) {
+            $needsRegen = empty($insights);
+            if (!$needsRegen && !empty($insights)) {
+                $newestTime = strtotime($insights[0]['created_at'] ?? '2000-01-01');
+                if (time() - $newestTime > 7200) { // 2 hours
+                    $needsRegen = true;
+                }
+            }
+
+            if ($needsRegen) {
                 $this->generateStudentInsights($studentId, $institution, $studentName);
                 $stmt->execute([$studentId, $institution]);
                 $insights = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -450,6 +610,15 @@ class StudentIntelligenceService {
             $stmt = $this->db->prepare("SELECT * FROM student_profiles WHERE usn = ? LIMIT 1");
             $stmt->execute([$studentId]);
             $profile = $stmt->fetch(PDO::FETCH_ASSOC) ?: [];
+
+            if (empty($profile)) {
+                $studentModel = new \StudentProfile();
+                $userModel = new \User();
+                $user = $userModel->findByUsername($studentId);
+                if ($user) {
+                    $profile = $studentModel->getByUserId($user['id'], $institution) ?: [];
+                }
+            }
 
             $stmt = $this->db->prepare("SELECT * FROM student_portfolio WHERE student_id = ? AND institution = ?");
             $stmt->execute([$studentId, $institution]);
@@ -527,6 +696,62 @@ class StudentIntelligenceService {
                     'action_link' => 'profile_analyser.php',
                     'priority' => 2
                 ];
+            }
+
+            // Rule 5: Leaderboard Overtaken Warning (Gamification)
+            try {
+                $studentDept = $profile['department'] ?? ($profile['discipline'] ?? null);
+                $studentInst = $institution ?: 'GMU';
+                
+                $filters = [];
+                if (!empty($studentDept)) {
+                    $filters['discipline'] = getCoordinatorDisciplineFilters($studentDept);
+                    $filters['institution'] = $studentInst;
+                }
+                
+                $rankings = \App\Services\LeaderboardService::getRankingsWithHistory($filters);
+                
+                // Find student's current rank and previous rank in this view
+                $myRank = null;
+                $myPrevRank = null;
+                foreach ($rankings as $r) {
+                    if (strcasecmp($r['usn'], $studentId) === 0) {
+                        $myRank = $r['rank'];
+                        $myPrevRank = $r['previous_rank'] ?? $r['rank'];
+                        break;
+                    }
+                }
+
+                if ($myRank !== null && $myPrevRank !== null && $myRank > $myPrevRank) {
+                    // Student dropped in rank. Find who overtook them!
+                    $overtakers = [];
+                    foreach ($rankings as $r) {
+                        if (strcasecmp($r['usn'], $studentId) !== 0) {
+                            if ($r['rank'] < $myRank && ($r['previous_rank'] ?? $r['rank']) > $myPrevRank) {
+                                $overtakers[] = $r['name'];
+                            }
+                        }
+                    }
+                    
+                    if (!empty($overtakers)) {
+                        $firstOvertaker = $overtakers[0];
+                        $countOthers = count($overtakers) - 1;
+                        if ($countOthers > 0) {
+                            $msg = "Competition Alert! {$firstOvertaker} and {$countOthers} others just overtook you on the Leaderboard. Retake your lowest AI assessment to reclaim your rank!";
+                        } else {
+                            $msg = "Competition Alert! {$firstOvertaker} just overtook you on the Leaderboard. Retake your lowest AI assessment to reclaim your rank!";
+                        }
+                        
+                        $insights[] = [
+                            'insight_type' => 'Warning',
+                            'message' => $msg,
+                            'action_link' => 'leaderboard.php',
+                            'priority' => 6 // Highest priority warning!
+                        ];
+                    }
+                }
+            } catch (Exception $e) {
+                error_log("Leaderboard insight generation error: " . $e->getMessage());
             }
 
             // Save generated insights

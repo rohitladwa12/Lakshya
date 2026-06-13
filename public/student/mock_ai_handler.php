@@ -164,16 +164,24 @@ $role = $input['role'] ?? 'AI Engineer';
             $overallScore = null;
 
             // Engagement Check for Auto-End
-            $userMsgs = array_filter($history, fn($m) => $m['role'] === 'user');
-            $hasEngagement = count($userMsgs) >= 2;
+            $userMsgs = array_filter($history, fn($m) => $m['role'] === 'user' && !empty(trim($m['content'])));
+            $hasEngagement = count($userMsgs) > 0;
 
-            if ($isEnd && $hasEngagement) {
-                session_write_close();
-                $reportRes = $aiService->generateTechnicalInterviewReport($role, $history, $type, $concept);
-                if ($reportRes['success']) {
-                    $reportContent = $reportRes['content'];
-                    $overallScore = $reportRes['overall_score'] ?? null;
+            if ($isEnd) {
+                if (!$hasEngagement) {
+                    $overallScore = 0;
+                    $reportContent = "You did not participate in the interview.";
+                    $status = 'completed';
+                } else {
+                    session_write_close();
+                    $reportRes = $aiService->generateTechnicalInterviewReport($role, $history, $type, $concept);
+                    if ($reportRes['success']) {
+                        $reportContent = $reportRes['content'];
+                        $overallScore = $reportRes['overall_score'] ?? null;
+                    }
+                }
 
+                if ($reportContent !== null || !$hasEngagement) {
                     // SAVE TO UNIFIED TABLE
                     try {
                         $profile = $studentModel->getByUserId($userId);
@@ -222,8 +230,8 @@ $role = $input['role'] ?? 'AI Engineer';
                             'type' => $assessmentTypeFromInput
                         ], 'mock_ai_session', $input['session_id']);
 
-                    } catch (Exception $e) {
-                        logMessage("Failed to save to unified table: " . $e->getMessage(), 'ERROR');
+                    } catch (\Exception $e) {
+                        error_log("Failed to log unified mock ai assessment: " . $e->getMessage());
                     }
                 }
             }
@@ -305,30 +313,32 @@ $role = $input['role'] ?? 'AI Engineer';
         $completedAt = date('Y-m-d H:i:s');
         
         // Engagement Check for Manual End
-        $userMsgs = array_filter($history, fn($m) => $m['role'] === 'user');
-        if (count($userMsgs) < 2) {
-            $db->prepare("UPDATE mock_ai_interview_sessions SET status = 'cancelled', completed_at = ? WHERE id = ?")
-               ->execute([$completedAt, $sessionId]);
-            echo json_encode([
-                'success' => true, 
-                'message' => 'Session ended, but no report was generated as it was too brief (minimum 2 responses required).',
-                'is_incomplete' => true,
-                'session_id' => $sessionId
-            ]);
-            exit;
+        $userMsgs = array_filter($history, fn($m) => $m['role'] === 'user' && !empty(trim($m['content'])));
+        if (count($userMsgs) === 0) {
+            $reportContent = "You did not participate in the interview.";
+            $overallScore = 0;
+            $type = $input['type'] ?? 'Technical';
+        } else {
+            // Generate Report
+            $reportContent = null;
+            $overallScore = null;
+            $type = $input['type'] ?? 'Technical';
+            
+            $reportRes = $aiService->generateTechnicalInterviewReport($role, $history, $type, $concept);
+            if ($reportRes['success']) {
+                $reportContent = $reportRes['content'];
+                $overallScore = $reportRes['overall_score'] ?? null;
+            } else {
+                echo json_encode([
+                    'success' => false, 
+                    'message' => 'Report generation failed'
+                ]);
+                exit;
+            }
         }
 
-        // Generate Report
-        $reportContent = null;
-        $overallScore = null;
-        $type = $input['type'] ?? 'Technical';
-        
-        $reportRes = $aiService->generateTechnicalInterviewReport($role, $history, $type, $concept);
-        if ($reportRes['success']) {
-            $reportContent = $reportRes['content'];
-            $overallScore = $reportRes['overall_score'] ?? null;
-
-            // SAVE TO UNIFIED TABLE
+        // SAVE TO UNIFIED TABLE
+        if ($reportContent !== null) {
             try {
                 $profile = $studentModel->getByUserId($userId);
                 $companyNameFromInput = $input['company'] ?? 'General'; 
@@ -376,8 +386,9 @@ $role = $input['role'] ?? 'AI Engineer';
 
         echo json_encode([
             'success' => true,
-            'message' => 'Session ended and report generated',
-            'session_id' => $sessionId
+            'message' => 'Session ended',
+            'session_id' => $sessionId,
+            'score' => $overallScore
         ]);
         break;
 

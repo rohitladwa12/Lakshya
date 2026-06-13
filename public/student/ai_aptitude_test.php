@@ -36,6 +36,8 @@ $fullName = getFullName();
     <!-- Resilience & Cache Busting -->
     <script src="resilience.js?v=<?php echo APP_VERSION; ?>"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="report_question.js?v=<?php echo APP_VERSION; ?>"></script>
     <style>
         :root {
             --primary: #800000;
@@ -470,6 +472,7 @@ $fullName = getFullName();
     </div>
 
     <script>
+        window.CSRF_TOKEN = '<?php echo $_SESSION["csrf_token"] ?? ""; ?>';
         let questions = [];
         let userAnswers = {};
         let currentIdx = 0;
@@ -507,13 +510,24 @@ $fullName = getFullName();
                 formData.append('action', 'get_questions');
                 formData.append('company_name', companyName);
                 formData.append('task_id', "<?php echo $taskId; ?>"); // Fix: coordinator task_id must be sent so manual questions are fetched
+                formData.append('csrf_token', window.CSRF_TOKEN);
 
                 const response = await fetch('ai_aptitude_handler.php', {
                     method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': window.CSRF_TOKEN },
                     body: formData
                 });
                 
-                const data = await response.json();
+                let data;
+                const responseClone = response.clone();
+                try {
+                    data = await response.json();
+                } catch (jsonErr) {
+                    const rawText = await responseClone.text();
+                    console.error('JSON parse failed:', jsonErr, 'Raw:', rawText);
+                    alert('Server Error: ' + rawText.substring(0, 300));
+                    return;
+                }
                 if (data.success && data.job_id) {
                     // Poll for AI questions while we have DB questions ready
                     const dbQuestions = data.db_questions || [];
@@ -558,6 +572,18 @@ $fullName = getFullName();
             }
         }
 
+        window.reportCurrentQuestion = function() {
+            const q = questions[currentIdx];
+            window.openQuestionReportModal({
+                test_type: 'mock_ai',
+                test_id: "<?php echo $taskId; ?>" || 'aptitude',
+                question_text: q.question,
+                options: q.options,
+                correct_answer: q.answer,
+                user_answer: userAnswers[currentIdx]
+            });
+        };
+
         function renderQuestion() {
             const q = questions[currentIdx];
             const area = document.getElementById('questionArea');
@@ -574,7 +600,10 @@ $fullName = getFullName();
 
             area.innerHTML = `
                 <div class="question-card">
-                    <p class="q-number">SECTION: ${q.category || 'General Aptitude'}</p>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                        <span class="q-number">SECTION: ${q.category || 'General Aptitude'}</span>
+                        <a href="javascript:void(0)" onclick="reportCurrentQuestion()" style="color: var(--secondary); text-decoration: none; font-size: 0.9rem; font-weight: 600;"><i class="fas fa-flag"></i> Report Issue</a>
+                    </div>
                     <h2 class="q-text">${q.question}</h2>
                     <div class="options-grid">
                         ${optionsHtml}
@@ -649,9 +678,11 @@ $fullName = getFullName();
                 formData.append('questions', JSON.stringify(questions));
                 formData.append('task_id', "<?php echo $taskId; ?>");
                 formData.append('time_taken', 40 * 60 - timeLeft); // Fix: Send actual time taken to coordinator dashboard
+                formData.append('csrf_token', window.CSRF_TOKEN);
 
                 const response = await fetch('ai_aptitude_handler.php', {
                     method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': window.CSRF_TOKEN },
                     body: formData
                 });
                 
@@ -663,14 +694,33 @@ $fullName = getFullName();
 
                     // Render Review Section
                     if (data.results && data.results.questions) {
+                        // Store finalized questions for review reporting
+                        questions = data.results.questions;
+                        userAnswers = data.results.user_answers;
+                        window.reportReviewQuestion = function(idx) {
+                            const q = questions[idx];
+                            const userAns = userAnswers[idx];
+                            window.openQuestionReportModal({
+                                test_type: 'mock_ai',
+                                test_id: "<?php echo $taskId; ?>" || 'aptitude',
+                                question_text: q.question,
+                                options: q.options,
+                                correct_answer: q.answer,
+                                user_answer: userAns
+                            });
+                        };
+
                         let html = '<div class="review-section">';
                         data.results.questions.forEach((q, idx) => {
                             const userAns = data.results.user_answers[idx];
                             const correctAns = parseInt(q.answer);
                             
                             html += `<div class="review-card">
-                                <div class="review-q">Q${idx+1}: ${q.question}</div>`;
-                                
+                                <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
+                                    <div class="review-q">Q${idx+1}: ${q.question}</div>
+                                    <button class="btn-control" style="padding: 4px 10px; font-size: 0.8rem; background: transparent; border-color: rgba(255,255,255,0.1); color: var(--secondary); cursor: pointer;" onclick="reportReviewQuestion(${idx})"><i class="fas fa-flag"></i> Report</button>
+                                </div>`;
+                            
                             q.options.forEach((opt, optIdx) => {
                                 let cls = 'review-opt';
                                 let icon = '';

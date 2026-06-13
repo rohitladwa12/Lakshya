@@ -10,7 +10,16 @@ let resumeData = {
     skills: { technical: [], soft: [], languages: [] },
     certifications: [],
     achievements: [],
-    template_id: 'professional_ats'
+    template_id: 'professional_ats',
+    hidden_sections: {}
+};
+
+window.toggleGeneratorSection = function(section, isHidden) {
+    if (!resumeData.hidden_sections) {
+        resumeData.hidden_sections = {};
+    }
+    resumeData.hidden_sections[section] = isHidden;
+    generatePreview();
 };
 
 // Load existing resume data if available (passed from PHP)
@@ -45,6 +54,16 @@ document.addEventListener('DOMContentLoaded', function () {
     if (resumeData.template_id) {
         const card = document.querySelector(`.template-card[data-template="${resumeData.template_id}"]`);
         if (card) selectTemplate(resumeData.template_id, card);
+    }
+
+    // Set checkbox states from loaded hidden_sections
+    if (resumeData.hidden_sections) {
+        for (const sec in resumeData.hidden_sections) {
+            const chk = document.getElementById('hide_' + sec);
+            if (chk) {
+                chk.checked = !!resumeData.hidden_sections[sec];
+            }
+        }
     }
 
     // Load existing data
@@ -704,7 +723,7 @@ function renderATSPreview() {
                 </div>
             </div>
             
-            ${resumeData.professional_summary ? `
+            ${resumeData.professional_summary && !resumeData.hidden_sections?.summary ? `
             <div style="margin-bottom: 20px;">
                 <h2 style="font-size: 16px; font-weight: bold; color: #800000; border-bottom: 1px solid #ccc; text-transform: uppercase;">Summary</h2>
                 <div style="margin-top: 5px; text-align: justify; white-space: pre-line;">${resumeData.professional_summary}</div>
@@ -726,12 +745,12 @@ function renderModernPreview() {
                 
                 <h3 style="color: #e9c66f; border-bottom: 1px solid #456; padding-bottom: 5px; font-size: 14px; text-transform: uppercase;">Contact</h3>
                 <div style="font-size: 12px; margin: 10px 0;">
-                    <div style="margin-bottom: 5px;">✉️ ${resumeData.email}</div>
-                    <div style="margin-bottom: 5px;">📞 ${resumeData.phone}</div>
-                    <div style="margin-bottom: 5px;">📍 ${resumeData.location}</div>
+                    <div style="margin-bottom: 5px;">${resumeData.email}</div>
+                    <div style="margin-bottom: 5px;">${resumeData.phone}</div>
+                    <div style="margin-bottom: 5px;">${resumeData.location}</div>
                 </div>
 
-                ${resumeData.skills.technical.length > 0 ? `
+                ${resumeData.skills.technical.length > 0 && !resumeData.hidden_sections?.skills ? `
                 <h3 style="color: #e9c66f; border-bottom: 1px solid #456; padding-bottom: 5px; font-size: 14px; text-transform: uppercase; margin-top: 25px;">Skills</h3>
                 <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px;">
                     ${resumeData.skills.technical.map(s => `<span style="background: #3e5871; padding: 2px 8px; border-radius: 4px; font-size: 11px;">${s}</span>`).join('')}
@@ -747,7 +766,7 @@ function renderModernPreview() {
             </div>
             <div style="width: 65%; padding: 30px; color: #333;">
                 <h1 style="font-size: 32px; color: #800000; margin: 0;">${resumeData.full_name || 'Your Name'}</h1>
-                <p style="color: #666; font-style: italic; margin-top: 5px;">${resumeData.professional_summary ? resumeData.professional_summary.substring(0, 100) + '...' : ''}</p>
+                <p style="color: #666; font-style: italic; margin-top: 5px;">${resumeData.professional_summary && !resumeData.hidden_sections?.summary ? resumeData.professional_summary.substring(0, 100) + '...' : ''}</p>
                 
                 ${renderSectionsModern()}
             </div>
@@ -774,7 +793,7 @@ function renderSectionsStandard() {
     let html = '';
 
     // Education
-    if (resumeData.education.length > 0) {
+    if (resumeData.education.length > 0 && !resumeData.hidden_sections?.education) {
         html += `
             <div style="margin-bottom: 20px;">
                 <h2 style="font-size: 16px; font-weight: bold; color: #800000; border-bottom: 1px solid #ccc; text-transform: uppercase;">Education</h2>
@@ -792,7 +811,7 @@ function renderSectionsStandard() {
     }
 
     // Experience
-    if (resumeData.experience.length > 0) {
+    if (resumeData.experience.length > 0 && !resumeData.hidden_sections?.experience) {
         html += `
             <div style="margin-bottom: 20px;">
                 <h2 style="font-size: 16px; font-weight: bold; color: #800000; border-bottom: 1px solid #ccc; text-transform: uppercase;">Experience</h2>
@@ -813,7 +832,7 @@ function renderSectionsStandard() {
     }
 
     // Projects
-    if (resumeData.projects.length > 0) {
+    if (resumeData.projects.length > 0 && !resumeData.hidden_sections?.projects) {
         html += `
             <div style="margin-bottom: 15px;">
                 <h2 style="font-size: 16px; font-weight: bold; color: #800000; border-bottom: 1px solid #ccc; text-transform: uppercase; break-after: avoid;">Projects</h2>
@@ -831,7 +850,7 @@ function renderSectionsStandard() {
     }
 
     // Skills
-    if (resumeData.skills.technical.length > 0) {
+    if (resumeData.skills.technical.length > 0 && !resumeData.hidden_sections?.skills) {
         const skillList = resumeData.skills.technical.map(s => {
             const name = typeof s === 'object' ? s.name : s;
             const verified = typeof s === 'object' && s.is_verified;
@@ -848,7 +867,7 @@ function renderSectionsStandard() {
     }
 
     // Certifications & Achievements
-    if (resumeData.certifications.length > 0 || resumeData.achievements.length > 0) {
+    if ((resumeData.certifications.length > 0 || resumeData.achievements.length > 0) && !resumeData.hidden_sections?.certifications) {
         html += `
             <div style="margin-bottom: 15px;">
                 <h2 style="font-size: 16px; font-weight: bold; color: #800000; border-bottom: 1px solid #ccc; text-transform: uppercase; break-after: avoid;">Certifications & Achievements</h2>
@@ -867,7 +886,7 @@ function renderSectionsStandard() {
 function renderSectionsModern() {
     let html = '';
 
-    if (resumeData.education.length > 0) {
+    if (resumeData.education.length > 0 && !resumeData.hidden_sections?.education) {
         html += `
             <div style="margin-top: 25px;">
                 <h3 style="font-size: 16px; font-weight: bold; color: #34495e; border-left: 4px solid #800000; padding-left: 10px; text-transform: uppercase;">Education</h3>
@@ -881,7 +900,7 @@ function renderSectionsModern() {
         `;
     }
 
-    if (resumeData.experience.length > 0) {
+    if (resumeData.experience.length > 0 && !resumeData.hidden_sections?.experience) {
         html += `
             <div style="margin-top: 25px;">
                 <h3 style="font-size: 16px; font-weight: bold; color: #34495e; border-left: 4px solid #800000; padding-left: 10px; text-transform: uppercase;">Experience</h3>
@@ -898,7 +917,7 @@ function renderSectionsModern() {
         `;
     }
 
-    if (resumeData.projects.length > 0) {
+    if (resumeData.projects.length > 0 && !resumeData.hidden_sections?.projects) {
         html += `
             <div style="margin-top: 18px; break-inside: auto;">
                 <h3 style="font-size: 16px; font-weight: bold; color: #34495e; border-left: 4px solid #800000; padding-left: 10px; text-transform: uppercase; break-after: avoid;">Projects</h3>
@@ -912,7 +931,7 @@ function renderSectionsModern() {
         `;
     }
 
-    if (resumeData.skills.soft.length > 0) {
+    if (resumeData.skills.soft.length > 0 && !resumeData.hidden_sections?.skills) {
         html += `
             <div style="margin-top: 25px;">
                 <h3 style="font-size: 16px; font-weight: bold; color: #34495e; border-left: 4px solid #800000; padding-left: 10px; text-transform: uppercase;">Soft Skills</h3>
@@ -921,7 +940,7 @@ function renderSectionsModern() {
         `;
     }
 
-    if (resumeData.certifications.length > 0 || resumeData.achievements.length > 0) {
+    if ((resumeData.certifications.length > 0 || resumeData.achievements.length > 0) && !resumeData.hidden_sections?.certifications) {
         html += `
             <div style="margin-top: 25px;">
                 <h3 style="font-size: 16px; font-weight: bold; color: #34495e; border-left: 4px solid #800000; padding-left: 10px; text-transform: uppercase;">Certifications & Achievements</h3>
@@ -939,7 +958,7 @@ function renderSectionsModern() {
 function renderSectionsMinimal() {
     let html = '';
 
-    if (resumeData.education.length > 0) {
+    if (resumeData.education.length > 0 && !resumeData.hidden_sections?.education) {
         html += `
             <div style="margin-top: 25px;">
                 <h3 style="font-size: 12px; font-weight: bold; color: #666; letter-spacing: 2px; text-transform: uppercase;">Education</h3>
@@ -957,7 +976,7 @@ function renderSectionsMinimal() {
         `;
     }
 
-    if (resumeData.experience.length > 0) {
+    if (resumeData.experience.length > 0 && !resumeData.hidden_sections?.experience) {
         html += `
             <div style="margin-top: 25px;">
                 <h3 style="font-size: 12px; font-weight: bold; color: #666; letter-spacing: 2px; text-transform: uppercase;">Experience</h3>
@@ -978,7 +997,7 @@ function renderSectionsMinimal() {
         `;
     }
 
-    if (resumeData.projects.length > 0) {
+    if (resumeData.projects.length > 0 && !resumeData.hidden_sections?.projects) {
         html += `
             <div style="margin-top: 18px;">
                 <h3 style="font-size: 12px; font-weight: bold; color: #666; letter-spacing: 2px; text-transform: uppercase; break-after: avoid;">Projects</h3>
@@ -993,7 +1012,7 @@ function renderSectionsMinimal() {
         `;
     }
 
-    if (resumeData.skills.technical.length > 0 || resumeData.skills.soft.length > 0) {
+    if ((resumeData.skills.technical.length > 0 || resumeData.skills.soft.length > 0) && !resumeData.hidden_sections?.skills) {
         html += `
             <div style="margin-top: 25px;">
                 <h3 style="font-size: 12px; font-weight: bold; color: #666; letter-spacing: 2px; text-transform: uppercase;">Skills</h3>
@@ -1006,7 +1025,7 @@ function renderSectionsMinimal() {
         `;
     }
 
-    if (resumeData.certifications.length > 0 || resumeData.achievements.length > 0) {
+    if ((resumeData.certifications.length > 0 || resumeData.achievements.length > 0) && !resumeData.hidden_sections?.certifications) {
         html += `
             <div style="margin-top: 25px;">
                 <h3 style="font-size: 12px; font-weight: bold; color: #666; letter-spacing: 2px; text-transform: uppercase;">Certifications & Achievements</h3>

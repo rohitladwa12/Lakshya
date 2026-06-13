@@ -63,16 +63,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
     $db->beginTransaction();
     
     try {
+        $validStudents = [];
+        $branches = [];
+
         foreach ($studentIds as $studentId) {
             $studentId = trim($studentId);
             
-            // Get correct student branch
-            $stmtBranch->execute([$studentId, $studentId, $studentId]);
-            $resS = $stmtBranch->fetch(PDO::FETCH_ASSOC);
-            $targetBranch = $resS ? $resS['discipline'] : $department;
-            
             // Prevent duplicate active tasks
-            $checkJson = json_encode($studentId); 
+            $checkJson = '"' . $studentId . '"'; 
             $stmtCheck->execute([$taskType, $compSearch, $compSearch, $checkJson]);
             
             if ($stmtCheck->fetch()) {
@@ -80,13 +78,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
                 continue;
             }
 
-            // Create task
+            $validStudents[] = $studentId;
+            
+            // Get correct student branch
+            $stmtBranch->execute([$studentId, $studentId, $studentId]);
+            $resS = $stmtBranch->fetch(PDO::FETCH_ASSOC);
+            $branches[] = $resS ? $resS['discipline'] : $department;
+        }
+
+        if (!empty($validStudents)) {
+            // Create bulk task
             $title = ucfirst($taskType) . " Assessment" . ($companyName ? " - $companyName" : "");
             $stmtInsert->execute([
                 $coordinatorId, $taskType, $title, $compSearch, $concept, $questionSource, 
-                json_encode([$studentId]), json_encode([$targetBranch]), $deadline
+                json_encode(array_values(array_unique($validStudents))), json_encode(array_values(array_unique($branches))), $deadline
             ]);
-            $assignedCount++;
+            $assignedCount = count($validStudents);
         }
         $db->commit();
     } catch (Exception $e) {

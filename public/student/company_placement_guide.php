@@ -314,6 +314,7 @@ $guideContent = $result['success'] ? $result['content'] : "Error generating guid
     });
 </script>
 
+<?php renderFeatureAnnouncement('feature_company_guide'); ?>
 </body>
 </html>
 
