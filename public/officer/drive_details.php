@@ -11,7 +11,7 @@ if (!$driveId) {
 
 // Fetch drive configuration details
 $stmt = $db->prepare("
-    SELECT cd.*, jp.job_title, jp.id as job_id, c.name as company_name 
+    SELECT cd.*, jp.title as job_title, jp.id as job_id, c.name as company_name 
     FROM campus_drives cd
     JOIN job_postings jp ON cd.job_id = jp.id
     LEFT JOIN companies c ON jp.company_id = c.id
@@ -26,17 +26,53 @@ if (!$drive) {
 
 // Fetch all students who applied for the job
 $stmt = $db->prepare("
-    SELECT ja.student_id as usn, u.NAME as name, u.DISCIPLINE as branch, ads.sem, ads.year as academic_year,
-           att.status as attendance_status
+    SELECT ja.student_id as usn, att.status as attendance_status
     FROM job_applications ja
-    JOIN users u ON ja.student_id = u.ID
-    LEFT JOIN ad_student_approved ads ON u.ID = ads.usn
     LEFT JOIN job_attendance att ON att.job_id = ja.job_id AND att.student_id = ja.student_id
     WHERE ja.job_id = ?
-    ORDER BY u.NAME ASC
 ");
 $stmt->execute([$drive['job_id']]);
-$applicants = $stmt->fetchAll(PDO::FETCH_ASSOC);
+$rawApplicants = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$studentModel = new StudentProfile();
+$applicants = [];
+
+foreach ($rawApplicants as $app) {
+    $usn = $app['usn'];
+    $profile = $studentModel->getByUserId($usn);
+    
+    if ($profile) {
+        $app['name'] = $profile['name'] ?? 'Unknown Student';
+        $app['branch'] = $profile['department'] ?? 'N/A';
+        $app['academic_year'] = $profile['year_of_study'] ?? 'N/A';
+        
+        // Fetch current semester
+        $app['sem'] = '?';
+        $inst = $profile['institution'];
+        $prefix = ($inst === INSTITUTION_GMU) ? DB_GMU_PREFIX : DB_GMIT_PREFIX;
+        try {
+            if ($inst === INSTITUTION_GMU) {
+                $remoteDB = getDB('gmu');
+                $stmtSem = $remoteDB->prepare("SELECT sem FROM {$prefix}ad_student_approved WHERE usn = ? ORDER BY academic_year DESC, sem DESC LIMIT 1");
+                $stmtSem->execute([$usn]);
+                $semRow = $stmtSem->fetch();
+                $app['sem'] = $semRow ? $semRow['sem'] : '?';
+            } else {
+                $stmtCurr = $db->prepare("SELECT semester FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
+                $stmtCurr->execute([$usn, INSTITUTION_GMIT]);
+                $currSemRow = $stmtCurr->fetch();
+                $app['sem'] = $currSemRow ? $currSemRow['semester'] : '?';
+            }
+        } catch (Exception $e) {}
+        
+        $applicants[] = $app;
+    }
+}
+
+// Sort alphabetically by name
+usort($applicants, function($a, $b) {
+    return strcasecmp($a['name'], $b['name']);
+});
 
 // Fetch all attempts for this drive
 $stmt = $db->prepare("
@@ -52,6 +88,13 @@ $studentScores = [];
 foreach ($attemptsList as $att) {
     $usn = $att['student_id'];
     $round = $att['round_type'];
+    
+    // Extract auto_submit_reason if present before unsetting details
+    $attDetails = json_decode($att['details'] ?? '{}', true);
+    $att['auto_submit_reason'] = $attDetails['auto_submit_reason'] ?? null;
+
+    // Strip massive JSON payloads to keep HTML clean and fast
+    unset($att['details'], $att['feedback'], $att['ai_analysis']);
     
     if (!isset($studentScores[$usn])) {
         $studentScores[$usn] = [
@@ -577,8 +620,8 @@ foreach ($attemptsList as $att) {
                     <!-- APTITUDE ROUND SCORE -->
                     <?php if ($drive['aptitude_active']): 
                         $aptInfo = $studentScores[$usn]['Aptitude'] ?? null;
-                        $aptBest = $aptInfo['best'];
-                        $aptCount = $aptInfo['count'] ?? 0;
+                        $aptBest = $aptInfo ? $aptInfo['best'] : null;
+                        $aptCount = $aptInfo ? $aptInfo['count'] : 0;
                     ?>
                     <td>
                         <?php if ($aptBest !== null): ?>
@@ -598,8 +641,8 @@ foreach ($attemptsList as $att) {
                     <!-- TECHNICAL ROUND SCORE -->
                     <?php if ($drive['technical_active']): 
                         $techInfo = $studentScores[$usn]['Technical'] ?? null;
-                        $techBest = $techInfo['best'];
-                        $techCount = $techInfo['count'] ?? 0;
+                        $techBest = $techInfo ? $techInfo['best'] : null;
+                        $techCount = $techInfo ? $techInfo['count'] : 0;
                     ?>
                     <td>
                         <?php if ($techBest !== null): ?>
@@ -619,8 +662,8 @@ foreach ($attemptsList as $att) {
                     <!-- HR ROUND SCORE -->
                     <?php if ($drive['hr_active']): 
                         $hrInfo = $studentScores[$usn]['HR'] ?? null;
-                        $hrBest = $hrInfo['best'];
-                        $hrCount = $hrInfo['count'] ?? 0;
+                        $hrBest = $hrInfo ? $hrInfo['best'] : null;
+                        $hrCount = $hrInfo ? $hrInfo['count'] : 0;
                     ?>
                     <td>
                         <?php if ($hrBest !== null): ?>
@@ -721,12 +764,17 @@ foreach ($attemptsList as $att) {
                 attempts.forEach(att => {
                     const date = new Date(att.completed_at || att.started_at);
                     const formattedDate = date.toLocaleDateString() + ' ' + date.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                    let autoSubmitWarning = '';
+                    if (att.auto_submit_reason) {
+                        autoSubmitWarning = `<div style="color: #dc2626; font-size: 12px; margin-top: 4px; font-weight: 600;"><i class="fas fa-triangle-exclamation"></i> Auto-Submitted: ${att.auto_submit_reason}</div>`;
+                    }
                     
                     html += `
                         <div class="attempt-item">
                             <div>
                                 <strong>Attempt #${att.attempt_number}</strong>
                                 <div class="attempt-date"><i class="fas fa-clock"></i> Completed: ${formattedDate}</div>
+                                ${autoSubmitWarning}
                             </div>
                             <strong style="font-size: 16px; color: ${parseFloat(att.score) >= 80 ? '#15803d' : (parseFloat(att.score) >= 60 ? '#a16207' : '#b91c1c')}">${parseFloat(att.score).toFixed(1)}%</strong>
                         </div>

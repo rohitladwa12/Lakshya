@@ -73,50 +73,51 @@ foreach ($recentJobs as $job) {
 }
 $hasNewJobs = $newJobsCount > 0;
 
-// GMIT SGPA completeness check for feature gating
+// Fetch student profile unconditionally to resolve dual-key identifiers
 $institution = $_SESSION['institution'] ?? '';
 $isGMIT = ($institution === INSTITUTION_GMIT);
 $hasFullHistory = true;
 $missingSemMsg = "";
 
-if ($isGMIT) {
-    require_once __DIR__ . '/../../src/Models/StudentProfile.php';
-    $checkModel = new StudentProfile();
+require_once __DIR__ . '/../../src/Models/StudentProfile.php';
+$checkModel = new StudentProfile();
+$history = $checkModel->getAcademicHistory($userId, $institution ?: 'GMU');
+$mainProfile = $history[0] ?? null;
 
+if (!$mainProfile && Session::getRole() === ROLE_DEMO) {
+    $mainProfile = [
+        'name' => 'Demo User',
+        'discipline' => 'CSE',
+        'institution' => 'GMU'
+    ];
+}
+
+// Restore name to session if it was missing (for users already logged in)
+if (empty($fullName) && !empty($mainProfile['name'])) {
+    $_SESSION['full_name'] = $mainProfile['name'];
+    $fullName = $mainProfile['name'];
+}
+
+if ($isGMIT) {
     // Check if student has marked a current semester (implies they visited and saved)
-    // Using username (USN) as student_id for GMIT
     try {
         $db = getDB();
+        $studentIdToCheck = getUsername();
+        $studentAadhar = $mainProfile['aadhar'] ?? '';
+        
         // Pass if student has marked a current semester OR if coordinator has set/frozen their SGPAs
         $stmt = $db->prepare(
             "SELECT 1 FROM student_sem_sgpa 
-             WHERE student_id = ? AND institution = ? 
+             WHERE (student_id = ? OR student_id = ?) AND institution = ? 
              AND (is_current = 1 OR freezed = 1) 
              LIMIT 1"
         );
-        $stmt->execute([getUsername(), INSTITUTION_GMIT]);
+        $stmt->execute([$studentIdToCheck, $studentAadhar ?: $studentIdToCheck, INSTITUTION_GMIT]);
         if (!$stmt->fetch()) {
             $hasFullHistory = false;
         }
     } catch (Exception $e) {
         error_log("Dashboard SGPA Check Error: " . $e->getMessage());
-    }
-
-    $history = $checkModel->getAcademicHistory($userId, $institution);
-    $mainProfile = $history[0] ?? null;
-
-    if (!$mainProfile && Session::getRole() === ROLE_DEMO) {
-        $mainProfile = [
-            'name' => 'Demo User',
-            'discipline' => 'CSE',
-            'institution' => 'GMU'
-        ];
-    }
-
-    // Restore name to session if it was missing (for users already logged in)
-    if (empty($fullName) && !empty($mainProfile['name'])) {
-        $_SESSION['full_name'] = $mainProfile['name'];
-        $fullName = $mainProfile['name'];
     }
 }
 
@@ -168,6 +169,18 @@ try {
     $studentBranch = $mainProfile['discipline'] ?? $mainProfile['branch'] ?? '';
     $studentInstitution = $institution ?: 'GMU';
 
+    $studentIdentifiers = array_unique(array_filter([$username, $mainProfile['usn'] ?? '', $mainProfile['aadhar'] ?? '']));
+
+    // Build placeholders for tc.student_id IN (...)
+    $tcPlaceholders = implode(',', array_fill(0, count($studentIdentifiers), '?'));
+    
+    // Build LIKE placeholders for ct.target_students LIKE ?
+    $targetLikeSql = [];
+    foreach ($studentIdentifiers as $id) {
+        $targetLikeSql[] = "ct.target_students LIKE ?";
+    }
+    $targetLikeSqlStr = implode(' OR ', $targetLikeSql);
+
     $taskQuery = "SELECT ct.id, ct.task_type, ct.title, ct.description, 
                          ct.deadline, ct.company_name,
                          dc.department, dc.full_name as coordinator_name,
@@ -175,26 +188,35 @@ try {
                   FROM coordinator_tasks ct
                   JOIN dept_coordinators dc ON ct.coordinator_id = dc.id
                   LEFT JOIN task_completions tc ON ct.id = tc.task_id 
-                                                AND tc.student_id = ?
+                                                AND tc.student_id IN ($tcPlaceholders)
                   WHERE ct.is_active = 1 
                     AND (
                         (ct.target_type = 'department' AND dc.department = ? AND dc.institution = ?)
                         OR (ct.target_type = 'branch' AND JSON_CONTAINS(ct.target_branches, ?))
-                        OR (ct.target_type = 'individual' AND ct.target_students LIKE ?)
+                        OR (ct.target_type = 'individual' AND ($targetLikeSqlStr))
                     )
                     AND (tc.id IS NULL OR tc.completed_at > DATE_SUB(NOW(), INTERVAL 7 DAY)) -- Show active OR completed in last 7 days
                     AND (tc.id IS NOT NULL OR ct.deadline > NOW())  -- Not expired if not completed
                   ORDER BY tc.id ASC, ct.deadline ASC
                   LIMIT 5";
 
+    $stmtParams = [];
+    // 1. student_id in LEFT JOIN task_completions
+    foreach ($studentIdentifiers as $id) {
+        $stmtParams[] = $id;
+    }
+    // 2. department and institution
+    $stmtParams[] = $studentBranch;
+    $stmtParams[] = $studentInstitution;
+    // 3. branch
+    $stmtParams[] = "\"$studentBranch\"";
+    // 4. individual target search
+    foreach ($studentIdentifiers as $id) {
+        $stmtParams[] = "%\"$id\"%";
+    }
+
     $stmt = $db->prepare($taskQuery);
-    $stmt->execute([
-        $username,
-        $studentBranch,
-        $studentInstitution,
-        "\"$studentBranch\"",
-        "%\"$username\"%"
-    ]);
+    $stmt->execute($stmtParams);
     $assignedTasks = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
     // Convert tasks to feed items
@@ -223,15 +245,16 @@ try {
 
 // Fetch active Campus Drives for the student
 try {
+    $jaPlaceholders = implode(',', array_fill(0, count($studentIdentifiers), '?'));
     $driveQuery = "SELECT cd.id, cd.drive_name, cd.deadline, cd.aptitude_active, cd.technical_active, cd.hr_active, c.name as company_name 
                    FROM campus_drives cd
                    JOIN job_applications ja ON cd.job_id = ja.job_id
                    JOIN job_postings jp ON cd.job_id = jp.id
                    LEFT JOIN companies c ON jp.company_id = c.id
-                   WHERE ja.student_id = ? 
+                   WHERE ja.student_id IN ($jaPlaceholders) 
                      AND (cd.deadline IS NULL OR cd.deadline > NOW())";
     $stmtDrive = $db->prepare($driveQuery);
-    $stmtDrive->execute([$username]);
+    $stmtDrive->execute($studentIdentifiers);
     $studentDrives = $stmtDrive->fetchAll(PDO::FETCH_ASSOC);
 
     foreach ($studentDrives as $drive) {
@@ -313,6 +336,120 @@ $intelService = new \App\Services\StudentIntelligenceService();
 $aiProfile = $intelService->getStudentAIProfile($username, $institution, $fullName);
 $aiInsights = $intelService->getStudentInsights($username, $institution, $fullName);
 $dailyChallenge = $intelService->getOrCreateDailyChallenge($username, $institution, $fullName);
+
+// --- DAILY GRIND MOTIVATION ---
+$grindQuotes = [
+    "Nobody is going to hand you that offer letter. Go out there, put in the hours, and earn it!",
+    "If you want the package that 99% of people don't get, you must do the work that 99% of people won't do.",
+    "Bugs will test you. Compilers will reject you. The market will challenge you. But you do not quit. Keep grinding!",
+    "The dream is free. The hustle is sold separately. Wake up, write code, and build your legacy!",
+    "Every rejected test case is just raw material for a stronger comeback. Fix it, run it, and dominate.",
+    "Don't complain about the difficulty of the test. Raise your level. Be so good they cannot ignore you.",
+    "While others are sleeping, you should be solving. Let your execution do the talking.",
+    "Your future self is watching you right now, hoping you don't give up. Make them proud today!",
+    "The pain of discipline is temporary. The regret of not giving it your 100% is permanent. Put in the work!",
+    "Champions are built in the quiet hours when nobody is watching. Write that extra function, solve that extra problem, and secure your future.",
+    "Stop searching for shortcuts. The only way to the top is through consistent, daily execution.",
+    "A rejection is just a redirection to something bigger. Analyze the feedback, level up, and apply again.",
+    "If it was easy, everyone would be a top-tier developer. Embrace the struggle; it's refining you.",
+    "Your degree gets you the interview, but your skills and hunger get you the job. Build something undeniable!",
+    "Every line of code you write today is an investment in the lifestyle you want tomorrow.",
+    "Quit talking about your goals. Put your head down, open the IDE, and let your results scream.",
+    "The best way to predict your placement results is to build them yourself, one solved problem at a time.",
+    "Don't wait for motivation. Cultivate discipline. Motivation gets you started; discipline gets you placed.",
+    "The difference between an amateur and a professional is consistency. Solve problems even when you don't feel like it.",
+    "If you fail a mock test today, you've found a weakness. Patch it before the real companies arrive.",
+    "Your competition is working right now. What are you doing to stand out?",
+    "Excel under pressure. The most challenging coding questions yield the most rewarding career breakthroughs.",
+    "A year from now, you will wish you started pushing harder today. Make today count!",
+    "Clear your mind, optimize your logic, and attack the problem. You are smarter than the compiler.",
+    "Success doesn't care about your excuses. It only cares about your dedication and output.",
+    "Every master was once a beginner who refused to stop when things got difficult.",
+    "The code you write when you are tired is the code that defines your true work ethic. Keep pushing!",
+    "Interviews are won in the prep phase. Do the mock runs. Learn the patterns. Leave nothing to luck.",
+    "Do not let a single day pass without moving closer to your target package. Push your limits!",
+    "An offer letter is won when you solve the problem everyone else gave up on.",
+    "You are one algorithmic break-through away from changing your entire career trajectory.",
+    "The secret of getting ahead is simply getting started. Open the editor and solve the first problem.",
+    "You don't need luck when you have preparation, logic, and relentless determination.",
+    "Be obsessed with solving. A problem is just a challenge waiting for your logic to conquer it.",
+    "Don't pray for an easy placement season. Pray for the strength and capability to conquer a tough one.",
+    "Stop wishing. Start coding. Action is the only antidote to doubt.",
+    "Run the code. See the error. Fix the bug. Repeat until you are unstoppable.",
+    "A high package isn't given; it's taken by those who out-prepare and out-perform everyone else.",
+    "Excuses don't compile. Results do. Focus on the output.",
+    "The hard work you put in today will pay off in ways you cannot even imagine yet.",
+    "Make your portfolio so impressive that recruiters feel foolish passing on your application.",
+    "Doubt kills more dreams than failure ever will. Believe in your code, believe in your logic.",
+    "You didn't come this far only to come this far. Keep pushing, the finish line is near!",
+    "The best developers aren't born; they are forged in the fire of countless failed test cases.",
+    "Focus on the process, not just the outcome. The skills you build will stay with you forever.",
+    "Your career is your responsibility. Take ownership, drive your preparation, and win.",
+    "Every mistake is a lesson in disguise. Learn fast, adapt quicker, and keep moving.",
+    "Great things never come from comfort zones. Step up, face the hard problems, and grow.",
+    "You are entirely up to you. Make the decision to be great, then do the work.",
+    "The only limit to your impact is your imagination and commitment. Push beyond the limits.",
+    "Every time you want to quit, remember why you started this journey in the first place.",
+    "Success is the sum of small efforts, repeated day in and day out. Stay consistent!",
+    "Don't measure yourself by where you are today. Measure yourself by the progress you make daily.",
+    "You have the talent, you have the resources. All you need now is the relentless execution.",
+    "When you feel like stopping, do one more problem. That's where the growth happens.",
+    "Your attitude decides your aptitude. Approach every test with a winner's mindset.",
+    "Don't let yesterday's failures take up too much of today. Reset, refocus, and rebuild.",
+    "The grind is hard, but regret is harder. Choose your hard wisely.",
+    "Work in silence. Let your offer letter make the noise.",
+    "If you are the smartest person in the room, you are in the wrong room. Seek challenges.",
+    "A problem solved is a skill earned. Collect as many skills as you can.",
+    "Your potential is limitless, but only if you have the courage to test it.",
+    "Be so prepared that when opportunity knocks, you don't just open the door—you take over.",
+    "Don't settle for average. Aim for the top tier. You have what it takes.",
+    "Every setback is a setup for a comeback. Stay resilient, stay focused.",
+    "The roadmap is clear: Prepare, practice, perform. Now execute!",
+    "Your code is your art, your logic is your weapon. Sharpen it every single day.",
+    "Nothing worth having comes easy. The grind is part of the prize.",
+    "Be the developer who solves the problems that keep others awake at night.",
+    "Your career starts here, now. Don't look back, look forward to the target.",
+    "Every day is another chance to improve. Make today's progress undeniable.",
+    "Consistency beats talent when talent doesn't work hard. Keep showing up!",
+    "The only way to fail is to stop trying. As long as you code, you are winning.",
+    "Build a mindset that welcomes difficult challenges. That's where top CTCs are won.",
+    "Stay hungry. Stay humble. Outwork everyone.",
+    "You are writing your own success story right now. Make it a masterpiece.",
+    "The best project you will ever work on is yourself. Invest time in your growth.",
+    "Your work ethic is the one thing you can fully control. Make it elite.",
+    "When it gets tough, remember: this is the filter that separates the best from the rest.",
+    "Aim high, work hard, and never compromise on your career goals.",
+    "A coding error is just a question. The fix is your answer. Keep asking, keep answering.",
+    "Preparation is the key to confidence. Practice until the difficult feels natural.",
+    "Don't just write code that works. Write code that inspires. Excel in your craft.",
+    "Every hour you spend preparing now is a step toward your dream company.",
+    "The compiler is your partner, not your enemy. Listen to the errors and grow.",
+    "Your dreams don't work unless you do. Open the editor and get to work.",
+    "Success is built on a foundation of failed attempts that you refused to let define you.",
+    "Be the person who finds solutions while others are looking for excuses.",
+    "Every challenge you face is an opportunity to prove your capability.",
+    "The secret of success is constancy of purpose. Stay locked in on your target.",
+    "Your future is created by what you do today, not tomorrow. Take action now.",
+    "Make preparation a habit, and success will follow automatically.",
+    "Push yourself, because no one else is going to do it for you.",
+    "Great results require great effort. There are no shortcuts to excellence.",
+    "Be relentless. If one approach fails, try ten more. The solution is out there.",
+    "Your dedication today determines your placement package tomorrow.",
+    "Never let a hard problem make you feel like you don't belong. You belong at the top.",
+    "Focus on becoming a better version of yourself every single day.",
+    "The preparation you do in private will be rewarded in public.",
+    "Believe in your logic, trust your practice, and conquer the assessments.",
+    "Wake up with determination. Sleep with satisfaction. Solve the code today!",
+    "The best way to build confidence is to build projects that solve real-world problems.",
+    "Success isn't about being the best; it's about being better than you were yesterday.",
+    "Your only limit is the one you set in your own mind. Break through it.",
+    "Out-prepare, out-practice, and out-perform. The offer letter is yours for the taking!"
+];
+
+if (!isset($_SESSION['grind_quote'])) {
+    $_SESSION['grind_quote'] = $grindQuotes[array_rand($grindQuotes)];
+}
+$dailyQuote = $_SESSION['grind_quote'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -2934,6 +3071,17 @@ $dailyChallenge = $intelService->getOrCreateDailyChallenge($username, $instituti
                         <p>You have <strong><?php echo $activeJobsCount; ?></strong> matching job opportunities today. Your
                             portfolio is currently <strong><?php echo $completeness; ?>%</strong> complete.</p>
 
+                        <!-- Daily Grind Motivation Widget -->
+                        <div class="grind-motivation-banner" style="margin-top: 18px; padding: 12px 20px; background: rgba(128, 0, 0, 0.03); border: 1px dashed rgba(128, 0, 0, 0.15); border-radius: 12px; display: flex; align-items: center; gap: 12px; max-width: 100%;">
+                            <div style="font-size: 1.2rem; color: var(--accent-gold); display: flex; align-items: center; justify-content: center; background: rgba(212, 175, 55, 0.1); width: 32px; height: 32px; border-radius: 50%;">⚡</div>
+                            <div style="flex: 1;">
+                                <span style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--primary-maroon); font-weight: 800; display: block; margin-bottom: 2px;">Daily Grind</span>
+                                <span style="font-style: italic; font-weight: 500; font-size: 0.85rem; color: #374151; line-height: 1.4;">
+                                    "<?php echo htmlspecialchars($dailyQuote); ?>"
+                                </span>
+                            </div>
+                        </div>
+
                         <?php if (!$hasFullHistory && $isGMIT): ?>
                             <div
                                 style="margin-top: 1rem; background: rgba(0,0,0,0.2); padding: 10px 20px; border-radius: 12px; display: inline-flex; align-items: center; gap: 10px; font-size: 0.85rem; border: 1px solid rgba(255,255,255,0.2);">
@@ -2953,11 +3101,11 @@ $dailyChallenge = $intelService->getOrCreateDailyChallenge($username, $instituti
                         <div class="icon"><i class="fas fa-briefcase" style="color: #800000;"></i></div>
                         <h4>Jobs</h4>
                     </a>
-                    <!-- <a href="company_ai_prep"
+                    <a href="student_drives.php"
                         class="action-tool-btn <?php echo (!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
                         <div class="icon"><i class="fas fa-robot" style="color: #1e3a8a;"></i></div>
-                        <h4>AI Prep</h4>
-                    </a> -->
+                        <h4>Campus Drives</h4>
+                    </a> 
                     <?php if (isFeatureEnabled('feature_mock_ai')): ?>
                         <a href="mock_ai_interview"
                             class="action-tool-btn <?php echo (!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
@@ -3040,14 +3188,39 @@ $dailyChallenge = $intelService->getOrCreateDailyChallenge($username, $instituti
                                 if (is_string($questions)) {
                                     $questions = json_decode($questions, true);
                                 }
-                                if (isset($questions['questions']) && is_array($questions['questions'])) {
-                                    $questions = $questions['questions'];
+                                
+                                // Robust extraction of questions array
+                                if (is_array($questions)) {
+                                    // Check if it's a wrapper object (e.g. {"questions": [...]}, {"data": [...]})
+                                    if (!isset($questions[0])) {
+                                        foreach ($questions as $key => $val) {
+                                            if (is_array($val) && (isset($val[0]['question']) || isset($val['question']))) {
+                                                $questions = $val;
+                                                break;
+                                            }
+                                        }
+                                    }
                                 }
-                                $isMultiple = isset($questions[0]) && is_array($questions[0]);
-                                if (!$isMultiple) {
+
+                                // If it is still a single question object, wrap it
+                                $isMultiple = is_array($questions) && isset($questions[0]) && is_array($questions[0]);
+                                if (is_array($questions) && !$isMultiple && isset($questions['question'])) {
                                     $questions = [$questions];
                                 }
+                                
+                                // Filter out invalid questions to prevent key errors
+                                $validQuestions = [];
+                                if (is_array($questions)) {
+                                    foreach ($questions as $q) {
+                                        if (is_array($q) && isset($q['question']) && isset($q['options']) && is_array($q['options'])) {
+                                            $validQuestions[] = $q;
+                                        }
+                                    }
+                                }
+                                $questions = $validQuestions;
                                 $totalQ = count($questions);
+                                
+                                if ($totalQ > 0):
                                 ?>
                                 <div class="challenge-header">
                                     <div class="lbl"><i class="fas fa-brain"></i> Daily Challenge</div>
@@ -3158,9 +3331,14 @@ $dailyChallenge = $intelService->getOrCreateDailyChallenge($username, $instituti
                                 <div class="challenge-header">
                                     <div class="lbl"><i class="fas fa-brain"></i> Daily Challenge</div>
                                 </div>
-                                <p class="no-challenge">No challenge generated today. Re-sync your AI profile to set up topics.
-                                </p>
+                                <p class="no-challenge">Daily challenge format error. Please re-sync your AI profile to regenerate.</p>
                             <?php endif; ?>
+                        <?php else: ?>
+                            <div class="challenge-header">
+                                <div class="lbl"><i class="fas fa-brain"></i> Daily Challenge</div>
+                            </div>
+                            <p class="no-challenge">No challenge generated today. Re-sync your AI profile to set up topics.</p>
+                        <?php endif; ?>
                         </div>
 
                         <!-- 3. AI Insights Feed -->

@@ -19,23 +19,43 @@ class LeaderboardService {
         $usns = array_column($students, 'usn');
         $usnList = "'" . implode("','", array_map('addslashes', $usns)) . "'";
 
+        // Build Aadhar list for GMIT students to catch records stored under Aadhar
+        $gmitAadhars = [];
+        foreach ($students as $s) {
+            if ($s['institution'] === INSTITUTION_GMIT && !empty($s['aadhar'])) {
+                $gmitAadhars[] = $s['aadhar'];
+            }
+        }
+        // Extended list: USNs + Aadhar numbers combined for queries that may store either
+        $allIds = array_unique(array_merge($usns, $gmitAadhars));
+        $allIdList = "'" . implode("','", array_map('addslashes', $allIds)) . "'";
+
         // Partition USNs by institution for academic fetching
         $gmuUsns = [];
         $gmitUsns = [];
+        $gmitAadharMap = []; // usn => aadhar for GMIT
         foreach ($students as $s) {
-            $u = strtolower($s['usn']);
             if ($s['institution'] === INSTITUTION_GMU) $gmuUsns[] = $s['usn'];
-            else $gmitUsns[] = $s['usn'];
+            else {
+                $gmitUsns[] = $s['usn'];
+                if (!empty($s['aadhar'])) $gmitAadharMap[$s['usn']] = $s['aadhar'];
+            }
         }
 
-        // 2. Fetch Performance Data
-        $scoresByUsn = self::fetchUnifiedScores($usnList);
-        $mockDataByUsn = self::fetchMockData($usnList);
-        $portfolioData = self::fetchPortfolioData($usnList);
-        $taskDataByUsn = self::fetchTaskCompletions($usnList);
-        $academicHistory = self::fetchAcademicHistory($gmuUsns, $gmitUsns);
-        $skillData = self::fetchStudentSkills($usnList);
-        $assessmentTimestamps = self::fetchAssessmentTimestamps($usnList);
+        // 2. Fetch Performance Data (use extended ID list so GMIT Aadhar-stored records are found)
+        $scoresByUsn = self::fetchUnifiedScores($allIdList);
+        $mockDataByUsn = self::fetchMockData($allIdList);
+        $portfolioData = self::fetchPortfolioData($allIdList);
+        $taskDataByUsn = self::fetchTaskCompletions($allIdList);
+        $academicHistory = self::fetchAcademicHistory($gmuUsns, $gmitUsns, $gmitAadharMap);
+        $skillData = self::fetchStudentSkills($allIdList);
+        $assessmentTimestamps = self::fetchAssessmentTimestamps($allIdList);
+
+        // Build reverse Aadhar-to-USN map for score consolidation
+        $aadharToUsn = [];
+        foreach ($gmitAadharMap as $usn => $aadhar) {
+            $aadharToUsn[strtolower($aadhar)] = strtolower($usn);
+        }
 
         // 3. Process into Ranking
         $rankings = [];
@@ -43,8 +63,18 @@ class LeaderboardService {
             $usn = $s['usn'];
             $lowUsn = strtolower($usn);
             
+            // For GMIT: merge scores stored under Aadhar into the USN key
+            $aadhar = $s['aadhar'] ?? '';
+            $lowAadhar = strtolower($aadhar);
+            $scores = $scoresByUsn[$lowUsn] ?? ($scoresByUsn[$lowAadhar] ?? []);
+            $mocks  = $mockDataByUsn[$lowUsn] ?? ($mockDataByUsn[$lowAadhar] ?? []);
+            $tasks  = $taskDataByUsn[$lowUsn] ?? ($taskDataByUsn[$lowAadhar] ?? []);
+            $port   = $portfolioData[$lowUsn] ?? ($portfolioData[$lowAadhar] ?? []);
+            $skills = $skillData[$lowUsn] ?? ($skillData[$lowAadhar] ?? []);
+            $tStamps = $assessmentTimestamps[$lowUsn] ?? ($assessmentTimestamps[$lowAadhar] ?? []);
+            
             // Pillar Processing
-            $pillars = self::calculatePillars($scoresByUsn[$lowUsn] ?? [], $mockDataByUsn[$lowUsn] ?? [], $taskDataByUsn[$lowUsn] ?? []);
+            $pillars = self::calculatePillars($scores, $mocks, $tasks);
             
             // AI Score with Strict Hybrid Model (Weighted + Square-Count Penalty)
             $attemptedCount = 0;
@@ -53,28 +83,25 @@ class LeaderboardService {
             if ($pillars['hr'] > 0) $attemptedCount++;
 
             $weightedScore = ($pillars['technical'] * 0.5) + ($pillars['aptitude'] * 0.25) + ($pillars['hr'] * 0.25);
-            $squarePenalty = pow($attemptedCount / 3.0, 3); // Cubic Penalty for partial participation
+            $squarePenalty = pow($attemptedCount / 3.0, 3);
             $assessmentScore = $weightedScore * $squarePenalty;
 
-            // Portfolio Score (30% weight - Strict: 50 skills, 25 projects)
-            $pS = $portfolioData[$lowUsn]['Skill'] ?? 0;
-            $pP = $portfolioData[$lowUsn]['Project'] ?? 0;
+            // Portfolio Score
+            $pS = $port['Skill'] ?? 0;
+            $pP = $port['Project'] ?? 0;
             $portfolioScore = min(50, $pS * 1) + min(50, $pP * 2);
 
-            // Final Total Points (Out of 100)
+            // Final Total Points
             $rawTotal = ($assessmentScore * 0.7) + ($portfolioScore * 0.3);
-            
-            // Inactivity Penalty (Daily Point Decay Removed)
-            $inactivityDays = 0;
             $totalScore = $rawTotal;
 
             // Academic History (for filtering and display)
-            $history = $academicHistory[$lowUsn] ?? [];
-            $skills = $skillData[$lowUsn] ?? [];
+            $history = $academicHistory[$lowUsn] ?? ($academicHistory[$lowAadhar] ?? []);
 
             $rankings[] = [
                 'name' => $s['name'],
                 'usn' => $usn,
+                'aadhar' => $s['aadhar'] ?? '',
                 'institution' => $s['institution'],
                 'discipline' => $s['department'],
                 'sgpa' => (float)($s['sgpa'] ?? 0),
@@ -205,21 +232,27 @@ class LeaderboardService {
         return $data;
     }
 
-    private static function fetchAcademicHistory($gmuUsns, $gmitUsns) {
+    private static function fetchAcademicHistory($gmuUsns, $gmitUsns, $gmitAadharMap = []) {
         $history = [];
 
-        // GMIT (LOCAL)
+        // GMIT (LOCAL) — search by student_id (USN/enrollment) AND Aadhar
         if (!empty($gmitUsns)) {
-            $list = "'" . implode("','", array_map('addslashes', $gmitUsns)) . "'";
+            $allGmitIds = array_unique(array_merge($gmitUsns, array_values($gmitAadharMap)));
+            $list = "'" . implode("','", array_map('addslashes', $allGmitIds)) . "'";
             $stmt = getDB()->query("SELECT student_id, semester, sgpa, academic_year 
                                     FROM student_sem_sgpa 
                                     WHERE student_id IN ($list) 
                                     ORDER BY semester ASC");
             while ($row = $stmt->fetch()) {
-                $history[strtolower($row['student_id'])][$row['semester']] = [
-                    'sgpa' => (float)$row['sgpa'],
-                    'year' => $row['academic_year']
-                ];
+                $sid = strtolower($row['student_id']);
+                $histRow = ['sgpa' => (float)$row['sgpa'], 'year' => $row['academic_year']];
+                $history[$sid][$row['semester']] = $histRow;
+                // Also index by USN if this was stored under Aadhar
+                foreach ($gmitAadharMap as $usn => $aadhar) {
+                    if (strtolower($aadhar) === $sid) {
+                        $history[strtolower($usn)][$row['semester']] = $histRow;
+                    }
+                }
             }
         }
 

@@ -28,7 +28,11 @@ $input = array_merge($input, $_POST);
 $action = $input['action'] ?? '';
 
 // Auth Check
-requireLogin();
+if (!isLoggedIn()) {
+    ob_clean();
+    echo json_encode(['success' => false, 'message' => 'Session expired. Please log in again.']);
+    exit;
+}
 session_write_close();
 $userId = getUserId();
 $studentIdForDb = getStudentIdForAssessment();
@@ -246,8 +250,30 @@ switch ($action) {
             }
         }
 
+        // Fetch previously asked questions for this student to prevent repetition
+        $previousQuestions = [];
+        if ($isDrive) {
+            $stmtPrev = $db->prepare("SELECT details FROM student_drive_attempts WHERE drive_id = ? AND student_id = ? AND round_type = 'HR' AND id != ?");
+            $stmtPrev->execute([$driveId, $usn, $sessionId]);
+            while ($row = $stmtPrev->fetch(PDO::FETCH_ASSOC)) {
+                $det = json_decode($row['details'], true);
+                if (!empty($det['history'])) {
+                    foreach ($det['history'] as $msg) {
+                        if ($msg['role'] === 'assistant') {
+                            try {
+                                $parsed = json_decode($msg['content'], true);
+                                if ($parsed && !empty($parsed['question'])) {
+                                    $previousQuestions[] = $parsed['question'];
+                                }
+                            } catch (Exception $e) {}
+                        }
+                    }
+                }
+            }
+        }
+
         // Get AI HR Question with project context using Queue
-        $jobId = \App\Services\QueueService::pushJob('getHRQuestion', [$role, $history, $projects, $concept], $userId);
+        $jobId = \App\Services\QueueService::pushJob('getHRQuestion', [$role, $history, $projects, $concept, $previousQuestions], $userId);
         
         // Return job_id to the frontend
         ob_clean(); echo json_encode([
@@ -337,8 +363,8 @@ switch ($action) {
                 if ($score > 100) $score = 100;
                 if ($score < 0) $score = 0;
             } else {
-                ob_clean(); echo json_encode(['success' => false, 'message' => 'Report generation failed']);
-                exit;
+                error_log("HR Report generation failed for session $sessionId: " . ($reportRes['message'] ?? 'Unknown Error'));
+                $score = 0; // Fallback score so the submission can complete
             }
         }
 

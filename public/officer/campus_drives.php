@@ -18,30 +18,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $aptitudeTopics = trim($_POST['aptitude_topics']);
             $aptitudeQuestions = (int)$_POST['aptitude_questions'];
             $aptitudeDuration = (int)$_POST['aptitude_duration'];
+            $aptitudeThreshold = (int)($_POST['aptitude_threshold'] ?? 60);
 
             $technicalActive = isset($_POST['technical_active']) ? 1 : 0;
             $technicalTopics = trim($_POST['technical_topics']);
             $technicalQuestions = (int)$_POST['technical_questions'];
             $technicalDuration = (int)$_POST['technical_duration'];
+            $technicalThreshold = (int)($_POST['technical_threshold'] ?? 60);
 
             $hrActive = isset($_POST['hr_active']) ? 1 : 0;
             $hrTopics = trim($_POST['hr_topics']);
             $hrQuestions = (int)$_POST['hr_questions'];
             $hrDuration = (int)$_POST['hr_duration'];
+            $hrThreshold = (int)($_POST['hr_threshold'] ?? 60);
 
             $stmt = $db->prepare("
                 INSERT INTO campus_drives 
                 (job_id, academic_year, drive_name, deadline, 
-                 aptitude_active, aptitude_topics, aptitude_questions, aptitude_duration,
-                 technical_active, technical_topics, technical_questions, technical_duration,
-                 hr_active, hr_topics, hr_questions, hr_duration)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 aptitude_active, aptitude_topics, aptitude_questions, aptitude_duration, aptitude_threshold,
+                 technical_active, technical_topics, technical_questions, technical_duration, technical_threshold,
+                 hr_active, hr_topics, hr_questions, hr_duration, hr_threshold)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ");
             $stmt->execute([
                 $jobId, $academicYear, $driveName, $deadline,
-                $aptitudeActive, $aptitudeTopics, $aptitudeQuestions, $aptitudeDuration,
-                $technicalActive, $technicalTopics, $technicalQuestions, $technicalDuration,
-                $hrActive, $hrTopics, $hrQuestions, $hrDuration
+                $aptitudeActive, $aptitudeTopics, $aptitudeQuestions, $aptitudeDuration, $aptitudeThreshold,
+                $technicalActive, $technicalTopics, $technicalQuestions, $technicalDuration, $technicalThreshold,
+                $hrActive, $hrTopics, $hrQuestions, $hrDuration, $hrThreshold
             ]);
             header("Location: campus_drives.php?success=1");
             exit;
@@ -55,30 +58,33 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $aptitudeTopics = trim($_POST['aptitude_topics']);
             $aptitudeQuestions = (int)$_POST['aptitude_questions'];
             $aptitudeDuration = (int)$_POST['aptitude_duration'];
+            $aptitudeThreshold = (int)($_POST['aptitude_threshold'] ?? 60);
 
             $technicalActive = isset($_POST['technical_active']) ? 1 : 0;
             $technicalTopics = trim($_POST['technical_topics']);
             $technicalQuestions = (int)$_POST['technical_questions'];
             $technicalDuration = (int)$_POST['technical_duration'];
+            $technicalThreshold = (int)($_POST['technical_threshold'] ?? 60);
 
             $hrActive = isset($_POST['hr_active']) ? 1 : 0;
             $hrTopics = trim($_POST['hr_topics']);
             $hrQuestions = (int)$_POST['hr_questions'];
             $hrDuration = (int)$_POST['hr_duration'];
+            $hrThreshold = (int)($_POST['hr_threshold'] ?? 60);
 
             $stmt = $db->prepare("
                 UPDATE campus_drives SET
                     drive_name = ?, academic_year = ?, deadline = ?,
-                    aptitude_active = ?, aptitude_topics = ?, aptitude_questions = ?, aptitude_duration = ?,
-                    technical_active = ?, technical_topics = ?, technical_questions = ?, technical_duration = ?,
-                    hr_active = ?, hr_topics = ?, hr_questions = ?, hr_duration = ?
+                    aptitude_active = ?, aptitude_topics = ?, aptitude_questions = ?, aptitude_duration = ?, aptitude_threshold = ?,
+                    technical_active = ?, technical_topics = ?, technical_questions = ?, technical_duration = ?, technical_threshold = ?,
+                    hr_active = ?, hr_topics = ?, hr_questions = ?, hr_duration = ?, hr_threshold = ?
                 WHERE id = ?
             ");
             $stmt->execute([
                 $driveName, $academicYear, $deadline,
-                $aptitudeActive, $aptitudeTopics, $aptitudeQuestions, $aptitudeDuration,
-                $technicalActive, $technicalTopics, $technicalQuestions, $technicalDuration,
-                $hrActive, $hrTopics, $hrQuestions, $hrDuration,
+                $aptitudeActive, $aptitudeTopics, $aptitudeQuestions, $aptitudeDuration, $aptitudeThreshold,
+                $technicalActive, $technicalTopics, $technicalQuestions, $technicalDuration, $technicalThreshold,
+                $hrActive, $hrTopics, $hrQuestions, $hrDuration, $hrThreshold,
                 $driveId
             ]);
             header("Location: campus_drives.php?success=2");
@@ -605,7 +611,7 @@ $hasJobsWithoutYear = count(array_filter(
 
         .round-fields-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr;
             gap: 12px;
         }
 
@@ -918,6 +924,10 @@ $hasJobsWithoutYear = count(array_filter(
                                 <label>Duration (Minutes)</label>
                                 <input type="number" name="aptitude_duration" class="form-control" value="20" min="5" max="60">
                             </div>
+                            <div class="form-group">
+                                <label>Eligibility Score (%)</label>
+                                <input type="number" name="aptitude_threshold" class="form-control" value="60" min="1" max="100">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -944,6 +954,10 @@ $hasJobsWithoutYear = count(array_filter(
                                 <label>Duration (Minutes)</label>
                                 <input type="number" name="technical_duration" class="form-control" value="20" min="5" max="60">
                             </div>
+                            <div class="form-group">
+                                <label>Eligibility Score (%)</label>
+                                <input type="number" name="technical_threshold" class="form-control" value="60" min="1" max="100">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -969,6 +983,10 @@ $hasJobsWithoutYear = count(array_filter(
                             <div class="form-group">
                                 <label>Duration (Minutes)</label>
                                 <input type="number" name="hr_duration" class="form-control" value="20" min="5" max="60">
+                            </div>
+                            <div class="form-group">
+                                <label>Eligibility Score (%)</label>
+                                <input type="number" name="hr_threshold" class="form-control" value="60" min="1" max="100">
                             </div>
                         </div>
                     </div>
@@ -1034,6 +1052,10 @@ $hasJobsWithoutYear = count(array_filter(
                                 <label>Duration (Minutes)</label>
                                 <input type="number" name="aptitude_duration" id="edit_aptitude_duration" class="form-control" min="5" max="60">
                             </div>
+                            <div class="form-group">
+                                <label>Eligibility Score (%)</label>
+                                <input type="number" name="aptitude_threshold" id="edit_aptitude_threshold" class="form-control" min="1" max="100">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1060,6 +1082,10 @@ $hasJobsWithoutYear = count(array_filter(
                                 <label>Duration (Minutes)</label>
                                 <input type="number" name="technical_duration" id="edit_technical_duration" class="form-control" min="5" max="60">
                             </div>
+                            <div class="form-group">
+                                <label>Eligibility Score (%)</label>
+                                <input type="number" name="technical_threshold" id="edit_technical_threshold" class="form-control" min="1" max="100">
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -1085,6 +1111,10 @@ $hasJobsWithoutYear = count(array_filter(
                             <div class="form-group">
                                 <label>Duration (Minutes)</label>
                                 <input type="number" name="hr_duration" id="edit_hr_duration" class="form-control" min="5" max="60">
+                            </div>
+                            <div class="form-group">
+                                <label>Eligibility Score (%)</label>
+                                <input type="number" name="hr_threshold" id="edit_hr_threshold" class="form-control" min="1" max="100">
                             </div>
                         </div>
                     </div>
@@ -1318,6 +1348,7 @@ $hasJobsWithoutYear = count(array_filter(
             document.getElementById('edit_aptitude_topics').value = drive.aptitude_topics || 'Quantitative, Logical, Verbal';
             document.getElementById('edit_aptitude_questions').value = drive.aptitude_questions || 10;
             document.getElementById('edit_aptitude_duration').value = drive.aptitude_duration || 20;
+            document.getElementById('edit_aptitude_threshold').value = drive.aptitude_threshold || 60;
             toggleRoundFields('edit_apt');
 
             // Technical Round
@@ -1326,6 +1357,7 @@ $hasJobsWithoutYear = count(array_filter(
             document.getElementById('edit_technical_topics').value = drive.technical_topics || 'Java, DBMS, OOPs';
             document.getElementById('edit_technical_questions').value = drive.technical_questions || 10;
             document.getElementById('edit_technical_duration').value = drive.technical_duration || 20;
+            document.getElementById('edit_technical_threshold').value = drive.technical_threshold || 60;
             toggleRoundFields('edit_tech');
 
             // HR Round
@@ -1334,6 +1366,7 @@ $hasJobsWithoutYear = count(array_filter(
             document.getElementById('edit_hr_topics').value = drive.hr_topics || 'Behavioral, Problem Solving, Communication';
             document.getElementById('edit_hr_questions').value = drive.hr_questions || 10;
             document.getElementById('edit_hr_duration').value = drive.hr_duration || 20;
+            document.getElementById('edit_hr_threshold').value = drive.hr_threshold || 60;
             toggleRoundFields('edit_hr');
 
             document.getElementById('editModal').style.display = 'flex';

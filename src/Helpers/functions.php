@@ -555,7 +555,7 @@ function getSynonymBranches($branchName) {
         ['BT', 'BIOTECH', 'BIOTECHNOLOGY'],
         ['CSBS'],
         ['DS', 'CSE-DS'],
-        ['IOT', 'CSE-IOT']
+        ['CSE-IT', 'IOT', 'CSE-IOT']
     ];
     
     foreach ($groups as $group) {

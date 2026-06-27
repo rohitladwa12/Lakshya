@@ -70,7 +70,7 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
         $gmuStudents = [];
         $gmuQuery = "SELECT ad.usn as student_id, ad.name, asd.email_id as email,
                             ad.discipline as branch, ad.sem as current_sem,
-                            ad.sgpa, 'GMU' as institution
+                            ad.sgpa, ad.aadhar, 'GMU' as institution
                      FROM gmu.ad_student_approved ad
                      LEFT JOIN gmu.ad_student_details asd ON ad.usn = asd.usn
                      WHERE ad.discipline IN ($discipline_placeholders)
@@ -89,7 +89,7 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
         // Fetch GMIT students
         $gmitStudents = [];
         $gmitQuery = "SELECT ad.student_id, ad.name, ad.email_id as email,
-                             ad.discipline as branch,
+                             ad.discipline as branch, ad.aadhar,
                              'GMIT' as institution
                       FROM gmit_new.ad_student_details ad
                       WHERE ad.discipline IN ($discipline_placeholders)
@@ -102,9 +102,9 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
         $gmitStudentsWithSgpa = [];
         foreach ($gmitStudents as $student) {
             $stmt = $db->prepare("SELECT sgpa, semester FROM student_sem_sgpa 
-                                       WHERE student_id = ? AND institution = ? AND semester IN ($sem_placeholders)
+                                       WHERE (student_id = ? OR student_id = ?) AND institution = ? AND semester IN ($sem_placeholders)
                                        ORDER BY semester DESC LIMIT 1");
-            $stmt->execute(array_merge([$student['student_id'], 'GMIT'], $semester_filter));
+            $stmt->execute(array_merge([$student['student_id'], $student['aadhar'], 'GMIT'], $semester_filter));
             $sgpaData = $stmt->fetch(PDO::FETCH_ASSOC);
             if ($sgpaData) {
                 $student['sgpa'] = $sgpaData['sgpa'];
@@ -154,7 +154,7 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
 
     // Merge completion data with student data
     foreach ($allStudents as &$student) {
-        $completion = $completions[$student['student_id']] ?? null;
+        $completion = $completions[$student['student_id']] ?? (!empty($student['aadhar']) ? ($completions[$student['aadhar']] ?? null) : null);
         if ($completion) {
             $student['status'] = 'completed';
         } else {
@@ -473,6 +473,118 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
             font-weight: 600;
             margin-bottom: 20px;
         }
+
+        /* ===== PRINT STYLES ===== */
+        @media print {
+            /* Hide everything UI-related */
+            nav, .navbar-spacer, .back-link, .filter-tabs, .no-print,
+            button, .btn-primary, .task-card, .tasks-grid,
+            .page-header {
+                display: none !important;
+            }
+
+            body {
+                background: #fff;
+                font-family: Arial, Helvetica, sans-serif;
+                font-size: 12pt;
+                color: #000;
+            }
+
+            .container { margin: 0; padding: 10px 20px; }
+
+            /* Print header block */
+            .print-report-header {
+                display: block !important;
+                border-bottom: 2px solid #000;
+                padding-bottom: 12px;
+                margin-bottom: 16px;
+            }
+            .print-report-header h1 {
+                font-size: 18pt;
+                font-weight: bold;
+                margin: 0 0 4px 0;
+            }
+            .print-report-header p {
+                font-size: 10pt;
+                margin: 2px 0;
+                color: #333;
+            }
+            .print-stats-row {
+                display: flex !important;
+                gap: 40px;
+                margin-bottom: 12px;
+                font-size: 10pt;
+            }
+            .print-stats-row span strong {
+                font-size: 11pt;
+            }
+
+            /* Make page-header plain */
+            .page-header {
+                border-bottom: 1px solid #000;
+                padding-bottom: 8px;
+                margin-bottom: 12px;
+            }
+            .page-header h2 {
+                font-size: 16pt;
+                color: #000;
+            }
+
+            /* Table */
+            .table-container {
+                box-shadow: none;
+                border-radius: 0;
+                border: none;
+            }
+            .table-header { display: none !important; }
+
+            table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 10pt;
+                page-break-inside: auto;
+            }
+            thead tr {
+                background: #000 !important;
+                color: #fff !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+            }
+            th {
+                background: #000 !important;
+                color: #fff !important;
+                border: 1px solid #000;
+                padding: 6px 8px;
+                text-align: left;
+                font-size: 9pt;
+                font-weight: bold;
+            }
+            td {
+                border: 1px solid #bbb;
+                padding: 5px 8px;
+                vertical-align: middle;
+                font-size: 9pt;
+            }
+            tr:nth-child(even) td { background: #f5f5f5; }
+            tr { page-break-inside: avoid; }
+
+            /* Replace colored badges with plain text */
+            .status-badge, .score-badge {
+                background: none !important;
+                color: #000 !important;
+                padding: 0;
+                font-weight: bold;
+                border-radius: 0;
+                font-size: 9pt;
+            }
+            .task-type-badge {
+                background: none !important;
+                color: #000 !important;
+                border: 1px solid #000;
+                font-size: 9pt;
+                padding: 2px 6px;
+            }
+        }
     </style>
 </head>
 
@@ -492,9 +604,41 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
         <?php endif; ?>
 
         <?php if ($viewingTask): ?>
-            <a href="manage_tasks.php" class="back-link">
+            <a href="manage_tasks.php" class="back-link no-print">
                 <i class="fas fa-arrow-left"></i> Back to All Tasks
             </a>
+
+            <?php
+                $totalStudents = count($taskStudents);
+                $completedCount = count(array_filter($taskStudents, fn($s) => $s['status'] === 'completed'));
+                $pendingCount   = count(array_filter($taskStudents, fn($s) => $s['status'] === 'pending'));
+                $missedCount    = count(array_filter($taskStudents, fn($s) => $s['status'] === 'missed'));
+                $avgScore = $completedCount > 0
+                    ? round(array_sum(array_filter(array_column($taskStudents, 'score'), fn($v) => $v !== null)) / $completedCount, 1)
+                    : 0;
+            ?>
+
+            <!-- Print-only report header (hidden on screen) -->
+            <div class="print-report-header" style="display:none;">
+                <h1><?php echo htmlspecialchars($viewingTask['title']); ?></h1>
+                <p>
+                    Type: <strong><?php echo strtoupper($viewingTask['task_type']); ?></strong>
+                    <?php if ($viewingTask['company_name']): ?>
+                    &nbsp;|&nbsp; Company: <strong><?php echo htmlspecialchars($viewingTask['company_name']); ?></strong>
+                    <?php endif; ?>
+                    &nbsp;|&nbsp; Deadline: <strong><?php echo date('d M Y, h:i A', strtotime($viewingTask['deadline'])); ?></strong>
+                </p>
+                <p>Generated on: <?php echo date('d M Y, h:i A'); ?> &nbsp;|&nbsp; Coordinator: <strong><?php echo htmlspecialchars($fullName); ?></strong></p>
+                <div class="print-stats-row">
+                    <span>Total Assigned: <strong><?php echo $totalStudents; ?></strong></span>
+                    <span>Completed: <strong><?php echo $completedCount; ?></strong></span>
+                    <span>Pending: <strong><?php echo $pendingCount; ?></strong></span>
+                    <span>Missed: <strong><?php echo $missedCount; ?></strong></span>
+                    <?php if ($completedCount > 0): ?>
+                    <span>Avg Score: <strong><?php echo $avgScore; ?>%</strong></span>
+                    <?php endif; ?>
+                </div>
+            </div>
 
             <div class="page-header">
                 <div>
@@ -510,11 +654,16 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
                         | <span><i class="fas fa-calendar"></i> Deadline:
                             <?php echo date('d M Y, h:i A', strtotime($viewingTask['deadline'])); ?></span>
                         <button onclick="openEditDeadlineModal()"
+                            class="no-print"
                             style="margin-left: 10px; background: none; border: 1px solid var(--primary-maroon); border-radius: 4px; padding: 4px 8px; color: var(--primary-maroon); cursor: pointer; font-size: 12px; font-weight: 600;">
                             <i class="fas fa-edit"></i> Edit Deadline
                         </button>
                     </p>
                 </div>
+                <button onclick="printTaskReport()" class="no-print"
+                    style="background: #1a1a2e; color: #fff; border: none; padding: 11px 22px; border-radius: 10px; font-weight: 700; font-size: 14px; cursor: pointer; display: inline-flex; align-items: center; gap: 8px; letter-spacing: 0.3px;">
+                    <i class="fas fa-print"></i> Print Report
+                </button>
             </div>
 
             <div class="table-container">
@@ -568,11 +717,11 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
                                     <span class="status-badge status-<?php echo $student['status']; ?>">
                                         <?php
                                         if ($student['status'] === 'completed')
-                                            echo '✅ Completed';
+                                            echo '<span class="no-print">&#x2705; </span>Completed';
                                         elseif ($student['status'] === 'missed')
-                                            echo '❌ Missed';
+                                            echo '<span class="no-print">&#x274C; </span>Missed';
                                         else
-                                            echo '⏳ Pending';
+                                            echo '<span class="no-print">&#x23F3; </span>Pending';
                                         ?>
                                     </span>
                                 </td>
@@ -675,6 +824,43 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
                     row.style.display = 'none';
                 }
             });
+        }
+
+        function printTaskReport() {
+            // 1. Detect which filter is currently active
+            const activeTab = document.querySelector('.filter-tab.active');
+            const activeFilter = activeTab ? activeTab.textContent.trim() : 'All';
+
+            // 2. Count only the visible (printed) rows
+            const rows = document.querySelectorAll('#studentsTable tbody tr');
+            let visibleCount = 0;
+            rows.forEach(row => { if (row.style.display !== 'none') visibleCount++; });
+
+            // 3. Update the print-only header to reflect the active filter
+            const printHeader = document.querySelector('.print-report-header');
+            if (printHeader) {
+                // Update or inject a filter label line
+                let filterLine = printHeader.querySelector('.print-filter-line');
+                if (!filterLine) {
+                    filterLine = document.createElement('p');
+                    filterLine.className = 'print-filter-line';
+                    filterLine.style.fontWeight = 'bold';
+                    filterLine.style.marginTop = '4px';
+                    printHeader.appendChild(filterLine);
+                }
+                if (activeFilter === 'All') {
+                    filterLine.textContent = 'Showing: All Students (' + visibleCount + ')';
+                } else {
+                    filterLine.textContent = 'Showing: ' + activeFilter + ' Students (' + visibleCount + ')';
+                }
+                printHeader.style.display = 'block';
+            }
+
+            // 4. Print (only visible rows will appear — filter is respected)
+            window.print();
+
+            // 5. Restore header to hidden
+            if (printHeader) printHeader.style.display = 'none';
         }
     </script>
 

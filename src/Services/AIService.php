@@ -5,15 +5,17 @@
  * DEBUG VERSION
  */
 
-class AIService {
+class AIService
+{
     private $apiKey;
     private $apiUrl;
     private $model = 'gpt-4o-mini'; // High performance, low cost
 
-    public function __construct() {
+    public function __construct()
+    {
         $this->apiKey = OPENAI_API_KEY;
         $this->apiUrl = OPENAI_API_URL;
-        
+
         if (empty($this->apiKey)) {
             logMessage("AIService initialized without API Key", 'WARNING');
         }
@@ -22,7 +24,8 @@ class AIService {
     /**
      * Send a request to OpenAI
      */
-    public function callAPI($messages, $options = []) {
+    public function callAPI($messages, $options = [])
+    {
         $startTime = microtime(true);
         $auditMethod = $options['audit_method'] ?? 'unknown';
 
@@ -47,18 +50,18 @@ class AIService {
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_POST, true);
         $payload = json_encode($data);
-        
+
         if ($payload === false) {
             return ['success' => false, 'message' => 'JSON Encode Error: ' . json_last_error_msg()];
         }
-        
+
         curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
         curl_setopt($ch, CURLOPT_HTTPHEADER, [
             'Content-Type: application/json',
             'Authorization: Bearer ' . $this->apiKey
         ]);
-        
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false); 
+
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_TIMEOUT, 120);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 120);
         curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
@@ -67,11 +70,11 @@ class AIService {
         $attempt = 0;
         $response = false;
         $httpCode = 0;
-        
+
         while ($attempt < $maxRetries) {
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            
+
             if (!curl_errno($ch) && $httpCode >= 500 && $httpCode < 600) {
                 // OpenAI internal server error or gateway timeout. Retry after a delay.
                 $attempt++;
@@ -83,7 +86,7 @@ class AIService {
                 break;
             }
         }
-        
+
         if (curl_errno($ch)) {
             $error = curl_error($ch);
             curl_close($ch);
@@ -91,7 +94,7 @@ class AIService {
         }
 
         curl_close($ch);
-        $latency = (int)((microtime(true) - $startTime) * 1000);
+        $latency = (int) ((microtime(true) - $startTime) * 1000);
 
         if ($httpCode !== 200) {
             $errorMsg = "API Error (Code $httpCode): " . $response;
@@ -125,7 +128,8 @@ class AIService {
     /**
      * Internal Audit Logger for AI Operations
      */
-    private function auditLog($method, $model, $usage, $latency, $status, $error = null) {
+    private function auditLog($method, $model, $usage, $latency, $status, $error = null)
+    {
         try {
             $db = getDB();
             $stmt = $db->prepare("INSERT INTO ai_audit_logs (user_id, service_method, model, prompt_tokens, completion_tokens, total_tokens, latency_ms, status, error_message) 
@@ -149,7 +153,8 @@ class AIService {
     /**
      * Analyze Resume (Advanced / Brutal Mode)
      */
-    public function analyzeResume($resumeText, $targetRole = 'Software Engineer') {
+    public function analyzeResume($resumeText, $targetRole = 'Software Engineer')
+    {
         $systemPrompt = "You are an expert resume analyst, ATS engineer, and technical hiring manager.
 
 Your task is to analyze resumes with brutal honesty and high precision.
@@ -250,7 +255,7 @@ Output Format (JSON):
             'response_format' => ['type' => 'json_object'],
             'temperature' => 0.4 // Lower temperature for more consistent/strict output
         ]);
-        
+
         if ($response['success']) {
             return [
                 'success' => true,
@@ -264,7 +269,8 @@ Output Format (JSON):
     /**
      * Refine and surgical improvement of resume points.
      */
-    public function refineResumeAnalysis($structured, $scores, $targetRole = 'Software Engineer') {
+    public function refineResumeAnalysis($structured, $scores, $targetRole = 'Software Engineer')
+    {
         $systemPrompt = "You are an expert resume editor and career strategist.
 Your task is to take a structured resume analysis and provide surgical refinements.
 
@@ -300,7 +306,7 @@ Keep feedback direct, constructive, and highly relevant to '{$targetRole}'. Limi
             'response_format' => ['type' => 'json_object'],
             'temperature' => 0.5
         ]);
-        
+
         if ($response['success']) {
             return [
                 'success' => true,
@@ -314,7 +320,8 @@ Keep feedback direct, constructive, and highly relevant to '{$targetRole}'. Limi
     /**
      * Complete Resume Analysis Pipeline (Background Worker Friendly)
      */
-    public function analyzeResumeSequence($userId, $resumeText, $targetRole = 'Software Engineer') {
+    public function analyzeResumeSequence($userId, $resumeText, $targetRole = 'Software Engineer')
+    {
         require_once __DIR__ . '/ResumeParser.php';
         require_once __DIR__ . '/ResumeScoringEngine.php';
         require_once __DIR__ . '/../../src/Models/Resume.php';
@@ -323,14 +330,14 @@ Keep feedback direct, constructive, and highly relevant to '{$targetRole}'. Limi
             // 2. Deterministic Parsing
             $parser = new ResumeParser();
             $structured = $parser->parse($resumeText);
-            
+
             // 3. Rule-based Scoring
             $scorer = new ResumeScoringEngine();
             $scores = $scorer->score($structured);
-            
+
             // 4. Targeted AI Refinement
             $aiResult = $this->refineResumeAnalysis($structured, $scores, $targetRole);
-            
+
             if (!$aiResult['success']) {
                 return $aiResult;
             }
@@ -352,7 +359,7 @@ Keep feedback direct, constructive, and highly relevant to '{$targetRole}'. Limi
                     'is_cached' => false
                 ]
             ];
-            
+
             // 6. Save to Cache
             $resumeModel = new Resume();
             $resumeModel->cacheAnalysis($userId, $resumeText, $analysis);
@@ -369,7 +376,8 @@ Keep feedback direct, constructive, and highly relevant to '{$targetRole}'. Limi
     /**
      * Advanced ATS Resume Analysis based on strict logic-based criteria.
      */
-    public function advancedATSAnalysis($resumeText, $jobDescription) {
+    public function advancedATSAnalysis($resumeText, $jobDescription)
+    {
         $systemPrompt = "You are an ELITE, SKEPTICAL, and BRUTALLY HONEST ATS (Applicant Tracking System) analyzer. Your goal is to filter out candidates who do not meet the highest standards.
 
 You do NOT behave like a supportive mentor. You behave like a cold, deterministic logic engine. 
@@ -509,10 +517,11 @@ RULES:
     /**
      * Integrated ATS Analysis Sequence
      */
-    public function analyzeResumeWithJD($userId, $resumeText, $jobDescription) {
+    public function analyzeResumeWithJD($userId, $resumeText, $jobDescription)
+    {
         try {
             $atsResult = $this->advancedATSAnalysis($resumeText, $jobDescription);
-            
+
             if (isset($atsResult['ats_score'])) {
                 // Wrap it in a success response compatible with existing UI
                 $analysis = [
@@ -558,7 +567,7 @@ RULES:
         $conceptContext = $concept ? " The candidate is applying for a role specifically focused on: '**{$concept}**'." : "";
         $sgpa = $profile['sgpa'] ?? 0;
         $randomSeed = substr(md5(microtime()), 0, 8);
-        
+
         $portfolioContext = "";
         if (!empty($projects)) {
             $categorized = [
@@ -566,7 +575,7 @@ RULES:
                 'Skill' => [],
                 'Certification' => []
             ];
-            
+
             foreach ($projects as $item) {
                 $cat = $item['category'] ?? '';
                 if (isset($categorized[$cat])) {
@@ -587,7 +596,7 @@ RULES:
                     $portfolioContext .= "- **{$cert['title']}**" . (!empty($cert['description']) ? ": {$cert['description']}" : "") . "\n";
                 }
             }
-            
+
             if (!empty($categorized['Project'])) {
                 $portfolioContext .= "\n=== CANDIDATE'S PROJECTS ===\n";
                 foreach ($categorized['Project'] as $idx => $proj) {
@@ -635,12 +644,13 @@ RULES:
             - **For Non-Technical (Civil, BCom, Mechanical):** 5 conceptual deep-dives followed by 5 practical industry scenarios or calculation problems (DO NOT ask for code).",
             'HR' => "Open-ended behavioral questions (NO MCQs). 5 questions focusing on situational logic and personal projects.{$conceptContext}"
         ];
-        
+
         $flowItems = "";
         if ($type && isset($flow[$type])) {
             $flowItems .= "   - **$type**: {$flow[$type]}\n";
             foreach ($flow as $k => $v) {
-                if ($k !== $type) $flowItems .= "   - **$k**: $v\n";
+                if ($k !== $type)
+                    $flowItems .= "   - **$k**: $v\n";
             }
         } else {
             foreach ($flow as $k => $v) {
@@ -697,13 +707,16 @@ STRICT RULES:
         foreach ($history as $msg) {
             // OpenAI requires content to be a string — sanitize any objects/arrays
             if (isset($msg['content']) && !is_string($msg['content'])) {
-                $msg['content'] = is_array($msg['content']) ? json_encode($msg['content']) : (string)$msg['content'];
+                $msg['content'] = is_array($msg['content']) ? json_encode($msg['content']) : (string) $msg['content'];
             }
             // Skip system-only internal messages not relevant to OpenAI
-            if (($msg['role'] ?? '') === 'system') continue;
+            if (($msg['role'] ?? '') === 'system')
+                continue;
             $messages[] = $msg;
         }
-        if (!empty($userMessage)) { $messages[] = ['role' => 'user', 'content' => $userMessage]; }
+        if (!empty($userMessage)) {
+            $messages[] = ['role' => 'user', 'content' => $userMessage];
+        }
 
         return $this->callAPI($messages, ['audit_method' => __FUNCTION__]);
     }
@@ -725,13 +738,13 @@ STRICT RULES:
                     $content = "Technical Evaluation - Score: {$evalData['score']}/10. Feedback: {$evalData['feedback']}.";
                 }
             }
-            
+
             $content = str_replace('[END_INTERVIEW]', '', $content);
             $transcript .= "{$role}: {$content}\n\n";
         }
 
         $isPureTechnical = ($type === 'Technical' || $type === 'NQT Technical');
-        
+
         $sectionalAnalysis = "##  Sectional Analysis:\n";
         if ($isPureTechnical) {
             $sectionalAnalysis .= "###  Technical Proficiency: [Score/10] - Detailed feedback on core knowledge and skills.\n";
@@ -766,6 +779,7 @@ STRICT RULES:
         - In the Technical section, if coding/practical tasks were presented and the candidate failed to write correct code or failed the evaluation, cap their Technical section score to a maximum of 4/10.
         - To prevent score inflation, DO NOT give overall scores above 80 unless the candidate demonstrated senior, industry-ready expertise with exact terminology and logic. Average, mediocre, or theoretical-only answers must receive scores between 40 and 60.
         - DO NOT hallucinate if transcript is empty.
+        - CRITICAL ZERO-EFFORT PENALTY: If the candidate answered fewer than 4 questions, or repeatedly gave invalid/empty/skip answers (e.g., 'I don't know', 'skip', random letters), you MUST cap the 'overall_score' strictly below 20. Do not give them a passing or average score for skipping.
         - The 'content' field should contain the formatted report text.
         - Ensure 'overall_score' is a number between 0 and 100.";
 
@@ -779,7 +793,7 @@ STRICT RULES:
             'max_tokens' => 4000,
             'response_format' => ['type' => 'json_object']
         ]);
-        
+
         if (!$response['success']) {
             return $response;
         }
@@ -791,23 +805,37 @@ STRICT RULES:
         return [
             'success' => true,
             'content' => $reportText,
-            'overall_score' => (int)$score
+            'overall_score' => (int) $score
         ];
     }
 
     /**
      * Generate MCQs tailored to a specific Company
      */
-    public function getCompanyAptitudeQuestions($companyName, $count = 4) {
+    public function getCompanyAptitudeQuestions($companyName, $count = 4)
+    {
         $systemPrompt = "You are an Elite Recruitment Paper Setter for $companyName. 
 Generate $count high-quality, unique Multiple Choice Questions (MCQs) for a recruitment screening.
 
 FOCUS: TECHNICAL APTITUDE / DOMAIN LOGIC for $companyName.
 
-STRICT RULES:
-1. MATH ACCURACY: All calculations must be perfect.
-2. FORMAT: Return exactly $count questions in a JSON 'questions' array.
-3. STRUCTURE: Each question MUST have: 'question', 'options' (array of 4), 'answer' (0-3), 'explanation' (1 short line), and 'category'.";
+STRICT RULES FOR ACCURACY:
+1. You must solve the question yourself step-by-step in the 'step_by_step_derivation' field before deciding the options or the answer index.
+2. The correct answer MUST be mathematically, logically, and factually correct.
+3. Read the question carefully to identify exactly what is being asked (e.g. if the question asks for 'girls', the correct answer must be the number of girls, not the number of boys). Ensure the answer index points to the value of the requested variable.
+4. The correct answer MUST be present as one of the choices in the 'options' array.
+5. The 'answer' index (0, 1, 2, or 3) MUST point exactly to the correct answer in the 'options' array.
+6. Never generate a question where the correct answer is missing, incorrect, or closest-guess.
+7. FORMAT: Return exactly $count questions in a JSON 'questions' array.
+8. STRUCTURE: Each question object MUST follow this EXACT structure:
+{
+    \"question\": \"The clear question text here\",
+    \"step_by_step_derivation\": \"Solve the question step-by-step with formulas and intermediate values to ensure 100% accuracy. Decide the correct answer based on this derivation.\",
+    \"options\": [\"Option A text\", \"Option B text\", \"Option C text\", \"Option D text\"],
+    \"answer\": 0, // 0-3
+    \"explanation\": \"Brief explanation of why the answer is correct\",
+    \"category\": \"Target Topic Name\"
+}";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
@@ -823,7 +851,7 @@ STRICT RULES:
         if ($response['success']) {
             $data = json_decode($response['content'], true);
             $rawQuestions = $data['questions'] ?? [];
-            
+
             $validQuestions = [];
             foreach ($rawQuestions as $q) {
                 if (empty($q['question']) || empty($q['options']) || !is_array($q['options']) || count($q['options']) < 4) {
@@ -844,7 +872,8 @@ STRICT RULES:
     /**
      * Generate 10 MCQs to verify a student's proficiency in a specific skill.
      */
-    public function generateSkillQuiz($skill, $level = 'Intermediate') {
+    public function generateSkillQuiz($skill, $level = 'Intermediate')
+    {
         $systemPrompt = "You are a Technical Assessment Expert. 
 Generate 10 high-quality Multiple Choice Questions (MCQs) to verify if a student actually knows the skill: '$skill'.
 
@@ -853,12 +882,21 @@ DIFFICULTY CALIBRATION (Level: $level):
 - Intermediate: Best practices, common libraries, debugging.
 - Expert/Advanced: Architectural patterns, edge cases, internals.
 
+CRITICAL RULES FOR ACCURACY:
+1. You must solve the question yourself step-by-step in the 'step_by_step_derivation' field before deciding the options or the answer index.
+2. The correct answer MUST be mathematically, logically, and factually correct.
+3. Read the question carefully to identify exactly what is being asked (e.g. if the question asks for 'girls', the correct answer must be the number of girls, not the number of boys). Ensure the answer index points to the value of the requested variable.
+4. The correct answer MUST be present as one of the choices in the 'options' array.
+5. The 'answer' index (0, 1, 2, or 3) MUST point exactly to the correct answer in the 'options' array.
+6. Never generate a question where the correct answer is missing, incorrect, or closest-guess.
+
 Format: Return a JSON object with a 'questions' array.
 Each question object MUST follow this EXACT structure:
 {
     \"question\": \"The clear question text here\",
+    \"step_by_step_derivation\": \"Solve the question step-by-step with formulas and intermediate values to ensure 100% accuracy. Decide the correct answer based on this derivation.\",
     \"options\": [\"Option A\", \"Option B\", \"Option C\", \"Option D\"], 
-    \"answer\": 0,
+    \"answer\": 0, // 0-3
     \"explanation\": \"Brief clear explanation\"
 }";
 
@@ -887,7 +925,8 @@ Each question object MUST follow this EXACT structure:
     /**
      * Generate 5 deep-dive 'Viva' questions to verify a student's project.
      */
-    public function generateProjectViva($projectTitle, $description) {
+    public function generateProjectViva($projectTitle, $description)
+    {
         $systemPrompt = "You are a Senior Project Evaluator. 
 Generate 5 deep-dive, analytical questions for a student to 'defend' their project: '$projectTitle'.
 Project Description: $description
@@ -918,7 +957,8 @@ Format: Return a JSON object with a 'questions' array (list of 5 strings).";
     /**
      * Evaluate a student's Project Defense (Viva) answers.
      */
-    public function evaluateProjectViva($projectTitle, $history) {
+    public function evaluateProjectViva($projectTitle, $history)
+    {
         $transcript = "";
         foreach ($history as $h) {
             $transcript .= "Q: {$h['question']}\nA: {$h['answer']}\n\n";
@@ -949,16 +989,28 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Get a Technical Question (Coding or Conceptual)
      */
-    public function getTechnicalQuestion($role, $history, $concept = null, $portfolio = '') {
+    public function getTechnicalQuestion($role, $history, $concept = null, $portfolio = '', $previousQuestions = [])
+    {
         $conceptContext = $concept ? " Specifically focus on the technical concept or role of: '**{$concept}**'." : "";
+
+        $exclusionContext = "";
+        if (!empty($previousQuestions)) {
+            $exclusionContext = "\nCRITICAL: DO NOT ASK ANY OF THE FOLLOWING QUESTIONS (they have already been asked to this candidate):\n" . implode("\n- ", $previousQuestions) . "\n";
+        }
+
         $systemPrompt = "You are a Professional, Strict Technical Interviewer for the role of '{$role}'.{$conceptContext}
         You MUST ask questions based on the role, the concepts mentioned, AND the student's portfolio skills.
         You MUST also ask coding questions.
         
+        LANGUAGE-AGNOSTIC RULE: ALL questions you ask (both 'conceptual' and 'coding' types) MUST be completely language-agnostic. DO NOT ask the student to explain concepts or write code in a specific language (e.g., never say 'Write a Java program', 'Explain pointers in C++', or 'How does Python handle memory'). Simply present the algorithmic or logical problem and let the student choose their own programming language, or ask about the universal concept itself.
+        
+        IMPORTANT RANDOMIZATION RULE: To prevent question leaking between students, you MUST select highly varied, non-standard, or obscure technical scenarios. Do NOT ask common, generic textbook questions. Pick from a vast pool of possibilities.
+        {$exclusionContext}
+        
         PORTFOLIO SKILLS & PROJECTS:
         {$portfolio}
         
-        If this is the VERY FIRST message (history is empty), you MUST simply ask: 'Welcome to the Technical Round. Are you ready to start?' and wait for their response. Do not ask a technical question yet.
+        IMPORTANT: Start asking questions immediately. DO NOT say 'Are you ready?' or 'Initializing' or welcome them. Your very first message MUST be the first actual technical/conceptual or coding question.
         
         OUTPUT FORMAT (JSON):
         {
@@ -968,21 +1020,22 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
             'problem_statement': '...',
             'constraints': '...',
             'test_cases': []
-        }
-        (For the initial greeting, set 'type' to 'conceptual' and put the greeting in 'question' and leave problem_statement empty)";
+        }";
 
         $messages = [['role' => 'system', 'content' => $systemPrompt]];
-        foreach ($history as $msg) { $messages[] = $msg; }
+        foreach ($history as $msg) {
+            $messages[] = $msg;
+        }
 
         $response = $this->callAPI($messages, [
             'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object']
         ]);
-        
+
         if ($response['success']) {
             return [
                 'success' => true,
-                'result' => json_decode($response['content'], true)
+                'result' => $response['parsed'] ?? json_decode($response['content'], true)
             ];
         }
         return $response;
@@ -991,8 +1044,12 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Evaluate Code Submission
      */
-    public function evaluateCode($code, $language, $problemStatement) {
+    public function evaluateCode($code, $language, $problemStatement)
+    {
         $systemPrompt = "You are a Global Code Reviewer. Validate the student's code.
+        CRITICAL: The student is allowed to solve the problem in ANY language (they selected $language), even if the problem implicitly mentioned a different language (like Java). If their logic correctly solves the fundamental problem statement using $language, you MUST evaluate it as correct and give a high score. Do not penalize for using a different programming language than requested.
+        
+        ANTI-CHEAT / EMPTY SUBMISSION RULE: If the student submits empty code, code that only contains comments/problem statement, or completely irrelevant code that doesn't attempt to solve the problem, you MUST return a score of 0, set 'passed' to false, and provide feedback that no valid code was found. Do NOT hallucinate a solution.
         
         OUTPUT (JSON):
         {
@@ -1006,18 +1063,27 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
             ['role' => 'user', 'content' => "Problem: $problemStatement\n\nCode ($language):\n$code"]
         ];
 
-        return $this->callAPI($messages, [
+        $response = $this->callAPI($messages, [
             'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object']
         ]);
+
+        if ($response['success']) {
+            return [
+                'success' => true,
+                'result' => $response['parsed'] ?? json_decode($response['content'], true)
+            ];
+        }
+        return $response;
     }
 
     /**
      * Get HR Question (Behavioral)
      */
-    public function getHRQuestion($role, $history, $projects = [], $concept = null) {
+    public function getHRQuestion($role, $history, $projects = [], $concept = null, $previousQuestions = [])
+    {
         $conceptContext = $concept ? " The candidate is applying for a role specifically focused on: '**{$concept}**'." : "";
-        
+
         $portfolioContext = "";
         if (!empty($projects)) {
             $portfolioContext = "\nCANDIDATE'S PORTFOLIO / SKILLS / PROJECTS:\n";
@@ -1026,12 +1092,20 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
                 $portfolioContext .= "{$num}. Title: {$p['title']} (Category: {$p['category']})\n   Description: {$p['description']}\n";
             }
         }
-        
+
+        $exclusionContext = "";
+        if (!empty($previousQuestions)) {
+            $exclusionContext = "\nCRITICAL: DO NOT ASK ANY OF THE FOLLOWING QUESTIONS (they have already been asked to this candidate):\n" . implode("\n- ", $previousQuestions) . "\n";
+        }
+
         $systemPrompt = "You are an Expert HR Manager conducting a behavioral interview for the role of '{$role}'.{$conceptContext}
         You MUST ask questions which were mentioned by the officer (concepts), basic HR questions, and also ask about the candidate's portfolio skills/projects.
         {$portfolioContext}
         
-        If this is the VERY FIRST message (history is empty), you MUST simply ask: 'Welcome to the HR Round. Are you ready to start?' and wait for their response. Do not ask an HR question yet.
+        IMPORTANT RANDOMIZATION RULE: To prevent question leaking between students, you MUST select highly varied, situational HR scenarios. Do NOT ask common, generic HR questions like 'tell me about yourself' or 'strengths and weaknesses' unless specifically instructed.
+        {$exclusionContext}
+        
+        IMPORTANT: Start asking questions immediately. DO NOT say 'Welcome to the HR round' or 'Are you ready?'. Your very first message MUST be an actual HR question.
         
         OUTPUT FORMAT (JSON):
         {
@@ -1041,21 +1115,38 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
 
         $messages = [['role' => 'system', 'content' => $systemPrompt]];
         foreach ($history as $msg) {
-            if ($msg['role'] !== 'system') $messages[] = $msg;
+            if ($msg['role'] !== 'system')
+                $messages[] = $msg;
         }
 
-        return $this->callAPI($messages, [
+        $response = $this->callAPI($messages, [
             'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object']
         ]);
+
+        if ($response['success']) {
+            return [
+                'success' => true,
+                'result' => $response['parsed'] ?? json_decode($response['content'], true)
+            ];
+        }
+        return $response;
     }
 
     /**
      * Generate HR Interview Report
      */
-    public function generateHRReport($role, $history, $concept = null) {
+    public function generateHRReport($role, $history, $concept = null)
+    {
         $conceptContext = $concept ? " The candidate was assessed for a role specifically focused on: '**{$concept}**'." : "";
         $systemPrompt = "You are a Senior Human Resources Director. Generate an assessment report for '{$role}'. {$conceptContext}
+        
+        STRICT RULES:
+        - Be brutally honest and highly critical about communication, situational awareness, and cultural fit.
+        - If the candidate gives generic, one-sentence answers without using the STAR method, penalize them heavily.
+        - To prevent score inflation, DO NOT give overall scores above 80 unless the candidate demonstrated exceptional maturity, leadership, and clear communication. Average or brief answers must receive scores between 40 and 60.
+        - DO NOT hallucinate if transcript is empty.
+        - CRITICAL ZERO-EFFORT PENALTY: If the candidate answered fewer than 4 questions, or repeatedly gave invalid/empty/skip answers (e.g., 'I don't know', 'skip', random letters), you MUST cap the 'overall_score' strictly below 20. Do not give them a passing or average score for skipping.
         
         OUTPUT FORMAT (JSON):
         {
@@ -1065,7 +1156,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
 
         $messages = [['role' => 'system', 'content' => $systemPrompt]];
         foreach ($history as $msg) {
-            if ($msg['role'] !== 'system') $messages[] = $msg;
+            if ($msg['role'] !== 'system')
+                $messages[] = $msg;
         }
 
         $response = $this->callAPI($messages, [
@@ -1079,7 +1171,7 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
             return [
                 'success' => true,
                 'content' => is_array($aiData) ? ($aiData['content'] ?? "Report content missing.") : $aiData,
-                'overall_score' => is_array($aiData) ? ((int)($aiData['overall_score'] ?? 0)) : 0
+                'overall_score' => is_array($aiData) ? ((int) ($aiData['overall_score'] ?? 0)) : 0
             ];
         }
 
@@ -1089,7 +1181,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Generate educational coding solutions
      */
-    public function generateCodingSolution($problem) {
+    public function generateCodingSolution($problem)
+    {
         $systemPrompt = "You are an expert coding instructor. You must return a response strictly formatted as a valid JSON object matching the following structure:
         {
           \"solutions\": {
@@ -1135,7 +1228,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Analyze Fit for a Specific Role & Company
      */
-    public function analyzeTargetFit($studentData, $targetRole, $targetCompany) {
+    public function analyzeTargetFit($studentData, $targetRole, $targetCompany)
+    {
         $systemPrompt = "You are a Recruitment Head at $targetCompany. Evaluate the candidate's student profile for the target role: '$targetRole'.
         
         You must return the response strictly formatted as a valid JSON object matching this schema:
@@ -1166,7 +1260,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
         ]);
     }
 
-    public function predictCareerPath($studentData) {
+    public function predictCareerPath($studentData)
+    {
         $systemPrompt = "You are an expert Career Path Architect. Analyze the student's profile to project their future career path.
         
         You must return the response strictly formatted as a valid JSON object matching this schema:
@@ -1209,7 +1304,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Analyze Profile Match
      */
-    public function analyzeProfileMatch($studentData, $company = null) {
+    public function analyzeProfileMatch($studentData, $company = null)
+    {
         $companyContext = $company ? " Benchmark the candidate against the requirements of '$company'." : " Benchmark the candidate against global industry standards.";
         $systemPrompt = "You are an Elite Global Tech Career Strategist.{$companyContext}
         
@@ -1273,7 +1369,7 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
           ]
         }
         Do not return any markdown wraps outside of valid JSON.";
-        
+
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
             ['role' => 'user', 'content' => "STUDENT PROFILE:\n" . json_encode($studentData)]
@@ -1288,7 +1384,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Generate a detailed placement guide
      */
-    public function getCompanyPlacementGuide($companyName, $studentDept = '') {
+    public function getCompanyPlacementGuide($companyName, $studentDept = '')
+    {
         $systemPrompt = "You are an Elite Placement Officer. Generate a guide for $companyName.";
 
         $messages = [
@@ -1304,7 +1401,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Recursive UTF-8 Sanitizer
      */
-    private function utf8ize($mixed) {
+    private function utf8ize($mixed)
+    {
         if (is_array($mixed)) {
             foreach ($mixed as $key => $value) {
                 $mixed[$key] = $this->utf8ize($value);
@@ -1318,7 +1416,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Mutate a batch of aptitude questions
      */
-    public function mutateAptitudeBatch($questions) {
+    public function mutateAptitudeBatch($questions)
+    {
         $systemPrompt = "You are an Elite Assessment Logic Mutator. You must return the mutated questions strictly formatted as a valid JSON object.
         The JSON format must be an array of questions:
         {
@@ -1347,7 +1446,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Mutate a coding challenge
      */
-    public function mutateCodingChallenge($seedProblem, $studentContext = []) {
+    public function mutateCodingChallenge($seedProblem, $studentContext = [])
+    {
         $systemPrompt = "You are a Senior Technical Problem Architect. Your task is to take a seed coding problem and mutate it into a unique, fresh variation of similar difficulty.
         
         You must return a response strictly formatted as a valid JSON object matching the following structure:
@@ -1383,13 +1483,23 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Generate similar MCQ
      */
-    public function generateSimilarQuestion($baseQuestion, $topic) {
+    public function generateSimilarQuestion($baseQuestion, $topic)
+    {
         $systemPrompt = "You are an Elite Assessment Expert. Generate a similar question for the topic.
+        CRITICAL RULES FOR ACCURACY:
+        1. You must solve the question yourself step-by-step in the 'step_by_step_derivation' field before deciding the options or the answer index.
+        2. The correct answer MUST be mathematically, logically, and factually correct.
+        3. Read the question carefully to identify exactly what is being asked (e.g. if the question asks for 'girls', the correct answer must be the number of girls, not the number of boys). Ensure the answer index points to the value of the requested variable.
+        4. The correct answer MUST be present as one of the choices in the 'options' array.
+        5. The 'answer' index (0, 1, 2, or 3) MUST point exactly to the correct answer in the 'options' array.
+        6. Never generate a question where the correct answer is missing, incorrect, or closest-guess.
+
         You must return the response strictly formatted as a valid JSON object:
         {
             \"question\": \"...\",
+            \"step_by_step_derivation\": \"Solve the question step-by-step with formulas and intermediate values to ensure 100% accuracy. Decide the correct answer based on this derivation.\",
             \"options\": [\"Option A\", \"Option B\", \"Option C\", \"Option D\"],
-            \"answer\": 0-3,
+            \"answer\": 0, // 0-3
             \"explanation\": \"...\",
             \"category\": \"...\"
         }";
@@ -1408,7 +1518,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Generate certification verification questions.
      */
-    public function generateCertificationQuestions($certTitle, $issuer) {
+    public function generateCertificationQuestions($certTitle, $issuer)
+    {
         $systemPrompt = "You are a Technical Certification Auditor.
         Generate 5 verification questions for the certification '$certTitle' ($issuer).
         You must return the response strictly formatted as a valid JSON object:
@@ -1436,7 +1547,8 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Evaluate Certification Viva
      */
-    public function evaluateCertificationViva($certTitle, $issuer, $transcript) {
+    public function evaluateCertificationViva($certTitle, $issuer, $transcript)
+    {
         $systemPrompt = "You are a technical certification auditor.
         Evaluate the student's answers to the verification questions for the certification '$certTitle' ($issuer).
         You must return the response strictly formatted as a valid JSON object:
@@ -1459,18 +1571,25 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Generate MCQ questions for a specific Campus Drive round based on selected topics
      */
-    public function generateDriveRoundQuestions($roundType, $topics, $questionCount, $driveName = 'Company') {
+    public function generateDriveRoundQuestions($roundType, $topics, $questionCount, $driveName = 'Company')
+    {
         $systemPrompt = "You are an Elite Recruitment Question Architect for a recruitment drive named '$driveName'.
         Your task is to generate exactly $questionCount high-quality, professional, and unique Multiple Choice Questions (MCQs) for the **$roundType** round.
         
         The questions must target these specific topics: '$topics'.
         
-        STRICT RULES:
-        1. Accuracy: All questions, choices, answers, and explanations must be 100% accurate.
-        2. Format: Return a JSON object with a single 'questions' array.
-        3. Structure: Each question object MUST follow this EXACT structure:
+        STRICT RULES FOR ACCURACY:
+        1. You must solve the question yourself step-by-step in the 'step_by_step_derivation' field before deciding the options or the answer index.
+        2. The correct answer MUST be mathematically, logically, and factually correct.
+        3. Read the question carefully to identify exactly what is being asked (e.g. if the question asks for 'girls', the correct answer must be the number of girls, not the number of boys). Ensure the answer index points to the value of the requested variable.
+        4. The correct answer MUST be present as one of the choices in the 'options' array.
+        5. The 'answer' index (0, 1, 2, or 3) MUST point exactly to the correct answer in the 'options' array.
+        6. Never generate a question where the correct answer is missing, incorrect, or closest-guess.
+        7. Format: Return a JSON object with a single 'questions' array.
+        8. Structure: Each question object MUST follow this EXACT structure:
         {
             \"question\": \"The clear question text here\",
+            \"step_by_step_derivation\": \"Solve the question step-by-step with formulas and intermediate values to ensure 100% accuracy. Decide the correct answer based on this derivation.\",
             \"options\": [\"Option A text\", \"Option B text\", \"Option C text\", \"Option D text\"],
             \"answer\": 0, // 0 for A, 1 for B, 2 for C, 3 for D
             \"explanation\": \"Brief explanation of why the answer is correct\",
@@ -1500,6 +1619,160 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
             }
         }
         return ['success' => false, 'message' => $response['message'] ?? 'Failed to parse AI response.'];
+    }
+
+    /**
+     * AI Coding Mentor Feedback Generator
+     */
+    public function getMentorFeedback($problem, $code, $language, $hintLevel, $requestType, $executionResult = '', $compilerOutput = '')
+    {
+        $systemPrompt = "You are an Elite AI Coding Mentor. Your core educational directive is:
+- Teach instead of solve.
+- Explain mistakes instead of correcting them.
+- Encourage reasoning before revealing hints.
+- Adapt to the student's skill level.
+- Never provide the final solution unless the progressive hint level is strictly at Level 7.
+
+Here is the problem context:
+Title: " . $problem['title'] . "
+Category: " . $problem['category'] . "
+Difficulty: " . $problem['difficulty'] . "
+Statement: " . $problem['problem_statement'] . "
+Constraints: " . $problem['constraints'] . "
+Example Input: " . $problem['example_input'] . "
+Example Output: " . $problem['example_output'] . "
+Expected Concept: " . $problem['concept_explanation'] . "
+
+Student's Environment:
+Language: $language
+Code:
+$code
+Execution Result: $executionResult
+Compiler/Console Output: $compilerOutput
+
+Request Type: $requestType (analyze, hint, socratic, concept, complexity, reflection, trace, recommendation)
+Current Hint Level: $hintLevel (Out of 7)
+
+PROGRESSIVE HINT ENGINE RULES:
+- Level 1: Clue on high-level conceptual direction (e.g. check loop boundary, check comparison).
+- Level 2: Clue pointing out the exact problematic block or variable.
+- Level 3: Highlight the logic flaw or boundary condition specifically.
+- Level 4: Walkthrough/dry run trace of the code on sample input showing values.
+- Level 5: Explain the algorithm conceptually.
+- Level 6: Provide pseudocode ONLY. No actual code.
+- Level 7: Provide the complete working code solution in $language with a detailed explanation.
+
+You must return a response strictly formatted as a valid JSON object matching this schema:
+{
+  \"syntax_analysis\": {
+    \"valid\": true,
+    \"message\": \"Explain language syntax rules if they wrote invalid code, otherwise empty\",
+    \"error_type\": \"\"
+  },
+  \"logic_analysis\": {
+    \"valid\": true,
+    \"message\": \"Explain logic issues like variable reassignment, loop bounds, off-by-one errors\",
+    \"flaws\": []
+  },
+  \"runtime_analysis\": {
+    \"infinite_loop\": false,
+    \"index_out_of_bounds\": false,
+    \"null_pointer\": false,
+    \"message\": \"\"
+  },
+  \"algorithm_analysis\": {
+    \"current_approach\": \"Description of how they are trying to solve it\",
+    \"optimal_approach\": \"Description of the optimal approach\",
+    \"advice\": \"Algorithmic advice\"
+  },
+  \"complexity_analysis\": {
+    \"time\": \"e.g., O(n)\",
+    \"space\": \"e.g., O(1)\",
+    \"advice\": \"Explain time/space complexity and optimization potential\"
+  },
+  \"learning_feedback\": \"Firm, direct, encouraging coaching message\",
+  \"concept_coach\": {
+    \"needed\": false,
+    \"topic\": \"Recursion, Pointers, Arrays, etc.\",
+    \"explanation\": \"A short 100-word interactive explanation of the concept\",
+    \"mini_quiz\": {
+      \"question\": \"Multiple choice question checking understanding\",
+      \"options\": [\"Option 0\", \"Option 1\", \"Option 2\", \"Option 3\"],
+      \"answer\": 0,
+      \"explanation\": \"Why it is correct\"
+    }
+  },
+  \"socratic_questions\": [\"Ask a guiding question to lead student to spot the error\"],
+  \"hint\": \"The progressive hint corresponding to the current Hint Level $hintLevel, if requested\",
+  \"confidence_score\": 85,
+  \"struggling_topics\": [],
+  \"next_recommended_action\": \"\",
+  \"execution_trace\": {
+    \"variables\": [{\"name\": \"variable_name\", \"value\": \"value\"}],
+    \"steps\": [{\"line\": 1, \"explanation\": \"Step detail\"}]
+  },
+  \"reflection\": {
+    \"achievements\": [\"List of achievements\"],
+    \"complexity\": \"Time & Space details\",
+    \"concepts_learned\": [\"Concepts masterered\"],
+    \"mistakes_fixed\": [\"Mistakes resolved\"],
+    \"next_recommendation\": \"Next topic or problem name\"
+  }
+}
+Return ONLY valid JSON. Do not wrap in ```json or any other formatting.";
+
+        $messages = [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => "Perform analysis on the student's code. Hint level is $hintLevel. Request type is '$requestType'."]
+        ];
+
+        return $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object'],
+            'max_tokens' => 2500,
+            'temperature' => 0.5
+        ]);
+    }
+
+    /**
+     * Simulate Code Execution conceptually via LLM
+     */
+    public function simulateCodeExecution($code, $language, $input = '', $practiceMode = 'learning')
+    {
+        $modePrompt = "";
+        if ($practiceMode === 'learning') {
+            $modePrompt = "The student is coding in Learning Mode. Their code only defines the core logical function (e.g. solve(input) or similar). The platform automatically appends a wrapper to read input parameters and execute the function, printing its return value to standard output. Do not expect standard input/output setup in their code; analyze the logic of their function against the input, and capture the returned value as stdout.";
+        } else {
+            $modePrompt = "The student is coding in Competitive Mode. Their code is a complete script that reads from standard input (stdin) and prints outputs to standard output (stdout).";
+        }
+
+        $systemPrompt = "You are a code execution engine. Your job is to compile and run the student's code in $language with the provided input parameters.
+$modePrompt
+If there are syntax errors, output them to stderr.
+If the code compiles successfully, trace the execution of the code and print any console outputs (e.g. print statements, return values, standard output) to stdout.
+If the program reads from standard input (stdin) (e.g. input() in Python, System.in / Scanner in Java, cin in C++), substitute the stdin reads with the values provided in the Input payload.
+If the input payload has multiple lines or variables, map them to the stdin calls sequentially.
+Trace the exact values printed by standard prints (stdout) and return them in the 'stdout' field.
+Be careful not to confuse standard library functions with input data. For example, in Python, the function 'list()' is a built-in constructor. Even if the Input payload contains array/list strings like '[3, 7, 2, 9, 1]', the name 'list' refers to the built-in class/function and is fully callable. Do not throw 'list object is not callable' errors under any circumstances unless the student code explicitly shadows 'list' with a variable assignment (like 'list = ...'). Standard library capabilities are completely intact.
+Do not provide explanations. Return ONLY a valid JSON object matching this schema:
+{
+  \"success\": true,
+  \"stdout\": \"The standard output printed by the program\",
+  \"stderr\": \"Any compiler errors or runtime exceptions\",
+  \"exit_code\": 0
+}";
+
+        $messages = [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => "Code:\n$code\n\nInput:\n$input"]
+        ];
+
+        return $this->callAPI($messages, [
+            'audit_method' => __FUNCTION__,
+            'response_format' => ['type' => 'json_object'],
+            'max_tokens' => 1000,
+            'temperature' => 0.1
+        ]);
     }
 }
 

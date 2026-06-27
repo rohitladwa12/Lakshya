@@ -18,6 +18,11 @@ $input = array_merge($input, $_POST);
 
 $action = $input['action'] ?? '';
 
+if (!isLoggedIn()) {
+    ob_clean();
+    echo json_encode(['success' => false, 'message' => 'Session expired. Please log in again.']);
+    exit;
+}
 $userId = getUserId();
 $studentIdForDb = getStudentIdForAssessment(); // USN for GMIT, user_id for GMU (avoids 0 for GMIT)
 

@@ -16,6 +16,29 @@ $myUsn = getUsername();
 $myDept = getDepartment();
 $myInst = getInstitution();
 
+// Resolve canonical USN and Aadhar for GMIT students
+// (login may use Aadhar, but leaderboard entries use student_id/USN)
+$myAadhar = '';
+$myCanonicalUsn = $myUsn; // default
+try {
+    $remoteDB = getDB('gmit');
+    if ($remoteDB && $myInst === INSTITUTION_GMIT) {
+        $stmtMe = $remoteDB->prepare(
+            "SELECT IFNULL(NULLIF(usn, ''), student_id) as canonical_usn, aadhar 
+             FROM ad_student_details 
+             WHERE student_id = ? OR usn = ? OR aadhar = ? LIMIT 1"
+        );
+        $stmtMe->execute([$myUsn, $myUsn, $myUsn]);
+        $meRow = $stmtMe->fetch(PDO::FETCH_ASSOC);
+        if ($meRow) {
+            $myCanonicalUsn = $meRow['canonical_usn'] ?: $myUsn;
+            $myAadhar = $meRow['aadhar'] ?: '';
+        }
+    }
+} catch (Exception $e) {
+    // Ignore — fallback to username
+}
+
 $pageTitle = "Leaderboard | Lakshya";
 ?>
 <!DOCTYPE html>
@@ -690,8 +713,21 @@ $pageTitle = "Leaderboard | Lakshya";
 
         let currentView = 'local';
         let currentData = [];
-        let myUsn = '<?php echo $myUsn; ?>';
+        let myUsn = '<?php echo addslashes($myUsn); ?>'.toLowerCase();
+        let myCanonicalUsn = '<?php echo addslashes($myCanonicalUsn); ?>'.toLowerCase();
+        let myAadhar = '<?php echo addslashes($myAadhar); ?>'.toLowerCase();
         let selectedUsn = null;
+
+        // Helper: returns true if a ranking entry belongs to the current student
+        // Handles GMIT students who may have logged in via Aadhar
+        function isMyEntry(s) {
+            const usnLow = (s.usn || '').toLowerCase();
+            const aadharLow = (s.aadhar || '').toLowerCase();
+            if (usnLow === myUsn || usnLow === myCanonicalUsn) return true;
+            if (myAadhar && (usnLow === myAadhar || aadharLow === myAadhar)) return true;
+            if (myCanonicalUsn && aadharLow === myCanonicalUsn) return true;
+            return false;
+        }
 
         gsap.registerPlugin(Flip);
 
@@ -749,18 +785,22 @@ $pageTitle = "Leaderboard | Lakshya";
                 onLeave: els => gsap.to(els, { opacity: 0, y: -20, duration: 0.6 })
             });
 
-            // My sticky
-            const myData = newList.find(s => s.usn.toLowerCase() === myUsn.toLowerCase());
+            // My sticky — show if student is outside the visible top 20
+            const myData = newList.find(s => isMyEntry(s));
             if (myData) {
                 document.getElementById('my-rank-badges').textContent = `#${myData.rank}`;
                 document.getElementById('my-total-score').textContent = myData.total;
-                stickyEl.classList.toggle('hidden', myData.rank <= 10);
+                // Show sticky bar when student is not in the visible rendered list (top 20)
+                stickyEl.classList.toggle('hidden', myData.rank <= 20);
+            } else {
+                // Student not yet ranked — hide sticky
+                stickyEl.classList.add('hidden');
             }
         }
 
         /* ===== RENDER STUDENT ROW ===== */
         function renderStudentRow(s) {
-            const isMe = s.usn.toLowerCase() === myUsn.toLowerCase();
+            const isMe = isMyEntry(s);
             const prevRank = parseInt(s.previous_rank) || s.rank;
             let rankIndicator = '';
             if (prevRank > s.rank) {
@@ -819,7 +859,7 @@ $pageTitle = "Leaderboard | Lakshya";
                 const rankNum = s.rank;
                 const isWinner = rankNum === 1;
                 const badgeClass = rankNum === 1 ? 'rank-1' : (rankNum === 2 ? 'rank-2' : 'rank-3');
-                const isMe = s.usn.toLowerCase() === myUsn.toLowerCase();
+                const isMe = isMyEntry(s);
 
                 return `
                     <div class="podium-step step-${rankNum}" data-rank="${rankNum}">
@@ -873,7 +913,7 @@ $pageTitle = "Leaderboard | Lakshya";
         }
 
         function openInsight(usn) {
-            if (usn.toLowerCase() !== myUsn.toLowerCase()) return;
+            if (!isMyEntry({usn: usn, aadhar: ''})) return;
             const student = currentData.find(s => s.usn.toLowerCase() === usn.toLowerCase());
             if (!student) return;
 
@@ -885,7 +925,7 @@ $pageTitle = "Leaderboard | Lakshya";
 
             const leader = currentData[0];
             const gapFromTop = leader ? (parseFloat(leader.total) - parseFloat(student.total)).toFixed(1) : 0;
-            const isMe = usn.toLowerCase() === myUsn.toLowerCase();
+            const isMe = isMyEntry({usn: usn, aadhar: ''});
             const isFirst = student.rank === 1;
             const prevRank = parseInt(student.previous_rank) || student.rank;
             const rankChange = prevRank - student.rank;
@@ -947,7 +987,10 @@ $pageTitle = "Leaderboard | Lakshya";
         }
 
         function openMyInsight() {
-            if (myUsn) openInsight(myUsn);
+            if (myUsn || myCanonicalUsn) {
+                const myEntry = currentData.find(s => isMyEntry(s));
+                if (myEntry) openInsight(myEntry.usn);
+            }
         }
 
         function closeDrawer() {
@@ -1076,8 +1119,8 @@ $pageTitle = "Leaderboard | Lakshya";
         /* ===== RANK CHANGE CELEBRATION ===== */
         function checkRankChanges(newList) {
             if (currentData.length === 0) return;
-            const oldMe = currentData.find(s => s.usn.toLowerCase() === myUsn.toLowerCase());
-            const newMe = newList.find(s => s.usn.toLowerCase() === myUsn.toLowerCase());
+            const oldMe = currentData.find(s => isMyEntry(s));
+            const newMe = newList.find(s => isMyEntry(s));
             if (oldMe && newMe && oldMe.rank !== newMe.rank && newMe.rank <= 10 && oldMe.rank > 10) {
                 triggerCelebration();
             }

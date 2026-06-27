@@ -238,6 +238,48 @@ switch ($action) {
         echo json_encode($result);
         break;
         
+    case 'run_code':
+        $problemId = $input['problem_id'] ?? 0;
+        $code = $input['code'] ?? '';
+        $language = $input['language'] ?? 'python';
+        $customInput = $input['custom_input'] ?? '';
+        $practiceMode = $input['practice_mode'] ?? 'learning';
+        
+        if (empty($customInput) && $problemId > 0) {
+            $stmt = $db->prepare("SELECT example_input FROM coding_problems WHERE id = ?");
+            $stmt->execute([$problemId]);
+            $customInput = $stmt->fetchColumn() ?: '';
+        }
+        
+        $aiService = new AIService();
+        $result = $aiService->simulateCodeExecution($code, $language, $customInput, $practiceMode);
+        echo json_encode($result);
+        break;
+
+    case 'mentor_feedback':
+        $problemId = $input['problem_id'] ?? 0;
+        $code = $input['code'] ?? '';
+        $language = $input['language'] ?? 'javascript';
+        $hintLevel = (int)($input['hint_level'] ?? 1);
+        $requestType = $input['request_type'] ?? 'analyze'; // analyze, hint, socratic, concept, complexity, reflection, trace, recommendation
+        $executionResult = $input['execution_result'] ?? '';
+        $compilerOutput = $input['compiler_output'] ?? '';
+        
+        $stmt = $db->prepare("SELECT * FROM coding_problems WHERE id = ?");
+        $stmt->execute([$problemId]);
+        $problem = $stmt->fetch();
+        
+        if (!$problem) {
+            echo json_encode(['success' => false, 'message' => 'Problem not found']);
+            exit;
+        }
+        
+        $aiService = new AIService();
+        $result = $aiService->getMentorFeedback($problem, $code, $language, $hintLevel, $requestType, $executionResult, $compilerOutput);
+        
+        echo json_encode($result);
+        break;
+        
     case 'get_categories':
         // Fetch all unique categories from coding_problems
         $stmt = $db->query("SELECT DISTINCT category FROM coding_problems ORDER BY category");

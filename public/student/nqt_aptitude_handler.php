@@ -51,7 +51,7 @@ try {
                     'id' => $q['id'],
                     'question' => $q['question'],
                     'options' => [$q['option_a'], $q['option_b'], $q['option_c'], $q['option_d']],
-                    'answer' => ord(strtoupper($q['answer'] ?? 'A')) - ord('A'),
+                    'answer' => match(strtoupper(trim($q['answer'] ?? 'A'))) { 'A'=>0, 'B'=>1, 'C'=>2, 'D'=>3, default=>0 },
                     'category' => $q['category']
                 ];
             }
@@ -69,6 +69,9 @@ try {
             shuffle($finalSet);
             $finalSet = array_slice($finalSet, 0, $numQuestions);
 
+            // Store in session for secure verification on submission
+            $_SESSION['nqt_questions'] = $finalSet;
+
             ob_clean();
             echo json_encode(['success' => true, 'questions' => $finalSet]);
             break;
@@ -84,14 +87,37 @@ try {
                 jsonError("Incomplete test data.");
             }
 
-            $score = 0;
-            foreach ($questions as $qIdx => $q) {
-                $userAnswer = isset($answers[$qIdx]) ? (int)$answers[$qIdx] : null;
-                $correctAnswer = isset($q['answer']) ? (int)$q['answer'] : null;
-                if ($userAnswer !== null && $correctAnswer !== null && $userAnswer === $correctAnswer) {
-                    $score++;
+            $correctAnswersMap = [];
+            if (isset($_SESSION['nqt_questions']) && is_array($_SESSION['nqt_questions'])) {
+                foreach ($_SESSION['nqt_questions'] as $sq) {
+                    $correctAnswersMap[trim($sq['question'])] = $sq['answer'];
                 }
             }
+
+            $score = 0;
+            $gradedQuestions = [];
+            foreach ($questions as $qIdx => $q) {
+                $userAnswer = isset($answers[$qIdx]) ? (int)$answers[$qIdx] : null;
+                $qText = trim($q['question'] ?? '');
+                
+                if (isset($correctAnswersMap[$qText])) {
+                    $correctAnswer = (int)$correctAnswersMap[$qText];
+                } else {
+                    error_log("NQT grading warning: Question not found in session registry: " . substr($qText, 0, 100));
+                    $correctAnswer = isset($q['answer']) ? (int)$q['answer'] : 0;
+                }
+
+                if ($userAnswer !== null && $correctAnswer === $userAnswer) {
+                    $score++;
+                }
+
+                $q['answer'] = $correctAnswer;
+                $gradedQuestions[$qIdx] = $q;
+            }
+            
+            // Clean up session
+            unset($_SESSION['nqt_questions']);
+            $questions = $gradedQuestions;
             
             $percentage = ($score / count($questions)) * 100;
             $studentId = getStudentIdForAssessment();

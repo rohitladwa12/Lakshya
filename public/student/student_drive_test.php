@@ -501,6 +501,25 @@ if (!$hasApplied) {
         let currentIdx = 0;
         let remainingSeconds = 0;
         let timerInterval = null;
+        let tabSwitchCount = 0;
+
+        // --- ANTI-CHEAT SYSTEM ---
+        document.addEventListener('contextmenu', event => event.preventDefault());
+        document.addEventListener('copy', event => { event.preventDefault(); alert("Copying is strictly prohibited during the assessment."); });
+        document.addEventListener('cut', event => { event.preventDefault(); alert("Cutting is strictly prohibited."); });
+        document.addEventListener('paste', event => { event.preventDefault(); alert("Pasting is strictly prohibited."); });
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') {
+                tabSwitchCount++;
+                if (tabSwitchCount >= 2) {
+                    alert('You have switched tabs multiple times. Your assessment will now be auto-submitted due to a violation of the test rules.');
+                    submitAssessment(true, 'Screen switching detected (Tab switched multiple times)');
+                } else {
+                    alert('WARNING: Tab switching is strictly prohibited! If you switch away from this screen again, your assessment will be automatically submitted.');
+                }
+            }
+        });
+        // -------------------------
 
         window.reportCurrentQuestion = function() {
             const q = questions[currentIdx];
@@ -690,7 +709,7 @@ if (!$hasApplied) {
                 if (remainingSeconds <= 0) {
                     clearInterval(timerInterval);
                     alert('Time limit reached! Your assessment will now be auto-submitted.');
-                    submitAssessment(true);
+                    submitAssessment(true, 'Time limit reached');
                 }
             }, 1000);
         }
@@ -726,7 +745,7 @@ if (!$hasApplied) {
             }
         }
 
-        function submitAssessment(isAuto = false) {
+        function submitAssessment(isAuto = false, reason = null) {
             if (timerInterval) clearInterval(timerInterval);
 
             // Show submitting screen
@@ -739,6 +758,9 @@ if (!$hasApplied) {
             submitData.append('attempt_id', attemptId);
             submitData.append('answers', JSON.stringify(answers));
             submitData.append('csrf_token', window.CSRF_TOKEN);
+            if (isAuto && reason) {
+                submitData.append('auto_submit_reason', reason);
+            }
 
             fetch('student_drive_test_handler.php', {
                 method: 'POST',

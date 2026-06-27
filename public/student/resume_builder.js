@@ -271,35 +271,53 @@ window.saveResume = async function(isAuto = false) {
     try {
         const el = document.getElementById('resumePreview');
         if (el) {
+            // Temporarily strip styles and hide editor-only visual aids
+            const oldShadow = el.style.boxShadow;
+            const oldBorder = el.style.borderRadius;
+            const oldHeight = el.style.height;
+            const oldOverflow = el.style.overflow;
+            
+            el.style.boxShadow = 'none';
+            el.style.borderRadius = '0';
+            el.style.height = '297mm';     // Strictly enforce exactly 1 A4 page
+            el.style.overflow = 'hidden';  // Prevent any fractional pixel spillover
+            
             // Options for html2pdf
             const opt = {
                 margin:       0,
                 filename:     'resume.pdf',
                 image:        { type: 'jpeg', quality: 0.98 },
+                pagebreak:    { mode: 'avoid-all' }, // Tell html2pdf not to split elements
                 html2canvas:  { 
                     scale: 2, 
                     useCORS: true, 
                     letterRendering: true,
-                    scrollY: -window.scrollY // Fix alignment if page is scrolled
+                    scrollY: 0,
+                    backgroundColor: '#ffffff' 
                 },
                 jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
             };
             
-            // Temporarily strip styles and hide editor-only visual aids
-            const oldShadow = el.style.boxShadow;
-            const oldBorder = el.style.borderRadius;
-            el.style.boxShadow = 'none';
-            el.style.borderRadius = '0';
-            
             const helpers = el.querySelectorAll('.page-limit-line, .page-gap-simulator');
             helpers.forEach(h => h.style.display = 'none');
             
-            // Generate blob
-            pdfBlob = await html2pdf().set(opt).from(el).output('blob');
+            // Generate blob using the worker chain to physically strip any phantom pages
+            const worker = html2pdf().set(opt).from(el);
+            
+            // Intercept the jsPDF instance before outputting to ensure strictly 1 page
+            await worker.toPdf().get('pdf').then(pdf => {
+                while (pdf.internal.getNumberOfPages() > 1) {
+                    pdf.deletePage(2);
+                }
+            });
+            
+            pdfBlob = await worker.output('blob');
             
             // Restore styles and visual aids
             el.style.boxShadow = oldShadow;
             el.style.borderRadius = oldBorder;
+            el.style.height = oldHeight;
+            el.style.overflow = oldOverflow;
             helpers.forEach(h => h.style.display = '');
         }
     } catch (e) {
@@ -371,24 +389,75 @@ function renderPreview() {
         case 'minimal_clean':   html = tplMinimal();  break;
         default:                html = tplATS();      break;
     }
-    el.innerHTML = html;
+    // Wrap the HTML in a container so we can manipulate it uniformly
+    el.innerHTML = `<div id="resumeContentWrapper" style="transform-origin: top left;">${html}</div>`;
+    const wrapper = document.getElementById('resumeContentWrapper');
 
-    // 2. Add Page Limit Visuals (Editor only)
-    const targetHeightPx = (297 * 96) / 25.4;
-    const actualHeight   = el.scrollHeight;
+    // 2. Define target A4 height bounds
+    // A4 height at 96 DPI minus top/bottom paddings (12mm and 8mm -> ~20mm total padding)
+    const paddingMm = 20;
+    const targetHeightPx = ((297 - paddingMm) * 96) / 25.4;
 
-    if (actualHeight > targetHeightPx - 100) { 
-        // Only show if we're getting close to a second page
+    // 3. Auto-Fit Algorithm (Adaptive Typography & Spacing)
+    let iterations = 0;
+    while (wrapper.scrollHeight > targetHeightPx && iterations < 15) {
+        iterations++;
+        // Aggressively target inline styles to compress the layout
+        wrapper.querySelectorAll('*').forEach(node => {
+            // Stage 1: Reduce vertical spacing
+            if (node.style.marginBottom) {
+                let mb = parseFloat(node.style.marginBottom);
+                if (mb > 1) node.style.marginBottom = (mb * 0.85) + 'px';
+            }
+            if (node.style.marginTop) {
+                let mt = parseFloat(node.style.marginTop);
+                if (mt > 1) node.style.marginTop = (mt * 0.85) + 'px';
+            }
+            if (node.style.paddingBottom) {
+                let pb = parseFloat(node.style.paddingBottom);
+                if (pb > 2) node.style.paddingBottom = (pb * 0.85) + 'px';
+            }
+            // Stage 2: Reduce typography slightly
+            if (node.style.fontSize && node.style.fontSize.includes('pt')) {
+                let fs = parseFloat(node.style.fontSize);
+                // Minimum readable font size is ~8.5pt
+                if (fs > 8.5) node.style.fontSize = (fs - 0.25) + 'pt';
+            }
+            if (node.style.lineHeight && node.style.lineHeight !== 'normal') {
+                let lh = parseFloat(node.style.lineHeight);
+                if (lh > 1.15) node.style.lineHeight = (lh - 0.02).toString();
+            }
+        });
+    }
+
+    let scaleRatio = 1;
+    // Stage 3: Fallback Scale Transform
+    // If it still overflows after aggressive typography reduction, apply a scale transform
+    if (wrapper.scrollHeight > targetHeightPx) {
+        scaleRatio = targetHeightPx / wrapper.scrollHeight;
+        
+        // We cap the scaling at 75% so it doesn't become microscopic
+        let appliedScale = Math.max(scaleRatio, 0.75);
+        
+        wrapper.style.transform = `scale(${appliedScale})`;
+        wrapper.style.width = `${100 / appliedScale}%`;
+    }
+
+    // 4. Add Page Limit Visuals (Editor only) if the user goes past the absolute minimum
+    const actualHeight = wrapper.getBoundingClientRect().height;
+    if (actualHeight > targetHeightPx && scaleRatio < 0.75) { 
         const limitLine = document.createElement('div');
         limitLine.className = 'page-limit-line';
         limitLine.style.top = targetHeightPx + 'px';
         el.appendChild(limitLine);
     }
 
-    // 3. Detect Overflow
+    // 5. Detect Absolute Overflow
     const warning = document.getElementById('overflowWarning');
     if (warning) {
-        if (actualHeight > targetHeightPx + 5) { // 5px buffer
+        // If they needed a scale ratio less than 0.75 to fit, it means they have too much content
+        // and we capped the shrink at 75%, meaning it is currently overflowing onto page 2.
+        if (scaleRatio < 0.75) { 
             warning.classList.add('show');
         } else {
             warning.classList.remove('show');
@@ -400,7 +469,7 @@ function renderPreview() {
 function tplATS() {
     const m = '#000000';
     return `
-    <div style="font-family:'Times New Roman', Times, serif; color:#000; font-size:10pt; line-height:1.5;">
+    <div style="font-family:'Times New Roman', Times, serif; color:#000; font-size:10pt; line-height:1.35;">
 
       <!-- HEADER -->
       <div style="text-align:center; padding-bottom:10px; border-bottom:2.5px solid ${m}; margin-bottom:14px;">
@@ -470,7 +539,7 @@ function tplModern() {
     const accentColor = '#000000';
 
     return `
-    <div style="font-family:'Times New Roman', Times, serif; display:flex; min-height:100%; color:#000; font-size:10pt;">
+    <div style="font-family:'Times New Roman', Times, serif; display:flex; min-height:100%; color:#000; font-size:10pt; line-height:1.35;">
       <!-- Sidebar -->
       <div style="width:38%; background:${sideColor}; color:#f1f5f9; padding:24px 18px; flex-shrink:0;">
         <div style="text-align:center; margin-bottom:20px;">
@@ -551,7 +620,7 @@ function tplModern() {
 // ── TEMPLATE: Minimal Clean ───────────────────────────────
 function tplMinimal() {
     return `
-    <div style="font-family:'Times New Roman', Times, serif; color:#000; font-size:10pt; line-height:1.6;">
+    <div style="font-family:'Times New Roman', Times, serif; color:#000; font-size:10pt; line-height:1.35;">
       <h1 style="font-size:26pt; font-weight:300; letter-spacing:-0.5px; margin-bottom:4px; color:#000;">${esc(RD.full_name||'Your Name')}</h1>
       <div style="font-size:9pt; color:#000; margin-bottom:16px; display:flex; flex-wrap:wrap; gap:4px 14px;">
         ${[
@@ -765,9 +834,9 @@ const entryTemplates = {
         </div>
         <div class="field-row">
           <div class="field-group"><label>Start Date</label><input type="month" data-field="start_date" value="${esc(d.start_date||'')}" oninput="schedulePreview()"></div>
-          <div class="field-group"><label>End Date</label><input type="month" data-field="end_date" value="${esc(d.end_date||'')}" id="edu_end_${id}" ${d.ongoing?'disabled':''} oninput="schedulePreview()"></div>
+          <div class="field-group"><label>End Date</label><input type="month" data-field="end_date" value="${esc(d.end_date||'')}" id="edu_end_${id}" class="${d.ongoing?'input-disabled-visual':''}" onclick="document.getElementById('edu_ongoing_${id}').checked=false; this.classList.remove('input-disabled-visual'); schedulePreview()" oninput="schedulePreview()"></div>
         </div>
-        <label class="checkbox-label"><input type="checkbox" data-field="ongoing" ${d.ongoing?'checked':''} onchange="toggleEndDate('edu_end_${id}',this.checked); schedulePreview()"> Currently Pursuing</label>
+        <label class="checkbox-label"><input type="checkbox" id="edu_ongoing_${id}" data-field="ongoing" ${d.ongoing?'checked':''} onchange="toggleEndDate('edu_end_${id}',this.checked); schedulePreview()"> Currently Pursuing</label>
         <div class="field-row" style="margin-top:10px;">
           <div class="field-group"><label>CGPA / %</label><input type="text" data-field="cgpa" value="${esc(d.cgpa||'')}" placeholder="8.5 / 10" oninput="schedulePreview()"></div>
           <div class="field-group"><label>Location</label><input type="text" data-field="location" value="${esc(d.location||'')}" placeholder="Bangalore" oninput="schedulePreview()"></div>
@@ -789,9 +858,9 @@ const entryTemplates = {
         </div>
         <div class="field-row">
           <div class="field-group"><label>Start Date</label><input type="month" data-field="start_date" value="${esc(d.start_date||'')}" oninput="schedulePreview()"></div>
-          <div class="field-group"><label>End Date</label><input type="month" data-field="end_date" value="${esc(d.end_date||'')}" id="exp_end_${id}" ${d.ongoing?'disabled':''} oninput="schedulePreview()"></div>
+          <div class="field-group"><label>End Date</label><input type="month" data-field="end_date" value="${esc(d.end_date||'')}" id="exp_end_${id}" class="${d.ongoing?'input-disabled-visual':''}" onclick="document.getElementById('exp_ongoing_${id}').checked=false; this.classList.remove('input-disabled-visual'); schedulePreview()" oninput="schedulePreview()"></div>
         </div>
-        <label class="checkbox-label"><input type="checkbox" data-field="ongoing" ${d.ongoing?'checked':''} onchange="toggleEndDate('exp_end_${id}',this.checked); schedulePreview()"> Currently Working Here</label>
+        <label class="checkbox-label"><input type="checkbox" id="exp_ongoing_${id}" data-field="ongoing" ${d.ongoing?'checked':''} onchange="toggleEndDate('exp_end_${id}',this.checked); schedulePreview()"> Currently Working Here</label>
         <div class="field-group" style="margin-top:10px;"><label>Location</label><input type="text" data-field="location" value="${esc(d.location||'')}" placeholder="Remote / Bangalore" oninput="schedulePreview()"></div>
         <div class="field-group"><label>Responsibilities (one per line)</label><textarea data-field="responsibilities" placeholder="• Developed features using React..." oninput="schedulePreview()">${esc(d.responsibilities||'')}</textarea></div>
       </div>`,
@@ -810,9 +879,9 @@ const entryTemplates = {
         <div class="field-group"><label>Description</label><textarea data-field="description" placeholder="Brief description..." oninput="schedulePreview()">${esc(d.description||'')}</textarea></div>
         <div class="field-row">
           <div class="field-group"><label>Start Date</label><input type="month" data-field="start_date" value="${esc(d.start_date||'')}" oninput="schedulePreview()"></div>
-          <div class="field-group"><label>End Date</label><input type="month" data-field="end_date" value="${esc(d.end_date||'')}" id="proj_end_${id}" ${d.ongoing?'disabled':''} oninput="schedulePreview()"></div>
+          <div class="field-group"><label>End Date</label><input type="month" data-field="end_date" value="${esc(d.end_date||'')}" id="proj_end_${id}" class="${d.ongoing?'input-disabled-visual':''}" onclick="document.getElementById('proj_ongoing_${id}').checked=false; this.classList.remove('input-disabled-visual'); schedulePreview()" oninput="schedulePreview()"></div>
         </div>
-        <label class="checkbox-label"><input type="checkbox" data-field="ongoing" ${d.ongoing?'checked':''} onchange="toggleEndDate('proj_end_${id}',this.checked); schedulePreview()"> Ongoing</label>
+        <label class="checkbox-label"><input type="checkbox" id="proj_ongoing_${id}" data-field="ongoing" ${d.ongoing?'checked':''} onchange="toggleEndDate('proj_end_${id}',this.checked); schedulePreview()"> Ongoing</label>
         <div class="field-group" style="margin-top:10px;"><label>Project Link</label><input type="url" data-field="link" value="${esc(d.link||'')}" placeholder="https://github.com/..." oninput="schedulePreview()"></div>
       </div>`,
     certifications: (id, d={}) => `
@@ -888,7 +957,14 @@ window.removeEntry = function(id) {
 
 window.toggleEndDate = function(fieldId, isOngoing) {
     const el = document.getElementById(fieldId);
-    if (el) { el.disabled = isOngoing; if (isOngoing) el.value = ''; }
+    if (el) { 
+        if (isOngoing) {
+            el.value = '';
+            el.classList.add('input-disabled-visual');
+        } else {
+            el.classList.remove('input-disabled-visual');
+        }
+    }
 };
 
 // ─────────────────────────────────────────────────────────
@@ -1082,8 +1158,10 @@ window.printResume = function() {
   body { font-family:'Times New Roman', Times, serif; background:white; }
   @page { size: A4; margin: 12mm 16mm 10mm; }
   @media print { 
-    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; overflow: hidden; height: 100%; max-height: 297mm; }
     .resume-paper { padding: 0 !important; box-shadow: none !important; width: 100% !important; }
+    /* Force the last element to have zero bottom margin to prevent pushing a new page */
+    div > *:last-child { margin-bottom: 0 !important; padding-bottom: 0 !important; }
   }
 </style></head>
 <body><div style="font-family:'Times New Roman', Times, serif;">${previewHTML}</div>

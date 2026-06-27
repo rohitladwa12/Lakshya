@@ -34,6 +34,7 @@ if (!$job) {
 }
 
 $hasApplied = $applicationModel->hasApplied($jobId, $userId);
+$isEnded = ($job['status'] === 'Closed' || strtotime($job['application_deadline']) < time());
 
 // Check student eligibility
 $profileModel = new StudentProfile();
@@ -51,7 +52,9 @@ $fullResumePath = RESUME_UPLOAD_PATH . '/Student_Resumes/' . $currentUsn . '_Res
 $hasResume      = file_exists($fullResumePath);
 
 if (isPost() && isset($_POST['apply'])) {
-    if (!$isEligible) {
+    if ($isEnded) {
+        $error = "This job is no longer accepting applications.";
+    } elseif (!$isEligible) {
         $error = "You are not eligible to apply for this job. Reason: " . implode(', ', $ineligibilityReasons);
     } elseif ($hasApplied) {
         $error = "You have already applied for this job.";
@@ -367,6 +370,12 @@ if (isPost() && isset($_POST['apply'])) {
                     <?php if ($hasApplied): ?>
                         <div class="btn-applied-state"><i class="fas fa-check-circle"></i> Application Submitted</div>
                         <p style="text-align:center;margin-top:12px;font-size:13px;color:var(--text-muted);">Track your status in the Dashboard.</p>
+
+                    <?php elseif ($isEnded): ?>
+                        <div class="elig-box not" style="background:#f1f5f9; border-color:#e2e8f0; color:#64748b;">
+                            <div class="elig-box-title"><i class="fas fa-calendar-times"></i> Application Closed</div>
+                            This job is no longer accepting applications.
+                        </div>
 
                     <?php elseif (!$isEligible): ?>
                         <div class="elig-box not">

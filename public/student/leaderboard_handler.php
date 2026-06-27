@@ -20,6 +20,7 @@ if (!isLoggedIn()) {
 $view = isset($_REQUEST['view']) ? $_REQUEST['view'] : 'local';
 $myDept = getDepartment();
 $myInst = getInstitution();
+$myUsn = getUsername();
 
 // Fallback: If department is missing from session, fetch it from profile
 if (empty($myDept)) {
@@ -30,12 +31,32 @@ if (empty($myDept)) {
     }
 }
 
+// Second fallback for GMIT: look up discipline from remote DB by student_id or Aadhar
+if (empty($myDept) && !empty($myUsn)) {
+    try {
+        $remoteDB = getDB('gmit');
+        if ($remoteDB) {
+            $stmtDept = $remoteDB->prepare("SELECT discipline FROM ad_student_details WHERE student_id = ? OR usn = ? OR aadhar = ? LIMIT 1");
+            $stmtDept->execute([$myUsn, $myUsn, $myUsn]);
+            $myDept = $stmtDept->fetchColumn() ?: null;
+        }
+    } catch (Exception $e) {
+        // Ignore
+    }
+}
+
 // Define filters
 $filters = [];
 if ($view === 'local') {
-    // Use the robust mapper to catch GMU/GMIT variations (e.g. CSE vs CS)
+    // Use the robust mapper to catch GMU/GMIT variations (e.g. CSE vs CS, ECE vs EC)
+    // Do NOT lock by institution — show all students of same discipline across both GMU & GMIT
     $filters['discipline'] = getCoordinatorDisciplineFilters($myDept);
-    $filters['institution'] = $myInst;
+    // Only lock institution if it's GMU (they have clean discipline matching).
+    // GMIT students share departments with GMU so both should see each other on the local board.
+    if ($myInst === INSTITUTION_GMU) {
+        $filters['institution'] = INSTITUTION_GMU;
+    }
+    // For GMIT students: no institution filter — show cross-institutional discipline peers
 }
 
 try {

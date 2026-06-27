@@ -63,10 +63,14 @@ $companyName = post('company_name');
                     // Format for AI test interface
                     foreach ($questions as &$q) {
                         $q['options'] = [$q['option_a'], $q['option_b'], $q['option_c'], $q['option_d']];
-                        $q['answer'] = ord(strtoupper($q['answer'])) - ord('A'); // Convert A/B/C/D to 0/1/2/3
+                        $ansLetter = strtoupper(trim($q['answer'] ?? 'A'));
+                        $q['answer'] = match($ansLetter) { 'A'=>0, 'B'=>1, 'C'=>2, 'D'=>3, default=>0 };
                         $q['category'] = 'Custom Question';
                         unset($q['option_a'], $q['option_b'], $q['option_c'], $q['option_d']);
                     }
+                    
+                    $_SESSION['aptitude_db_questions'] = $questions;
+                    $_SESSION['aptitude_ai_questions'] = [];
                     
                     ob_clean();
                     echo json_encode(['success' => true, 'questions' => $questions]);
@@ -95,10 +99,14 @@ $companyName = post('company_name');
             // Format DB questions
             foreach ($dbQuestions as &$q) {
                 $q['options'] = [$q['option_a'], $q['option_b'], $q['option_c'], $q['option_d']];
-                $q['answer'] = ord(strtoupper($q['answer'])) - ord('A'); // Convert A/B/C/D to 0/1/2/3
+                $ansLetter = strtoupper(trim($q['answer'] ?? 'A'));
+                $q['answer'] = match($ansLetter) { 'A'=>0, 'B'=>1, 'C'=>2, 'D'=>3, default=>0 };
                 unset($q['option_a'], $q['option_b'], $q['option_c'], $q['option_d']);
                 $q['explanation'] = "Standard aptitude question from database.";
             }
+
+            $_SESSION['aptitude_db_questions'] = $dbQuestions;
+            $_SESSION['aptitude_ai_questions'] = [];
 
             // 2. Offload to AI Worker for combined Aptitude Generation (In-Memory merge for now)
             require_once ROOT_PATH . '/src/Services/QueueService.php';
@@ -117,47 +125,78 @@ $companyName = post('company_name');
             $questions = json_decode($_POST['questions'] ?? '[]', true);
             $companyName = $_POST['company_name'] ?? 'Unknown';
 
-            // error_log("Data decoded: Answers=" . count($answers) . ", Questions=" . count($questions));
-
             if (empty($questions) || empty($answers)) {
                 ob_clean();
                 echo json_encode(['success' => false, 'message' => 'Incomplete test data.']);
                 exit;
             }
 
-            // Calculate score: use stored 'answer' index, but if explanation explicitly says "Correct answer: X"
-            // and X matches an option, use that (fixes "reason says 6 but system counted 9").
+            // Rebuild the lookup map from session data
+            $correctAnswersMap = [];
+            $explanationsMap = [];
+            
+            if (isset($_SESSION['aptitude_db_questions']) && is_array($_SESSION['aptitude_db_questions'])) {
+                foreach ($_SESSION['aptitude_db_questions'] as $sq) {
+                    $key = trim($sq['question']);
+                    $correctAnswersMap[$key] = $sq['answer'];
+                    $explanationsMap[$key] = $sq['explanation'] ?? '';
+                }
+            }
+            if (isset($_SESSION['aptitude_ai_questions']) && is_array($_SESSION['aptitude_ai_questions'])) {
+                foreach ($_SESSION['aptitude_ai_questions'] as $sq) {
+                    $key = trim($sq['question']);
+                    $correctAnswersMap[$key] = $sq['answer'];
+                    $explanationsMap[$key] = $sq['explanation'] ?? '';
+                }
+            }
+
             $score = 0;
+            $gradedQuestions = [];
             foreach ($questions as $qIdx => $q) {
                 $userAnswer = isset($answers[$qIdx]) ? (int)$answers[$qIdx] : null;
-                $correctAnswer = isset($q['answer']) ? (int)$q['answer'] : null;
+                $qText = trim($q['question'] ?? '');
                 $options = $q['options'] ?? [];
 
-                // Ensure answer index is within options (0 to 3)
-                if ($correctAnswer === null || $correctAnswer < 0 || $correctAnswer >= count($options)) {
-                    $correctAnswer = 0;
-                    $questions[$qIdx]['answer'] = 0;
+                // Retrieve correct answer from session lookup map
+                if (isset($correctAnswersMap[$qText])) {
+                    $correctAnswer = (int)$correctAnswersMap[$qText];
+                    $explanation = $explanationsMap[$qText] ?? ($q['explanation'] ?? '');
+                } else {
+                    // Fallback to client data but log a warning
+                    error_log("Aptitude grading warning: Question not found in session registry. Question: " . substr($qText, 0, 100));
+                    $correctAnswer = isset($q['answer']) ? (int)$q['answer'] : 0;
+                    $explanation = $q['explanation'] ?? '';
                 }
 
+                // Validate correct answer index
+                if ($correctAnswer < 0 || $correctAnswer >= count($options)) {
+                    error_log("Invalid correct answer index for question: " . json_encode($q));
+                    $correctAnswer = 0;
+                }
 
                 // If explanation doesn't mention the correct option text, prepend it for display
-                if (isset($q['explanation']) && isset($options[$correctAnswer])) {
+                if (!empty($explanation) && isset($options[$correctAnswer])) {
                     $correctOptionText = $options[$correctAnswer];
-                    $containsCorrect = preg_match('/\b' . preg_quote($correctOptionText, '/') . '\b/', $q['explanation']);
+                    $containsCorrect = preg_match('/\b' . preg_quote($correctOptionText, '/') . '\b/', $explanation);
                     if (!$containsCorrect) {
-                        $questions[$qIdx]['explanation'] = "Correct answer: " . $correctOptionText . ". " . ($q['explanation'] ?? '');
+                        $explanation = "Correct answer: " . $correctOptionText . ". " . $explanation;
                     }
                 }
 
-                /* error_log("Question $qIdx: User Answer = " . var_export($userAnswer, true) .
-                         ", Correct Answer = " . var_export($correctAnswer, true) .
-                         ", Raw Q Answer = " . var_export($q['answer'] ?? 'missing', true) .
-                         ", Raw User Answer = " . var_export($answers[$qIdx] ?? 'missing', true)); */
-
-                if ($userAnswer !== null && $correctAnswer !== null && $userAnswer === $correctAnswer) {
+                if ($userAnswer !== null && $correctAnswer === $userAnswer) {
                     $score++;
                 }
+
+                // Overwrite the client-sent answer and explanation in the returned results with secure verified values
+                $q['answer'] = $correctAnswer;
+                $q['explanation'] = $explanation;
+                $gradedQuestions[$qIdx] = $q;
             }
+            
+            // Clean up session after test submission
+            unset($_SESSION['aptitude_db_questions']);
+            unset($_SESSION['aptitude_ai_questions']);
+            $questions = $gradedQuestions;
             
             $percentage = ($score / count($questions)) * 100;
             error_log("Score calculated: $score/" . count($questions) . " ($percentage%)");

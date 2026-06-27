@@ -43,8 +43,19 @@ if (!$task) {
 }
 
 // Check if already completed
-$stmt = $db->prepare("SELECT * FROM task_completions WHERE task_id = ? AND student_id = ?");
-$stmt->execute([$taskId, $username]);
+// Fetch student profile unconditionally to resolve dual-key identifiers
+require_once __DIR__ . '/../../src/Models/StudentProfile.php';
+$checkModel = new StudentProfile();
+$userId = getUserId();
+$history = $checkModel->getAcademicHistory($userId, $institution ?: 'GMU');
+$mainProfile = $history[0] ?? null;
+
+$studentIdentifiers = array_unique(array_filter([$username, $mainProfile['usn'] ?? '', $mainProfile['aadhar'] ?? '']));
+
+// Check if already completed
+$tcPlaceholders = implode(',', array_fill(0, count($studentIdentifiers), '?'));
+$stmt = $db->prepare("SELECT * FROM task_completions WHERE task_id = ? AND student_id IN ($tcPlaceholders)");
+$stmt->execute(array_merge([$taskId], $studentIdentifiers));
 $completion = $stmt->fetch(PDO::FETCH_ASSOC);
 
 // Build redirect URL based on task type

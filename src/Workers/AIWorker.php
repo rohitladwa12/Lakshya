@@ -39,9 +39,9 @@ $jobCount = 0;
 updatePulse($workerId, $jobCount);
 
 $startTime = time();
-$maxRuntime = 7200; // Auto-restart every 2 hours
-$maxMemory = 128 * 1024 * 1024; // 128MB limit
-$maxJobs = 100; // Restart after 100 jobs to keep memory fresh
+$maxRuntime = 86400 * 30; // 30 days runtime
+$maxMemory = 256 * 1024 * 1024; // 256MB limit
+$maxJobs = 100000; // High job limit before restart
 
 while (true) {
     // 0. Health & Memory Checks
@@ -50,7 +50,7 @@ while (true) {
         exit(0);
     }
     if (memory_get_usage() > $maxMemory) {
-        workerLog("Memory limit (128MB) reached. Current: " . round(memory_get_usage() / 1024 / 1024, 2) . "MB. Restarting...");
+        workerLog("Memory limit (256MB) reached. Current: " . round(memory_get_usage() / 1024 / 1024, 2) . "MB. Restarting...");
         exit(0);
     }
     if ($jobCount >= $maxJobs) {
@@ -119,4 +119,5 @@ while (true) {
             'completed_at' => time()
         ]);
     }
+    updatePulse($workerId, $jobCount);
 }

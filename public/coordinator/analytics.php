@@ -140,19 +140,26 @@ if (!empty($studentIds)) {
         
         // Filter target USNs by the current institution filter
         $relevantUsns = [];
+        $relevantIdsForQuery = [];
         foreach ($students as $s) {
             if (in_array($s['usn'], $targetUsns)) {
                 $relevantUsns[] = $s['usn'];
                 $tasksDataMap[$type]['unique_assigned'][$s['usn']] = true;
+                
+                $relevantIdsForQuery[] = $s['usn'];
+                if (!empty($s['aadhar'])) {
+                    $relevantIdsForQuery[] = $s['aadhar'];
+                }
             }
         }
 
         if (empty($relevantUsns)) continue;
 
-        // Get completions for these relevant USNs
-        $phTask = implode(',', array_fill(0, count($relevantUsns), '?'));
+        // Get completions for these relevant USNs (using both USN and Aadhar)
+        $relevantIdsForQuery = array_unique(array_filter($relevantIdsForQuery));
+        $phTask = implode(',', array_fill(0, count($relevantIdsForQuery), '?'));
         $stmtC = $db->prepare("SELECT student_id, score FROM task_completions WHERE task_id = ? AND student_id IN ($phTask)");
-        $stmtC->execute(array_merge([$taskId], $relevantUsns));
+        $stmtC->execute(array_merge([$taskId], $relevantIdsForQuery));
         $completions = $stmtC->fetchAll(PDO::FETCH_ASSOC);
         $completeMap = [];
         foreach ($completions as $c) $completeMap[$c['student_id']] = $c;
@@ -167,8 +174,12 @@ if (!empty($studentIds)) {
             $sDet['assigned_at'] = $task['created_at'];
 
             $isExpired = strtotime($task['deadline']) < time();
-            if (isset($completeMap[$ru])) {
-                $sDet['score'] = $completeMap[$ru]['score'];
+            
+            $aadhar = $sDet['aadhar'] ?? '';
+            $completionRow = $completeMap[$ru] ?? (!empty($aadhar) ? ($completeMap[$aadhar] ?? null) : null);
+
+            if ($completionRow) {
+                $sDet['score'] = $completionRow['score'];
                 $tasksDataMap[$type]['completed_list'][$ru . '_' . $taskId] = $sDet;
                 $tasksDataMap[$type]['unique_completed'][$ru] = true;
             } else if ($isExpired) {

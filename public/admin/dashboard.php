@@ -942,7 +942,7 @@ try {
                                     <td>
                                         <?php if ($fb['general_comments']): ?>
                                             <div style="line-height: 1.5; color: #334155; font-size: 13px;">
-                                                <?php echo nl2br(htmlspecialchars($fb['general_comments'])); ?>
+                                                <?php echo nl2br(htmlspecialchars($fb['general_comments'] ?? '')); ?>
                                             </div>
                                         <?php else: ?>
                                             <span style="color: var(--text-muted); font-style: italic; font-size: 13px;">None</span>
@@ -952,10 +952,10 @@ try {
                                         <?php if ($fb['new_feature_title']): ?>
                                             <span class="feedback-badge-feature">Feature Idea</span>
                                             <strong style="display: block; font-size: 13px; color: var(--primary-maroon); margin-bottom: 4px;">
-                                                <?php echo htmlspecialchars($fb['new_feature_title']); ?>
+                                                <?php echo htmlspecialchars($fb['new_feature_title'] ?? ''); ?>
                                             </strong>
                                             <div style="font-size: 13px; color: #475569; line-height: 1.5;">
-                                                <?php echo nl2br(htmlspecialchars($fb['new_feature_description'])); ?>
+                                                <?php echo nl2br(htmlspecialchars($fb['new_feature_description'] ?? '')); ?>
                                             </div>
                                         <?php else: ?>
                                             <span style="color: var(--text-muted); font-style: italic; font-size: 13px;">None</span>

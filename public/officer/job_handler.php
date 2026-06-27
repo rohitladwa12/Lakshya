@@ -152,7 +152,7 @@ switch ($action) {
                     }
                     return json_encode($fields);
                 })(),
-                'application_deadline' => post('application_deadline'),
+                'application_deadline' => str_replace('T', ' ', post('application_deadline')),
                 'status' => 'Active',
                 'posted_by' => getUserId()
             ];

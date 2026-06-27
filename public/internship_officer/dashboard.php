@@ -19,11 +19,17 @@ $stats = [
     'total_internships' => count($internships)
 ];
 
-foreach ($internships as $i) {
-    if ($i['status'] === 'Active')
+foreach ($internships as &$i) {
+    if ($i['status'] === 'Active' && strtotime($i['application_deadline']) < strtotime('today')) {
+        $i['status'] = 'Ended';
+    }
+
+    if ($i['status'] === 'Active') {
         $stats['active']++;
+    }
     $stats['total_applications'] += $i['application_count'];
 }
+unset($i);
 ?>
 <!DOCTYPE html>
 <html lang="en">

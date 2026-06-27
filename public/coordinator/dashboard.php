@@ -249,6 +249,12 @@ if (!empty($discipline_filters)) {
                 <div class="action-title">Add Coding</div>
                 <div class="action-desc">Create coding problems</div>
             </a>
+
+            <a href="jobs.php" class="action-card primary" style="background: linear-gradient(135deg, #10b981, #047857);">
+                <div class="action-icon"><i class="fas fa-briefcase"></i></div>
+                <div class="action-title">Jobs & Internships</div>
+                <div class="action-desc">Track department applications</div>
+            </a>
         </div>
 
         <!-- Recent Student Feedback Card -->

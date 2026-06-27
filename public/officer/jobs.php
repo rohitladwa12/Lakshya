@@ -43,14 +43,20 @@ if ($query) {
     $jobs = $jobModel->search($query);
 } else {
     // Basic list for dashboard
-    $sql = "SELECT jp.*, c.name as company_name 
+    $sql = "SELECT jp.*, c.name as company_name, c.logo_url as company_logo 
             FROM job_postings jp 
             JOIN companies c ON jp.company_id = c.id";
     
     $params = [];
     if ($statusFilter) {
-        $sql .= " WHERE jp.status = ?";
-        $params[] = $statusFilter;
+        if ($statusFilter === 'Active') {
+            $sql .= " WHERE jp.status = 'Active' AND (jp.application_deadline IS NULL OR jp.application_deadline > NOW())";
+        } elseif ($statusFilter === 'Closed') {
+            $sql .= " WHERE jp.status != 'Active' OR (jp.application_deadline IS NOT NULL AND jp.application_deadline <= NOW())";
+        } else {
+            $sql .= " WHERE jp.status = ?";
+            $params[] = $statusFilter;
+        }
     }
     
     $sql .= " ORDER BY jp.posted_date DESC";
@@ -58,6 +64,15 @@ if ($query) {
     $stmt->execute($params);
     $jobs = $stmt->fetchAll();
 }
+
+foreach ($jobs as &$j) {
+    if ($j['status'] === 'Active' && !empty($j['application_deadline'])) {
+        if (strtotime($j['application_deadline']) <= time()) {
+            $j['status'] = 'Ended';
+        }
+    }
+}
+unset($j);
 
 $companies = $companyModel->getActiveCompanies();
 
@@ -168,55 +183,181 @@ $fullName = getFullName();
             min-width: 150px;
         }
 
-        /* Table Design */
-        .table-card {
-            background: var(--glass);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--glass-border);
-            border-radius: 20px;
-            box-shadow: var(--shadow);
-            overflow: hidden;
+        /* Card Grid Design */
+        .jobs-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+            gap: 25px;
+            margin-top: 20px;
         }
-
-        .modern-table {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .modern-table th {
-            text-align: left;
-            padding: 18px 24px;
-            background: #f8fafc;
-            color: var(--text-muted);
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        .modern-table td {
-            padding: 20px 24px;
-            border-bottom: 1px solid #f1f5f9;
-            font-size: 14px;
-        }
-
-        .modern-table tr:hover td { background: rgba(128, 0, 0, 0.01); }
-
-        .job-title { font-weight: 700; color: var(--text-dark); margin-bottom: 4px; }
-        .comp-name { font-size: 12px; color: var(--text-muted); font-weight: 500; }
-
-        /* Badges */
-        .badge {
-            padding: 6px 12px;
-            border-radius: 10px;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-        }
-        .bg-active { background: #ecfdf5; color: #059669; }
-        .bg-closed { background: #fef2f2; color: #dc2626; }
-        .bg-draft { background: #f1f5f9; color: #475569; }
+        .job-card {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid #eef2f6;
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+.job-card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 12px 24px rgba(0,0,0,0.1);
+}
+.card-cover {
+    height: 140px;
+    background: linear-gradient(135deg, #0f172a, #1e293b);
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+}
+.card-cover::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" opacity="0.05"><path d="M0 0h100v100H0z"/><path stroke="%23fff" stroke-width="2" d="M0 50h100M50 0v100" fill="none"/></svg>') repeat;
+}
+.card-cover img {
+    height: 60px;
+    width: 60px;
+    object-fit: contain;
+    background: white;
+    padding: 8px;
+    border-radius: 12px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    z-index: 1;
+}
+.card-body {
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+}
+.badge-type {
+    background: #fdf6e3;
+    color: #b45309;
+    padding: 6px 12px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 700;
+    align-self: flex-start;
+    margin-bottom: 12px;
+}
+.job-title {
+    font-size: 17px;
+    font-weight: 800;
+    color: #1e293b;
+    margin: 0 0 10px 0;
+    line-height: 1.3;
+}
+.job-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #64748b;
+    margin-bottom: 16px;
+    font-weight: 500;
+}
+.job-meta-row i { color: #94a3b8; }
+.job-meta-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+.meta-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    color: #475569;
+    font-weight: 500;
+}
+.meta-item i { color: #64748b; font-size: 14px; width: 16px; text-align: center; }
+.enrollment-box {
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 15px;
+    margin-bottom: 15px;
+}
+.enrollment-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 12px;
+}
+.enrollment-title {
+    font-size: 13px;
+    font-weight: 700;
+    color: #800000;
+    line-height: 1.3;
+}
+.enrollment-status {
+    font-size: 12px;
+    font-weight: 700;
+    text-align: right;
+}
+.status-active { color: #059669; }
+.status-ended { color: #d97706; }
+.status-closed { color: #dc2626; }
+.status-draft { color: #64748b; }
+.enrollment-stats {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 10px;
+}
+.estat-box {
+    background: #f8fafc;
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+}
+.estat-lbl {
+    font-size: 10px;
+    color: #64748b;
+    font-weight: 700;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+}
+.estat-val {
+    font-size: 16px;
+    font-weight: 800;
+    color: #1e293b;
+}
+.estat-val.red { color: #800000; }
+.card-actions {
+    display: flex;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: auto;
+}
+.btn-card-action {
+    flex: 1;
+    min-width: calc(50% - 3px);
+    padding: 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    text-decoration: none;
+    border: none;
+    cursor: pointer;
+    transition: 0.2s;
+}
+.btn-edit { background: #f1f5f9; color: #334155; }
+.btn-edit:hover { background: #e2e8f0; }
+.btn-wa { background: #dcfce7; color: #166534; }
+.btn-wa:hover { background: #bbf7d0; }
+.btn-apps { background: #e0e7ff; color: #3730a3; }
+.btn-apps:hover { background: #c7d2fe; }
+.btn-close { background: #fee2e2; color: #991b1b; }
+.btn-close:hover { background: #fecaca; }
 
         /* Buttons */
         .btn-action {
@@ -401,105 +542,115 @@ $fullName = getFullName();
             </form>
         </div>
 
-        <div class="table-card">
-            <table class="modern-table">
-                <thead>
-                    <tr>
-                        <th>Opportunity</th>
-                        <th>Academic Year</th>
-                        <th>Location</th>
-                        <th>Requirements</th>
-                        <th>Deadline</th>
-                        <th>Status</th>
-                        <th style="text-align: right;">Actions</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php foreach ($jobs as $job): ?>
-                    <tr>
-                        <td>
-                            <div class="job-title"><?php echo htmlspecialchars($job['title']); ?></div>
-                            <div class="comp-name"><i class="fas fa-building"></i> <?php echo htmlspecialchars($job['company_name']); ?></div>
-                        </td>
-                        <td style="font-weight: 600; color: var(--text-dark);">
-                            <?php echo htmlspecialchars($job['academic_year'] ?? 'N/A'); ?>
-                        </td>
-                        <td style="color: var(--text-muted); font-weight: 500;">
-                            <i class="fas fa-map-marker-alt" style="font-size: 11px;"></i> <?php echo htmlspecialchars($job['location']); ?>
-                        </td>
-                        <td>
-                            <div style="font-size: 13px; font-weight: 600;">SGPA: <?php echo $job['min_cgpa'] ?: 'Any'; ?>+</div>
-                        </td>
-                        <td>
-                            <div style="font-size: 13px; color: #dc2626; font-weight: 700;">
-                                <?php echo date('M d, Y', strtotime($job['application_deadline'])); ?>
-                            </div>
-                        </td>
-                        <td>
-                            <span class="badge bg-<?php echo strtolower($job['status']); ?>">
-                                <?php echo $job['status']; ?>
-                            </span>
-                        </td>
-                        <td style="text-align: right;">
-                            <form id="form_apps_<?php echo $job['id']; ?>" method="POST" style="display: none;">
-                                <input type="hidden" name="view_apps" value="<?php echo $job['id']; ?>">
-                            </form>
-                            <div style="display: flex; gap: 8px; justify-content: flex-end; align-items: center;">
-                                <button class="btn-action btn-view" title="Edit Job" onclick='editJob(<?php echo json_encode($job, JSON_HEX_APOS | JSON_HEX_QUOT); ?>)'>
-                                    <i class="fas fa-edit"></i>
-                                </button>
-                                <?php
-                                $shareUrl = APP_URL . '/student/job_details.php?code=' . encryptJobId($job['id']);
-                                $branches = json_decode($job['eligible_branches'] ?? '[]', true) ?: [];
-                                $branchesStr = !empty($branches) ? implode(', ', $branches) : 'All Branches';
+        <div class="jobs-grid">
+            <?php foreach ($jobs as $job): 
+                $appCount = $jobModel->getApplicationCount($job['id']);
+                
+                $shareUrl = APP_URL . '/student/job_details.php?code=' . encryptJobId($job['id']);
+                $branches = json_decode($job['eligible_branches'] ?? '[]', true) ?: [];
+                $branchesStr = !empty($branches) ? implode(', ', $branches) : 'All Branches';
 
-                                $salaryStr = 'Not Specified';
-                                if (!empty($job['salary_min']) && !empty($job['salary_max'])) {
-                                    $salaryStr = '₹' . number_format($job['salary_min'] / 100000, 1) . 'L – ₹' . number_format($job['salary_max'] / 100000, 1) . 'L per year';
-                                }
+                $salaryStr = 'Not Specified';
+                if (!empty($job['salary_min']) && !empty($job['salary_max'])) {
+                    $salaryStr = '₹' . number_format($job['salary_min'] / 100000, 1) . 'L – ₹' . number_format($job['salary_max'] / 100000, 1) . 'L per year';
+                }
 
-                                $deadlineStr = date('M d, Y', strtotime($job['application_deadline']));
+                $deadlineStr = date('M d, Y - h:i A', strtotime($job['application_deadline']));
 
-                                $waMessage = "*📢 New Placement Opportunity!*\n\n"
-                                           . "*Company:* " . ($job['company_name'] ?? 'Company') . "\n"
-                                           . "*Role:* " . $job['title'] . "\n"
-                                           . "*Location:* " . $job['location'] . "\n"
-                                           . "*Salary:* " . $salaryStr . "\n"
-                                           . "*Min SGPA:* " . ($job['min_cgpa'] ?: 'Any') . "+\n"
-                                           . "*Eligible Branches:* " . $branchesStr . "\n"
-                                           . "*Deadline:* " . $deadlineStr . "\n\n"
-                                           . "*Apply here:* " . $shareUrl . "\n\n"
-                                           . "_Lakshya Placement Portal_";
+                $waMessage = "*📢 New Placement Opportunity!*\n\n"
+                           . "*Company:* " . ($job['company_name'] ?? 'Company') . "\n"
+                           . "*Role:* " . $job['title'] . "\n"
+                           . "*Location:* " . $job['location'] . "\n"
+                           . "*Salary:* " . $salaryStr . "\n"
+                           . "*Min SGPA:* " . ($job['min_cgpa'] ?: 'Any') . "+\n"
+                           . "*Eligible Branches:* " . $branchesStr . "\n"
+                           . "*Deadline:* " . $deadlineStr . "\n\n"
+                           . "*Apply here:* " . $shareUrl . "\n\n"
+                           . "_Lakshya Placement Portal_";
 
-                                $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
-                                ?>
-                                <a href="<?php echo $waUrl; ?>" target="_blank" class="btn-action btn-view" title="Share on WhatsApp" style="background: #e8fbee; color: #128c7e;">
-                                    <i class="fab fa-whatsapp"></i>
-                                </a>
-                                <a href="job_attendance.php?job_id=<?php echo $job['id']; ?>" class="btn-action btn-view" title="Take Attendance" style="background: #fdf2f8; color: #db2777;">
-                                    <i class="fas fa-user-check"></i>
-                                </a>
-                                <button type="submit" form="form_apps_<?php echo $job['id']; ?>" class="btn-action btn-view" title="Applications" style="background: #eff6ff; color: #2563eb;">
-                                    <i class="fas fa-users"></i>
-                                </button>
-                                <?php if ($job['status'] !== 'Closed'): ?>
-                                <button class="btn-action btn-view" title="Close" style="background: #fff1f2; color: #e11d48;" onclick="closeJob(<?php echo $job['id']; ?>)">
-                                    <i class="fas fa-lock"></i>
-                                </button>
-                                <?php endif; ?>
-                            </div>
-                        </td>
-                    </tr>
-                    <?php endforeach; if (empty($jobs)): ?>
-                    <tr>
-                        <td colspan="7" style="text-align: center; padding: 60px; color: var(--text-muted);">
-                            <i class="fas fa-briefcase" style="font-size: 48px; opacity: 0.1; margin-bottom: 20px; display: block;"></i>
-                            No job postings found matching your criteria.
-                        </td>
-                    </tr>
+                $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
+            ?>
+            <div class="job-card">
+                <div class="card-cover">
+                    <?php if (!empty($job['company_logo'])): ?>
+                        <img src="<?php echo (strpos($job['company_logo'], 'http') === 0) ? htmlspecialchars($job['company_logo']) : htmlspecialchars(APP_URL . '/uploads/company_images/' . $job['company_logo']); ?>" alt="Logo">
+                    <?php else: ?>
+                        <i class="fas fa-building" style="font-size:30px;color:#fff;opacity:0.5;z-index:1;"></i>
                     <?php endif; ?>
-                </tbody>
-            </table>
+                </div>
+                <div class="card-body">
+                    <span class="badge-type"><?php echo htmlspecialchars($job['job_type'] ?? 'Full-Time'); ?></span>
+                    <h3 class="job-title"><?php echo htmlspecialchars($job['title']); ?></h3>
+                    
+                    <div class="job-meta-row">
+                        <i class="fas fa-building"></i>
+                        <span><?php echo htmlspecialchars($job['company_name']); ?> • <?php echo htmlspecialchars($job['location'] ?? 'Remote'); ?></span>
+                    </div>
+
+                    <div class="job-meta-grid">
+                        <div class="meta-item">
+                            <i class="fas fa-rupee-sign"></i>
+                            <span><?php echo $salaryStr; ?></span>
+                        </div>
+                        <div class="meta-item">
+                            <i class="fas fa-users"></i>
+                            <span><?php echo $appCount; ?> Applied</span>
+                        </div>
+                        <div class="meta-item">
+                            <i class="fas fa-star"></i>
+                            <span><?php echo $job['min_cgpa'] ?: 'Any'; ?> CGPA</span>
+                        </div>
+                        <div class="meta-item">
+                            <i class="far fa-clock"></i>
+                            <span>Deadline: <?php echo date('M d', strtotime($job['application_deadline'])); ?></span>
+                        </div>
+                    </div>
+
+                    <div class="enrollment-box">
+                        <div class="enrollment-header">
+                            <div class="enrollment-title">Opportunity<br>Status</div>
+                            <div class="enrollment-status <?php echo ($job['status'] == 'Active') ? 'status-active' : (($job['status'] == 'Ended') ? 'status-ended' : (($job['status'] == 'Closed') ? 'status-closed' : 'status-draft')); ?>">
+                                <?php echo $job['status']; ?>
+                            </div>
+                        </div>
+                        <div class="enrollment-stats">
+                            <div class="estat-box">
+                                <div class="estat-lbl">MIN CGPA</div>
+                                <div class="estat-val red"><?php echo $job['min_cgpa'] ?: 'Any'; ?></div>
+                            </div>
+                            <div class="estat-box">
+                                <div class="estat-lbl">TOTAL APPLIED</div>
+                                <div class="estat-val"><?php echo $appCount; ?> students</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="card-actions">
+                        <button type="button" class="btn-card-action btn-edit" title="Edit Job" onclick='editJob(<?php echo json_encode($job, JSON_HEX_APOS | JSON_HEX_QUOT); ?>)'>
+                            <i class="fas fa-edit"></i> Edit
+                        </button>
+                        <a href="<?php echo $waUrl; ?>" target="_blank" class="btn-card-action btn-wa" title="Share on WhatsApp">
+                            <i class="fab fa-whatsapp"></i> Share
+                        </a>
+                        <a href="job_students.php?id=<?php echo $job['id']; ?>&type=job" class="btn-card-action btn-apps" title="View Applied & Not Applied Students">
+                            <i class="fas fa-users"></i> Students
+                        </a>
+                        <?php if ($job['status'] !== 'Closed' && $job['status'] !== 'Ended'): ?>
+                        <button type="button" class="btn-card-action btn-close" title="Close Job" onclick="closeJob(<?php echo $job['id']; ?>)">
+                            <i class="fas fa-times-circle"></i> Close
+                        </button>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+            <?php endforeach; ?>
+            
+            <?php if (empty($jobs)): ?>
+            <div style="grid-column: 1 / -1; text-align: center; padding: 60px; color: var(--text-muted); background: white; border-radius: 16px; border: 1px dashed #cbd5e1;">
+                <i class="fas fa-briefcase" style="font-size: 48px; opacity: 0.1; margin-bottom: 20px; display: block;"></i>
+                No job postings found matching your criteria.
+            </div>
+            <?php endif; ?>
         </div>
     </div>
 
@@ -613,7 +764,7 @@ $fullName = getFullName();
                         </div>
                         <div class="form-group">
                             <label>Application Deadline</label>
-                            <input type="date" name="application_deadline" id="deadline" class="form-control" required min="<?php echo date('Y-m-d'); ?>">
+                            <input type="datetime-local" name="application_deadline" id="deadline" class="form-control" required min="<?php echo date('Y-m-d\TH:i'); ?>">
                         </div>
                         <div class="form-group" style="grid-column: span 2;">
                             <label>Job Description</label>
@@ -711,7 +862,7 @@ $fullName = getFullName();
                 'MCA': ['MCA']
             },
             'GMU': {
-                'BTECH': ['CSE', 'CSE-AIML', 'ISE', 'ECE', 'EEE', 'MECH', 'CIVIL', 'BT', 'AIDS', 'CSBS', 'DS', 'CSE-DS', 'IOT', 'CSE-IOT'],
+                'BTECH': ['CSE', 'CSE-AIML', 'ISE', 'ECE', 'EEE', 'MECH', 'CIVIL', 'BT', 'AIDS', 'CSBS', 'DS', 'CSE-DS', 'CSE-IT', 'CSE-IOT'],
                 'MBA': ['MBA', 'MBA-ADV', 'MBA-AM', 'MBA-IB', 'MBA-IE', 'MBA-INTNL', 'MBA-PF'],
                 'BBA': ['BBA', 'BBA-AI&BA', 'BBA-AM', 'BBA-B&F', 'BBA-BA', 'BBA-DM&E-COM', 'BBA-DMSM', 'BBA-GM', 'BBA-HM', 'BBA-HRM', 'BBA-IE', 'BBA-LSCM', 'BBA-MS', 'BBA-TH&EM'],
                 'BCA': ['BCA', 'BCA-AIDA', 'BCA-CS', 'BCA-CY', 'BCA-DS', 'BCA-GENERAL'],
@@ -882,7 +1033,7 @@ $fullName = getFullName();
             document.getElementById('salaryMin').value = job.salary_min || '';
             document.getElementById('salaryMax').value = job.salary_max || '';
             document.getElementById('minCgpa').value = job.min_cgpa;
-            document.getElementById('deadline').value = job.application_deadline;
+            document.getElementById('deadline').value = job.application_deadline ? job.application_deadline.substring(0,16).replace(' ', 'T') : '';
             document.getElementById('description').value = job.description || '';
             document.getElementById('requirements').value = job.requirements || '';
             

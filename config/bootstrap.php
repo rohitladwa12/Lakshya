@@ -3,7 +3,9 @@
  * Bootstrap File
  * Initializes the application by loading all necessary files
  */
-define('APP_VERSION', '1.1.0_async'); // Update this to force CSS/JS refresh
+if (!defined('APP_VERSION')) {
+    define('APP_VERSION', '1.1.0_async'); // Update this to force CSS/JS refresh
+}
 
 // Load Composer Autoloader
 if (file_exists(dirname(__DIR__) . '/vendor/autoload.php')) {

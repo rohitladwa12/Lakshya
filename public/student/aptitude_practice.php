@@ -171,9 +171,9 @@ $questions = $stmt->fetchAll(PDO::FETCH_ASSOC);
                 const optText = opt.innerText.trim();
                 const optLetter = optText.split('.')[0];
                 
-                if (optLetter === correct) {
+                if (optLetter.toUpperCase() === correct.toUpperCase()) {
                     opt.classList.add('correct');
-                } else if (optLetter === selected && selected !== correct) {
+                } else if (optLetter.toUpperCase() === selected.toUpperCase() && selected.toUpperCase() !== correct.toUpperCase()) {
                     opt.classList.add('wrong');
                 }
             });

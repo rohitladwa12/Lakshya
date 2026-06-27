@@ -124,14 +124,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['fetch_task_history'])
         exit;
     }
 
+    $aadhar = '';
+    try {
+        $gmuPrefix = DB_GMU_PREFIX;
+        $gmitPrefix = DB_GMIT_PREFIX;
+        $stmt = $remoteDB->prepare("SELECT aadhar FROM (
+            SELECT usn, aadhar, usn as student_id_map FROM {$gmuPrefix}ad_student_approved
+            UNION ALL
+            SELECT IFNULL(NULLIF(usn, ''), student_id) as usn, aadhar, student_id as student_id_map FROM {$gmitPrefix}ad_student_details
+        ) asa WHERE asa.usn = ? OR asa.student_id_map = ? LIMIT 1");
+        $stmt->execute([$usn, $usn]);
+        $aadhar = $stmt->fetchColumn() ?: '';
+    } catch (Exception $e) {}
+
     $stmt = $localDB->prepare("SELECT ct.task_type, ct.company_name, ct.created_at as assigned_at, 
                                      tc.score, tc.completed_at
                                FROM coordinator_tasks ct
-                               LEFT JOIN task_completions tc ON ct.id = tc.task_id AND tc.student_id = ?
+                               LEFT JOIN task_completions tc ON ct.id = tc.task_id AND (tc.student_id = ? OR tc.student_id = ?)
                                WHERE ct.coordinator_id = ?
                                  AND JSON_CONTAINS(ct.target_students, ?)
                                ORDER BY ct.created_at DESC");
-    $stmt->execute([$usn, $coordinatorId, "\"" . $usn . "\""]);
+    $stmt->execute([$usn, $aadhar ?: $usn, $coordinatorId, "\"" . $usn . "\""]);
     $history = $stmt->fetchAll(PDO::FETCH_ASSOC);
     
     echo json_encode(['success' => true, 'history' => $history]);
@@ -196,7 +209,7 @@ $gmitPrefix = DB_GMIT_PREFIX;
 $combinedApproved = "
     (SELECT usn, name, aadhar, faculty, school, programme, course, discipline, year, sem, sgpa, registered, usn as student_id_map, '" . INSTITUTION_GMU . "' as institution FROM {$gmuPrefix}ad_student_approved
      UNION ALL
-     SELECT student_id as usn, name, aadhar, college as faculty, college as school, programme, course, discipline, 0 as year, 0 as sem, 0.0 as sgpa, 1 as registered, student_id as student_id_map, '" . INSTITUTION_GMIT . "' as institution FROM {$gmitPrefix}ad_student_details)
+     SELECT IFNULL(NULLIF(usn, ''), student_id) as usn, name, aadhar, college as faculty, college as school, programme, course, discipline, 0 as year, 0 as sem, 0.0 as sgpa, 1 as registered, student_id as student_id_map, '" . INSTITUTION_GMIT . "' as institution FROM {$gmitPrefix}ad_student_details)
 ";
 
 $where_clauses = ["1=1"]; // Removed asa.registered = 1 to show all eligible students
@@ -265,7 +278,24 @@ $sem_placeholders = implode(',', array_fill(0, count($semester_filter), '?'));
 if ($instFilter === 'all' || $instFilter === 'gmit') {
     $stmtLocal = $localDB->prepare("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE institution = ? AND semester IN ($sem_placeholders)");
     $stmtLocal->execute(array_merge([INSTITUTION_GMIT], $semester_filter));
-    $gmitUsns = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
+    $gmitUsnsRaw = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
+    
+    // Expand GMIT USNs/IDs
+    $gmitUsns = $gmitUsnsRaw;
+    if (!empty($gmitUsnsRaw)) {
+        $db_gmit = getDB('gmit');
+        if ($db_gmit) {
+            $in_placeholders = implode(',', array_fill(0, count($gmitUsnsRaw), '?'));
+            $stmtRef = $db_gmit->prepare("SELECT DISTINCT usn, student_id FROM ad_student_details WHERE student_id IN ($in_placeholders) OR usn IN ($in_placeholders) OR aadhar IN ($in_placeholders) OR aadhar_no IN ($in_placeholders)");
+            $stmtRef->execute(array_merge($gmitUsnsRaw, $gmitUsnsRaw, $gmitUsnsRaw, $gmitUsnsRaw));
+            $mapped = $stmtRef->fetchAll(PDO::FETCH_ASSOC);
+            foreach ($mapped as $m) {
+                if ($m['usn']) $gmitUsns[] = $m['usn'];
+                if ($m['student_id']) $gmitUsns[] = $m['student_id'];
+            }
+            $gmitUsns = array_values(array_unique($gmitUsns));
+        }
+    }
     
     $gmu_sem_sql = "asa.sem IN ($sem_placeholders)";
     $gmu_sem_params = $semester_filter;
@@ -296,7 +326,7 @@ $total_records = $stmt->fetchColumn();
 $total_pages = ceil($total_records / $limit);
 
 // Fetch Data
-$query = "SELECT asa.usn, MAX(asa.name) as name, MAX(asa.discipline) as discipline, MAX(asa.sem) as sem, MAX(asa.sgpa) as sgpa, MAX(asa.registered) as registered, asa.institution 
+$query = "SELECT asa.usn, MAX(asa.name) as name, MAX(asa.aadhar) as aadhar, MAX(asa.discipline) as discipline, MAX(asa.sem) as sem, MAX(asa.sgpa) as sgpa, MAX(asa.registered) as registered, asa.institution 
           FROM {$combinedApproved} asa 
           WHERE $where_sql 
           GROUP BY asa.usn, asa.institution
@@ -310,10 +340,17 @@ $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
 foreach ($students as &$student) {
     // 1. GMIT Data Enrichment
     if ($student['institution'] === INSTITUTION_GMIT) {
-        $stmt = $localDB->prepare("SELECT sgpa, semester FROM student_sem_sgpa 
-                                   WHERE student_id = ? AND institution = ? 
-                                   ORDER BY semester DESC LIMIT 1");
-        $stmt->execute([$student['usn'], INSTITUTION_GMIT]);
+        $enrichParams = [$student['usn']];
+        $enrichSql = "SELECT sgpa, semester FROM student_sem_sgpa WHERE (student_id = ?";
+        if (!empty($student['aadhar'])) {
+            $enrichSql .= " OR student_id = ?";
+            $enrichParams[] = $student['aadhar'];
+        }
+        $enrichSql .= ") AND institution = ? ORDER BY semester DESC LIMIT 1";
+        $enrichParams[] = INSTITUTION_GMIT;
+
+        $stmt = $localDB->prepare($enrichSql);
+        $stmt->execute($enrichParams);
         $localData = $stmt->fetch(PDO::FETCH_ASSOC);
         if ($localData) {
             $student['sgpa'] = $localData['sgpa'];
@@ -330,11 +367,11 @@ foreach ($students as &$student) {
     $stmt = $localDB->prepare("SELECT ct.id, ct.task_type, ct.created_at, ct.company_name, 
                                      tc.score, tc.completed_at
                                FROM coordinator_tasks ct
-                               LEFT JOIN task_completions tc ON ct.id = tc.task_id AND tc.student_id = ?
+                               LEFT JOIN task_completions tc ON ct.id = tc.task_id AND (tc.student_id = ? OR tc.student_id = ?)
                                WHERE ct.coordinator_id = ?
                                  AND JSON_CONTAINS(ct.target_students, ?)
                                ORDER BY ct.created_at DESC LIMIT 1");
-    $stmt->execute([$student['usn'], $coordinatorId, "\"" . $student['usn'] . "\""]);
+    $stmt->execute([$student['usn'], !empty($student['aadhar']) ? $student['aadhar'] : $student['usn'], $coordinatorId, "\"" . $student['usn'] . "\""]);
     $student['latest_task'] = $stmt->fetch(PDO::FETCH_ASSOC);
 }
 unset($student);

@@ -293,15 +293,16 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
             </a>
         </li>
         <li>
-            <a href="attendance.php" class="<?php echo ($currentPage === 'attendance.php' || $currentPage === 'job_attendance.php') ? 'active' : ''; ?>">
-                <i class="fas fa-user-check"></i> <span>Attendance</span>
-            </a>
-        </li>
-        <li>
             <a href="campus_drives.php" class="<?php echo ($currentPage === 'campus_drives.php') ? 'active' : ''; ?>">
                 <i class="fas fa-laptop-code"></i> <span>Campus Drive</span>
             </a>
         </li>
+        <li>
+            <a href="attendance.php" class="<?php echo ($currentPage === 'attendance.php' || $currentPage === 'job_attendance.php') ? 'active' : ''; ?>">
+                <i class="fas fa-user-check"></i> <span>Attendance</span>
+            </a>
+        </li>
+        
         <li>
             <a href="upload_placed_students.php" class="<?php echo ($currentPage === 'upload_placed_students.php') ? 'active' : ''; ?>">
                 <i class="fas fa-cloud-arrow-up"></i> <span>Upload</span>

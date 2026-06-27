@@ -9,7 +9,7 @@ require_once __DIR__ . '/Model.php';
 class JobPosting extends Model {
     protected $table = 'job_postings';
     protected $fillable = [
-        'company_id', 'title', 'description', 'requirements', 'responsibilities',
+        'company_id', 'academic_year', 'title', 'description', 'requirements', 'responsibilities',
         'location', 'job_type', 'work_mode', 'salary_min', 'salary_max',
         'min_cgpa', 'eligible_courses', 'eligible_branches', 'eligible_years', 'custom_fields', 'posted_date',
         'application_deadline', 'status', 'posted_by'
@@ -168,8 +168,7 @@ class JobPosting extends Model {
                         WHERE job_id = jp.id AND student_id = ?) as has_applied
                 FROM {$this->table} jp
                 JOIN companies c ON jp.company_id = c.id
-                WHERE jp.status = 'Active' 
-                  AND jp.application_deadline >= CURDATE()
+                WHERE jp.status IN ('Active', 'Closed')
                   AND c.is_active = 1
                 ORDER BY jp.posted_date DESC";
         

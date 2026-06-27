@@ -5,7 +5,9 @@
 
 // Application Info
 define('APP_NAME', 'GMU Placement Portal');
-define('APP_VERSION', '2.0');
+if (!defined('APP_VERSION')) {
+    define('APP_VERSION', '2.0');
+}
 // Dynamic Application URL detection (supports remote domains/IPs without hardcoding)
 if (php_sapi_name() !== 'cli' && isset($_SERVER['HTTP_HOST'])) {
     $protocol = (isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] === 'on' || $_SERVER['HTTPS'] === 1 || ($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https')) ? 'https' : 'http';
@@ -159,7 +161,7 @@ if (!function_exists('getCoordinatorDisciplineFilters')) {
                 'CSE-AIML' => 'AIML',
                 'CSE-CSE' => 'CSE',
                 'CSE-DS' => 'DS',
-                'CSE-IOT' => 'IOT',
+                'CSE-IOT' => 'CSE-IT',
                 'CSE-CS' => 'CS',
             ];
         }

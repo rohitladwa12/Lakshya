@@ -11,19 +11,19 @@ require_once __DIR__ . '/includes/auth.php';
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'fetch_coordinator_tasks') {
     $db = getDB();
     $department = getDepartment() ?: 'CSE';
-    $coordId = (int)($_POST['coordinator_id'] ?? 0);
-    
+    $coordId = (int) ($_POST['coordinator_id'] ?? 0);
+
     // Verify department matches
     $stmt = $db->prepare("SELECT department FROM dept_coordinators WHERE id = ?");
     $stmt->execute([$coordId]);
     $coordDept = $stmt->fetchColumn();
-    
+
     if (!$coordDept || $coordDept !== $department) {
         header('Content-Type: application/json');
         echo json_encode(['success' => false, 'message' => 'Access Denied.']);
         exit;
     }
-    
+
     $stmtTasks = $db->prepare("
         SELECT 
             MIN(id) as id,
@@ -42,7 +42,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     ");
     $stmtTasks->execute([$coordId]);
     $tasks = $stmtTasks->fetchAll(PDO::FETCH_ASSOC) ?: [];
-    
+
     foreach ($tasks as &$task) {
         $stmtComp = $db->prepare("
             SELECT COUNT(*) 
@@ -54,12 +54,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
               AND ct.deadline = ?
         ");
         $stmtComp->execute([$coordId, $task['title'], $task['task_type'], $task['deadline']]);
-        $task['completed_count'] = (int)$stmtComp->fetchColumn();
-        
+        $task['completed_count'] = (int) $stmtComp->fetchColumn();
+
         $task['deadline_formatted'] = date('d M Y, h:i A', strtotime($task['deadline']));
         $task['created_formatted'] = date('d M Y, h:i A', strtotime($task['created_at']));
     }
-    
+
     header('Content-Type: application/json');
     echo json_encode(['success' => true, 'tasks' => $tasks]);
     exit;
@@ -104,13 +104,13 @@ $totalCompletions = 0;
 
 foreach ($coordinators as $coord) {
     $coordId = $coord['id'];
-    
+
     // Number of times tasks assigned (coordinator_tasks entries grouped as campaigns)
     $stmtTasks = $db->prepare("SELECT COUNT(DISTINCT title, task_type, deadline) FROM coordinator_tasks WHERE coordinator_id = ?");
     $stmtTasks->execute([$coordId]);
-    $tasksAssigned = (int)$stmtTasks->fetchColumn();
+    $tasksAssigned = (int) $stmtTasks->fetchColumn();
     $totalTasksAssigned += $tasksAssigned;
-    
+
     // Number of students who completed coordinator tasks
     $stmtCompletions = $db->prepare("
         SELECT COUNT(*) 
@@ -119,9 +119,9 @@ foreach ($coordinators as $coord) {
         WHERE ct.coordinator_id = ?
     ");
     $stmtCompletions->execute([$coordId]);
-    $completionsCount = (int)$stmtCompletions->fetchColumn();
+    $completionsCount = (int) $stmtCompletions->fetchColumn();
     $totalCompletions += $completionsCount;
-    
+
     $coordinatorStats[] = [
         'id' => $coord['id'],
         'name' => $coord['full_name'],
@@ -144,22 +144,22 @@ $taskRate = 0;
 
 if (!empty($usns)) {
     $usnList = "'" . implode("','", array_map('addslashes', $usns)) . "'";
-    
+
     // 1. Resume Upload Rate
     $stmt = $db->query("SELECT COUNT(DISTINCT student_id) FROM student_resumes WHERE student_id IN ($usnList)");
-    $resumesCount = (int)$stmt->fetchColumn();
+    $resumesCount = (int) $stmt->fetchColumn();
     $resumeRate = ($resumesCount / count($usns)) * 100;
-    
+
     // 2. AI Mock Interview Completion Rate
     $stmt = $db->query("SELECT COUNT(DISTINCT student_id) FROM mock_ai_interview_sessions WHERE student_id IN ($usnList) AND status = 'completed'");
-    $mockCount = (int)$stmt->fetchColumn();
+    $mockCount = (int) $stmt->fetchColumn();
     $mockRate = ($mockCount / count($usns)) * 100;
-    
+
     // 3. Coordinator Task Completion Rate
     $stmt = $db->query("SELECT COUNT(DISTINCT student_id) FROM task_completions tc JOIN coordinator_tasks ct ON tc.task_id = ct.id WHERE tc.student_id IN ($usnList)");
-    $taskCompletedCount = (int)$stmt->fetchColumn();
+    $taskCompletedCount = (int) $stmt->fetchColumn();
     $taskRate = ($taskCompletedCount / count($usns)) * 100;
-    
+
     // Composite Placement Readiness Index
     $priIndex = round((0.3 * $resumeRate) + (0.4 * $mockRate) + (0.3 * $taskRate), 1);
 }
@@ -175,12 +175,14 @@ try {
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HOD Dashboard - <?php echo APP_NAME; ?></title>
     <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
@@ -191,45 +193,51 @@ try {
             --text-dark: #1e293b;
             --text-muted: #64748b;
             --border-color: #e2e8f0;
-            --shadow: 0 4px 20px rgba(0,0,0,0.05);
+            --shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
             --transition: all 0.3s ease;
         }
-        
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
         body {
             font-family: 'Outfit', sans-serif;
             background: var(--bg-light);
             color: var(--text-dark);
         }
-        
-        .navbar-spacer { height: 80px; }
-        
+
+        .navbar-spacer {
+            height: 80px;
+        }
+
         .main-content {
             padding: 40px 50px;
             max-width: 1400px;
             margin: 0 auto;
         }
-        
+
         .page-header {
             margin-bottom: 35px;
             display: flex;
             justify-content: space-between;
             align-items: center;
         }
-        
+
         .page-header h2 {
             font-size: 32px;
             color: var(--primary-maroon);
             font-weight: 800;
             margin-bottom: 4px;
         }
-        
+
         .page-header p {
             color: var(--text-muted);
             font-size: 15px;
         }
-        
+
         /* Stats Dashboard Layout */
         .stats-grid {
             display: grid;
@@ -237,7 +245,7 @@ try {
             gap: 30px;
             margin-bottom: 40px;
         }
-        
+
         .summary-card {
             background: white;
             padding: 30px;
@@ -248,7 +256,7 @@ try {
             align-items: center;
             justify-content: space-between;
         }
-        
+
         .summary-info h3 {
             font-size: 14px;
             text-transform: uppercase;
@@ -256,20 +264,20 @@ try {
             color: var(--text-muted);
             margin-bottom: 8px;
         }
-        
+
         .summary-info .main-val {
             font-size: 48px;
             font-weight: 800;
             color: var(--primary-maroon);
             line-height: 1;
         }
-        
+
         .summary-info p {
             font-size: 14px;
             color: var(--text-muted);
             margin-top: 10px;
         }
-        
+
         .summary-icon {
             width: 70px;
             height: 70px;
@@ -281,14 +289,14 @@ try {
             color: var(--primary-maroon);
             font-size: 32px;
         }
-        
+
         .sem-breakdown-card {
             background: white;
             padding: 24px;
             border-radius: 20px;
             box-shadow: var(--shadow);
         }
-        
+
         .sem-breakdown-card h3 {
             font-size: 16px;
             font-weight: 700;
@@ -297,13 +305,13 @@ try {
             border-bottom: 1.5px solid var(--border-color);
             padding-bottom: 10px;
         }
-        
+
         .sem-list {
             display: grid;
             grid-template-columns: repeat(4, 1fr);
             gap: 15px;
         }
-        
+
         .sem-pill {
             background: var(--bg-light);
             border: 1px solid var(--border-color);
@@ -312,13 +320,13 @@ try {
             text-align: center;
             transition: var(--transition);
         }
-        
+
         .sem-pill:hover {
             border-color: var(--primary-gold);
             transform: translateY(-2px);
             background: #fffdf5;
         }
-        
+
         .sem-pill .sem-label {
             font-size: 11px;
             text-transform: uppercase;
@@ -327,13 +335,13 @@ try {
             display: block;
             margin-bottom: 4px;
         }
-        
+
         .sem-pill .sem-count {
             font-size: 20px;
             font-weight: 800;
             color: var(--primary-maroon);
         }
-        
+
         /* Coordinator activity table */
         .section-card {
             background: white;
@@ -342,7 +350,7 @@ try {
             padding: 30px;
             margin-bottom: 40px;
         }
-        
+
         .section-card h3 {
             font-size: 20px;
             font-weight: 700;
@@ -352,22 +360,22 @@ try {
             align-items: center;
             gap: 12px;
         }
-        
+
         .section-card h3 i {
             color: var(--primary-maroon);
         }
-        
+
         .table-responsive {
             width: 100%;
             overflow-x: auto;
         }
-        
+
         table {
             width: 100%;
             border-collapse: collapse;
             text-align: left;
         }
-        
+
         th {
             padding: 16px 20px;
             font-size: 13px;
@@ -377,33 +385,33 @@ try {
             border-bottom: 2px solid var(--border-color);
             letter-spacing: 0.5px;
         }
-        
+
         td {
             padding: 18px 20px;
             font-size: 14px;
             border-bottom: 1px solid var(--border-color);
             color: var(--text-dark);
         }
-        
+
         tr:last-child td {
             border-bottom: none;
         }
-        
+
         .coord-name-wrap {
             display: flex;
             flex-direction: column;
         }
-        
+
         .coord-name {
             font-weight: 600;
             color: var(--text-dark);
         }
-        
+
         .coord-email {
             font-size: 12px;
             color: var(--text-muted);
         }
-        
+
         .badge {
             display: inline-flex;
             align-items: center;
@@ -412,17 +420,17 @@ try {
             font-weight: 600;
             border-radius: 8px;
         }
-        
+
         .badge-success {
             background-color: #f0fdf4;
             color: #166534;
         }
-        
+
         .badge-warning {
             background-color: #fffbeb;
             color: #92400e;
         }
-        
+
         .stat-count-pill {
             background-color: #f1f5f9;
             padding: 4px 10px;
@@ -443,14 +451,14 @@ try {
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            box-shadow: 0 4px 12px rgba(128,0,0,0.2);
+            box-shadow: 0 4px 12px rgba(128, 0, 0, 0.2);
             transition: var(--transition);
         }
 
         .quick-monitor-btn:hover {
             background-color: #600000;
             transform: translateY(-2px);
-            box-shadow: 0 6px 16px rgba(128,0,0,0.3);
+            box-shadow: 0 6px 16px rgba(128, 0, 0, 0.3);
         }
 
         .pri-card {
@@ -463,19 +471,19 @@ try {
             align-items: center;
             justify-content: space-between;
         }
-        
+
         .pri-circle-wrap {
             position: relative;
             width: 70px;
             height: 70px;
         }
-        
+
         .pri-circle-bg {
             fill: none;
             stroke: #f1f5f9;
             stroke-width: 6;
         }
-        
+
         .pri-circle-progress {
             fill: none;
             stroke: var(--primary-gold);
@@ -487,7 +495,7 @@ try {
             transform-origin: 50% 50%;
             transition: stroke-dashoffset 1s ease-in-out;
         }
-        
+
         .pri-val-text {
             position: absolute;
             top: 50%;
@@ -515,7 +523,7 @@ try {
             flex-direction: column;
             gap: 20px;
         }
-        
+
         .top-performers-card h3 {
             font-size: 18px;
             font-weight: 700;
@@ -527,17 +535,17 @@ try {
             align-items: center;
             gap: 10px;
         }
-        
+
         .top-performers-card h3 i {
             color: var(--primary-gold);
         }
-        
+
         .performer-list {
             display: flex;
             flex-direction: column;
             gap: 12px;
         }
-        
+
         .performer-row {
             display: flex;
             align-items: center;
@@ -548,19 +556,19 @@ try {
             border: 1px solid var(--border-color);
             transition: var(--transition);
         }
-        
+
         .performer-row:hover {
             transform: translateX(4px);
             border-color: var(--primary-gold);
             background: #fffdf9;
         }
-        
+
         .performer-info-left {
             display: flex;
             align-items: center;
             gap: 12px;
         }
-        
+
         .performer-rank {
             width: 32px;
             height: 32px;
@@ -572,48 +580,48 @@ try {
             font-size: 14px;
             flex-shrink: 0;
         }
-        
+
         .rank-1 {
             background: rgba(212, 175, 55, 0.15);
             color: #b58d16;
             border: 1px solid #d4af37;
         }
-        
+
         .rank-2 {
             background: rgba(192, 192, 192, 0.15);
             color: #7f7f7f;
             border: 1px solid #c0c0c0;
         }
-        
+
         .rank-3 {
             background: rgba(205, 127, 50, 0.15);
             color: #9c5c24;
             border: 1px solid #cd7f32;
         }
-        
+
         .rank-other {
             background: #f1f5f9;
             color: var(--text-muted);
             border: 1px solid var(--border-color);
         }
-        
+
         .performer-details {
             display: flex;
             flex-direction: column;
         }
-        
+
         .performer-name {
             font-weight: 600;
             font-size: 14px;
             color: var(--text-dark);
         }
-        
+
         .performer-meta {
             font-size: 11px;
             color: var(--text-muted);
             font-weight: 500;
         }
-        
+
         .performer-score {
             font-weight: 700;
             font-size: 14px;
@@ -624,22 +632,25 @@ try {
         }
 
         @media (max-width: 992px) {
-            .stats-grid, .dashboard-main-grid {
+
+            .stats-grid,
+            .dashboard-main-grid {
                 grid-template-columns: 1fr;
             }
         }
-        
+
         @media (max-width: 768px) {
             .main-content {
                 padding: 20px;
             }
+
             .page-header {
                 flex-direction: column;
                 align-items: flex-start;
                 gap: 15px;
             }
         }
-        
+
         /* Modal Styles */
         .modal {
             display: none;
@@ -656,12 +667,12 @@ try {
             opacity: 0;
             transition: opacity 0.3s ease;
         }
-        
+
         .modal.show {
             display: flex;
             opacity: 1;
         }
-        
+
         .modal-content {
             background: white;
             padding: 30px;
@@ -674,17 +685,17 @@ try {
             transform: translateY(20px);
             transition: transform 0.3s ease;
         }
-        
+
         .modal.show .modal-content {
             transform: translateY(0);
         }
-        
+
         .modal-content table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 10px;
         }
-        
+
         .modal-content th {
             padding: 12px 14px !important;
             font-size: 11px !important;
@@ -695,7 +706,7 @@ try {
             background-color: #f8fafc !important;
             letter-spacing: 0.5px !important;
         }
-        
+
         .modal-content td {
             padding: 12px 14px !important;
             font-size: 13px !important;
@@ -703,7 +714,7 @@ try {
             color: var(--text-dark) !important;
             vertical-align: middle !important;
         }
-        
+
         .modal-header {
             display: flex;
             justify-content: space-between;
@@ -712,13 +723,13 @@ try {
             padding-bottom: 15px;
             border-bottom: 2px solid var(--border-color);
         }
-        
+
         .modal-header h3 {
             font-size: 20px;
             color: var(--primary-maroon);
             font-weight: 700;
         }
-        
+
         .close-modal {
             background: none;
             border: none;
@@ -728,7 +739,7 @@ try {
             line-height: 1;
             transition: var(--transition);
         }
-        
+
         .close-modal:hover {
             color: var(--primary-maroon);
             transform: scale(1.1);
@@ -739,19 +750,21 @@ try {
             cursor: pointer;
             transition: var(--transition);
         }
+
         .clickable-row:hover {
             background-color: rgba(128, 0, 0, 0.03) !important;
         }
-        
+
         .stat-count-pill.interactive {
             cursor: pointer;
             transition: var(--transition);
         }
+
         .stat-count-pill.interactive:hover {
             transform: scale(1.05);
             box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
         }
-        
+
         .badge-type {
             padding: 4px 8px;
             border-radius: 6px;
@@ -759,17 +772,33 @@ try {
             font-weight: 700;
             text-transform: uppercase;
         }
-        .badge-aptitude { background: #e3f2fd; color: #1976d2; }
-        .badge-technical { background: #ffebee; color: #c62828; }
-        .badge-hr { background: #e8f5e9; color: #2e7d32; }
+
+        .badge-aptitude {
+            background: #e3f2fd;
+            color: #1976d2;
+        }
+
+        .badge-technical {
+            background: #ffebee;
+            color: #c62828;
+        }
+
+        .badge-hr {
+            background: #e8f5e9;
+            color: #2e7d32;
+        }
     </style>
 </head>
+
 <body>
     <?php include_once __DIR__ . '/includes/navbar.php'; ?>
 
     <div class="main-content">
         <div style="margin-bottom: 20px;">
-            <a href="https://erp.gmit.info/gmu_ac/output/hOD/index.php" style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: white; background: var(--primary-maroon); padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(128, 0, 0, 0.15); transition: var(--transition);" onmouseover="this.style.background='#600000'; this.style.transform='translateY(-1px)'" onmouseout="this.style.background='var(--primary-maroon)'; this.style.transform='translateY(0)'">
+            <a href="https://erp.gmit.info/gmu_ac/output/hOD/index.php"
+                style="display: inline-flex; align-items: center; gap: 8px; text-decoration: none; color: white; background: var(--primary-maroon); padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 600; box-shadow: 0 4px 12px rgba(128, 0, 0, 0.15); transition: var(--transition);"
+                onmouseover="this.style.background='#600000'; this.style.transform='translateY(-1px)'"
+                onmouseout="this.style.background='var(--primary-maroon)'; this.style.transform='translateY(0)'">
                 <i class="fas fa-home"></i> Back to ERP Home
             </a>
         </div>
@@ -779,7 +808,8 @@ try {
                 <p><?php echo htmlspecialchars($deptLabel); ?> • Academic Tracking</p>
             </div>
             <div style="display: flex; gap: 15px;">
-                <a href="campus_drives.php" class="quick-monitor-btn" style="background-color: #d97706; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.2);">
+                <a href="campus_drives.php" class="quick-monitor-btn"
+                    style="background-color: #d97706; box-shadow: 0 4px 12px rgba(217, 119, 6, 0.2);">
                     <i class="fas fa-briefcase"></i> View Campus Drives
                 </a>
                 <a href="ai_monitor.php" class="quick-monitor-btn">
@@ -806,11 +836,16 @@ try {
             <div class="pri-card">
                 <div class="summary-info">
                     <h3>Placement Readiness</h3>
-                    <div class="main-val" style="color: var(--primary-gold); margin-bottom: 8px;"><?php echo $priIndex; ?>%</div>
-                    <div class="pri-breakdown" style="font-size: 11px; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px; font-weight: 500;">
-                        <div><i class="fas fa-file-alt" style="color: var(--primary-maroon); width: 14px;"></i> Resumes Uploaded: <strong><?php echo round($resumeRate); ?>%</strong></div>
-                        <div><i class="fas fa-robot" style="color: var(--primary-maroon); width: 14px;"></i> Mock AI Completed: <strong><?php echo round($mockRate); ?>%</strong></div>
-                        <div><i class="fas fa-tasks" style="color: var(--primary-maroon); width: 14px;"></i> Tasks Completed: <strong><?php echo round($taskRate); ?>%</strong></div>
+                    <div class="main-val" style="color: var(--primary-gold); margin-bottom: 8px;">
+                        <?php echo $priIndex; ?>%</div>
+                    <div class="pri-breakdown"
+                        style="font-size: 11px; color: var(--text-muted); display: flex; flex-direction: column; gap: 4px; font-weight: 500;">
+                        <div><i class="fas fa-file-alt" style="color: var(--primary-maroon); width: 14px;"></i> Resumes
+                            Uploaded: <strong><?php echo round($resumeRate); ?>%</strong></div>
+                        <div><i class="fas fa-robot" style="color: var(--primary-maroon); width: 14px;"></i> Mock AI
+                            Completed: <strong><?php echo round($mockRate); ?>%</strong></div>
+                        <div><i class="fas fa-tasks" style="color: var(--primary-maroon); width: 14px;"></i> Tasks
+                            Completed: <strong><?php echo round($taskRate); ?>%</strong></div>
                     </div>
                 </div>
                 <div class="pri-circle-wrap" style="--pri-percent: <?php echo $priIndex; ?>;">
@@ -824,7 +859,9 @@ try {
 
             <!-- Card 3: Coordinator Stats Summary -->
             <div class="sem-breakdown-card" style="padding: 20px 24px;">
-                <h3 style="font-size: 14px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); margin-bottom: 12px; border-bottom: none; padding-bottom: 0;">Coordinator Activity</h3>
+                <h3
+                    style="font-size: 14px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--text-muted); margin-bottom: 12px; border-bottom: none; padding-bottom: 0;">
+                    Coordinator Activity</h3>
                 <div class="sem-list" style="grid-template-columns: repeat(2, 1fr); gap: 10px;">
                     <div class="sem-pill" style="padding: 8px 10px;">
                         <span class="sem-label" style="font-size: 11px;">Tasks</span>
@@ -832,12 +869,15 @@ try {
                     </div>
                     <div class="sem-pill" style="padding: 8px 10px;">
                         <span class="sem-label" style="font-size: 11px;">Completions</span>
-                        <span class="sem-count" style="color: #166534; font-size: 18px;"><?php echo $totalCompletions; ?></span>
+                        <span class="sem-count"
+                            style="color: #166534; font-size: 18px;"><?php echo $totalCompletions; ?></span>
                     </div>
                 </div>
                 <div style="margin-top: 8px; text-align: center;">
                     <span style="font-size: 11px; color: var(--text-muted); font-weight: 500;">
-                        Avg: <strong><?php echo ($totalTasksAssigned > 0) ? round($totalCompletions / $totalTasksAssigned, 1) : 0; ?></strong> completions/task
+                        Avg:
+                        <strong><?php echo ($totalTasksAssigned > 0) ? round($totalCompletions / $totalTasksAssigned, 1) : 0; ?></strong>
+                        completions/task
                     </span>
                 </div>
             </div>
@@ -848,7 +888,7 @@ try {
             <!-- Left Column: Coordinator tracking table -->
             <div class="section-card" style="margin-bottom: 0;">
                 <h3><i class="fas fa-user-shield"></i> Department Coordinators Activity</h3>
-                
+
                 <div class="table-responsive">
                     <table>
                         <thead>
@@ -863,12 +903,14 @@ try {
                             <?php if (empty($coordinatorStats)): ?>
                                 <tr>
                                     <td colspan="4" style="text-align: center; padding: 40px; color: var(--text-muted);">
-                                        No coordinators registered for the <?php echo htmlspecialchars($department); ?> department.
+                                        No coordinators registered for the <?php echo htmlspecialchars($department); ?>
+                                        department.
                                     </td>
                                 </tr>
                             <?php else: ?>
                                 <?php foreach ($coordinatorStats as $stat): ?>
-                                    <tr class="clickable-row" onclick="viewCoordinatorTasks(<?php echo $stat['id']; ?>, '<?php echo htmlspecialchars($stat['name'], ENT_QUOTES); ?>')">
+                                    <tr class="clickable-row"
+                                        onclick="viewCoordinatorTasks(<?php echo $stat['id']; ?>, '<?php echo htmlspecialchars($stat['name'], ENT_QUOTES); ?>')">
                                         <td>
                                             <div class="coord-name-wrap">
                                                 <span class="coord-name"><?php echo htmlspecialchars($stat['name']); ?></span>
@@ -876,10 +918,12 @@ try {
                                             </div>
                                         </td>
                                         <td style="text-align: center;">
-                                            <span class="stat-count-pill interactive"><?php echo $stat['tasks_assigned']; ?></span>
+                                            <span
+                                                class="stat-count-pill interactive"><?php echo $stat['tasks_assigned']; ?></span>
                                         </td>
                                         <td style="text-align: center;">
-                                            <span class="stat-count-pill" style="background-color: #e0f2fe; color: #0369a1;"><?php echo $stat['completions']; ?></span>
+                                            <span class="stat-count-pill"
+                                                style="background-color: #e0f2fe; color: #0369a1;"><?php echo $stat['completions']; ?></span>
                                         </td>
                                         <td>
                                             <?php if ($stat['is_active']): ?>
@@ -905,11 +949,11 @@ try {
                             No performance data recorded yet.
                         </div>
                     <?php else: ?>
-                        <?php foreach ($topPerformers as $index => $perf): 
+                        <?php foreach ($topPerformers as $index => $perf):
                             $rank = $index + 1;
                             $rankClass = ($rank == 1) ? 'rank-1' : (($rank == 2) ? 'rank-2' : (($rank == 3) ? 'rank-3' : 'rank-other'));
                             $rankIcon = ($rank == 1) ? '<i class="fas fa-crown"></i>' : (($rank == 2) ? '<i class="fas fa-award"></i>' : $rank);
-                        ?>
+                            ?>
                             <div class="performer-row">
                                 <div class="performer-info-left">
                                     <div class="performer-rank <?php echo $rankClass; ?>">
@@ -917,7 +961,8 @@ try {
                                     </div>
                                     <div class="performer-details">
                                         <span class="performer-name"><?php echo htmlspecialchars($perf['name']); ?></span>
-                                        <span class="performer-meta"><?php echo htmlspecialchars($perf['usn']); ?> • <?php echo htmlspecialchars($perf['institution']); ?></span>
+                                        <span class="performer-meta"><?php echo htmlspecialchars($perf['usn']); ?> •
+                                            <?php echo htmlspecialchars($perf['institution']); ?></span>
                                     </div>
                                 </div>
                                 <div class="performer-score">
@@ -945,7 +990,6 @@ try {
                             <th style="padding:12px 10px; text-align:left; font-weight:700;">Task Title</th>
                             <th style="padding:12px 10px; text-align:left; font-weight:700;">Type</th>
                             <th style="padding:12px 10px; text-align:left; font-weight:700;">Target/Role Info</th>
-                            <th style="padding:12px 10px; text-align:center; font-weight:700;">Targeted Students</th>
                             <th style="padding:12px 10px; text-align:center; font-weight:700;">Completions</th>
                             <th style="padding:12px 10px; text-align:left; font-weight:700;">Deadline</th>
                         </tr>
@@ -968,7 +1012,7 @@ try {
         }
 
         // Close modal when clicking outside of modal-content
-        window.onclick = function(event) {
+        window.onclick = function (event) {
             const modal = document.getElementById('tasksModal');
             if (event.target === modal) {
                 closeModal();
@@ -979,70 +1023,69 @@ try {
             const modal = document.getElementById('tasksModal');
             const titleEl = document.getElementById('modalTitle');
             const tbody = document.getElementById('modalTasksBody');
-            
+
             titleEl.innerText = "Tasks Assigned by " + coordName;
             tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:40px;"><i class="fas fa-spinner fa-spin" style="font-size: 28px; color: var(--primary-maroon);"></i><br><span style="display:inline-block; margin-top:12px; color:var(--text-muted); font-weight:500;">Retrieving coordinator tasks...</span></td></tr>';
-            
+
             modal.style.display = 'flex';
             // Trigger reflow for transition
             modal.offsetHeight;
             modal.classList.add('show');
-            
+
             const formData = new FormData();
             formData.append('action', 'fetch_coordinator_tasks');
             formData.append('coordinator_id', coordId);
-            
+
             fetch('dashboard.php', {
                 method: 'POST',
                 body: formData
             })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    if (data.tasks.length === 0) {
-                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted); font-weight:500;">No tasks assigned by this coordinator yet.</td></tr>';
-                        return;
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        if (data.tasks.length === 0) {
+                            tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:var(--text-muted); font-weight:500;">No tasks assigned by this coordinator yet.</td></tr>';
+                            return;
+                        }
+
+                        let html = '';
+                        data.tasks.forEach(task => {
+                            let typeBadge = '';
+                            if (task.task_type === 'aptitude') typeBadge = '<span class="badge-type badge-aptitude">Aptitude</span>';
+                            else if (task.task_type === 'technical') typeBadge = '<span class="badge-type badge-technical">Technical</span>';
+                            else if (task.task_type === 'hr') typeBadge = '<span class="badge-type badge-hr">HR</span>';
+
+                            let targetInfo = '';
+                            if (task.company_name) {
+                                targetInfo += '<strong>Company:</strong> ' + escapeHtml(task.company_name);
+                            }
+                            if (task.concept) {
+                                if (targetInfo) targetInfo += '<br>';
+                                targetInfo += '<strong>Role/Concept:</strong> ' + escapeHtml(task.concept);
+                            }
+                            if (!targetInfo) {
+                                targetInfo = '<span style="color:var(--text-muted); font-style:italic;">General Practice</span>';
+                            }
+
+                            html += '<tr style="border-bottom: 1px solid var(--border-color);">';
+                            html += '<td style="padding:14px 10px; font-weight:600; color:var(--text-dark);">' + escapeHtml(task.title) + '</td>';
+                            html += '<td style="padding:14px 10px;">' + typeBadge + '</td>';
+                            html += '<td style="padding:14px 10px; font-size:12px; line-height:1.4;">' + targetInfo + '</td>';
+                            html += '<td style="padding:14px 10px; text-align:center;"><span class="stat-count-pill" style="background-color:#e0f2fe; color:#0369a1; font-size:12px; font-weight:700;">' + task.completed_count + '</span></td>';
+                            html += '<td style="padding:14px 10px; font-weight:500; font-size:12px; color:var(--text-muted);">' + task.deadline_formatted + '</td>';
+                            html += '</tr>';
+                        });
+                        tbody.innerHTML = html;
+                    } else {
+                        tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:#ef4444; font-weight:600;">Error: ' + escapeHtml(data.message) + '</td></tr>';
                     }
-                    
-                    let html = '';
-                    data.tasks.forEach(task => {
-                        let typeBadge = '';
-                        if (task.task_type === 'aptitude') typeBadge = '<span class="badge-type badge-aptitude">Aptitude</span>';
-                        else if (task.task_type === 'technical') typeBadge = '<span class="badge-type badge-technical">Technical</span>';
-                        else if (task.task_type === 'hr') typeBadge = '<span class="badge-type badge-hr">HR</span>';
-                        
-                        let targetInfo = '';
-                        if (task.company_name) {
-                            targetInfo += '<strong>Company:</strong> ' + escapeHtml(task.company_name);
-                        }
-                        if (task.concept) {
-                            if (targetInfo) targetInfo += '<br>';
-                            targetInfo += '<strong>Role/Concept:</strong> ' + escapeHtml(task.concept);
-                        }
-                        if (!targetInfo) {
-                            targetInfo = '<span style="color:var(--text-muted); font-style:italic;">General Practice</span>';
-                        }
-                        
-                        html += '<tr style="border-bottom: 1px solid var(--border-color);">';
-                        html += '<td style="padding:14px 10px; font-weight:600; color:var(--text-dark);">' + escapeHtml(task.title) + '</td>';
-                        html += '<td style="padding:14px 10px;">' + typeBadge + '</td>';
-                        html += '<td style="padding:14px 10px; font-size:12px; line-height:1.4;">' + targetInfo + '</td>';
-                        html += '<td style="padding:14px 10px; text-align:center;"><span class="stat-count-pill" style="font-size:12px; font-weight:700;">' + task.targeted_count + '</span></td>';
-                        html += '<td style="padding:14px 10px; text-align:center;"><span class="stat-count-pill" style="background-color:#e0f2fe; color:#0369a1; font-size:12px; font-weight:700;">' + task.completed_count + '</span></td>';
-                        html += '<td style="padding:14px 10px; font-weight:500; font-size:12px; color:var(--text-muted);">' + task.deadline_formatted + '</td>';
-                        html += '</tr>';
-                    });
-                    tbody.innerHTML = html;
-                } else {
-                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:#ef4444; font-weight:600;">Error: ' + escapeHtml(data.message) + '</td></tr>';
-                }
-            })
-            .catch(err => {
-                console.error(err);
-                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:#ef4444; font-weight:600;">Failed to load tasks. Please try again.</td></tr>';
-            });
+                })
+                .catch(err => {
+                    console.error(err);
+                    tbody.innerHTML = '<tr><td colspan="6" style="text-align:center; padding:30px; color:#ef4444; font-weight:600;">Failed to load tasks. Please try again.</td></tr>';
+                });
         }
-        
+
         function escapeHtml(text) {
             if (!text) return '';
             const map = {
@@ -1052,8 +1095,9 @@ try {
                 '"': '&quot;',
                 "'": '&#039;'
             };
-            return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+            return text.replace(/[&<>"']/g, function (m) { return map[m]; });
         }
     </script>
 </body>
+
 </html>

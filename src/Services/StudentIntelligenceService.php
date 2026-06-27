@@ -347,6 +347,14 @@ class StudentIntelligenceService {
                     $userModel = new \User();
                     $user = $userModel->findByUsername($studentId);
                     if ($user) {
+
+
+
+
+
+
+
+                        
                         $profile = $studentModel->getByUserId($user['id'], $institution) ?: [];
                     }
                 }
@@ -368,10 +376,19 @@ class StudentIntelligenceService {
             }
 
             $systemPrompt = "You are a Senior Professional Examiner. Generate exactly 5 highly challenging multiple choice questions (MCQs) on the topic: '{$topic}'.{$scenarioInstruction}
+            CRITICAL RULES FOR ACCURACY:
+            1. You must solve the question yourself step-by-step in the 'step_by_step_derivation' field before deciding the options or the answer.
+            2. The correct answer MUST be mathematically, logically, and factually correct.
+            3. Read the question carefully to identify exactly what is being asked (e.g., if the question asks for 'girls', the correct answer must be the number of girls, not the number of boys). Ensure the answer index points to the value of the requested variable.
+            4. The correct answer MUST be present as one of the choices in the 'options' array.
+            5. The 'answer' index (0, 1, 2, or 3) MUST point exactly to the correct answer in the 'options' array.
+            6. Never generate a question where the correct answer is missing, incorrect, or closest-guess.
+
             You must return a response strictly formatted as a valid JSON array of objects, where each object matches the following structure:
             [
               {
                 \"question\": \"The question text\",
+                \"step_by_step_derivation\": \"Solve the question step-by-step with formulas and intermediate values to ensure 100% accuracy. Decide the correct answer based on this derivation.\",
                 \"options\": [\"Option A\", \"Option B\", \"Option C\", \"Option D\"],
                 \"answer\": 0, // Integer index (0 to 3) representing the correct option
                 \"explanation\": \"Detailed explanation of why the correct option is right and others are wrong.\"
@@ -441,17 +458,26 @@ class StudentIntelligenceService {
             }
 
             $questionData = json_decode($challenge['question_json'], true);
+            if (is_string($questionData)) {
+                $questionData = json_decode($questionData, true);
+            }
             
-            $isNested = false;
-            if (isset($questionData['questions']) && is_array($questionData['questions'])) {
-                $questionsArray = $questionData['questions'];
-                $isNested = true;
-            } else {
-                $questionsArray = $questionData;
+            $questionsArray = $questionData;
+            $nestedKey = null;
+            if (is_array($questionsArray)) {
+                if (!isset($questionsArray[0])) {
+                    foreach ($questionsArray as $key => $val) {
+                        if (is_array($val) && (isset($val[0]['question']) || isset($val['question']))) {
+                            $questionsArray = $val;
+                            $nestedKey = $key;
+                            break;
+                        }
+                    }
+                }
             }
 
             // Check if we are dealing with multiple questions (array of arrays) or a single question
-            $isMultiple = isset($questionsArray[0]) && is_array($questionsArray[0]);
+            $isMultiple = is_array($questionsArray) && isset($questionsArray[0]) && is_array($questionsArray[0]);
 
             $correctCount = 0;
             $results = [];
@@ -480,29 +506,36 @@ class StudentIntelligenceService {
                 $performanceResult = $correctCount; 
                 
                 // Re-nest if it was nested
-                if ($isNested) {
-                    $questionData['questions'] = $questionsArray;
+                if ($nestedKey !== null) {
+                    $questionData[$nestedKey] = $questionsArray;
                 } else {
                     $questionData = $questionsArray;
                 }
             } else {
                 // Backward compatibility for single question
-                $correctOption = (int)($questionData['answer'] ?? 0);
+                $correctOption = (int)($questionsArray['answer'] ?? 0);
                 $selectedOption = is_array($selectedOptions) ? (isset($selectedOptions[0]) ? (int)$selectedOptions[0] : -1) : (int)$selectedOptions;
                 $isQCorrect = ($selectedOption === $correctOption);
                 if ($isQCorrect) {
                     $correctCount = 1;
                 }
-                $questionData['selected_answer'] = $selectedOption;
+                $questionsArray['selected_answer'] = $selectedOption;
                 $results[] = [
-                    'question' => $questionData['question'] ?? '',
-                    'options' => $questionData['options'] ?? [],
+                    'question' => $questionsArray['question'] ?? '',
+                    'options' => $questionsArray['options'] ?? [],
                     'selected' => $selectedOption,
                     'correct_answer' => $correctOption,
                     'is_correct' => $isQCorrect,
-                    'explanation' => $questionData['explanation'] ?? ''
+                    'explanation' => $questionsArray['explanation'] ?? ''
                 ];
                 $performanceResult = $isQCorrect ? 1 : 0;
+
+                // Re-nest if it was nested
+                if ($nestedKey !== null) {
+                    $questionData[$nestedKey] = $questionsArray;
+                } else {
+                    $questionData = $questionsArray;
+                }
             }
 
             // Update challenge status and save student choices inside question_json

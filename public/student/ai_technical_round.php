@@ -498,12 +498,16 @@ if ($driveId > 0) {
                     
                     // Re-render history
                     if (checkRes.history && checkRes.history.length > 0) {
+                        let lastPayload = null;
                         checkRes.history.forEach(m => {
                             if (m.content) {
                                 // If it's a structured JSON string from assistant, try parsing it
                                 let text = m.content;
                                 try {
                                     const parsed = JSON.parse(m.content);
+                                    if (m.role === 'assistant') {
+                                        lastPayload = parsed;
+                                    }
                                     if (parsed.question) text = parsed.question;
                                     else if (parsed.problem_statement) text = parsed.problem_statement;
                                 } catch(e) {}
@@ -511,6 +515,14 @@ if ($driveId > 0) {
                             }
                         });
                         addMessage('ai', "Continuing interview. Please look at the previous context.");
+                        
+                        if (lastPayload && lastPayload.type === 'coding') {
+                            currentProblem = lastPayload;
+                            activateCodingMode(lastPayload);
+                        } else {
+                            currentProblem = null;
+                            document.getElementById('editorLocked').style.display = 'flex';
+                        }
                     } else {
                         loadNextQuestion();
                     }
@@ -534,7 +546,6 @@ if ($driveId > 0) {
                 isSessionActive = true; 
                 startTime = Date.now();
                 startTimer();
-                addMessage('ai', "Initializing environment... Ready for technical screening.");
                 loadNextQuestion();
             }
         }
@@ -623,7 +634,6 @@ if ($driveId > 0) {
         }
 
                 function processAIResponse(data) {
-            // Because AIService returns data wrapped in various formats (e.g. {success: true, result: {...}} or {content: "..."})
             let payload = data;
             
             if (data.result && typeof data.result === 'object') {
@@ -634,9 +644,18 @@ if ($driveId > 0) {
 
             const isCode = payload.type === 'coding';
             const questionText = isCode ? payload.problem_statement : payload.question;
-            const feedbackText = payload.feedback ? `**Evaluation:** ${payload.feedback}\n\n` : '';
+            const feedbackText = payload.feedback && payload.feedback.trim() !== '' ? `**Evaluation:** ${payload.feedback}\n\n` : '';
             
-            addMessage('ai', (feedbackText + (questionText || JSON.stringify(payload))).trim());
+            let messageText = feedbackText;
+            if (questionText) {
+                messageText += questionText;
+            } else if (typeof payload === 'string') {
+                messageText += payload;
+            }
+            
+            if (messageText.trim() !== '') {
+                addMessage('ai', messageText.trim());
+            }
 
             // Save AI response to database to persist context
             apiCall({ action: 'append_ai_history', session_id: sessionId, message: JSON.stringify(payload) });
@@ -688,8 +707,12 @@ if ($driveId > 0) {
             // Fix: submit_code returns a job_id (async), not a sync result
             if (res.success && res.job_id) {
                 outputDiv.innerText = "Evaluating... (this may take ~10s)";
-                pollJobStatus(res.job_id, (result) => {
-                    outputDiv.innerText = `${result.feedback}\n\nPassed: ${result.passed ? 'YES ✓' : 'NO ✗'}\nScore: ${result.score}/10`;
+                pollJobStatus(res.job_id, (resultData) => {
+                    let result = resultData;
+                    if (resultData.content && typeof resultData.content === 'string') {
+                        try { result = JSON.parse(resultData.content); } catch(e) {}
+                    }
+                    outputDiv.innerText = `${result.feedback || 'No feedback'}\n\nPassed: ${result.passed ? 'YES ✓' : 'NO ✗'}\nScore: ${result.score || 0}/10`;
                     outputDiv.className = result.passed ? "output success" : "output error";
                     if (result.passed) {
                         setTimeout(() => {

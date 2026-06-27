@@ -10,7 +10,7 @@ $stats  = $model->getStatistics();
 
 $page       = max(1, (int)($_GET['page'] ?? 1));
 $perPage    = 25;
-$all        = $model->getAllPlacedStudents();
+$all        = $model->getAllPlacedStudents('sl_no ASC');
 $total      = count($all);
 $totalPages = max(1, ceil($total / $perPage));
 $paginated  = array_slice($all, ($page - 1) * $perPage, $perPage);
@@ -271,35 +271,40 @@ $paginated  = array_slice($all, ($page - 1) * $perPage, $perPage);
             <table class="o-table" id="placedTable">
                 <thead>
                     <tr>
-                        <th width="60">#</th>
-                        <th>Student Details</th>
+                        <th>Name</th>
+                        <th>Contact No</th>
+                        <th>Mail ID</th>
                         <th>USN</th>
-                        <th>Organization</th>
-                        <th>Role</th>
-                        <th>CTC (LPA)</th>
-                        <th>Batch</th>
-                        <th>Institution</th>
+                        <th>YOP</th>
+                        <th>Qualification</th>
+                        <th>Specialisation</th>
+                        <th>Company Name</th>
+                        <th>Designation</th>
+                        <th>CTC in Lakhs</th>
+                        <th>Gender</th>
+                        <th>College Name</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php foreach ($paginated as $s): ?>
                     <tr>
-                        <td style="color:var(--text-muted);font-weight:700;"><?php echo $s['sl_no']; ?></td>
-                        <td>
-                            <div style="font-weight:700; color:var(--text-dark);"><?php echo htmlspecialchars($s['name'] ?? '-'); ?></div>
-                            <div style="font-size:11px; color:var(--text-muted);"><?php echo htmlspecialchars($s['gender'] ?? '-'); ?> Applicant</div>
-                        </td>
+                        <td style="font-weight:700; color:var(--text-dark);"><?php echo htmlspecialchars($s['name'] ?? '-'); ?></td>
+                        <td><?php echo htmlspecialchars($s['contact_no'] ?? '-'); ?></td>
+                        <td><?php echo htmlspecialchars($s['mail_id'] ?? '-'); ?></td>
                         <td style="font-family:monospace;font-size:13px; font-weight:700; color:var(--brand);"><?php echo htmlspecialchars($s['usn'] ?? '-'); ?></td>
+                        <td style="font-size:13px; font-weight:700;"><?php echo $s['yop'] ?? '-'; ?></td>
+                        <td><?php echo htmlspecialchars($s['qualification'] ?? '-'); ?></td>
+                        <td><?php echo htmlspecialchars($s['specialisation'] ?? '-'); ?></td>
                         <td style="font-weight:600;"><?php echo htmlspecialchars($s['company_name'] ?? '-'); ?></td>
                         <td style="font-size:13px;color:var(--text-muted); font-weight:500;"><?php echo htmlspecialchars($s['designation'] ?? '-'); ?></td>
-                        <td><span class="o-badge o-badge--green"><?php echo $s['ctc_in_lakhs'] ? number_format((float)$s['ctc_in_lakhs'], 2) : '-'; ?></span></td>
-                        <td style="font-size:13px; font-weight:700;"><?php echo $s['yop'] ?? '-'; ?></td>
+                        <td><span class="o-badge o-badge--green"><?php echo !empty($s['ctc_in_lakhs']) ? htmlspecialchars($s['ctc_in_lakhs']) : '-'; ?></span></td>
+                        <td><?php echo htmlspecialchars($s['gender'] ?? '-'); ?></td>
                         <td style="font-size:12px;color:var(--text-muted); font-weight:600;"><?php echo htmlspecialchars($s['college_name'] ?? '-'); ?></td>
                     </tr>
                     <?php endforeach; if (empty($paginated)): ?>
-                    <tr><td colspan="8" style="text-align:center; padding:60px; color:var(--text-muted);">
-                        <i class="fas fa-database" style="font-size:40px; margin-bottom:15px; opacity:0.3; display:block;"></i>
-                        No placement records detected.
+                    <tr><td colspan="12" style="text-align:center; padding:60px; color:var(--text-muted);">
+                         <i class="fas fa-database" style="font-size:40px; margin-bottom:15px; opacity:0.3; display:block;"></i>
+                         No placement records detected.
                     </td></tr>
                     <?php endif; ?>
                 </tbody>

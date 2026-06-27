@@ -87,6 +87,12 @@ function getStatusBadge($deadline) {
             gap: 1.5rem; 
         }
         
+                /* ── Filter Strip ── */
+        .filter-strip { display: flex; gap: 10px; margin-bottom: 28px; flex-wrap: wrap; align-items: center; }
+        .filter-btn { padding: 8px 18px; border-radius: 50px; font-size: 13px; font-weight: 600; border: 1.5px solid var(--border); background: var(--card-bg); color: var(--text-muted); cursor: pointer; transition: all 0.2s; }
+        .filter-btn.active, .filter-btn:hover { border-color: var(--primary); background: var(--primary-light); color: var(--primary); }
+        .filter-count { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 50%; background: var(--primary); color: #fff; font-size: 10px; font-weight: 700; margin-left: 4px; }
+        
         .internship-card { 
             background: var(--card-bg); 
             border-radius: 16px; 
@@ -345,9 +351,28 @@ function getStatusBadge($deadline) {
     <?php include_once __DIR__ . '/includes/navbar.php'; ?>
 
     <div class="container">
-        <div class="page-header">
+                <div class="page-header">
             <h1 class="page-title">Explore Internships</h1>
             <p style="color: var(--text-muted); font-size: 1rem; margin-top: 0.5rem;">Opportunities handpicked for your career growth.</p>
+        </div>
+        
+        <?php
+        $today = date('Y-m-d');
+        $openCount = count(array_filter($internships, fn($i) => $i['application_deadline'] >= $today));
+        $endedCount = count(array_filter($internships, fn($i) => $i['application_deadline'] < $today));
+        ?>
+        <div class="filter-strip">
+            <button class="filter-btn active" onclick="filterCards('all', this)">
+                All <span class="filter-count"><?php echo count($internships); ?></span>
+            </button>
+            <button class="filter-btn" onclick="filterCards('open', this)">
+                <i class="fas fa-lock-open" style="font-size:11px;color:#059669;"></i>
+                Open <span class="filter-count" style="background:#059669;"><?php echo $openCount; ?></span>
+            </button>
+            <button class="filter-btn" onclick="filterCards('ended', this)">
+                <i class="fas fa-lock" style="font-size:11px;color:#dc2626;"></i>
+                Ended <span class="filter-count" style="background:#dc2626;"><?php echo $endedCount; ?></span>
+            </button>
         </div>
         
         <?php if (empty($internships)): ?>
@@ -359,7 +384,7 @@ function getStatusBadge($deadline) {
         <?php else: ?>
             <div class="internship-grid">
                 <?php foreach ($internships as $i): ?>
-                    <div class="internship-card">
+                    <div class="internship-card" data-status="<?php echo ($today <= $i['application_deadline']) ? 'open' : 'ended'; ?>">
                         <div class="card-header-flex">
                             <div class="logo-box">
                                 <?php 
@@ -430,6 +455,22 @@ function getStatusBadge($deadline) {
             </div>
         <?php endif; ?>
     </div>
+
+    <script>
+        function filterCards(filterType, btnElement) {
+            document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
+            btnElement.classList.add('active');
+            const cards = document.querySelectorAll('.internship-card');
+            cards.forEach(card => {
+                const status = card.getAttribute('data-status');
+                if (filterType === 'all' || filterType === status) {
+                    card.style.display = 'flex';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+    </script>
 </body>
 </html>
 

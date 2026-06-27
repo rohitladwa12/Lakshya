@@ -69,11 +69,17 @@ class StudentProfile extends Model {
             }
 
             // Fetch Current Semester & SGPA from student_sem_sgpa for GMIT (LOCAL)
-            $sqlCurrent = "SELECT semester, sgpa FROM student_sem_sgpa
-                           WHERE student_id = ? AND institution = ? AND is_current = 1
-                           LIMIT 1";
+            $paramsCurrent = [$username];
+            $sqlCurrent = "SELECT semester, sgpa FROM student_sem_sgpa WHERE (student_id = ?";
+            if (!empty($aadhar)) {
+                $sqlCurrent .= " OR student_id = ?";
+                $paramsCurrent[] = $aadhar;
+            }
+            $sqlCurrent .= ") AND institution = ? AND is_current = 1 LIMIT 1";
+            $paramsCurrent[] = INSTITUTION_GMIT;
+
             $stmtC = $this->db->prepare($sqlCurrent); // LOCAL
-            $stmtC->execute([$username, INSTITUTION_GMIT]);
+            $stmtC->execute($paramsCurrent);
             $currentData = $stmtC->fetch();
 
             $mapped = $this->mapToAppProfile([], $user, $details ?: [], $inst);
@@ -164,11 +170,17 @@ class StudentProfile extends Model {
             // GMIT: SGPA and semester from student_sem_sgpa (LOCAL)
             $studentIdForSgpa = $username; // USN stored in student_sem_sgpa.student_id for GMIT
 
-            $sqlSgpa = "SELECT semester, sgpa, academic_year FROM student_sem_sgpa 
-                        WHERE student_id = ? AND institution = ? 
-                        ORDER BY semester DESC";
+            $paramsSgpa = [$studentIdForSgpa];
+            $sqlSgpa = "SELECT semester, sgpa, academic_year FROM student_sem_sgpa WHERE (student_id = ?";
+            if (!empty($aadhar)) {
+                $sqlSgpa .= " OR student_id = ?";
+                $paramsSgpa[] = $aadhar;
+            }
+            $sqlSgpa .= ") AND institution = ? ORDER BY semester DESC";
+            $paramsSgpa[] = INSTITUTION_GMIT;
+
             $stmtSgpa = $this->db->prepare($sqlSgpa); // LOCAL
-            $stmtSgpa->execute([$studentIdForSgpa, INSTITUTION_GMIT]);
+            $stmtSgpa->execute($paramsSgpa);
             $sgpaRecords = $stmtSgpa->fetchAll();
 
             if (empty($sgpaRecords)) {
@@ -265,6 +277,7 @@ class StudentProfile extends Model {
             'programme' => $row['programme'] ?? ($detailsRow['programme'] ?? null),
             'academic_year' => $row['academic_year'] ?? ($detailsRow['academic_year'] ?? null),
             'institution' => $institution,
+            'aadhar' => $row['aadhar'] ?? ($detailsRow['aadhar'] ?? ($userRow['aadhar'] ?? null)),
             
             // Expanded Personal & Demographic Fields
             'father_name' => $detailsRow['father_name'] ?? null,
@@ -464,7 +477,7 @@ class StudentProfile extends Model {
         
         // REMOTE JOIN (GMU uses SL_NO, GMIT uses ENQUIRY_NO for user id). Include sem for coordinator 5-8 filter.
         // We use a subquery for GMU to only get the LATEST administrative row per USN to avoid duplication.
-        $sql = "SELECT ad.usn, ad.course, ad.discipline, ad.academic_year, IFNULL(u.USER_NAME, ad.usn) as USER_NAME, IFNULL(u.NAME, ad.name) as NAME, u.MOBILE_NO, IFNULL(u.SL_NO, 0) as user_sl_no, '" . INSTITUTION_GMU . "' as institution, ad.sem
+        $sql = "SELECT ad.usn, ad.course, ad.discipline, ad.academic_year, IFNULL(u.USER_NAME, ad.usn) as USER_NAME, IFNULL(u.NAME, ad.name) as NAME, u.MOBILE_NO, IFNULL(u.SL_NO, 0) as user_sl_no, '" . INSTITUTION_GMU . "' as institution, ad.sem, ad.aadhar
                 FROM {$gmuPrefix}ad_student_approved ad
                 INNER JOIN (
                     SELECT usn, MAX(SL_NO) as max_sl 
@@ -473,9 +486,14 @@ class StudentProfile extends Model {
                 ) latest ON ad.usn = latest.usn AND ad.SL_NO = latest.max_sl
                 LEFT JOIN {$gmuPrefix}users u ON u.USER_NAME = ad.usn AND u.STATUS = 'ACTIVE'
                 UNION ALL
-                SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.course, ad.discipline, ad.academic_year, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as NAME, u.MOBILE_NO, IFNULL(u.ENQUIRY_NO, 0) as user_sl_no, '" . INSTITUTION_GMIT . "' as institution, 0 as sem
+                SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.course, ad.discipline, ad.academic_year, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as NAME, u.MOBILE_NO, IFNULL(u.ENQUIRY_NO, 0) as user_sl_no, '" . INSTITUTION_GMIT . "' as institution, 0 as sem, ad.aadhar
                 FROM {$gmitPrefix}ad_student_details ad
-                LEFT JOIN {$gmitPrefix}users u ON (u.USER_NAME = ad.usn OR u.USER_NAME = ad.student_id OR u.AADHAR = ad.aadhar OR u.ENQUIRY_NO = ad.enquiry_no) AND u.STATUS = 'ACTIVE'";
+                LEFT JOIN {$gmitPrefix}users u ON (
+                    (u.USER_NAME = ad.usn AND ad.usn != '') 
+                    OR (u.USER_NAME = ad.student_id AND ad.student_id != '') 
+                    OR (u.AADHAR = ad.aadhar AND ad.aadhar != '' AND ad.aadhar IS NOT NULL) 
+                    OR (u.ENQUIRY_NO = ad.enquiry_no AND ad.enquiry_no != 0 AND ad.enquiry_no IS NOT NULL)
+                ) AND u.STATUS = 'ACTIVE'";
         
         $sql = "SELECT * FROM ({$sql}) as combined WHERE 1=1";
                 
@@ -483,8 +501,8 @@ class StudentProfile extends Model {
         if (!empty($filters['usns'])) {
             $usns = (array)$filters['usns'];
             $placeholders = implode(',', array_fill(0, count($usns), '?'));
-            $sql .= " AND usn IN ($placeholders)";
-            $params = array_merge($params, $usns);
+            $sql .= " AND (usn IN ($placeholders) OR aadhar IN ($placeholders))";
+            $params = array_merge($params, $usns, $usns);
         }
 
         if (isset($filters['course'])) {
@@ -541,8 +559,8 @@ class StudentProfile extends Model {
                     $gmitUsns = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
                     if (!empty($gmitUsns)) {
                         $ph = implode(',', array_fill(0, count($gmitUsns), '?'));
-                        $sql .= " AND institution = '" . INSTITUTION_GMIT . "' AND usn IN ($ph)";
-                        $params = array_merge($params, $gmitUsns);
+                        $sql .= " AND institution = '" . INSTITUTION_GMIT . "' AND (usn IN ($ph) OR aadhar IN ($ph))";
+                        $params = array_merge($params, $gmitUsns, $gmitUsns);
                     } else {
                         $sql .= " AND 1=0";
                     }
@@ -555,8 +573,8 @@ class StudentProfile extends Model {
                     $gmitUsns = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
                     if (!empty($gmitUsns)) {
                         $ph = implode(',', array_fill(0, count($gmitUsns), '?'));
-                        $sql .= " AND ( (institution = '" . INSTITUTION_GMU . "' AND sem IN ($semPlaceholders)) OR (institution = '" . INSTITUTION_GMIT . "' AND usn IN ($ph)) )";
-                        $params = array_merge($params, $gmitUsns);
+                        $sql .= " AND ( (institution = '" . INSTITUTION_GMU . "' AND sem IN ($semPlaceholders)) OR (institution = '" . INSTITUTION_GMIT . "' AND (usn IN ($ph) OR aadhar IN ($ph))) )";
+                        $params = array_merge($params, $gmitUsns, $gmitUsns);
                     } else {
                         // No GMIT rows in student_sem_sgpa for these semesters
                         // If specifically filtering for these semesters, we should only show GMU students that match
@@ -667,7 +685,13 @@ class StudentProfile extends Model {
                     UNION ALL
                     SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.name, ad.discipline, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as user_name, IFNULL(u.ENQUIRY_NO, 0) as user_sl_no, u.MOBILE_NO, ad.course, ad.academic_year, '" . INSTITUTION_GMIT . "' as institution, 0 as sem
                     FROM {$gmitPrefix}ad_student_details ad
-                    LEFT JOIN {$gmitPrefix}users u ON (u.USER_NAME = ad.usn OR u.USER_NAME = ad.student_id OR u.AADHAR = ad.aadhar_no OR u.AADHAR = ad.aadhar OR u.ENQUIRY_NO = ad.enquiry_no) AND u.STATUS = 'ACTIVE'
+                    LEFT JOIN {$gmitPrefix}users u ON (
+                        (u.USER_NAME = ad.usn AND ad.usn != '') 
+                        OR (u.USER_NAME = ad.student_id AND ad.student_id != '') 
+                        OR (u.AADHAR = ad.aadhar_no AND ad.aadhar_no != '' AND ad.aadhar_no IS NOT NULL) 
+                        OR (u.AADHAR = ad.aadhar AND ad.aadhar != '' AND ad.aadhar IS NOT NULL) 
+                        OR (u.ENQUIRY_NO = ad.enquiry_no AND ad.enquiry_no != 0 AND ad.enquiry_no IS NOT NULL)
+                    ) AND u.STATUS = 'ACTIVE'
                 ) as combined
                 WHERE (name LIKE ? OR usn LIKE ? OR USER_NAME LIKE ?)";
         $params = [$searchTerm, $searchTerm, $searchTerm];
@@ -709,8 +733,8 @@ class StudentProfile extends Model {
                     $gmitUsns = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
                     if (!empty($gmitUsns)) {
                         $ph = implode(',', array_fill(0, count($gmitUsns), '?'));
-                        $sql .= " AND institution = '" . INSTITUTION_GMIT . "' AND usn IN ($ph)";
-                        $params = array_merge($params, $gmitUsns);
+                        $sql .= " AND institution = '" . INSTITUTION_GMIT . "' AND (usn IN ($ph) OR aadhar IN ($ph))";
+                        $params = array_merge($params, $gmitUsns, $gmitUsns);
                     } else {
                         $sql .= " AND 1=0";
                     }
@@ -723,8 +747,8 @@ class StudentProfile extends Model {
                     $gmitUsns = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
                     if (!empty($gmitUsns)) {
                         $ph = implode(',', array_fill(0, count($gmitUsns), '?'));
-                        $sql .= " AND ( (institution = '" . INSTITUTION_GMU . "' AND sem IN ($semPh)) OR (institution = '" . INSTITUTION_GMIT . "' AND usn IN ($ph)) )";
-                        $params = array_merge($params, $gmitUsns);
+                        $sql .= " AND ( (institution = '" . INSTITUTION_GMU . "' AND sem IN ($semPh)) OR (institution = '" . INSTITUTION_GMIT . "' AND (usn IN ($ph) OR aadhar IN ($ph))) )";
+                        $params = array_merge($params, $gmitUsns, $gmitUsns);
                     } else {
                         $sql .= " AND ( (institution = '" . INSTITUTION_GMU . "' AND sem IN ($semPh)) OR (institution = '" . INSTITUTION_GMIT . "') )";
                     }
@@ -765,19 +789,28 @@ class StudentProfile extends Model {
         $maxSemGmit = [];
         if (!empty($gmitUsns)) {
             $usnList = array_keys($gmitUsns);
-            $placeholders = implode(',', array_fill(0, count($usnList), '?'));
+            $aadharsList = array_filter(array_column($rows, 'aadhar'));
+            $idsToCheck = array_unique(array_merge($usnList, $aadharsList));
+            $placeholders = implode(',', array_fill(0, count($idsToCheck), '?'));
             $stmt = $this->db->prepare("SELECT student_id, MAX(semester) as max_sem FROM student_sem_sgpa WHERE institution = ? AND student_id IN ($placeholders) GROUP BY student_id");
-            $stmt->execute(array_merge([INSTITUTION_GMIT], $usnList));
+            $stmt->execute(array_merge([INSTITUTION_GMIT], $idsToCheck));
+            $dbResults = [];
             while ($r = $stmt->fetch()) {
-                $maxSemGmit[$r['student_id']] = (int) $r['max_sem'];
+                $dbResults[$r['student_id']] = (int) $r['max_sem'];
             }
-        }
-        foreach ($rows as &$row) {
-            if (($row['institution'] ?? '') === INSTITUTION_GMIT && isset($maxSemGmit[$row['usn']])) {
-                $row['sem'] = $maxSemGmit[$row['usn']];
+            foreach ($rows as &$row) {
+                if (($row['institution'] ?? '') === INSTITUTION_GMIT) {
+                    $usn = $row['usn'] ?? '';
+                    $aadhar = $row['aadhar'] ?? '';
+                    if (isset($dbResults[$usn])) {
+                        $row['sem'] = $dbResults[$usn];
+                    } elseif ($aadhar && isset($dbResults[$aadhar])) {
+                        $row['sem'] = $dbResults[$aadhar];
+                    }
+                }
             }
+            unset($row);
         }
-        unset($row);
         $grouped = [];
         foreach ($rows as $row) {
             $key = ($row['institution'] ?? '') . "\0" . ($row['usn'] ?? '');

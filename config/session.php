@@ -266,13 +266,33 @@ function getPhoto() {
  * GMU users: store user_id as string for consistent VARCHAR column.
  */
 function getStudentIdForAssessment() {
-    //$inst = getInstitution();
-    //if ($inst === INSTITUTION_GMIT || $inst === 'GMIT') {
-    //    return getUsername(); // USN for GMIT
-    //}
-    //$uid = getUserId();
-    //return $uid !== null && $uid !== '' ? (string) $uid : getUsername();
-	return getUsername();
+    static $resolvedStudentId = null;
+    if ($resolvedStudentId !== null) {
+        return $resolvedStudentId;
+    }
+    
+    $username = getUsername();
+    $resolvedStudentId = $username;
+    
+    if (isLoggedIn() && getRole() === ROLE_STUDENT) {
+        try {
+            $userId = getUserId();
+            $institution = getInstitution();
+            $profilePath = __DIR__ . '/../src/Models/StudentProfile.php';
+            if (file_exists($profilePath)) {
+                require_once $profilePath;
+                $checkModel = new StudentProfile();
+                $history = $checkModel->getAcademicHistory($userId, $institution ?: 'GMU');
+                $mainProfile = $history[0] ?? null;
+                if (!empty($mainProfile['usn'])) {
+                    $resolvedStudentId = $mainProfile['usn'];
+                }
+            }
+        } catch (Exception $e) {
+            // Silently fallback to username
+        }
+    }
+    return $resolvedStudentId;
 }
 
 function hasRole($role) {

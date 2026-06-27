@@ -191,10 +191,16 @@ if ($db && getUsername()) {
         border: 1px solid rgba(0, 0, 0, 0.05);
     }
 
-    .dropdown-container:hover .dropdown-menu {
+    .dropdown-container:hover .dropdown-menu,
+    .dropdown-container.active .dropdown-menu {
         opacity: 1;
         visibility: visible;
         transform: translateY(10px);
+    }
+
+    .dropdown-menu.right-align {
+        left: auto;
+        right: 0;
     }
 
     .dropdown-item {
@@ -263,6 +269,7 @@ if ($db && getUsername()) {
         border: 1px solid rgba(128, 0, 0, 0.1);
         transition: var(--transition);
         box-shadow: 0 2px 10px rgba(0, 0, 0, 0.03);
+        cursor: pointer;
     }
 
     .student-badge:hover {
@@ -306,24 +313,40 @@ if ($db && getUsername()) {
         box-shadow: 0 4px 8px rgba(128, 0, 0, 0.2);
     }
 
-    .logout-link {
-        color: #e53e3e;
-        text-decoration: none;
-        font-size: 14px;
-        font-weight: 700;
-        padding: 10px 18px;
-        border-radius: 12px;
-        transition: var(--transition);
-        border: 1.5px solid rgba(229, 62, 62, 0.1);
+    .nav-action-btn {
         display: flex;
         align-items: center;
-        gap: 8px;
+        justify-content: center;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+        text-decoration: none;
+        box-shadow: 0 2px 6px rgba(0,0,0,0.02);
     }
-
-    .logout-link:hover {
+    .nav-action-btn:hover {
+        transform: translateY(-1px);
+        box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+    }
+    .nav-action-btn.key-btn {
+        background: #fffbeb;
+        color: #b8860b;
+        border: 1px solid #fef3c7;
+    }
+    .nav-action-btn.key-btn:hover {
+        background: #fef3c7;
+        color: #92400e;
+        border-color: #fde68a;
+    }
+    .nav-action-btn.logout-btn {
         background: #fff5f5;
-        border-color: #e53e3e;
-        box-shadow: 0 4px 12px rgba(229, 62, 62, 0.1);
+        color: #e53e3e;
+        border: 1px solid #ffebeb;
+    }
+    .nav-action-btn.logout-btn:hover {
+        background: #ffebeb;
+        color: #c53030;
+        border-color: #fecaca;
     }
 
     @media (max-width: 1200px) {
@@ -523,10 +546,17 @@ if ($db && getUsername()) {
                     <?php endif; ?>
                 </a>
             </li>
+            <?php if ($institution === INSTITUTION_GMIT): ?>
+            <li class="nav-item">
+                <a href="change_password.php" class="nav-btn <?php echo $currentPage == 'change_password.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-key" style="color: #d97706;"></i> Password
+                </a>
+            </li>
+            <?php endif; ?>
         </ul>
     </div>
 
-    <div class="nav-right">
+    <div class="nav-right" style="display: flex; align-items: center; gap: 12px;">
         <div class="student-badge">
             <div class="student-details">
                 <span class="student-name"><?php echo htmlspecialchars($fullName); ?></span>
@@ -536,8 +566,11 @@ if ($db && getUsername()) {
                 <?php echo strtoupper(substr($fullName, 0, 1)); ?>
             </div>
         </div>
-        <a href="../logout.php" class="logout-link">
-            <i class="fas fa-power-off" style="color: #e53e3e;"></i>
+        
+        <div class="nav-actions-divider" style="width: 1px; height: 24px; background: #e2e8f0; margin: 0 4px;"></div>
+
+        <a href="../logout.php" class="nav-action-btn logout-btn" title="Logout">
+            <i class="fas fa-power-off"></i>
         </a>
         <div class="mobile-toggle" id="mobileToggle">
             <i class="fas fa-bars"></i>
@@ -583,6 +616,16 @@ if ($db && getUsername()) {
                             chevron.style.transform = container.classList.contains('active') ? 'rotate(180deg)' : '';
                         }
                     }
+                }
+            });
+        });
+
+        // Hide all dropdowns when clicking outside
+        document.addEventListener('click', function (e) {
+            const containers = document.querySelectorAll('.dropdown-container');
+            containers.forEach(container => {
+                if (!container.contains(e.target)) {
+                    container.classList.remove('active');
                 }
             });
         });

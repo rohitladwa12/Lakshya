@@ -8,7 +8,11 @@ require_once __DIR__ . '/../../src/Services/AIService.php';
 header('Content-Type: application/json');
 
 // Only logged in students allowed
-requireLogin();
+if (!isLoggedIn()) {
+    ob_clean();
+    echo json_encode(['success' => false, 'message' => 'Session expired. Please log in again.']);
+    exit;
+}
 $userId = getUserId();
 $usn = getUsername(); // Student USN
 
@@ -211,11 +215,11 @@ try {
                 $params = [];
                 if (!empty($previousQuestions)) {
                     $placeholders = str_repeat('?,', count($previousQuestions) - 1) . '?';
-                    $excludeSql = " WHERE question NOT IN ($placeholders) ";
+                    $excludeSql = " WHERE question_text NOT IN ($placeholders) ";
                     $params = $previousQuestions;
                 }
                 
-                $manStmt = $db->prepare("SELECT question, option_a as A, option_b as B, option_c as C, option_d as D, correct_option as answer, topic as category FROM manual_aptitude_questions $excludeSql ORDER BY RAND() LIMIT $manualCount");
+                $manStmt = $db->prepare("SELECT question_text as question, option_a as A, option_b as B, option_c as C, option_d as D, correct_option as answer, 'Aptitude' as category FROM manual_aptitude_questions $excludeSql ORDER BY RAND() LIMIT $manualCount");
                 $manStmt->execute($params);
                 while ($mq = $manStmt->fetch(PDO::FETCH_ASSOC)) {
                     $options = [$mq['A'], $mq['B'], $mq['C'], $mq['D']];
@@ -349,6 +353,9 @@ try {
 
             // Update details structure with answers
             $details['answers'] = $userAnswers;
+            if (!empty($input['auto_submit_reason'])) {
+                $details['auto_submit_reason'] = trim(strip_tags($input['auto_submit_reason']));
+            }
 
             // Finalize status to Completed
             $stmt = $db->prepare("

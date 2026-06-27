@@ -428,6 +428,11 @@ $isClosed = $deadlineTime && ($deadlineTime < time());
                         <span><i class="fas fa-hourglass-half"></i> Duration: <strong><?php echo $drive['aptitude_duration']; ?> mins</strong></span>
                         <span><i class="fas fa-tags"></i> Topics: <strong><?php echo htmlspecialchars($drive['aptitude_topics']); ?></strong></span>
                     </div>
+                    
+                    <div style="margin-top: 15px; padding: 12px; background: #fff8e1; border-left: 4px solid var(--primary-gold); border-radius: 4px; font-size: 13px; color: #555;">
+                        <i class="fas fa-info-circle" style="color: var(--primary-gold); margin-right: 5px;"></i>
+                        <strong>Reminder:</strong> Your score should be more than <strong><?php echo htmlspecialchars($drive['aptitude_threshold'] ?? 60); ?>%</strong>. You can retake the tasks as many times as you can to achieve this eligibility score.
+                    </div>
                     <?php endif; ?>
 
                     <?php if (!empty($roundAttempts['Aptitude'])): ?>
@@ -476,6 +481,11 @@ $isClosed = $deadlineTime && ($deadlineTime < time());
                         <span><i class="fas fa-hourglass-half"></i> Duration: <strong><?php echo $drive['technical_duration']; ?> mins</strong></span>
                         <span><i class="fas fa-tags"></i> Topics: <strong><?php echo htmlspecialchars($drive['technical_topics']); ?></strong></span>
                     </div>
+                    
+                    <div style="margin-top: 15px; padding: 12px; background: #fff8e1; border-left: 4px solid var(--primary-gold); border-radius: 4px; font-size: 13px; color: #555;">
+                        <i class="fas fa-info-circle" style="color: var(--primary-gold); margin-right: 5px;"></i>
+                        <strong>Reminder:</strong> Your score should be more than <strong><?php echo htmlspecialchars($drive['technical_threshold'] ?? 60); ?>%</strong>. You can retake the tasks as many times as you can to achieve this eligibility score.
+                    </div>
                     <?php endif; ?>
 
                     <?php if (!empty($roundAttempts['Technical'])): ?>
@@ -484,7 +494,7 @@ $isClosed = $deadlineTime && ($deadlineTime < time());
                         <div class="attempts-list">
                             <?php foreach ($roundAttempts['Technical'] as $att): ?>
                             <div class="attempt-tag">
-                                Attempt #<?php echo $att['attempt_number']; ?>: <strong><?php echo number_format($att['score'], 1); ?>%</strong>
+                                Attempt #<?php echo $att['attempt_number']; ?>: <strong><?php echo number_format((float)($att['score'] ?? 0), 1); ?>%</strong>
                             </div>
                             <?php endforeach; ?>
                         </div>
@@ -524,6 +534,11 @@ $isClosed = $deadlineTime && ($deadlineTime < time());
                         <span><i class="fas fa-hourglass-half"></i> Duration: <strong><?php echo $drive['hr_duration']; ?> mins</strong></span>
                         <span><i class="fas fa-tags"></i> Topics: <strong><?php echo htmlspecialchars($drive['hr_topics']); ?></strong></span>
                     </div>
+                    
+                    <div style="margin-top: 15px; padding: 12px; background: #fff8e1; border-left: 4px solid var(--primary-gold); border-radius: 4px; font-size: 13px; color: #555;">
+                        <i class="fas fa-info-circle" style="color: var(--primary-gold); margin-right: 5px;"></i>
+                        <strong>Reminder:</strong> Your score should be more than <strong><?php echo htmlspecialchars($drive['hr_threshold'] ?? 60); ?>%</strong>. You can retake the tasks as many times as you can to achieve this eligibility score.
+                    </div>
                     <?php endif; ?>
 
                     <?php if (!empty($roundAttempts['HR'])): ?>
@@ -532,7 +547,7 @@ $isClosed = $deadlineTime && ($deadlineTime < time());
                         <div class="attempts-list">
                             <?php foreach ($roundAttempts['HR'] as $att): ?>
                             <div class="attempt-tag">
-                                Attempt #<?php echo $att['attempt_number']; ?>: <strong><?php echo number_format($att['score'], 1); ?>%</strong>
+                                Attempt #<?php echo $att['attempt_number']; ?>: <strong><?php echo number_format((float)($att['score'] ?? 0), 1); ?>%</strong>
                             </div>
                             <?php endforeach; ?>
                         </div>

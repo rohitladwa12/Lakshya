@@ -53,24 +53,39 @@ if (!$drive) {
 // Fetch student performance for this drive (only for students in this HOD's department who applied)
 $usnList = "'" . implode("','", array_map('addslashes', $usns)) . "'";
 
-// We get everyone who applied
+// Build USN map for names
+$studentsByUsn = [];
+foreach ($students as $s) {
+    $usnKey = strtoupper(trim($s['usn']));
+    $studentsByUsn[$usnKey] = $s['name'] ?? $s['usn'];
+}
+
+// We get everyone who applied from job_applications directly
 $query = "
     SELECT 
-        u.ID as usn,
-        u.NAME as name,
-        u.EMAIL as email,
-        (SELECT MAX(score) FROM student_drive_attempts WHERE student_id = u.ID AND drive_id = ? AND round_type = 'Aptitude') as apt_score,
-        (SELECT MAX(score) FROM student_drive_attempts WHERE student_id = u.ID AND drive_id = ? AND round_type = 'Technical') as tech_score,
-        (SELECT MAX(score) FROM student_drive_attempts WHERE student_id = u.ID AND drive_id = ? AND round_type = 'HR') as hr_score,
-        (SELECT COUNT(*) FROM student_drive_attempts WHERE student_id = u.ID AND drive_id = ?) as total_attempts
+        ja.student_id as usn,
+        (SELECT MAX(score) FROM student_drive_attempts WHERE student_id = ja.student_id AND drive_id = ? AND round_type = 'Aptitude') as apt_score,
+        (SELECT MAX(score) FROM student_drive_attempts WHERE student_id = ja.student_id AND drive_id = ? AND round_type = 'Technical') as tech_score,
+        (SELECT MAX(score) FROM student_drive_attempts WHERE student_id = ja.student_id AND drive_id = ? AND round_type = 'HR') as hr_score,
+        (SELECT COUNT(*) FROM student_drive_attempts WHERE student_id = ja.student_id AND drive_id = ?) as total_attempts
     FROM job_applications ja
-    JOIN users u ON ja.student_id = u.ID
-    WHERE ja.job_id = ? AND u.ID IN ($usnList)
-    ORDER BY u.NAME ASC
+    WHERE ja.job_id = ? AND ja.student_id IN ($usnList)
 ";
 $stmtStudents = $db->prepare($query);
 $stmtStudents->execute([$driveId, $driveId, $driveId, $driveId, $drive['job_id']]);
-$appliedStudents = $stmtStudents->fetchAll(PDO::FETCH_ASSOC);
+$appliedStudentsRaw = $stmtStudents->fetchAll(PDO::FETCH_ASSOC);
+
+$appliedStudents = [];
+foreach ($appliedStudentsRaw as $row) {
+    $usnKey = strtoupper(trim($row['usn']));
+    $row['name'] = $studentsByUsn[$usnKey] ?? $row['usn'];
+    $appliedStudents[] = $row;
+}
+
+// Sort alphabetically by name
+usort($appliedStudents, function($a, $b) {
+    return strcasecmp($a['name'], $b['name']);
+});
 
 ?>
 <!DOCTYPE html>

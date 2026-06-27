@@ -3,13 +3,23 @@
  * Handle Excel/CSV upload for company placed students
  */
 
+ob_start();
+
 require_once __DIR__ . '/../../config/bootstrap.php';
 requireRole(ROLE_PLACEMENT_OFFICER);
 
-if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
-    http_response_code(405);
-    echo json_encode(['success' => false, 'message' => 'Method not allowed']);
+function sendJsonResponse($data, $statusCode = 200) {
+    if (ob_get_length()) {
+        ob_clean();
+    }
+    http_response_code($statusCode);
+    header('Content-Type: application/json');
+    echo json_encode($data);
     exit;
+}
+
+if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
+    sendJsonResponse(['success' => false, 'message' => 'Method not allowed'], 405);
 }
 
 // --- Clear All action ---
@@ -17,17 +27,14 @@ if (isset($_POST['action']) && $_POST['action'] === 'clear_all') {
     try {
         $model = new CompanyPlacedStudent();
         $model->clearAll();
-        echo json_encode(['success' => true, 'message' => 'All records cleared.']);
+        sendJsonResponse(['success' => true, 'message' => 'All records cleared.']);
     } catch (Exception $e) {
-        echo json_encode(['success' => false, 'message' => $e->getMessage()]);
+        sendJsonResponse(['success' => false, 'message' => $e->getMessage()]);
     }
-    exit;
 }
 
 if (!isset($_FILES['file']) || $_FILES['file']['error'] !== UPLOAD_ERR_OK) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'No file uploaded or upload error']);
-    exit;
+    sendJsonResponse(['success' => false, 'message' => 'No file uploaded or upload error'], 400);
 }
 
 $file = $_FILES['file'];
@@ -42,9 +49,7 @@ $mimeType = mime_content_type($file['tmp_name']);
 $extension = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
 
 if (!in_array($extension, ['csv', 'xlsx', 'xls'])) {
-    http_response_code(400);
-    echo json_encode(['success' => false, 'message' => 'Invalid file type. Only CSV, XLSX, XLS allowed']);
-    exit;
+    sendJsonResponse(['success' => false, 'message' => 'Invalid file type. Only CSV, XLSX, XLS allowed'], 400);
 }
 
 try {
@@ -84,37 +89,93 @@ try {
     }
     
     if (empty($data)) {
-        echo json_encode(['success' => false, 'message' => 'No data found in file']);
-        exit;
+        sendJsonResponse(['success' => false, 'message' => 'No data found in file']);
     }
     
     $model = new CompanyPlacedStudent();
     $inserted = $model->bulkInsert($data);
     
-    echo json_encode([
+    sendJsonResponse([
         'success' => true,
         'message' => "Successfully imported {$inserted} records",
         'count' => $inserted
     ]);
 
 } catch (Exception $e) {
-    http_response_code(500);
-    echo json_encode(['success' => false, 'message' => 'Error: ' . $e->getMessage()]);
+    sendJsonResponse(['success' => false, 'message' => 'Error: ' . $e->getMessage()], 500);
+}
+
+function formatCtc($val) {
+    $val = trim($val);
+    if ($val === '') return '';
+    
+    // If it's a pure numeric value (like 3.6 or 5), format as "X LPA"
+    if (is_numeric($val)) {
+        return $val . ' LPA';
+    }
+    
+    return $val;
+}
+
+function getValueInsensitive($row, $searchKeys) {
+    // Check direct matches first
+    foreach ($searchKeys as $key) {
+        if (isset($row[$key])) {
+            return trim($row[$key]);
+        }
+    }
+    
+    // Check variations (lowercase, uppercase, spaces replaced by underscores, etc.)
+    foreach ($searchKeys as $key) {
+        $cleanKey = strtolower(trim($key));
+        foreach ($row as $k => $v) {
+            $compKey = strtolower(trim($k));
+            if ($compKey === $cleanKey) {
+                return trim($v);
+            }
+            // Strip underscores and spaces for comparison
+            $compNormalized = str_replace(['_', ' '], '', $compKey);
+            $cleanNormalized = str_replace(['_', ' '], '', $cleanKey);
+            if ($compNormalized === $cleanNormalized) {
+                return trim($v);
+            }
+        }
+    }
+    return '';
 }
 
 function normalizeData($row) {
+    $name = getValueInsensitive($row, ['name', 'Name', 'Student Name']);
+    $contact = getValueInsensitive($row, ['contact_no', 'contact', 'Contact No', 'Contact Number', 'phone']);
+    $email = getValueInsensitive($row, ['mail_id', 'email', 'mail', 'Mail ID', 'Mail_ID']);
+    $usn = getValueInsensitive($row, ['usn', 'USN']);
+    
+    $yopVal = getValueInsensitive($row, ['yop', 'YOP', 'year', 'Year of Passing']);
+    $yop = !empty($yopVal) ? (int)$yopVal : null;
+    
+    $qualification = getValueInsensitive($row, ['qualification', 'Qualification', 'degree', 'Degree']);
+    $specialisation = getValueInsensitive($row, ['specialisation', 'Specialisation', 'specialization', 'Specialization', 'branch', 'Branch']);
+    $companyName = getValueInsensitive($row, ['company_name', 'company', 'Company Name', 'Company']);
+    $designation = getValueInsensitive($row, ['designation', 'Designation', 'role', 'Role', 'position', 'Position']);
+    
+    $ctcVal = getValueInsensitive($row, ['ctc_in_lakhs', 'ctc', 'package', 'CTC in Lakhs', 'CTC', 'Package']);
+    $ctc = formatCtc($ctcVal);
+    
+    $gender = getValueInsensitive($row, ['gender', 'Gender']);
+    $collegeName = getValueInsensitive($row, ['college_name', 'college', 'College Name', 'institution', 'Institution']);
+
     return [
-        'name' => isset($row['name']) ? trim($row['name']) : (isset($row['Name']) ? trim($row['Name']) : ''),
-        'contact_no' => isset($row['contact_no']) ? trim($row['contact_no']) : (isset($row['contact']) ? trim($row['contact']) : ''),
-        'mail_id' => isset($row['mail_id']) ? trim($row['mail_id']) : (isset($row['email']) ? trim($row['email']) : (isset($row['mail']) ? trim($row['mail']) : '')),
-        'usn' => isset($row['usn']) ? trim($row['usn']) : (isset($row['USN']) ? trim($row['USN']) : ''),
-        'yop' => isset($row['yop']) ? (int)$row['yop'] : (isset($row['YOP']) ? (int)$row['YOP'] : (isset($row['year']) ? (int)$row['year'] : null)),
-        'qualification' => isset($row['qualification']) ? trim($row['qualification']) : (isset($row['Qualification']) ? trim($row['Qualification']) : (isset($row['degree']) ? trim($row['degree']) : '')),
-        'specialisation' => isset($row['specialisation']) ? trim($row['specialisation']) : (isset($row['Specialisation']) ? trim($row['Specialisation']) : (isset($row['specialization']) ? trim($row['specialization']) : (isset($row['branch']) ? trim($row['branch']) : ''))),
-        'company_name' => isset($row['company_name']) ? trim($row['company_name']) : (isset($row['Company']) ? trim($row['Company']) : (isset($row['company']) ? trim($row['company']) : '')),
-        'designation' => isset($row['designation']) ? trim($row['designation']) : (isset($row['Designation']) ? trim($row['Designation']) : (isset($row['position']) ? trim($row['position']) : (isset($row['role']) ? trim($row['role']) : ''))),
-        'ctc_in_lakhs' => isset($row['ctc_in_lakhs']) ? (float)$row['ctc_in_lakhs'] : (isset($row['ctc']) ? (float)$row['ctc'] : (isset($row['package']) ? (float)$row['package'] : 0)),
-        'gender' => isset($row['gender']) ? trim($row['gender']) : (isset($row['Gender']) ? trim($row['Gender']) : ''),
-        'college_name' => isset($row['college_name']) ? trim($row['college_name']) : (isset($row['college']) ? trim($row['college']) : (isset($row['institution']) ? trim($row['institution']) : ''))
+        'name' => $name,
+        'contact_no' => $contact,
+        'mail_id' => $email,
+        'usn' => $usn,
+        'yop' => $yop,
+        'qualification' => $qualification,
+        'specialisation' => $specialisation,
+        'company_name' => $companyName,
+        'designation' => $designation,
+        'ctc_in_lakhs' => $ctc,
+        'gender' => $gender,
+        'college_name' => $collegeName
     ];
 }

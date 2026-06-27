@@ -29,7 +29,11 @@ $input = array_merge($input, $_POST);
 $action = $input['action'] ?? '';
 
 // Auth Check
-requireLogin();
+if (!isLoggedIn()) {
+    ob_clean();
+    echo json_encode(['success' => false, 'message' => 'Session expired. Please log in again.']);
+    exit;
+}
 session_write_close();
 $userId = getUserId();
 $studentIdForDb = getStudentIdForAssessment();
@@ -80,6 +84,35 @@ switch ($action) {
         $session = $stmt->fetch(PDO::FETCH_ASSOC);
         
         if ($session) {
+            $elapsed = time() - strtotime($session['started_at']);
+            $maxDuration = 20 * 60; // 20 mins default
+            
+            if ($driveId > 0) {
+                // Fetch actual drive duration
+                $stmtDrive = $db->prepare("SELECT technical_duration FROM campus_drives WHERE id = ?");
+                $stmtDrive->execute([$driveId]);
+                $dDuration = $stmtDrive->fetchColumn();
+                if ($dDuration) $maxDuration = $dDuration * 60;
+            }
+            
+            if ($elapsed > $maxDuration) {
+                // Expired! Auto close and assign 0 score
+                $autoSubmitReason = "Session resumed after maximum allowed duration ({$maxDuration}s).";
+                $details = json_decode($session['details'] ?? '{}', true);
+                $details['auto_submit_reason'] = $autoSubmitReason;
+                $detailsJson = json_encode($details);
+
+                if ($driveId > 0) {
+                    $db->prepare("UPDATE student_drive_attempts SET status = 'Completed', score = 0, details = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?")
+                       ->execute([$detailsJson, $session['id']]);
+                } else {
+                    $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', score = 0, details = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?")
+                       ->execute([$detailsJson, $session['id']]);
+                }
+                ob_clean(); echo json_encode(['success' => true, 'has_active' => false, 'expired' => true]);
+                exit;
+            }
+
             $details = json_decode($session['details'], true);
             ob_clean(); echo json_encode([
                 'success' => true, 
@@ -243,9 +276,33 @@ switch ($action) {
             // Ignore if table doesn't exist
         }
 
+        // Fetch previously asked questions for this student to prevent repetition
+        $previousQuestions = [];
+        if ($isDrive) {
+            $stmtPrev = $db->prepare("SELECT details FROM student_drive_attempts WHERE drive_id = ? AND student_id = ? AND round_type = 'Technical' AND id != ?");
+            $stmtPrev->execute([$driveId, $usn, $sessionId]);
+            while ($row = $stmtPrev->fetch(PDO::FETCH_ASSOC)) {
+                $det = json_decode($row['details'], true);
+                if (!empty($det['history'])) {
+                    foreach ($det['history'] as $msg) {
+                        if ($msg['role'] === 'assistant') {
+                            try {
+                                $parsed = json_decode($msg['content'], true);
+                                if ($parsed && !empty($parsed['question'])) {
+                                    $previousQuestions[] = $parsed['question'];
+                                } elseif ($parsed && !empty($parsed['problem_statement'])) {
+                                    $previousQuestions[] = $parsed['problem_statement'];
+                                }
+                            } catch (Exception $e) {}
+                        }
+                    }
+                }
+            }
+        }
+
         // Offload to Async Queue
         require_once ROOT_PATH . '/src/Services/QueueService.php';
-        $jobId = \App\Services\QueueService::pushJob('getTechnicalQuestion', [$role, $history, $concept, $portfolioText], $userId);
+        $jobId = \App\Services\QueueService::pushJob('getTechnicalQuestion', [$role, $history, $concept, $portfolioText, $previousQuestions], $userId);
         
         ob_clean(); echo json_encode([
             'success' => true, 
@@ -348,8 +405,8 @@ switch ($action) {
             if ($reportRes['success']) {
                 $score = $reportRes['overall_score'];
             } else {
-                ob_clean(); echo json_encode(['success' => false, 'message' => 'Report generation failed']);
-                exit;
+                error_log("Technical Report generation failed for session $sessionId: " . ($reportRes['message'] ?? 'Unknown Error'));
+                $score = 0; // Fallback score so the submission can complete
             }
         }
 

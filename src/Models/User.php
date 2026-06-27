@@ -584,27 +584,44 @@ class User extends Model {
      */
     public function changePassword($userId, $institution, $currentPassword, $newPassword) {
         $prefix = ($institution === INSTITUTION_GMU) ? DB_GMU_PREFIX : DB_GMIT_PREFIX;
+        $idCol = ($institution === INSTITUTION_GMU) ? 'SL_NO' : 'ENQUIRY_NO';
         $table = $prefix . 'users';
         
-        $sql = "SELECT PASSWORD FROM {$table} WHERE SL_NO = ?";
-        if (!$this->remoteDB) return ['success' => false, 'message' => 'Remote database unavailable'];
+        $sql = "SELECT USER_NAME, PASSWORD FROM {$table} WHERE USER_NAME = ?";
+        $params = [$userId];
+        if (is_numeric($userId)) {
+            $sql .= " OR {$idCol} = ?";
+            $params[] = $userId;
+        }
+        
+        $remoteDB = $this->getRemoteDB();
+        if (!$remoteDB) return ['success' => false, 'message' => 'Remote database unavailable'];
 
-        $stmt = $this->remoteDB->prepare($sql); // REMOTE
-        $stmt->execute([$userId]);
-        $stored = $stmt->fetchColumn();
+        $stmt = $remoteDB->prepare($sql); // REMOTE
+        $stmt->execute($params);
+        $row = $stmt->fetch();
+        
+        if (!$row) {
+            return ['success' => false, 'message' => 'User not found'];
+        }
+        
+        $stored = $row['PASSWORD'];
+        $actualUserName = $row['USER_NAME'];
         
         if ($institution === INSTITUTION_GMIT) {
-             if (!password_verify($currentPassword, $stored)) {
+             if (!$stored || !password_verify($currentPassword, $stored)) {
                  return ['success' => false, 'message' => 'Current password is incorrect'];
              }
              $newPassword = password_hash($newPassword, PASSWORD_BCRYPT);
         } else {
              // GMU - Check hash first, then plain text (handling migration if they change pw)
              $verified = false;
-             if (password_verify($currentPassword, $stored)) {
-                 $verified = true;
-             } elseif ($currentPassword === $stored) {
-                 $verified = true;
+             if ($stored) {
+                 if (password_verify($currentPassword, $stored)) {
+                     $verified = true;
+                 } elseif ($currentPassword === $stored) {
+                     $verified = true;
+                 }
              }
              
              if (!$verified) {
@@ -615,9 +632,9 @@ class User extends Model {
              $newPassword = password_hash($newPassword, PASSWORD_BCRYPT);
         }
         
-        $updateSql = "UPDATE {$table} SET PASSWORD = ? WHERE SL_NO = ?";
-        $stmt = $this->remoteDB->prepare($updateSql); // REMOTE
-        $stmt->execute([$newPassword, $userId]);
+        $updateSql = "UPDATE {$table} SET PASSWORD = ? WHERE USER_NAME = ?";
+        $stmt = $remoteDB->prepare($updateSql); // REMOTE
+        $stmt->execute([$newPassword, $actualUserName]);
         
         return ['success' => true, 'message' => 'Password changed successfully'];
     }

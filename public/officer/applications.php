@@ -80,6 +80,7 @@ foreach ($rawApps as $app) {
         $app['usn'] = $student['username'];
         $app['institution'] = $student['institution'];
         $app['gender'] = $student['gender'] ?? 'N/A';
+        $app['aadhar'] = $student['aadhar'] ?? null;
         
         // Fetch academic details (Remote or Local fallback)
         $inst = $student['institution'];
@@ -88,6 +89,7 @@ foreach ($rawApps as $app) {
         // Basic enrichment defaults
         $app['academic_sgpa'] = 0.0;
         $app['course'] = 'N/A';
+        $app['branch'] = 'N/A';
         $app['puc_percentage'] = 0.0;
         $app['sslc_percentage'] = 0.0;
         $app['current_semester'] = null;
@@ -104,7 +106,7 @@ foreach ($rawApps as $app) {
                 $app['current_semester'] = $semRow ? $semRow['sem'] : null;
 
                 // Get details and latest non-null/non-zero SGPA
-                $stmtAc = $remoteDB->prepare("SELECT a.sgpa, a.course, d.puc_percentage, d.sslc_percentage, d.gender
+                $stmtAc = $remoteDB->prepare("SELECT a.sgpa, a.course, a.discipline, d.puc_percentage, d.sslc_percentage, d.gender
                                            FROM {$prefix}ad_student_approved a
                                            LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
                                            WHERE a.usn = ? AND a.sgpa IS NOT NULL AND a.sgpa > 0.00
@@ -114,12 +116,13 @@ foreach ($rawApps as $app) {
                 if ($ac) {
                     $app['academic_sgpa'] = $ac['sgpa'];
                     $app['course'] = $ac['course'];
+                    $app['branch'] = $ac['discipline'];
                     $app['puc_percentage'] = $ac['puc_percentage'];
                     $app['sslc_percentage'] = $ac['sslc_percentage'];
                     if (!empty($ac['gender'])) $app['gender'] = $ac['gender'];
                 } else {
                     // Fallback to any record (even if SGPA is null/0) to get course/percentages
-                    $stmtFallback = $remoteDB->prepare("SELECT a.sgpa, a.course, d.puc_percentage, d.sslc_percentage, d.gender
+                    $stmtFallback = $remoteDB->prepare("SELECT a.sgpa, a.course, a.discipline, d.puc_percentage, d.sslc_percentage, d.gender
                                                 FROM {$prefix}ad_student_approved a
                                                 LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
                                                 WHERE a.usn = ? 
@@ -129,6 +132,7 @@ foreach ($rawApps as $app) {
                     if ($fb) {
                         $app['academic_sgpa'] = $fb['sgpa'] ?: 0.00;
                         $app['course'] = $fb['course'];
+                        $app['branch'] = $fb['discipline'];
                         $app['puc_percentage'] = $fb['puc_percentage'];
                         $app['sslc_percentage'] = $fb['sslc_percentage'];
                         if (!empty($fb['gender'])) $app['gender'] = $fb['gender'];
@@ -137,34 +141,59 @@ foreach ($rawApps as $app) {
             } else {
                 // GMIT: Fetch academic history from local SGPA tracker
                 // First, get the current semester
-                $stmtCurr = $appModel->getDB()->prepare("SELECT semester FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
-                $stmtCurr->execute([$app['usn'], INSTITUTION_GMIT]);
+                $enrichParams = [$app['usn']];
+                $sqlCurr = "SELECT semester FROM student_sem_sgpa WHERE (student_id = ?";
+                if (!empty($app['aadhar'])) {
+                    $sqlCurr .= " OR student_id = ?";
+                    $enrichParams[] = $app['aadhar'];
+                }
+                $sqlCurr .= ") AND institution = ? AND is_current = 1 LIMIT 1";
+                $enrichParams[] = INSTITUTION_GMIT;
+                $stmtCurr = $appModel->getDB()->prepare($sqlCurr);
+                $stmtCurr->execute($enrichParams);
                 $currSemRow = $stmtCurr->fetch();
                 $app['current_semester'] = $currSemRow ? $currSemRow['semester'] : null;
 
                 // Then get the latest semester SGPA that is > 0
-                $stmtAc = $appModel->getDB()->prepare("SELECT sgpa FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND sgpa > 0.00 ORDER BY semester DESC LIMIT 1");
-                $stmtAc->execute([$app['usn'], INSTITUTION_GMIT]);
+                $enrichParams2 = [$app['usn']];
+                $sqlAc = "SELECT sgpa FROM student_sem_sgpa WHERE (student_id = ?";
+                if (!empty($app['aadhar'])) {
+                    $sqlAc .= " OR student_id = ?";
+                    $enrichParams2[] = $app['aadhar'];
+                }
+                $sqlAc .= ") AND institution = ? AND sgpa > 0.00 ORDER BY semester DESC LIMIT 1";
+                $enrichParams2[] = INSTITUTION_GMIT;
+                $stmtAc = $appModel->getDB()->prepare($sqlAc);
+                $stmtAc->execute($enrichParams2);
                 $ac = $stmtAc->fetch();
                 if ($ac) {
                     $app['academic_sgpa'] = $ac['sgpa'];
                 } else {
                     // Fallback to current sem SGPA if all are 0
-                    $stmtAcFallback = $appModel->getDB()->prepare("SELECT sgpa FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
-                    $stmtAcFallback->execute([$app['usn'], INSTITUTION_GMIT]);
+                    $enrichParams3 = [$app['usn']];
+                    $sqlAcFallback = "SELECT sgpa FROM student_sem_sgpa WHERE (student_id = ?";
+                    if (!empty($app['aadhar'])) {
+                        $sqlAcFallback .= " OR student_id = ?";
+                        $enrichParams3[] = $app['aadhar'];
+                    }
+                    $sqlAcFallback .= ") AND institution = ? AND is_current = 1 LIMIT 1";
+                    $enrichParams3[] = INSTITUTION_GMIT;
+                    $stmtAcFallback = $appModel->getDB()->prepare($sqlAcFallback);
+                    $stmtAcFallback->execute($enrichParams3);
                     $acFallback = $stmtAcFallback->fetch();
                     $app['academic_sgpa'] = $acFallback ? $acFallback['sgpa'] : 0.00;
                 }
                 
                 // Fetch puc/sslc from remote GMIT details
                 $remoteDB = getDB('gmit');
-                $stmtDet = $remoteDB->prepare("SELECT puc_percentage, sslc_percentage, course, gender FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1");
+                $stmtDet = $remoteDB->prepare("SELECT puc_percentage, sslc_percentage, course, discipline, gender FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1");
                 $stmtDet->execute([$app['student_id'], $app['usn']]);
                 $det = $stmtDet->fetch();
                 if ($det) {
                     $app['puc_percentage'] = $det['puc_percentage'];
                     $app['sslc_percentage'] = $det['sslc_percentage'];
                     $app['course'] = $det['course'];
+                    $app['branch'] = $det['discipline'];
                     if (!empty($det['gender'])) $app['gender'] = $det['gender'];
                 }
             }
@@ -178,15 +207,9 @@ foreach ($rawApps as $app) {
 
         $applications[] = $app;
     } else {
-        // Student not found in either DB - possibly orphaned application
-        $app['student_name'] = 'Unknown Student';
-        $app['usn'] = $app['student_id'];
-        $app['institution'] = 'N/A';
-        
-        // Skip if academic filters are active
-        if ($semester || $minSgpa || $minSslc || $minPuc) continue;
-        
-        $applications[] = $app;
+        // Student not found in either DB - definitely an orphaned application
+        // Hide these entirely from the dashboard as requested by the user
+        continue;
     }
 }
 
@@ -198,17 +221,32 @@ $fullName = getFullName();
 // Fetch all semester SGPAs & Current Sem for the applications
 $allSgpas = [];
 $currentSems = [];
-$studentUsns = array_values(array_unique(array_filter(array_column($applications, 'usn'))));
-if (!empty($studentUsns)) {
-    $placeholders = implode(',', array_fill(0, count($studentUsns), '?'));
+$studentIdentifiers = [];
+$studentMapById = [];
+
+foreach ($applications as $app) {
+    if (!empty($app['usn'])) {
+        $studentIdentifiers[] = $app['usn'];
+        $studentMapById[$app['usn']] = $app['usn'];
+    }
+    if (!empty($app['aadhar'])) {
+        $studentIdentifiers[] = $app['aadhar'];
+        $studentMapById[$app['aadhar']] = $app['usn'];
+    }
+}
+$studentIdentifiers = array_values(array_unique(array_filter($studentIdentifiers)));
+
+if (!empty($studentIdentifiers)) {
+    $placeholders = implode(',', array_fill(0, count($studentIdentifiers), '?'));
     $sqlSgpa = "SELECT student_id, semester, sgpa, is_current FROM student_sem_sgpa WHERE student_id IN ($placeholders)";
     $stmtSgpa = $appModel->getDB()->prepare($sqlSgpa);
-    $stmtSgpa->execute($studentUsns);
+    $stmtSgpa->execute($studentIdentifiers);
     $sgpaRaw = $stmtSgpa->fetchAll();
     foreach ($sgpaRaw as $row) {
-        $allSgpas[$row['student_id']][$row['semester']] = $row['sgpa'];
+        $mappedUsn = $studentMapById[$row['student_id']] ?? $row['student_id'];
+        $allSgpas[$mappedUsn][$row['semester']] = $row['sgpa'];
         if ($row['is_current']) {
-            $currentSems[$row['student_id']] = $row['semester'];
+            $currentSems[$mappedUsn] = $row['semester'];
         }
     }
 }
@@ -338,35 +376,35 @@ function formatResponsesForPrint($json) {
             background: var(--glass);
             backdrop-filter: blur(12px);
             border: 1px solid var(--glass-border);
-            border-radius: 20px;
-            padding: 25px;
-            margin-bottom: 30px;
+            border-radius: 16px;
+            padding: 16px 20px;
+            margin-bottom: 20px;
             box-shadow: var(--shadow);
         }
 
         .filter-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 12px;
+            margin-bottom: 12px;
         }
 
         .filter-item label {
             display: block;
-            font-size: 12px;
+            font-size: 11px;
             font-weight: 700;
             color: var(--text-muted);
-            margin-bottom: 8px;
+            margin-bottom: 4px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
 
         .filter-item select, .filter-item input {
             width: 100%;
-            padding: 12px 15px;
-            border-radius: 12px;
+            padding: 8px 12px;
+            border-radius: 8px;
             border: 1.5px solid #e2e8f0;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 500;
             transition: all 0.2s;
             background: #fff;
@@ -375,14 +413,14 @@ function formatResponsesForPrint($json) {
         .filter-item select:focus, .filter-item input:focus {
             border-color: var(--brand);
             outline: none;
-            box-shadow: 0 0 0 4px rgba(128, 0, 0, 0.05);
+            box-shadow: 0 0 0 3px rgba(128, 0, 0, 0.05);
         }
 
         .filter-footer {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding-top: 20px;
+            padding-top: 12px;
             border-top: 1px solid #f1f5f9;
         }
 
@@ -498,11 +536,31 @@ function formatResponsesForPrint($json) {
         .modal-content { background: white; border-radius: 24px; padding: 40px; width: 100%; max-width: 600px; position: relative; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
         .close-modal { position: absolute; top: 25px; right: 25px; font-size: 24px; cursor: pointer; color: var(--text-muted); }
 
+        .print-only { display: none; }
         @media print {
-            .no-print { display: none !important; }
-            body { background: white; }
-            .o-page { padding: 0; }
-            .table-card { border: 1px solid #eee; box-shadow: none; }
+            .no-print, header, nav, .navbar, .screen-only { display: none !important; }
+            .print-only { display: block !important; }
+            body { background: white !important; padding-top: 0 !important; color: black !important; }
+            .o-page { padding: 0 !important; margin: 0 !important; max-width: none !important; }
+            .o-head { display: none !important; }
+            .table-card { border: none !important; box-shadow: none !important; background: transparent !important; overflow: visible !important; }
+            .modern-table { border-collapse: collapse !important; width: 100% !important; border: 1px solid black !important; }
+            .modern-table th, .modern-table td { 
+                border: 1px solid #000 !important; 
+                padding: 4px 6px !important; 
+                font-size: 10px !important; 
+                color: black !important;
+                background: white !important;
+                text-align: left !important;
+            }
+            .modern-table th { font-weight: bold !important; }
+            .usn-badge, .status-pill { 
+                background: transparent !important; 
+                color: black !important; 
+                border: none !important; 
+                padding: 0 !important; 
+                font-weight: normal !important;
+            }
         }
     </style>
 </head>
@@ -586,7 +644,7 @@ function formatResponsesForPrint($json) {
             </div>
         </form>
 
-        <div class="table-card">
+        <div class="table-card screen-only">
             <div style="overflow-x: auto;">
                 <table class="modern-table">
                     <thead>
@@ -595,18 +653,16 @@ function formatResponsesForPrint($json) {
                             <th>USN</th>
                             <th>Inst</th>
                             <th>Course</th>
+                            <th>Branch</th>
                             <th>Sem</th>
                             <th>Job Role</th>
                             <th>Company</th>
                             <th>SGPA</th>
                             <th>10th %</th>
                             <th>12th %</th>
-                            <th>Aptitude</th>
-                            <th>Tech</th>
-                            <th>HR</th>
                             <th>Applied</th>
-                            <th>Status</th>
-                            <th>Actions</th>
+                            <th class="no-print">Status</th>
+                            <th class="no-print">Actions</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -636,6 +692,9 @@ function formatResponsesForPrint($json) {
                                 <div style="font-size: 13px; font-weight: 600;"><?php echo htmlspecialchars($app['course'] ?? 'N/A'); ?></div>
                             </td>
                             <td>
+                                <div style="font-size: 13px; font-weight: 600;"><?php echo htmlspecialchars($app['branch'] ?? 'N/A'); ?></div>
+                            </td>
+                            <td>
                                 <div style="font-weight: 600;"><?php echo htmlspecialchars($app['current_semester'] ?? '?'); ?></div>
                             </td>
                             <td>
@@ -653,43 +712,11 @@ function formatResponsesForPrint($json) {
                             <td>
                                 <div style="font-size: 13px;"><?php echo $app['puc_percentage'] ? round($app['puc_percentage']).'%' : '-'; ?></div>
                             </td>
-                            <td>
-                                <div style="display: flex; justify-content: center;">
-                                    <?php if (isset($app['drive_scores']['Aptitude'])): ?>
-                                        <button type="button" class="btn-action btn-view" onclick="showAttempts('Aptitude', '<?php echo addslashes($app['student_name'] ?? 'Student'); ?>', '<?php echo htmlspecialchars(json_encode($app['drive_scores']['Aptitude']), ENT_QUOTES, 'UTF-8'); ?>')" title="View Attempts">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                    <?php else: ?>
-                                        <span style="color: var(--text-muted);">-</span>
-                                    <?php endif; ?>
-                                </div>
-                            </td>
-                            <td>
-                                <div style="display: flex; justify-content: center;">
-                                    <?php if (isset($app['drive_scores']['Technical'])): ?>
-                                        <button type="button" class="btn-action btn-view" onclick="showAttempts('Technical', '<?php echo addslashes($app['student_name'] ?? 'Student'); ?>', '<?php echo htmlspecialchars(json_encode($app['drive_scores']['Technical']), ENT_QUOTES, 'UTF-8'); ?>')" title="View Attempts">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                    <?php else: ?>
-                                        <span style="color: var(--text-muted);">-</span>
-                                    <?php endif; ?>
-                                </div>
-                            </td>
-                            <td>
-                                <div style="display: flex; justify-content: center;">
-                                    <?php if (isset($app['drive_scores']['HR'])): ?>
-                                        <button type="button" class="btn-action btn-view" onclick="showAttempts('HR', '<?php echo addslashes($app['student_name'] ?? 'Student'); ?>', '<?php echo htmlspecialchars(json_encode($app['drive_scores']['HR']), ENT_QUOTES, 'UTF-8'); ?>')" title="View Attempts">
-                                            <i class="fas fa-eye"></i>
-                                        </button>
-                                    <?php else: ?>
-                                        <span style="color: var(--text-muted);">-</span>
-                                    <?php endif; ?>
-                                </div>
-                            </td>
+
                             <td>
                                 <div style="font-size: 13px; font-weight: 500;"><?php echo date('d M Y', strtotime($app['applied_at'])); ?></div>
                             </td>
-                            <td>
+                            <td class="no-print">
                                 <select class="status-select <?php echo $statusClass; ?>" onchange="updateStatus(<?php echo $app['id']; ?>, this.value)">
                                     <option value="Applied" <?php echo $app['status'] == 'Applied' ? 'selected' : ''; ?>>Applied</option>
                                     <option value="Shortlisted" <?php echo $app['status'] == 'Shortlisted' ? 'selected' : ''; ?>>Shortlisted</option>
@@ -697,7 +724,7 @@ function formatResponsesForPrint($json) {
                                     <option value="Selected" <?php echo $app['status'] == 'Selected' ? 'selected' : ''; ?>>Selected</option>
                                 </select>
                             </td>
-                            <td>
+                            <td class="no-print">
                                 <div style="display: flex; gap: 8px;">
                                     <?php if ($app['resume_path']): ?>
                                         <a href="../student/view_resume.php?usn=<?php echo urlencode($app['usn']); ?>" target="_blank" class="btn-action btn-view" title="Resume">
@@ -717,7 +744,7 @@ function formatResponsesForPrint($json) {
                         </tr>
                         <?php endforeach; ?>
                         <?php if (empty($applications)): ?>
-                        <tr><td colspan="16" style="text-align: center; padding: 60px; color: var(--text-muted);">No applications found. Try adjusting filters.</td></tr>
+                        <tr><td colspan="13" style="text-align: center; padding: 60px; color: var(--text-muted);">No applications found. Try adjusting filters.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>
@@ -743,6 +770,77 @@ function formatResponsesForPrint($json) {
             </script>
             <?php endif; ?>
         </div>
+
+        <!-- PRINT ONLY SECTION -->
+        <div class="print-only">
+            <?php
+            $selectedJobName = "All Jobs";
+            $selectedCompanyName = "All Companies";
+            if (!empty($jobId)) {
+                foreach ($allJobs as $j) {
+                    if ($j['id'] == $jobId) { $selectedJobName = $j['title']; break; }
+                }
+            }
+            if (!empty($companyId)) {
+                foreach ($allCompanies as $c) {
+                    if ($c['id'] == $companyId) { $selectedCompanyName = $c['name']; break; }
+                }
+            }
+            ?>
+            <div style="text-align: center; margin-bottom: 20px;">
+                <h2 style="font-size: 24px; margin-bottom: 5px; color: black !important; font-weight: 800;">GM University</h2>
+                <h3 style="font-size: 18px; margin-bottom: 5px; color: black !important; font-weight: 700;">Application Report</h3>
+                <p style="font-size: 14px; margin-bottom: 0; color: black !important;"><strong>Company:</strong> <?php echo htmlspecialchars($selectedCompanyName); ?> &nbsp;|&nbsp; <strong>Job Role:</strong> <?php echo htmlspecialchars($selectedJobName); ?></p>
+                <p style="font-size: 14px; margin-top: 2px; color: black !important;"><strong>Total Students:</strong> <?php echo count($applications); ?></p>
+            </div>
+            <table class="modern-table" id="exportTable">
+                <thead>
+                    <tr>
+                        <th>Sl.No</th>
+                        <th>Student Name</th>
+                        <th>USN</th>
+                        <th>Inst</th>
+                        <th>Course</th>
+                        <th>Branch</th>
+                        <th>Sem</th>
+                        <th>Job Role</th>
+                        <th>Company</th>
+                        <th>SGPA</th>
+                        <th>10th %</th>
+                        <th>12th %</th>
+                        <th>Applied</th>
+                        <th>Status</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <?php 
+                    $slNo = 1;
+                    foreach ($applications as $app): 
+                    ?>
+                    <tr data-resume-link="<?php echo $app['resume_path'] ? (APP_URL . '/student/view_resume.php?usn=' . urlencode($app['usn'])) : ''; ?>">
+                        <td><?php echo $slNo++; ?></td>
+                        <td><?php echo htmlspecialchars($app['student_name'] ?? 'N/A'); ?></td>
+                        <td><?php echo htmlspecialchars($app['usn'] ?? 'N/A'); ?></td>
+                        <td><?php echo htmlspecialchars($app['institution'] ?? 'N/A'); ?></td>
+                        <td><?php echo htmlspecialchars($app['course'] ?? 'N/A'); ?></td>
+                        <td><?php echo htmlspecialchars($app['branch'] ?? 'N/A'); ?></td>
+                        <td><?php echo htmlspecialchars($app['current_semester'] ?? '?'); ?></td>
+                        <td><?php echo htmlspecialchars($app['job_title'] ?? 'N/A'); ?></td>
+                        <td><?php echo htmlspecialchars($app['company_name'] ?? 'N/A'); ?></td>
+                        <td><?php echo $app['academic_sgpa'] ? number_format($app['academic_sgpa'], 2) : '-'; ?></td>
+                        <td><?php echo $app['sslc_percentage'] ? round($app['sslc_percentage']).'%' : '-'; ?></td>
+                        <td><?php echo $app['puc_percentage'] ? round($app['puc_percentage']).'%' : '-'; ?></td>
+                        <td><?php echo date('d M Y', strtotime($app['applied_at'])); ?></td>
+                        <td><?php echo htmlspecialchars($app['status'] ?? 'N/A'); ?></td>
+                    </tr>
+                    <?php endforeach; ?>
+                    <?php if (empty($applications)): ?>
+                    <tr><td colspan="14" style="text-align: center; padding: 20px;">No applications found.</td></tr>
+                    <?php endif; ?>
+                </tbody>
+            </table>
+        </div>
+        <!-- END PRINT ONLY SECTION -->
     </div>
 
             </div>
@@ -928,7 +1026,7 @@ function formatResponsesForPrint($json) {
         }
 
         function exportToExcel() {
-            const table = document.querySelector(".modern-table");
+            const table = document.getElementById("exportTable");
             const rows = Array.from(table.rows);
             const rawData = rows.map((row, rowIndex) => {
                 const cells = Array.from(row.cells);

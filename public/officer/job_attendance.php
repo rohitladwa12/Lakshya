@@ -94,62 +94,110 @@ $stats = [
     'pending' => 0
 ];
 
+$stmtAtt = $db->prepare("SELECT student_id, status FROM job_attendance WHERE job_id = ?");
+$stmtAtt->execute([$jobId]);
+$attendanceMap = $stmtAtt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+$gmuUsns = [];
+$gmitUsns = [];
+
+foreach ($rawApps as $app) {
+    $usn = $app['usn'];
+    if (empty($usn) || $usn === '-') $usn = $app['student_id'];
+    
+    if (($app['institution'] ?? 'GMU') === INSTITUTION_GMU) {
+        $gmuUsns[] = $usn;
+    } else {
+        $gmitUsns[] = $usn;
+    }
+}
+
+$studentMeta = [];
+
+// Fetch GMU Details Batch
+if (!empty($gmuUsns)) {
+    try {
+        $remoteDB = getDB('gmu');
+        $prefix = DB_GMU_PREFIX;
+        $placeholders = implode(',', array_fill(0, count($gmuUsns), '?'));
+        $stmt = $remoteDB->prepare("
+            SELECT a.usn, a.sem, a.academic_year, u.COURSE, u.DISCIPLINE 
+            FROM {$prefix}ad_student_approved a
+            LEFT JOIN {$prefix}users u ON a.usn = u.USER_NAME
+            WHERE a.usn IN ($placeholders)
+        ");
+        $stmt->execute($gmuUsns);
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            // Keep the latest semester if duplicates exist
+            if (!isset($studentMeta[$row['usn']]) || $row['sem'] > $studentMeta[$row['usn']]['sem']) {
+                $studentMeta[$row['usn']] = [
+                    'sem' => (int)$row['sem'], 
+                    'academic_year' => $row['academic_year'],
+                    'course' => $row['COURSE'] ?? 'BTECH',
+                    'discipline' => $row['DISCIPLINE'] ?? 'N/A'
+                ];
+            }
+        }
+    } catch (Exception $e) {}
+}
+
+// Fetch GMIT Details Batch
+if (!empty($gmitUsns)) {
+    try {
+        $placeholders = implode(',', array_fill(0, count($gmitUsns), '?'));
+        
+        $stmt = $db->prepare("SELECT student_id, semester FROM student_sem_sgpa WHERE institution = ? AND is_current = 1 AND student_id IN ($placeholders)");
+        $params = array_merge([INSTITUTION_GMIT], $gmitUsns);
+        $stmt->execute($params);
+        $gmitSems = $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+
+        $remoteDB = getDB('gmit');
+        $prefix = DB_GMIT_PREFIX;
+        $stmt = $remoteDB->prepare("
+            SELECT d.student_id, d.academic_year, u.COURSE, u.DISCIPLINE 
+            FROM {$prefix}ad_student_details d
+            LEFT JOIN {$prefix}users u ON d.student_id = u.USER_NAME
+            WHERE d.student_id IN ($placeholders) OR d.enquiry_no IN ($placeholders)
+        ");
+        $params = array_merge($gmitUsns, $gmitUsns);
+        $stmt->execute($params);
+        
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
+            $sid = $row['student_id'];
+            $studentMeta[$sid] = [
+                'sem' => $gmitSems[$sid] ?? 0,
+                'academic_year' => $row['academic_year'],
+                'course' => $row['COURSE'] ?? 'BE',
+                'discipline' => $row['DISCIPLINE'] ?? 'N/A'
+            ];
+        }
+    } catch (Exception $e) {}
+}
+
 foreach ($rawApps as $app) {
     $usn = $app['usn'];
     if (empty($usn) || $usn === '-') {
         $usn = $app['student_id'];
     }
     
-    $studentName = $app['student_name'] ?? 'Unknown Student';
-    $branch = $app['course'] ?? 'N/A';
-    $institution = $app['institution'] ?? 'GMU';
-    
-    $sem = 0;
-    $academicYear = 'N/A';
-    
-    try {
-        $prefix = ($institution === INSTITUTION_GMU) ? DB_GMU_PREFIX : DB_GMIT_PREFIX;
-        if ($institution === INSTITUTION_GMU) {
-            $remoteDB = getDB('gmu');
-            $stmtSem = $remoteDB->prepare("SELECT sem, academic_year FROM {$prefix}ad_student_approved WHERE usn = ? ORDER BY academic_year DESC, sem DESC LIMIT 1");
-            $stmtSem->execute([$usn]);
-            $semRow = $stmtSem->fetch();
-            if ($semRow) {
-                $sem = (int)$semRow['sem'];
-                $academicYear = $semRow['academic_year'];
-            }
-        } else {
-            // GMIT
-            $stmtCurr = $db->prepare("SELECT semester FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
-            $stmtCurr->execute([$usn, INSTITUTION_GMIT]);
-            $currSemRow = $stmtCurr->fetch();
-            if ($currSemRow) {
-                $sem = (int)$currSemRow['semester'];
-            }
-            
-            $remoteDB = getDB('gmit');
-            $stmtDet = $remoteDB->prepare("SELECT academic_year, course FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1");
-            $stmtDet->execute([$app['student_id'], $usn]);
-            $det = $stmtDet->fetch();
-            if ($det) {
-                $academicYear = $det['academic_year'];
-                if (!empty($det['course'])) {
-                    $branch = $det['course'];
-                }
-            }
-        }
-    } catch (Exception $e) {
-        // Ignore fallback
+    $studentName = $app['student_name'] ?? 'Unknown';
+    if ($studentName === 'Unknown' || $studentName === 'Unknown Student') {
+        continue; // Skip orphaned applications
     }
     
-    // Clean values
-    $sem = $sem ?: 0;
-    $academicYear = $academicYear ?: 'N/A';
+    $branch = $app['course'] ?? 'N/A';
     
-    // Query recorded status
-    $stmtAtt = $db->prepare("SELECT status FROM job_attendance WHERE job_id = ? AND student_id = ? LIMIT 1");
-    $stmtAtt->execute([$jobId, $usn]);
-    $attStatus = $stmtAtt->fetchColumn();
+    $meta = $studentMeta[$usn] ?? [];
+    $sem = $meta['sem'] ?? 0;
+    
+    // Always use the Job's academic year
+    $academicYear = $job['academic_year'] ?? 'N/A';
+    if (empty($academicYear)) $academicYear = 'N/A';
+    
+    $course = $meta['course'] ?? 'N/A';
+    $branch = $meta['discipline'] ?? 'N/A';
+    
+    $attStatus = $attendanceMap[$usn] ?? null;
     
     $stats['total']++;
     if ($attStatus === 'Present') {
@@ -163,6 +211,7 @@ foreach ($rawApps as $app) {
     $students[] = [
         'usn' => $usn,
         'student_name' => $studentName,
+        'course' => $course,
         'branch' => $branch,
         'sem' => $sem,
         'academic_year' => $academicYear,
@@ -535,6 +584,7 @@ $pageId = 'officer_jobs';
                             <th>Academic Year</th>
                             <th>USN</th>
                             <th>Student Name</th>
+                            <th>Course</th>
                             <th>Branch</th>
                             <th style="text-align: center;">Semester</th>
                             <th style="text-align: center; width: 260px;">Attendance Status</th>
@@ -550,8 +600,8 @@ $pageId = 'officer_jobs';
                         <tr class="student-row" data-search="<?php echo htmlspecialchars(strtolower(($s['academic_year'] ?? '') . ' ' . $usn . ' ' . $s['student_name'] . ' ' . $s['branch'] . ' sem ' . $s['sem'])); ?>">
                             <td><?php echo $sl++; ?></td>
                             <td>
-                                <strong><?php echo htmlspecialchars((string)($s['academic_year'] ?? '')); ?></strong>
-                                <input type="hidden" name="academic_years[<?php echo htmlspecialchars($usn); ?>]" value="<?php echo htmlspecialchars((string)($s['academic_year'] ?? '')); ?>">
+                                <strong><?php echo htmlspecialchars((string)($job['academic_year'] ?? 'N/A')); ?></strong>
+                                <input type="hidden" name="academic_years[<?php echo htmlspecialchars($usn); ?>]" value="<?php echo htmlspecialchars((string)($job['academic_year'] ?? 'N/A')); ?>">
                             </td>
                             <td>
                                 <span class="usn-badge"><?php echo htmlspecialchars($usn); ?></span>
@@ -561,10 +611,13 @@ $pageId = 'officer_jobs';
                                 <input type="hidden" name="student_names[<?php echo htmlspecialchars($usn); ?>]" value="<?php echo htmlspecialchars($s['student_name']); ?>">
                             </td>
                             <td>
-                                <span style="font-weight: 500;"><?php echo htmlspecialchars($s['branch']); ?></span>
+                                <span style="font-weight: 500; color: var(--text-muted);"><?php echo htmlspecialchars($s['course']); ?></span>
+                            </td>
+                            <td>
+                                <span style="font-weight: 600; color: var(--brand);"><?php echo htmlspecialchars($s['branch']); ?></span>
                                 <input type="hidden" name="branches[<?php echo htmlspecialchars($usn); ?>]" value="<?php echo htmlspecialchars($s['branch']); ?>">
                             </td>
-                            <td style="text-align: center; font-weight: 700; color: var(--brand);">
+                            <td style="text-align: center; font-weight: 700;">
                                 <?php echo $s['sem'] ?: '-'; ?>
                                 <input type="hidden" name="sems[<?php echo htmlspecialchars($usn); ?>]" value="<?php echo $s['sem']; ?>">
                             </td>

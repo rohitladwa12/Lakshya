@@ -237,7 +237,7 @@ $fullName = getFullName();
         .section-block.open .section-body { display: block; }
 
         /* Form fields */
-        .field-group { margin-bottom: 20px; }
+        .field-group { margin-bottom: 20px; min-width: 0; }
         .field-group label { 
             display: block; 
             font-size: 0.72rem; 
@@ -262,6 +262,10 @@ $fullName = getFullName();
             background: #f8fafc;
             transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
+        .field-group input[type="date"],
+        .field-group input[type="month"] {
+            padding: 12px 10px;
+        }
         .field-group input:hover,
         .field-group textarea:hover {
             border-color: #e2e8f0;
@@ -273,6 +277,12 @@ $fullName = getFullName();
             border-color: var(--maroon);
             background: white;
             box-shadow: 0 0 0 4px rgba(128, 0, 0, 0.08);
+        }
+        .input-disabled-visual {
+            background: #e2e8f0 !important;
+            color: #94a3b8 !important;
+            border-color: #e2e8f0 !important;
+            cursor: pointer !important;
         }
         .field-group textarea { resize: vertical; min-height: 100px; line-height: 1.6; }
         .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
@@ -489,7 +499,7 @@ $fullName = getFullName();
             font-family: 'Times New Roman', Times, serif;
             font-size: 11pt;
             color: #000;
-            line-height: 1.5;
+            line-height: 1.35;
             position: relative;
         }
 
