@@ -101,6 +101,7 @@ class LeaderboardService {
             $rankings[] = [
                 'name' => $s['name'],
                 'usn' => $usn,
+                'photo' => $s['profile_photo'] ?? null,
                 'aadhar' => $s['aadhar'] ?? '',
                 'institution' => $s['institution'],
                 'discipline' => $s['department'],

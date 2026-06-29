@@ -135,16 +135,36 @@ $companyName = post('company_name');
             $correctAnswersMap = [];
             $explanationsMap = [];
             
+            $normalizeKey = function($text) {
+                $text = html_entity_decode($text, ENT_QUOTES | ENT_HTML5, 'UTF-8');
+                $text = str_replace(['"', '“', '”', '‘', '’', "'"], '', $text);
+                $text = preg_replace('/\s+/', ' ', $text);
+                return strtolower(trim($text));
+            };
+
+            $parseAnswerIndex = function($val) {
+                if (is_numeric($val)) {
+                    return (int)$val;
+                }
+                if (is_string($val)) {
+                    $val = strtoupper(trim($val));
+                    if (in_array($val, ['A', 'B', 'C', 'D'])) {
+                        return match($val) { 'A'=>0, 'B'=>1, 'C'=>2, 'D'=>3 };
+                    }
+                }
+                return 0;
+            };
+            
             if (isset($_SESSION['aptitude_db_questions']) && is_array($_SESSION['aptitude_db_questions'])) {
                 foreach ($_SESSION['aptitude_db_questions'] as $sq) {
-                    $key = trim($sq['question']);
+                    $key = $normalizeKey($sq['question']);
                     $correctAnswersMap[$key] = $sq['answer'];
                     $explanationsMap[$key] = $sq['explanation'] ?? '';
                 }
             }
             if (isset($_SESSION['aptitude_ai_questions']) && is_array($_SESSION['aptitude_ai_questions'])) {
                 foreach ($_SESSION['aptitude_ai_questions'] as $sq) {
-                    $key = trim($sq['question']);
+                    $key = $normalizeKey($sq['question']);
                     $correctAnswersMap[$key] = $sq['answer'];
                     $explanationsMap[$key] = $sq['explanation'] ?? '';
                 }
@@ -158,13 +178,14 @@ $companyName = post('company_name');
                 $options = $q['options'] ?? [];
 
                 // Retrieve correct answer from session lookup map
-                if (isset($correctAnswersMap[$qText])) {
-                    $correctAnswer = (int)$correctAnswersMap[$qText];
-                    $explanation = $explanationsMap[$qText] ?? ($q['explanation'] ?? '');
+                $normalizedQText = $normalizeKey($qText);
+                if (isset($correctAnswersMap[$normalizedQText])) {
+                    $correctAnswer = $parseAnswerIndex($correctAnswersMap[$normalizedQText]);
+                    $explanation = $explanationsMap[$normalizedQText] ?? ($q['explanation'] ?? '');
                 } else {
                     // Fallback to client data but log a warning
                     error_log("Aptitude grading warning: Question not found in session registry. Question: " . substr($qText, 0, 100));
-                    $correctAnswer = isset($q['answer']) ? (int)$q['answer'] : 0;
+                    $correctAnswer = isset($q['answer']) ? $parseAnswerIndex($q['answer']) : 0;
                     $explanation = $q['explanation'] ?? '';
                 }
 

@@ -568,7 +568,7 @@ $pageTitle = "Leaderboard | Lakshya";
         <div class="drawer-header-gold p-6 text-white sticky top-0 z-20">
             <div class="flex justify-between items-start mb-4">
                 <div class="flex items-center gap-3">
-                    <div id="drawer-avatar" class="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black outfit shadow-lg bg-white/20 backdrop-blur"></div>
+                    <div id="drawer-avatar" class="w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black outfit shadow-lg bg-white/20 backdrop-blur overflow-hidden"></div>
                     <div>
                         <p class="text-white/70 text-xs font-bold uppercase tracking-widest">Rank Insights</p>
                         <h2 id="drawer-name" class="text-xl font-black outfit leading-tight"></h2>
@@ -821,8 +821,9 @@ $pageTitle = "Leaderboard | Lakshya";
                         </div>
                     </div>
                     <div class="col-span-8 flex items-center gap-4 pl-2">
-                        <div class="w-11 h-11 rounded-xl avatar-circle flex-shrink-0 flex items-center justify-center text-base shadow">
-                            ${s.name.charAt(0).toUpperCase()}
+                        <div class="w-11 h-11 rounded-xl avatar-circle flex-shrink-0 flex items-center justify-center text-base shadow overflow-hidden">
+                            ${s.photo ? `<img src="${s.photo}" alt="${s.name}" class="w-full h-full object-cover" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">` : ''}
+                            <span style="${s.photo ? 'display: none;' : ''}" class="flex items-center justify-center">${s.name.charAt(0).toUpperCase()}</span>
                         </div>
                         <div class="min-w-0">
                             <div class="font-bold text-slate-800 text-sm md:text-base flex items-center gap-2 flex-wrap">
@@ -870,8 +871,9 @@ $pageTitle = "Leaderboard | Lakshya";
 
                             <div class="relative w-20 h-20 mx-auto mb-6">
                                 <div class="absolute inset-0 rounded-2xl rotate-6 bg-slate-100 scale-125 opacity-40"></div>
-                                <div class="relative w-full h-full rounded-3xl avatar-circle flex items-center justify-center text-3xl font-black outfit shadow-2xl border-2 border-white/50">
-                                    ${s.name.charAt(0).toUpperCase()}
+                                <div class="relative w-full h-full rounded-3xl avatar-circle flex items-center justify-center text-3xl font-black outfit shadow-2xl border-2 border-white/50 overflow-hidden">
+                                    ${s.photo ? `<img src="${s.photo}" alt="${s.name}" class="w-full h-full object-cover" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">` : ''}
+                                    <span style="${s.photo ? 'display: none;' : ''}" class="flex items-center justify-center">${s.name.charAt(0).toUpperCase()}</span>
                                 </div>
                                 <div class="absolute -bottom-2 -right-2 w-10 h-10 ${badgeClass} rounded-2xl flex items-center justify-center text-sm font-black border-4 border-white shadow-xl ring-2 ring-black/5">
                                     ${rankNum}
@@ -931,7 +933,15 @@ $pageTitle = "Leaderboard | Lakshya";
             const rankChange = prevRank - student.rank;
 
             // Header
-            document.getElementById('drawer-avatar').textContent = student.name.charAt(0).toUpperCase();
+            const drawerAvatarEl = document.getElementById('drawer-avatar');
+            drawerAvatarEl.innerHTML = student.photo 
+                ? `<img src="${student.photo}" alt="${student.name}" class="w-full h-full object-cover" onerror="this.style.display='none'; this.nextElementSibling.style.display='flex';">` 
+                : '';
+            const fallbackSpan = document.createElement('span');
+            fallbackSpan.style.display = student.photo ? 'none' : 'flex';
+            fallbackSpan.className = 'flex items-center justify-center';
+            fallbackSpan.textContent = student.name.charAt(0).toUpperCase();
+            drawerAvatarEl.appendChild(fallbackSpan);
             document.getElementById('drawer-name').textContent = student.name;
             document.getElementById('drawer-dept').textContent = `${student.discipline} · ${student.institution}`;
             document.getElementById('drawer-score').textContent = student.total;

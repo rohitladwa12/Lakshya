@@ -323,6 +323,7 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
                     <i class="fas fa-comments"></i> Feedback
                 </a>
             </li>
+
             <li>
                 <a href="change_password.php"
                     class="nav-link <?php echo $currentPage == 'change_password.php' ? 'active' : ''; ?>">

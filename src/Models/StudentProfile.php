@@ -477,7 +477,7 @@ class StudentProfile extends Model {
         
         // REMOTE JOIN (GMU uses SL_NO, GMIT uses ENQUIRY_NO for user id). Include sem for coordinator 5-8 filter.
         // We use a subquery for GMU to only get the LATEST administrative row per USN to avoid duplication.
-        $sql = "SELECT ad.usn, ad.course, ad.discipline, ad.academic_year, IFNULL(u.USER_NAME, ad.usn) as USER_NAME, IFNULL(u.NAME, ad.name) as NAME, u.MOBILE_NO, IFNULL(u.SL_NO, 0) as user_sl_no, '" . INSTITUTION_GMU . "' as institution, ad.sem, ad.aadhar
+        $sql = "SELECT ad.usn, ad.course, ad.discipline, ad.academic_year, IFNULL(u.USER_NAME, ad.usn) as USER_NAME, IFNULL(u.NAME, ad.name) as NAME, u.MOBILE_NO, IFNULL(u.SL_NO, 0) as user_sl_no, '" . INSTITUTION_GMU . "' as institution, ad.sem, ad.aadhar, u.PHOTO as PHOTO
                 FROM {$gmuPrefix}ad_student_approved ad
                 INNER JOIN (
                     SELECT usn, MAX(SL_NO) as max_sl 
@@ -486,7 +486,7 @@ class StudentProfile extends Model {
                 ) latest ON ad.usn = latest.usn AND ad.SL_NO = latest.max_sl
                 LEFT JOIN {$gmuPrefix}users u ON u.USER_NAME = ad.usn AND u.STATUS = 'ACTIVE'
                 UNION ALL
-                SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.course, ad.discipline, ad.academic_year, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as NAME, u.MOBILE_NO, IFNULL(u.ENQUIRY_NO, 0) as user_sl_no, '" . INSTITUTION_GMIT . "' as institution, 0 as sem, ad.aadhar
+                SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.course, ad.discipline, ad.academic_year, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as NAME, u.MOBILE_NO, IFNULL(u.ENQUIRY_NO, 0) as user_sl_no, '" . INSTITUTION_GMIT . "' as institution, 0 as sem, ad.aadhar, u.PHOTO as PHOTO
                 FROM {$gmitPrefix}ad_student_details ad
                 LEFT JOIN {$gmitPrefix}users u ON (
                     (u.USER_NAME = ad.usn AND ad.usn != '') 
@@ -595,7 +595,7 @@ class StudentProfile extends Model {
         
         $results = [];
         foreach ($rows as $row) {
-             $userStub = ['PHOTO' => null, 'SL_NO' => $row['user_sl_no'], 'NAME' => $row['NAME'], 'USER_NAME' => $row['USER_NAME']];
+             $userStub = ['PHOTO' => $row['PHOTO'] ?? null, 'SL_NO' => $row['user_sl_no'], 'NAME' => $row['NAME'], 'USER_NAME' => $row['USER_NAME']];
              $p = $this->mapToAppProfile($row, $userStub, [], $row['institution']);
              $results[] = $p;
         }
@@ -679,11 +679,11 @@ class StudentProfile extends Model {
 
         // REMOTE JOIN (include sem for coordinator 5-8 filter)
         $sql = "SELECT * FROM (
-                    SELECT ad.usn, ad.name, ad.discipline, IFNULL(u.USER_NAME, ad.usn) as USER_NAME, IFNULL(u.NAME, ad.name) as user_name, IFNULL(u.SL_NO, 0) as user_sl_no, u.MOBILE_NO, ad.course, ad.academic_year, '" . INSTITUTION_GMU . "' as institution, ad.sem
+                    SELECT ad.usn, ad.name, ad.discipline, IFNULL(u.USER_NAME, ad.usn) as USER_NAME, IFNULL(u.NAME, ad.name) as user_name, IFNULL(u.SL_NO, 0) as user_sl_no, u.MOBILE_NO, ad.course, ad.academic_year, '" . INSTITUTION_GMU . "' as institution, ad.sem, u.PHOTO as PHOTO
                     FROM {$gmuPrefix}ad_student_approved ad
                     LEFT JOIN {$gmuPrefix}users u ON u.USER_NAME = ad.usn AND u.STATUS = 'ACTIVE'
                     UNION ALL
-                    SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.name, ad.discipline, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as user_name, IFNULL(u.ENQUIRY_NO, 0) as user_sl_no, u.MOBILE_NO, ad.course, ad.academic_year, '" . INSTITUTION_GMIT . "' as institution, 0 as sem
+                    SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.name, ad.discipline, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as user_name, IFNULL(u.ENQUIRY_NO, 0) as user_sl_no, u.MOBILE_NO, ad.course, ad.academic_year, '" . INSTITUTION_GMIT . "' as institution, 0 as sem, u.PHOTO as PHOTO
                     FROM {$gmitPrefix}ad_student_details ad
                     LEFT JOIN {$gmitPrefix}users u ON (
                         (u.USER_NAME = ad.usn AND ad.usn != '') 
@@ -766,7 +766,7 @@ class StudentProfile extends Model {
         
         $results = [];
         foreach ($rows as $row) {
-             $userStub = ['PHOTO' => null, 'SL_NO' => $row['user_sl_no'], 'NAME' => $row['user_name'] ?? $row['name'], 'USER_NAME' => $row['USER_NAME']];
+             $userStub = ['PHOTO' => $row['PHOTO'] ?? null, 'SL_NO' => $row['user_sl_no'], 'NAME' => $row['user_name'] ?? $row['name'], 'USER_NAME' => $row['USER_NAME']];
              $p = $this->mapToAppProfile($row, $userStub, [], $row['institution']);
              $results[] = $p;
         }

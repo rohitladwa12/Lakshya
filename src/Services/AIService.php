@@ -860,6 +860,12 @@ STRICT RULES FOR ACCURACY:
                 $validQuestions[] = $q;
             }
 
+            // Apply self-correction verification pass
+            $corrected = $this->selfCorrectQuestions($validQuestions);
+            if (!empty($corrected) && is_array($corrected)) {
+                $validQuestions = $corrected;
+            }
+
             return [
                 'success' => count($validQuestions) > 0,
                 'questions' => array_slice($validQuestions, 0, $count)
@@ -913,9 +919,17 @@ Each question object MUST follow this EXACT structure:
 
         if ($response['success']) {
             $data = json_decode($response['content'], true);
+            $rawQuestions = $data['questions'] ?? [];
+
+            // Apply self-correction verification pass
+            $corrected = $this->selfCorrectQuestions($rawQuestions);
+            if (!empty($corrected) && is_array($corrected)) {
+                $rawQuestions = $corrected;
+            }
+
             return [
-                'success' => true,
-                'questions' => array_slice($data['questions'] ?? [], 0, 10)
+                'success' => count($rawQuestions) > 0,
+                'questions' => array_slice($rawQuestions, 0, 10)
             ];
         }
 
@@ -1773,6 +1787,106 @@ Do not provide explanations. Return ONLY a valid JSON object matching this schem
             'max_tokens' => 1000,
             'temperature' => 0.1
         ]);
+    }
+
+    /**
+     * Self-correct generated MCQ questions to ensure 100% accuracy.
+     */
+    private function selfCorrectQuestions($questions)
+    {
+        if (empty($questions) || !is_array($questions)) {
+            return $questions;
+        }
+
+        $verificationPrompt = "You are an Elite MCQ Verification Agent.
+Your task is to review a set of Multiple Choice Questions and verify that their correct answer index (0-3) is mathematically, logically, and factually correct.
+
+For each question:
+1. Solve it independently.
+2. Read the question carefully to identify exactly what is being asked (e.g. if the question asks for 'girls', the correct answer must be the number of girls, not the number of boys). Ensure the answer index points to the value of the requested variable.
+3. Verify that the correct option index (0, 1, 2, or 3) points EXACTLY to the correct choice in the 'options' array.
+4. If it does not, CORRECT the 'answer' field (0-3 index) and update the 'explanation' to explain the math/logic accurately.
+5. If the options array itself does not contain the mathematically correct option, you must replace the wrong option in the options array with the correct value, and update the answer index to point to it.
+6. Make sure the explanation is accurate and matches the corrected answer option.
+
+Return the modified/verified questions in a JSON object with a 'questions' array. Output ONLY the JSON. Do not wrap in markdown code blocks.";
+
+        $messages = [
+            ['role' => 'system', 'content' => $verificationPrompt],
+            ['role' => 'user', 'content' => json_encode(['questions' => $questions])]
+        ];
+
+        $response = $this->callAPI($messages, [
+            'audit_method' => 'self_correct_questions',
+            'response_format' => ['type' => 'json_object'],
+            'max_tokens' => 3000,
+            'temperature' => 0.0 // Deterministic correctness
+        ]);
+
+        if ($response['success']) {
+            $data = is_array($response['parsed']) ? $response['parsed'] : json_decode($response['content'], true);
+            if (isset($data['questions']) && is_array($data['questions'])) {
+                return $data['questions'];
+            }
+        }
+
+        return $questions;
+    }
+
+    /**
+     * Solve and automatically fix a reported question using AI.
+     */
+    public function autoFixReportedQuestion($questionText, array $options)
+    {
+        $optsText = "";
+        foreach ($options as $idx => $opt) {
+            $optsText .= chr(65 + $idx) . ") " . $opt . "\n";
+        }
+
+        $systemPrompt = "You are an Elite MCQ Verification Agent.
+We have a reported question that may have an incorrect answer key or formatting issues.
+
+Question: {$questionText}
+Options:
+{$optsText}
+
+Task:
+1. Solve the question step-by-step.
+2. Determine which option (A, B, C, or D) is mathematically, logically, and factually correct.
+3. If none of the options is correct, identify the closest option or select 'A' and provide a corrected option text. But if one of them is correct, select it.
+4. Ensure the correct_option field holds exactly 'A', 'B', 'C', or 'D'.
+5. Provide a clear explanation of the mathematical/logical solution.
+
+Format: Return a JSON object with this structure:
+{
+  \"correct_option\": \"A\", // A, B, C, or D
+  \"explanation\": \"Step-by-step proof of the correct answer...\"
+}";
+
+        $messages = [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => "Verify and find the correct option index for this question. Return only JSON."]
+        ];
+
+        $response = $this->callAPI($messages, [
+            'audit_method' => 'auto_fix_reported_question',
+            'response_format' => ['type' => 'json_object'],
+            'max_tokens' => 1000,
+            'temperature' => 0.0 // Deterministic
+        ]);
+
+        if ($response['success']) {
+            $data = is_array($response['parsed']) ? $response['parsed'] : json_decode($response['content'], true);
+            if (isset($data['correct_option'])) {
+                return [
+                    'success' => true,
+                    'correct_option' => strtoupper(trim($data['correct_option'])),
+                    'explanation' => $data['explanation'] ?? ''
+                ];
+            }
+        }
+
+        return ['success' => false, 'message' => 'AI was unable to resolve this question.'];
     }
 }
 

@@ -132,6 +132,9 @@
         <a href="feedback.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'feedback.php' ? 'active' : ''; ?>">
             <i class="fas fa-comments"></i> Student Feedback
         </a>
+        <a href="reported_questions.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'reported_questions.php' ? 'active' : ''; ?>">
+            <i class="fas fa-exclamation-triangle"></i> Reported Qs
+        </a>
     </div>
 
     <div class="sidebar-footer">
