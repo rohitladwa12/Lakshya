@@ -31,59 +31,71 @@ if (isPost()) {
         if ($action === 'resolve') {
             $correctOption = strtoupper(trim((string)post('correct_option')));
             $questionText = post('question_text');
+            $testType = post('test_type');
+            $testId = post('test_id');
             
-            if (!in_array($correctOption, ['A', 'B', 'C', 'D'])) {
+            if ($testType !== 'coding_problem' && !in_array($correctOption, ['A', 'B', 'C', 'D'])) {
                 $errorMsg = 'Please select a valid correct option (A, B, C, or D).';
             } else {
                 try {
                     $db->beginTransaction();
 
-                    // Update report status
-                    $stmt = $db->prepare("UPDATE reported_questions SET status = 'resolved', correct_answer = ? WHERE id = ?");
-                    $stmt->execute([$correctOption, $reportId]);
-
-                    // Try to locate and update the question in the DB tables
-                    $updatedInDb = false;
-                    $dbTableName = '';
-                    $dbQuestionId = null;
-
-                    // 1. Check aptitude_questions
-                    $stmt = $db->prepare("SELECT id FROM aptitude_questions WHERE question = ? OR question LIKE ? LIMIT 1");
-                    $stmt->execute([$questionText, '%' . $questionText . '%']);
-                    $match = $stmt->fetch();
-                    if ($match) {
-                        $dbQuestionId = $match['id'];
-                        $dbTableName = 'aptitude_questions';
-                        $updateStmt = $db->prepare("UPDATE aptitude_questions SET correct_option = ? WHERE id = ?");
-                        $updateStmt->execute([$correctOption, $dbQuestionId]);
+                    if ($testType === 'coding_problem') {
+                        // Update report status
+                        $stmt = $db->prepare("UPDATE reported_questions SET status = 'resolved', correct_answer = 'RESOLVED' WHERE id = ?");
+                        $stmt->execute([$reportId]);
+                        
                         $updatedInDb = true;
-                    }
+                        $dbTableName = 'coding_problems';
+                        $dbQuestionId = $testId;
+                    } else {
+                        // Update report status
+                        $stmt = $db->prepare("UPDATE reported_questions SET status = 'resolved', correct_answer = ? WHERE id = ?");
+                        $stmt->execute([$correctOption, $reportId]);
 
-                    // 2. Check nqt_aptitude_questions if not found
-                    if (!$updatedInDb) {
-                        $stmt = $db->prepare("SELECT id FROM nqt_aptitude_questions WHERE question = ? OR question LIKE ? LIMIT 1");
+                        // Try to locate and update the question in the DB tables
+                        $updatedInDb = false;
+                        $dbTableName = '';
+                        $dbQuestionId = null;
+
+                        // 1. Check aptitude_questions
+                        $stmt = $db->prepare("SELECT id FROM aptitude_questions WHERE question = ? OR question LIKE ? LIMIT 1");
                         $stmt->execute([$questionText, '%' . $questionText . '%']);
                         $match = $stmt->fetch();
                         if ($match) {
                             $dbQuestionId = $match['id'];
-                            $dbTableName = 'nqt_aptitude_questions';
-                            $updateStmt = $db->prepare("UPDATE nqt_aptitude_questions SET correct_option = ? WHERE id = ?");
+                            $dbTableName = 'aptitude_questions';
+                            $updateStmt = $db->prepare("UPDATE aptitude_questions SET correct_option = ? WHERE id = ?");
                             $updateStmt->execute([$correctOption, $dbQuestionId]);
                             $updatedInDb = true;
                         }
-                    }
 
-                    // 3. Check task_manual_questions if not found
-                    if (!$updatedInDb) {
-                        $stmt = $db->prepare("SELECT id FROM task_manual_questions WHERE question_text = ? OR question_text LIKE ? LIMIT 1");
-                        $stmt->execute([$questionText, '%' . $questionText . '%']);
-                        $match = $stmt->fetch();
-                        if ($match) {
-                            $dbQuestionId = $match['id'];
-                            $dbTableName = 'task_manual_questions';
-                            $updateStmt = $db->prepare("UPDATE task_manual_questions SET correct_option = ? WHERE id = ?");
-                            $updateStmt->execute([$correctOption, $dbQuestionId]);
-                            $updatedInDb = true;
+                        // 2. Check nqt_aptitude_questions if not found
+                        if (!$updatedInDb) {
+                            $stmt = $db->prepare("SELECT id FROM nqt_aptitude_questions WHERE question = ? OR question LIKE ? LIMIT 1");
+                            $stmt->execute([$questionText, '%' . $questionText . '%']);
+                            $match = $stmt->fetch();
+                            if ($match) {
+                                $dbQuestionId = $match['id'];
+                                $dbTableName = 'nqt_aptitude_questions';
+                                $updateStmt = $db->prepare("UPDATE nqt_aptitude_questions SET correct_option = ? WHERE id = ?");
+                                $updateStmt->execute([$correctOption, $dbQuestionId]);
+                                $updatedInDb = true;
+                            }
+                        }
+
+                        // 3. Check task_manual_questions if not found
+                        if (!$updatedInDb) {
+                            $stmt = $db->prepare("SELECT id FROM task_manual_questions WHERE question_text = ? OR question_text LIKE ? LIMIT 1");
+                            $stmt->execute([$questionText, '%' . $questionText . '%']);
+                            $match = $stmt->fetch();
+                            if ($match) {
+                                $dbQuestionId = $match['id'];
+                                $dbTableName = 'task_manual_questions';
+                                $updateStmt = $db->prepare("UPDATE task_manual_questions SET correct_option = ? WHERE id = ?");
+                                $updateStmt->execute([$correctOption, $dbQuestionId]);
+                                $updatedInDb = true;
+                            }
                         }
                     }
 
@@ -91,7 +103,7 @@ if (isPost()) {
 
                     $successMsg = 'Report resolved successfully.';
                     if ($updatedInDb) {
-                        $successMsg .= " Automatically updated answer key in database table '{$dbTableName}' (ID: {$dbQuestionId}) to Option {$correctOption}.";
+                        $successMsg .= " Automatically updated answer key in database table '{$dbTableName}' (ID: {$dbQuestionId}) to Option " . ($testType === 'coding_problem' ? 'RESOLVED' : $correctOption) . ".";
                     }
 
                 } catch (Exception $e) {
@@ -789,6 +801,7 @@ try {
                         <option value="campus_drive">Campus Drive</option>
                         <option value="nqt">NQT</option>
                         <option value="mock_ai">Mock AI / Tasks</option>
+                        <option value="coding_problem">Coding Practice</option>
                     </select>
 
                     <div class="search-box">
@@ -926,6 +939,11 @@ try {
                                                     </li>
                                                 <?php endforeach; ?>
                                             </ul>
+                                        <?php elseif ($r['test_type'] === 'coding_problem'): ?>
+                                            <div style="margin-top: 10px;">
+                                                <strong style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Submitted Code:</strong>
+                                                <pre style="background: #2d3748; color: #fff; padding: 10px; border-radius: 6px; font-family: monospace; font-size: 12px; overflow-x: auto; margin-top: 4px; white-space: pre-wrap;"><?php echo htmlspecialchars($r['user_answer'] ?? 'No code submitted'); ?></pre>
+                                            </div>
                                         <?php else: ?>
                                             <div style="font-size: 12px; color: var(--text-muted); font-style: italic;">No options stored.</div>
                                         <?php endif; ?>
@@ -955,39 +973,58 @@ try {
                                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
                                             <input type="hidden" name="report_id" value="<?php echo $r['id']; ?>">
                                             <input type="hidden" name="question_text" value="<?php echo htmlspecialchars($r['question_text']); ?>">
+                                            <input type="hidden" name="test_type" value="<?php echo htmlspecialchars($r['test_type']); ?>">
+                                            <input type="hidden" name="test_id" value="<?php echo htmlspecialchars($r['test_id']); ?>">
                                             
-                                            <div>
-                                                <div class="action-label">Set Correct Key</div>
-                                                <select name="correct_option" class="filter-select" style="width: 100%; padding: 6px; font-size: 13px; border-radius: 6px; margin-bottom: 8px;" required>
-                                                    <option value="">-- Choose Correct Option --</option>
-                                                    <option value="A" <?php echo $userAnsIdx === 0 ? 'selected' : ''; ?>>A (Mark User Correct)</option>
-                                                    <option value="B" <?php echo $userAnsIdx === 1 ? 'selected' : ''; ?>>B</option>
-                                                    <option value="C" <?php echo $userAnsIdx === 2 ? 'selected' : ''; ?>>C</option>
-                                                    <option value="D" <?php echo $userAnsIdx === 3 ? 'selected' : ''; ?>>D</option>
-                                                </select>
-                                            </div>
+                                            <?php if ($r['test_type'] === 'coding_problem'): ?>
+                                                <div style="margin-bottom: 8px;">
+                                                    <div class="action-label">Action</div>
+                                                    <div style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px;">Verify code and fix problem evaluation if needed.</div>
+                                                </div>
+                                                <div style="display: flex; gap: 6px;">
+                                                    <button type="submit" name="action" value="resolve" class="btn-action btn-resolve" style="flex: 1;">
+                                                        <i class="fas fa-check-circle"></i> Resolve
+                                                    </button>
+                                                    <button type="submit" name="action" value="dismiss" class="btn-action btn-dismiss" style="flex: 1;">
+                                                        <i class="fas fa-times-circle"></i> Dismiss
+                                                    </button>
+                                                </div>
+                                            <?php else: ?>
+                                                <div>
+                                                    <div class="action-label">Set Correct Key</div>
+                                                    <select name="correct_option" class="filter-select" style="width: 100%; padding: 6px; font-size: 13px; border-radius: 6px; margin-bottom: 8px;" required>
+                                                        <option value="">-- Choose Correct Option --</option>
+                                                        <option value="A" <?php echo $userAnsIdx === 0 ? 'selected' : ''; ?>>A (Mark User Correct)</option>
+                                                        <option value="B" <?php echo $userAnsIdx === 1 ? 'selected' : ''; ?>>B</option>
+                                                        <option value="C" <?php echo $userAnsIdx === 2 ? 'selected' : ''; ?>>C</option>
+                                                        <option value="D" <?php echo $userAnsIdx === 3 ? 'selected' : ''; ?>>D</option>
+                                                    </select>
+                                                </div>
 
-                                            <div style="display: flex; gap: 6px; margin-bottom: 6px;">
-                                                <button type="submit" name="action" value="resolve" class="btn-action btn-resolve" style="flex: 1;">
-                                                    <i class="fas fa-check-circle"></i> Resolve
-                                                </button>
-                                                <button type="submit" name="action" value="dismiss" class="btn-action btn-dismiss" style="flex: 1;">
-                                                    <i class="fas fa-times-circle"></i> Dismiss
-                                                </button>
-                                            </div>
-                                            <div style="display: flex; gap: 6px;">
-                                                <button type="submit" name="action" value="ai_autofix" class="btn-action btn-ai" style="flex: 1; background: #6366f1; color: white; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px;">
-                                                    <i class="fas fa-robot"></i> AI Auto-Fix
-                                                </button>
-                                                <button type="submit" name="action" value="delete_question" class="btn-action btn-danger" style="flex: 1; background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px;" onclick="return confirm('Are you sure you want to delete this question from the database? This cannot be undone.');">
-                                                    <i class="fas fa-trash-alt"></i> Delete
-                                                </button>
-                                            </div>
+                                                <div style="display: flex; gap: 6px; margin-bottom: 6px;">
+                                                    <button type="submit" name="action" value="resolve" class="btn-action btn-resolve" style="flex: 1;">
+                                                        <i class="fas fa-check-circle"></i> Resolve
+                                                    </button>
+                                                    <button type="submit" name="action" value="dismiss" class="btn-action btn-dismiss" style="flex: 1;">
+                                                        <i class="fas fa-times-circle"></i> Dismiss
+                                                    </button>
+                                                </div>
+                                                <div style="display: flex; gap: 6px;">
+                                                    <button type="submit" name="action" value="ai_autofix" class="btn-action btn-ai" style="flex: 1; background: #6366f1; color: white; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px;">
+                                                        <i class="fas fa-robot"></i> AI Auto-Fix
+                                                    </button>
+                                                    <button type="submit" name="action" value="delete_question" class="btn-action btn-danger" style="flex: 1; background: #ef4444; color: white; border: none; padding: 8px 12px; border-radius: 6px; font-weight: 500; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px;" onclick="return confirm('Are you sure you want to delete this question from the database? This cannot be undone.');">
+                                                        <i class="fas fa-trash-alt"></i> Delete
+                                                    </button>
+                                                </div>
+                                            <?php endif; ?>
                                         </form>
                                     <?php else: ?>
                                          <div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
                                              <?php if ($r['correct_answer'] === 'DELETED'): ?>
                                                  <i class="fas fa-trash-alt" style="color: #ef4444;"></i> Question Deleted from Database
+                                             <?php elseif ($r['correct_answer'] === 'RESOLVED'): ?>
+                                                 <i class="fas fa-check-circle" style="color: #10b981;"></i> Resolved
                                              <?php elseif ($r['status'] === 'resolved'): ?>
                                                  <i class="fas fa-check-circle" style="color: #10b981;"></i> Resolved correct key to: <strong>Option <?php echo htmlspecialchars($r['correct_answer']); ?></strong>
                                              <?php else: ?>
@@ -1076,12 +1113,13 @@ try {
                                 </div>
                             `;
                         } else if (data.status === 'resolved') {
+                            const resolveText = data.correct_answer === 'RESOLVED' ? 'Resolved' : `Resolved correct key to: <strong>Option ${data.correct_answer}</strong>`;
                             actionCell.innerHTML = `
                                 <div style="margin-bottom: 12px;">
                                     <span class="badge-status badge-resolved">resolved</span>
                                 </div>
                                 <div style="font-size: 12px; color: var(--text-muted); line-height: 1.4;">
-                                    <i class="fas fa-check-circle" style="color: #10b981;"></i> Resolved correct key to: <strong>Option ${data.correct_answer}</strong>
+                                    <i class="fas fa-check-circle" style="color: #10b981;"></i> ${resolveText}
                                 </div>
                             `;
                         } else {

@@ -43,9 +43,9 @@ $allStudents = $studentModel->getAllWithUsers($overallFilters);
 
 // Get applied students
 if ($type === 'job') {
-    $stmt = $db->prepare("SELECT student_id, status, resume_path FROM job_applications WHERE job_id = ?");
+    $stmt = $db->prepare("SELECT student_id, status, resume_path, applied_semester, applied_sgpa FROM job_applications WHERE job_id = ?");
 } else {
-    $stmt = $db->prepare("SELECT student_id, status, resume_path FROM internship_applications WHERE internship_id = ?");
+    $stmt = $db->prepare("SELECT student_id, status, resume_path, applied_semester, applied_sgpa FROM internship_applications WHERE internship_id = ?");
 }
 $stmt->execute([$id]);
 $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
@@ -53,10 +53,14 @@ $applications = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $appliedUsns = [];
 $appStatuses = [];
 $appResumes = [];
+$appSemesters = [];
+$appSgpas = [];
 foreach ($applications as $app) {
     $appliedUsns[] = $app['student_id'];
     $appStatuses[$app['student_id']] = $app['status'];
     $appResumes[$app['student_id']] = $app['resume_path'];
+    $appSemesters[$app['student_id']] = $app['applied_semester'];
+    $appSgpas[$app['student_id']] = $app['applied_sgpa'];
 }
 
 $appliedStudents = [];
@@ -80,6 +84,11 @@ foreach ($allStudents as $stu) {
     if ($isApplied) {
         $stu['app_status'] = $status;
         $stu['resume_path'] = $resume;
+        
+        $key = in_array($stu['usn'], $appliedUsns) ? $stu['usn'] : $stu['aadhar'];
+        $stu['applied_semester_val'] = $appSemesters[$key] ?? null;
+        $stu['applied_sgpa_val'] = $appSgpas[$key] ?? null;
+        
         $appliedStudents[] = $stu;
     } else {
         $notAppliedStudents[] = $stu;
@@ -231,7 +240,16 @@ if (!empty($listToDisplay)) {
         $ac = $studentAcademics[$stu['usn']] ?? null;
         $stu['sslc_percentage'] = $ac ? ($ac['sslc_percentage'] ?? 0) : 0;
         $stu['puc_percentage'] = $ac ? ($ac['puc_percentage'] ?? 0) : 0;
-        $stu['academic_sgpa'] = $ac ? ($ac['sgpa'] ?? 0) : 0;
+        
+        // Prioritize static snapshot values if student is applied and values exist
+        if ($activeTab === 'applied' && isset($stu['applied_semester_val']) && $stu['applied_semester_val'] !== null) {
+            $stu['current_semester'] = $stu['applied_semester_val'];
+            $stu['semester'] = $stu['applied_semester_val'];
+            $stu['academic_sgpa'] = $stu['applied_sgpa_val'] ?? 0.00;
+        } else {
+            $stu['academic_sgpa'] = $ac ? ($ac['sgpa'] ?? 0) : 0;
+        }
+        
         $stu['gender'] = $ac ? ($ac['gender'] ?? 'N/A') : 'N/A';
         $stu['student_mobile'] = $ac ? ($ac['student_mobile'] ?? 'N/A') : 'N/A';
         $stu['resume_email'] = $resumeEmails[$stu['usn']] ?? 'N/A';

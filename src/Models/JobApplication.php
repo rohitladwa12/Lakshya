@@ -11,7 +11,7 @@ class JobApplication extends Model {
     protected $timestamps = false;
     protected $fillable = [
         'job_id', 'student_id', 'cover_letter', 'custom_responses', 'resume_path',
-        'status', 'applied_at', 'status_updated_at', 'notes'
+        'status', 'applied_at', 'status_updated_at', 'notes', 'applied_semester', 'applied_sgpa'
     ];
     
     /**
@@ -67,6 +67,37 @@ class JobApplication extends Model {
             }
         }
         
+        // Resolve student's current semester and SGPA to store as a static snapshot
+        $applied_semester = null;
+        $applied_sgpa = 0.00;
+        
+        if ($user) {
+            $inst = $user['institution'];
+            $db = $this->getDB();
+            
+            if ($inst === INSTITUTION_GMU) {
+                $prefix = DB_GMU_PREFIX;
+                $remoteDB = getDB('gmu');
+                if ($remoteDB) {
+                    $stmtSem = $remoteDB->prepare("SELECT sem FROM {$prefix}ad_student_approved WHERE usn = ? ORDER BY academic_year DESC, sem DESC LIMIT 1");
+                    $stmtSem->execute([$user['username']]);
+                    $applied_semester = $stmtSem->fetchColumn();
+
+                    $stmtSgpa = $remoteDB->prepare("SELECT sgpa FROM {$prefix}ad_student_approved WHERE usn = ? AND sgpa IS NOT NULL AND sgpa > 0 ORDER BY academic_year DESC, sem DESC LIMIT 1");
+                    $stmtSgpa->execute([$user['username']]);
+                    $applied_sgpa = $stmtSgpa->fetchColumn() ?: 0.00;
+                }
+            } else {
+                $stmtSem = $db->prepare("SELECT semester FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
+                $stmtSem->execute([$user['username'], INSTITUTION_GMIT]);
+                $applied_semester = $stmtSem->fetchColumn();
+
+                $stmtSgpa = $db->prepare("SELECT sgpa FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND sgpa > 0 ORDER BY semester DESC LIMIT 1");
+                $stmtSgpa->execute([$user['username'], INSTITUTION_GMIT]);
+                $applied_sgpa = $stmtSgpa->fetchColumn() ?: 0.00;
+            }
+        }
+        
         // Create application
         $applicationData = [
             'job_id' => $jobId,
@@ -75,7 +106,9 @@ class JobApplication extends Model {
             'custom_responses' => $data['custom_responses'] ?? null,
             'resume_path' => $resume_path,
             'status' => 'Applied',
-            'applied_at' => date('Y-m-d H:i:s')
+            'applied_at' => date('Y-m-d H:i:s'),
+            'applied_semester' => $applied_semester,
+            'applied_sgpa' => $applied_sgpa
         ];
         
         $applicationId = $this->create($applicationData);

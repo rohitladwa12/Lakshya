@@ -95,106 +95,142 @@ foreach ($rawApps as $app) {
         $app['current_semester'] = null;
 
         try {
-            if ($inst === INSTITUTION_GMU) {
-                // GMU: Fetch from remote
-                $remoteDB = getDB('gmu');
+            if ($app['applied_semester'] !== null && $app['applied_sgpa'] !== null) {
+                $app['current_semester'] = $app['applied_semester'];
+                $app['academic_sgpa'] = $app['applied_sgpa'];
                 
-                // Get current semester
-                $stmtSem = $remoteDB->prepare("SELECT sem FROM {$prefix}ad_student_approved WHERE usn = ? ORDER BY academic_year DESC, sem DESC LIMIT 1");
-                $stmtSem->execute([$app['usn']]);
-                $semRow = $stmtSem->fetch();
-                $app['current_semester'] = $semRow ? $semRow['sem'] : null;
-
-                // Get details and latest non-null/non-zero SGPA
-                $stmtAc = $remoteDB->prepare("SELECT a.sgpa, a.course, a.discipline, d.puc_percentage, d.sslc_percentage, d.gender
-                                           FROM {$prefix}ad_student_approved a
-                                           LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
-                                           WHERE a.usn = ? AND a.sgpa IS NOT NULL AND a.sgpa > 0.00
-                                           ORDER BY a.academic_year DESC, a.sem DESC LIMIT 1");
-                $stmtAc->execute([$app['usn']]);
-                $ac = $stmtAc->fetch();
-                if ($ac) {
-                    $app['academic_sgpa'] = $ac['sgpa'];
-                    $app['course'] = $ac['course'];
-                    $app['branch'] = $ac['discipline'];
-                    $app['puc_percentage'] = $ac['puc_percentage'];
-                    $app['sslc_percentage'] = $ac['sslc_percentage'];
-                    if (!empty($ac['gender'])) $app['gender'] = $ac['gender'];
+                // Fetch only basic details (percentages, course, branch, gender)
+                if ($inst === INSTITUTION_GMU) {
+                    $remoteDB = getDB('gmu');
+                    $stmtAc = $remoteDB->prepare("SELECT a.course, a.discipline, d.puc_percentage, d.sslc_percentage, d.gender
+                                               FROM {$prefix}ad_student_approved a
+                                               LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
+                                               WHERE a.usn = ? LIMIT 1");
+                    $stmtAc->execute([$app['usn']]);
+                    $ac = $stmtAc->fetch();
+                    if ($ac) {
+                        $app['course'] = $ac['course'];
+                        $app['branch'] = $ac['discipline'];
+                        $app['puc_percentage'] = $ac['puc_percentage'];
+                        $app['sslc_percentage'] = $ac['sslc_percentage'];
+                        if (!empty($ac['gender'])) $app['gender'] = $ac['gender'];
+                    }
                 } else {
-                    // Fallback to any record (even if SGPA is null/0) to get course/percentages
-                    $stmtFallback = $remoteDB->prepare("SELECT a.sgpa, a.course, a.discipline, d.puc_percentage, d.sslc_percentage, d.gender
-                                                FROM {$prefix}ad_student_approved a
-                                                LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
-                                                WHERE a.usn = ? 
-                                                ORDER BY a.academic_year DESC, a.sem DESC LIMIT 1");
-                    $stmtFallback->execute([$app['usn']]);
-                    $fb = $stmtFallback->fetch();
-                    if ($fb) {
-                        $app['academic_sgpa'] = $fb['sgpa'] ?: 0.00;
-                        $app['course'] = $fb['course'];
-                        $app['branch'] = $fb['discipline'];
-                        $app['puc_percentage'] = $fb['puc_percentage'];
-                        $app['sslc_percentage'] = $fb['sslc_percentage'];
-                        if (!empty($fb['gender'])) $app['gender'] = $fb['gender'];
+                    $remoteDB = getDB('gmit');
+                    $stmtDet = $remoteDB->prepare("SELECT puc_percentage, sslc_percentage, course, discipline, gender FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1");
+                    $stmtDet->execute([$app['student_id'], $app['usn']]);
+                    $det = $stmtDet->fetch();
+                    if ($det) {
+                        $app['puc_percentage'] = $det['puc_percentage'];
+                        $app['sslc_percentage'] = $det['sslc_percentage'];
+                        $app['course'] = $det['course'];
+                        $app['branch'] = $det['discipline'];
+                        if (!empty($det['gender'])) $app['gender'] = $det['gender'];
                     }
                 }
             } else {
-                // GMIT: Fetch academic history from local SGPA tracker
-                // First, get the current semester
-                $enrichParams = [$app['usn']];
-                $sqlCurr = "SELECT semester FROM student_sem_sgpa WHERE (student_id = ?";
-                if (!empty($app['aadhar'])) {
-                    $sqlCurr .= " OR student_id = ?";
-                    $enrichParams[] = $app['aadhar'];
-                }
-                $sqlCurr .= ") AND institution = ? AND is_current = 1 LIMIT 1";
-                $enrichParams[] = INSTITUTION_GMIT;
-                $stmtCurr = $appModel->getDB()->prepare($sqlCurr);
-                $stmtCurr->execute($enrichParams);
-                $currSemRow = $stmtCurr->fetch();
-                $app['current_semester'] = $currSemRow ? $currSemRow['semester'] : null;
-
-                // Then get the latest semester SGPA that is > 0
-                $enrichParams2 = [$app['usn']];
-                $sqlAc = "SELECT sgpa FROM student_sem_sgpa WHERE (student_id = ?";
-                if (!empty($app['aadhar'])) {
-                    $sqlAc .= " OR student_id = ?";
-                    $enrichParams2[] = $app['aadhar'];
-                }
-                $sqlAc .= ") AND institution = ? AND sgpa > 0.00 ORDER BY semester DESC LIMIT 1";
-                $enrichParams2[] = INSTITUTION_GMIT;
-                $stmtAc = $appModel->getDB()->prepare($sqlAc);
-                $stmtAc->execute($enrichParams2);
-                $ac = $stmtAc->fetch();
-                if ($ac) {
-                    $app['academic_sgpa'] = $ac['sgpa'];
-                } else {
-                    // Fallback to current sem SGPA if all are 0
-                    $enrichParams3 = [$app['usn']];
-                    $sqlAcFallback = "SELECT sgpa FROM student_sem_sgpa WHERE (student_id = ?";
-                    if (!empty($app['aadhar'])) {
-                        $sqlAcFallback .= " OR student_id = ?";
-                        $enrichParams3[] = $app['aadhar'];
+                // Fallback to legacy dynamic lookup if not populated
+                if ($inst === INSTITUTION_GMU) {
+                    // GMU: Fetch from remote
+                    $remoteDB = getDB('gmu');
+                    
+                    // Get current semester
+                    $stmtSem = $remoteDB->prepare("SELECT sem FROM {$prefix}ad_student_approved WHERE usn = ? ORDER BY academic_year DESC, sem DESC LIMIT 1");
+                    $stmtSem->execute([$app['usn']]);
+                    $semRow = $stmtSem->fetch();
+                    $app['current_semester'] = $semRow ? $semRow['sem'] : null;
+    
+                    // Get details and latest non-null/non-zero SGPA
+                    $stmtAc = $remoteDB->prepare("SELECT a.sgpa, a.course, a.discipline, d.puc_percentage, d.sslc_percentage, d.gender
+                                               FROM {$prefix}ad_student_approved a
+                                               LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
+                                               WHERE a.usn = ? AND a.sgpa IS NOT NULL AND a.sgpa > 0.00
+                                               ORDER BY a.academic_year DESC, a.sem DESC LIMIT 1");
+                    $stmtAc->execute([$app['usn']]);
+                    $ac = $stmtAc->fetch();
+                    if ($ac) {
+                        $app['academic_sgpa'] = $ac['sgpa'];
+                        $app['course'] = $ac['course'];
+                        $app['branch'] = $ac['discipline'];
+                        $app['puc_percentage'] = $ac['puc_percentage'];
+                        $app['sslc_percentage'] = $ac['sslc_percentage'];
+                        if (!empty($ac['gender'])) $app['gender'] = $ac['gender'];
+                    } else {
+                        // Fallback to any record (even if SGPA is null/0) to get course/percentages
+                        $stmtFallback = $remoteDB->prepare("SELECT a.sgpa, a.course, a.discipline, d.puc_percentage, d.sslc_percentage, d.gender
+                                                    FROM {$prefix}ad_student_approved a
+                                                    LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
+                                                    WHERE a.usn = ? 
+                                                    ORDER BY a.academic_year DESC, a.sem DESC LIMIT 1");
+                        $stmtFallback->execute([$app['usn']]);
+                        $fb = $stmtFallback->fetch();
+                        if ($fb) {
+                            $app['academic_sgpa'] = $fb['sgpa'] ?: 0.00;
+                            $app['course'] = $fb['course'];
+                            $app['branch'] = $fb['discipline'];
+                            $app['puc_percentage'] = $fb['puc_percentage'];
+                            $app['sslc_percentage'] = $fb['sslc_percentage'];
+                            if (!empty($fb['gender'])) $app['gender'] = $fb['gender'];
+                        }
                     }
-                    $sqlAcFallback .= ") AND institution = ? AND is_current = 1 LIMIT 1";
-                    $enrichParams3[] = INSTITUTION_GMIT;
-                    $stmtAcFallback = $appModel->getDB()->prepare($sqlAcFallback);
-                    $stmtAcFallback->execute($enrichParams3);
-                    $acFallback = $stmtAcFallback->fetch();
-                    $app['academic_sgpa'] = $acFallback ? $acFallback['sgpa'] : 0.00;
-                }
-                
-                // Fetch puc/sslc from remote GMIT details
-                $remoteDB = getDB('gmit');
-                $stmtDet = $remoteDB->prepare("SELECT puc_percentage, sslc_percentage, course, discipline, gender FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1");
-                $stmtDet->execute([$app['student_id'], $app['usn']]);
-                $det = $stmtDet->fetch();
-                if ($det) {
-                    $app['puc_percentage'] = $det['puc_percentage'];
-                    $app['sslc_percentage'] = $det['sslc_percentage'];
-                    $app['course'] = $det['course'];
-                    $app['branch'] = $det['discipline'];
-                    if (!empty($det['gender'])) $app['gender'] = $det['gender'];
+                } else {
+                    // GMIT: Fetch academic history from local SGPA tracker
+                    // First, get the current semester
+                    $enrichParams = [$app['usn']];
+                    $sqlCurr = "SELECT semester FROM student_sem_sgpa WHERE (student_id = ?";
+                    if (!empty($app['aadhar'])) {
+                        $sqlCurr .= " OR student_id = ?";
+                        $enrichParams[] = $app['aadhar'];
+                    }
+                    $sqlCurr .= ") AND institution = ? AND is_current = 1 LIMIT 1";
+                    $enrichParams[] = INSTITUTION_GMIT;
+                    $stmtCurr = $appModel->getDB()->prepare($sqlCurr);
+                    $stmtCurr->execute($enrichParams);
+                    $currSemRow = $stmtCurr->fetch();
+                    $app['current_semester'] = $currSemRow ? $currSemRow['semester'] : null;
+    
+                    // Then get the latest semester SGPA that is > 0
+                    $enrichParams2 = [$app['usn']];
+                    $sqlAc = "SELECT sgpa FROM student_sem_sgpa WHERE (student_id = ?";
+                    if (!empty($app['aadhar'])) {
+                        $sqlAc .= " OR student_id = ?";
+                        $enrichParams2[] = $app['aadhar'];
+                    }
+                    $sqlAc .= ") AND institution = ? AND sgpa > 0.00 ORDER BY semester DESC LIMIT 1";
+                    $enrichParams2[] = INSTITUTION_GMIT;
+                    $stmtAc = $appModel->getDB()->prepare($sqlAc);
+                    $stmtAc->execute($enrichParams2);
+                    $ac = $stmtAc->fetch();
+                    if ($ac) {
+                        $app['academic_sgpa'] = $ac['sgpa'];
+                    } else {
+                        // Fallback to current sem SGPA if all are 0
+                        $enrichParams3 = [$app['usn']];
+                        $sqlAcFallback = "SELECT sgpa FROM student_sem_sgpa WHERE (student_id = ?";
+                        if (!empty($app['aadhar'])) {
+                            $sqlAcFallback .= " OR student_id = ?";
+                            $enrichParams3[] = $app['aadhar'];
+                        }
+                        $sqlAcFallback .= ") AND institution = ? AND is_current = 1 LIMIT 1";
+                        $enrichParams3[] = INSTITUTION_GMIT;
+                        $stmtAcFallback = $appModel->getDB()->prepare($sqlAcFallback);
+                        $stmtAcFallback->execute($enrichParams3);
+                        $acFallback = $stmtAcFallback->fetch();
+                        $app['academic_sgpa'] = $acFallback ? $acFallback['sgpa'] : 0.00;
+                    }
+                    
+                    // Fetch puc/sslc from remote GMIT details
+                    $remoteDB = getDB('gmit');
+                    $stmtDet = $remoteDB->prepare("SELECT puc_percentage, sslc_percentage, course, discipline, gender FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1");
+                    $stmtDet->execute([$app['student_id'], $app['usn']]);
+                    $det = $stmtDet->fetch();
+                    if ($det) {
+                        $app['puc_percentage'] = $det['puc_percentage'];
+                        $app['sslc_percentage'] = $det['sslc_percentage'];
+                        $app['course'] = $det['course'];
+                        $app['branch'] = $det['discipline'];
+                        if (!empty($det['gender'])) $app['gender'] = $det['gender'];
+                    }
                 }
             }
         } catch (Exception $e) { /* ignore detail fetch errors */ }

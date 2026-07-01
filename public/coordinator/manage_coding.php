@@ -189,7 +189,7 @@ requireRole(ROLE_DEPT_COORDINATOR);
             const diff = document.getElementById('diffFilter').value;
 
             try {
-                const res = await fetch('coding_handler', {
+                const res = await fetch('coding_handler.php', {
                     method: 'POST',
                     body: JSON.stringify({ action: 'get_all_problems', search: search, difficulty: diff })
                 });
@@ -261,7 +261,7 @@ requireRole(ROLE_DEPT_COORDINATOR);
             const data = Object.fromEntries(formData.entries());
 
             try {
-                const res = await fetch('coding_handler', {
+                const res = await fetch('coding_handler.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(data)
@@ -281,7 +281,7 @@ requireRole(ROLE_DEPT_COORDINATOR);
             if (!confirm('Permanently delete this problem?')) return;
             
             try {
-                const res = await fetch('coding_handler', {
+                const res = await fetch('coding_handler.php', {
                     method: 'POST',
                     body: JSON.stringify({ action: 'delete_problem', id: id })
                 });

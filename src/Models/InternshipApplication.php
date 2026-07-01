@@ -9,7 +9,7 @@ class InternshipApplication extends Model {
     protected $table = 'internship_applications';
     protected $timestamps = false;
     protected $fillable = [
-        'internship_id', 'student_id', 'status', 'applied_at', 'resume_path'
+        'internship_id', 'student_id', 'status', 'applied_at', 'resume_path', 'applied_semester', 'applied_sgpa'
     ];
 
     /**
@@ -20,12 +20,48 @@ class InternshipApplication extends Model {
             return ['success' => false, 'message' => 'Already applied'];
         }
         
+        // Resolve student's current semester and SGPA to store as a static snapshot
+        $userModel = new User();
+        $user = $userModel->findByUsername($studentId) ?: $userModel->find($studentId);
+        
+        $applied_semester = null;
+        $applied_sgpa = 0.00;
+        
+        if ($user) {
+            $inst = $user['institution'];
+            $db = $this->getDB();
+            
+            if ($inst === INSTITUTION_GMU) {
+                $prefix = DB_GMU_PREFIX;
+                $remoteDB = getDB('gmu');
+                if ($remoteDB) {
+                    $stmtSem = $remoteDB->prepare("SELECT sem FROM {$prefix}ad_student_approved WHERE usn = ? ORDER BY academic_year DESC, sem DESC LIMIT 1");
+                    $stmtSem->execute([$user['username']]);
+                    $applied_semester = $stmtSem->fetchColumn();
+
+                    $stmtSgpa = $remoteDB->prepare("SELECT sgpa FROM {$prefix}ad_student_approved WHERE usn = ? AND sgpa IS NOT NULL AND sgpa > 0 ORDER BY academic_year DESC, sem DESC LIMIT 1");
+                    $stmtSgpa->execute([$user['username']]);
+                    $applied_sgpa = $stmtSgpa->fetchColumn() ?: 0.00;
+                }
+            } else {
+                $stmtSem = $db->prepare("SELECT semester FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
+                $stmtSem->execute([$user['username'], INSTITUTION_GMIT]);
+                $applied_semester = $stmtSem->fetchColumn();
+
+                $stmtSgpa = $db->prepare("SELECT sgpa FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND sgpa > 0 ORDER BY semester DESC LIMIT 1");
+                $stmtSgpa->execute([$user['username'], INSTITUTION_GMIT]);
+                $applied_sgpa = $stmtSgpa->fetchColumn() ?: 0.00;
+            }
+        }
+        
         $id = $this->create([
             'internship_id' => $internshipId,
             'student_id' => $studentId,
             'status' => 'Applied',
             'applied_at' => date('Y-m-d H:i:s'),
-            'resume_path' => $resumePath
+            'resume_path' => $resumePath,
+            'applied_semester' => $applied_semester,
+            'applied_sgpa' => $applied_sgpa
         ]);
         
         return $id ? ['success' => true, 'id' => $id] : ['success' => false, 'message' => 'Failed to apply'];
@@ -197,13 +233,19 @@ class InternshipApplication extends Model {
                 $app['branch'] = $u['branch'] ?? 'N/A';
                 $app['institution'] = $u['institution'];
                 
-                // For GMIT students, use student_sem_sgpa data
-                if ($u['institution'] === INSTITUTION_GMIT && isset($gmitSgpaMap[$sid])) {
-                    $app['cgpa'] = $gmitSgpaMap[$sid]['sgpa'];
-                    $app['sem'] = $gmitSgpaMap[$sid]['semester'];
+                // Prioritize frozen snapshot fields if populated
+                if (isset($app['applied_semester']) && $app['applied_semester'] !== null) {
+                    $app['sem'] = $app['applied_semester'];
+                    $app['cgpa'] = $app['applied_sgpa'] ?? 0.00;
                 } else {
-                    $app['cgpa'] = $u['cgpa'];
-                    $app['sem'] = $u['sem'] ?? 0;
+                    // For GMIT students, use student_sem_sgpa data
+                    if ($u['institution'] === INSTITUTION_GMIT && isset($gmitSgpaMap[$sid])) {
+                        $app['cgpa'] = $gmitSgpaMap[$sid]['sgpa'];
+                        $app['sem'] = $gmitSgpaMap[$sid]['semester'];
+                    } else {
+                        $app['cgpa'] = $u['cgpa'];
+                        $app['sem'] = $u['sem'] ?? 0;
+                    }
                 }
                 
                 // Add all semester SGPAs

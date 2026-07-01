@@ -34,11 +34,13 @@ use App\Helpers\RedisHelper;
 $redisHelper = RedisHelper::getInstance();
 if ($redisHelper->isConnected()) {
     try {
-        // Register Predis as the session handler
-        $handler = new \Predis\Session\Handler($redisHelper->getClient(), [
-            'gc_maxlifetime' => 3600 * 24 // 24 hours
-        ]);
-        $handler->register();
+        if (session_status() === PHP_SESSION_NONE) {
+            // Register Predis as the session handler
+            $handler = new \Predis\Session\Handler($redisHelper->getClient(), [
+                'gc_maxlifetime' => 3600 * 24 // 24 hours
+            ]);
+            $handler->register();
+        }
     } catch (Exception $e) {
         error_log("Redis Session Handler Registration Failed: " . $e->getMessage());
         // Fall back to default PHP session handler automatically

@@ -2,10 +2,11 @@
 /**
  * Coding Practice Handler
  * Backend API for educational coding platform
- */
+*/
 
 require_once __DIR__ . '/../../config/bootstrap.php';
 require_once __DIR__ . '/../../src/Models/StudentProfile.php';
+require_once __DIR__ . '/../../src/Services/AIService.php';
 
 header('Content-Type: application/json');
 
@@ -225,14 +226,16 @@ switch ($action) {
         $aiService = new AIService();
         $result = $aiService->generateCodingSolution($problem);
         
-        if ($result['success'] && isset($result['solutions'])) {
+        if ($result['success'] && isset($result['parsed']['solutions'])) {
+            $solutions = $result['parsed']['solutions'];
             // Save the newly generated solutions to the database for future use
             $updateStmt = $db->prepare("UPDATE coding_problems SET solution_beginner = ?, solution_optimized = ? WHERE id = ?");
             $updateStmt->execute([
-                json_encode($result['solutions']['beginner']),
-                json_encode($result['solutions']['optimized']),
+                json_encode($solutions['beginner']),
+                json_encode($solutions['optimized']),
                 $problemId
             ]);
+            $result['solutions'] = $solutions;
         }
         
         echo json_encode($result);

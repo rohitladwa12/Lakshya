@@ -98,23 +98,51 @@ if (empty($fullName) && !empty($mainProfile['name'])) {
     $fullName = $mainProfile['name'];
 }
 
+$needsSgpaUpdate = false;
 if ($isGMIT) {
-    // Check if student has marked a current semester (implies they visited and saved)
     try {
         $db = getDB();
         $studentIdToCheck = getUsername();
         $studentAadhar = $mainProfile['aadhar'] ?? '';
         
-        // Pass if student has marked a current semester OR if coordinator has set/frozen their SGPAs
+        // Fetch all sem sgpa records for this student
         $stmt = $db->prepare(
-            "SELECT 1 FROM student_sem_sgpa 
-             WHERE (student_id = ? OR student_id = ?) AND institution = ? 
-             AND (is_current = 1 OR freezed = 1) 
-             LIMIT 1"
+            "SELECT semester, sgpa, is_current, freezed FROM student_sem_sgpa 
+             WHERE (student_id = ? OR student_id = ?) AND institution = ?"
         );
         $stmt->execute([$studentIdToCheck, $studentAadhar ?: $studentIdToCheck, INSTITUTION_GMIT]);
-        if (!$stmt->fetch()) {
+        $sgpaRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
+        
+        if (empty($sgpaRecords)) {
             $hasFullHistory = false;
+            $needsSgpaUpdate = true;
+        } else {
+            $currentActiveSem = 0;
+            $sem6Sgpa = 0.0;
+            $anyFreezed = false;
+            
+            foreach ($sgpaRecords as $r) {
+                if ($r['is_current'] == 1) {
+                    $currentActiveSem = (int)$r['semester'];
+                }
+                if ($r['semester'] == 6) {
+                    $sem6Sgpa = (float)$r['sgpa'];
+                }
+                if ($r['freezed'] == 1) {
+                    $anyFreezed = true;
+                }
+            }
+            
+            // If not frozen:
+            // - If current semester is 6 or less (they haven't moved to 7th sem yet)
+            // - Or, if they don't have an active current semester
+            // - Or, if they are marked in 7th/8th sem but 6th sem SGPA is empty or 0
+            if (!$anyFreezed) {
+                if ($currentActiveSem <= 6 || $sem6Sgpa <= 0) {
+                    $needsSgpaUpdate = true;
+                    $hasFullHistory = false; // Lock dashboard features
+                }
+            }
         }
     } catch (Exception $e) {
         error_log("Dashboard SGPA Check Error: " . $e->getMessage());
@@ -1581,6 +1609,94 @@ $dailyQuote = $_SESSION['grind_quote'];
                 opacity: 0.7;
             }
 
+            /* Compulsory SGPA Update Modal */
+            .vtu-results-overlay {
+                position: fixed;
+                top: 0; left: 0; right: 0; bottom: 0;
+                background: rgba(15, 23, 42, 0.95);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                z-index: 99999;
+                backdrop-filter: blur(12px);
+            }
+            .vtu-results-modal {
+                background: #ffffff;
+                border-radius: 24px;
+                padding: 40px;
+                width: 90%;
+                max-width: 550px;
+                text-align: center;
+                box-shadow: 0 25px 50px -12px rgba(128, 0, 0, 0.35);
+                border: 2px solid var(--accent-gold);
+                animation: modalSlideIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
+            }
+            @keyframes modalSlideIn {
+                from { transform: scale(0.9) translateY(30px); opacity: 0; }
+                to { transform: scale(1) translateY(0); opacity: 1; }
+            }
+            .vtu-modal-icon {
+                font-size: 4rem;
+                color: #e53e3e;
+                margin-bottom: 20px;
+                display: inline-block;
+                animation: pulseWarning 1.5s infinite;
+            }
+            @keyframes pulseWarning {
+                0% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(229, 62, 98, 0)); }
+                50% { transform: scale(1.08); filter: drop-shadow(0 0 15px rgba(229, 62, 98, 0.6)); }
+                100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(229, 62, 98, 0)); }
+            }
+            .vtu-results-modal h2 {
+                font-size: 1.8rem;
+                font-weight: 800;
+                color: var(--primary-maroon);
+                margin-bottom: 15px;
+            }
+            .vtu-results-modal p {
+                color: var(--text-muted);
+                font-size: 1.05rem;
+                line-height: 1.6;
+                margin-bottom: 25px;
+            }
+            .vtu-results-modal .funny-sentence {
+                background: #fff5f5;
+                border: 1px dashed #feb2b2;
+                border-radius: 12px;
+                padding: 15px;
+                color: #c53030;
+                font-weight: 600;
+                font-size: 1rem;
+                margin-bottom: 30px;
+                position: relative;
+                text-align: center;
+                line-height: 1.5;
+            }
+            .vtu-results-modal .funny-sentence::before {
+                content: "🎓 ";
+            }
+            .vtu-update-btn {
+                background: linear-gradient(135deg, var(--primary-maroon) 0%, #a82020 100%);
+                color: white;
+                font-weight: 700;
+                font-size: 1.1rem;
+                padding: 15px 30px;
+                border-radius: 50px;
+                border: none;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-flex;
+                align-items: center;
+                gap: 8px;
+                box-shadow: 0 10px 20px rgba(128, 0, 0, 0.25);
+                transition: all 0.3s ease;
+                margin: 0 auto;
+            }
+            .vtu-update-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 15px 25px rgba(128, 0, 0, 0.35);
+                background: linear-gradient(135deg, #a82020 0%, var(--primary-maroon) 100%);
+            }
             <?php
         endif; ?>
         .submit-btn {
@@ -4844,6 +4960,33 @@ $dailyQuote = $_SESSION['grind_quote'];
             }, 10000);
         }
     </script>
+    
+    <?php if ($needsSgpaUpdate && $isGMIT): ?>
+        <?php
+        $funnySentences = [
+            "VTU results are like a horror movie: you know something scary is coming, but you still have to look! Let's get your 6th Sem SGPA updated before the placement cell sends a search party.",
+            "6th Sem results are out! Whether you are celebrating your success or currently questioning the examiner's sanity, it's time to update your SGPA.",
+            "VTU just dropped the 6th sem results like a hot potato. Let's make it official on your profile before the placement department calls your home landline!",
+            "VTU results are finally here! Update your SGPA and current semester now, because ignoring it won't make the backlogs disappear."
+        ];
+        $randomSentence = $funnySentences[array_rand($funnySentences)];
+        ?>
+        <div class="vtu-results-overlay">
+            <div class="vtu-results-modal">
+                <div class="vtu-modal-icon">
+                    <i class="fas fa-graduation-cap"></i>
+                </div>
+                <h2>6th Sem Results are Out!</h2>
+                <p>VTU has officially released the 6th Semester results. Before we can celebrate (or initiate a recovery plan), you must update your academic profile.</p>
+                <div class="funny-sentence">
+                    "<?php echo htmlspecialchars($randomSentence); ?>"
+                </div>
+                <a href="sgpa_entry.php" class="vtu-update-btn">
+                    Update Academic Profile <i class="fas fa-arrow-right"></i>
+                </a>
+            </div>
+        </div>
+    <?php endif; ?>
 </body>
 
 </html>

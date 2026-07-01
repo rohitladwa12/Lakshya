@@ -326,7 +326,7 @@ $studentModel->getProfile($userId);
 
         async function loadCategories() {
             try {
-                const response = await fetch('coding_handler', {
+                const response = await fetch('coding_handler.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'get_categories' })
@@ -365,7 +365,7 @@ $studentModel->getProfile($userId);
 
         async function loadProgressStats() {
             try {
-                const response = await fetch('coding_handler', {
+                const response = await fetch('coding_handler.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'get_progress_stats' })
@@ -398,7 +398,7 @@ $studentModel->getProfile($userId);
 
         async function loadProblems() {
             try {
-                const response = await fetch('coding_handler', {
+                const response = await fetch('coding_handler.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: 'get_problems' })
