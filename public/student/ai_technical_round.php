@@ -146,7 +146,7 @@ if ($driveId > 0) {
             gap: 10px;
         }
 
-        input[type="text"] {
+        input[type="text"], textarea#userInput {
             flex: 1;
             padding: 12px;
             border: 1px solid #444;
@@ -154,6 +154,9 @@ if ($driveId > 0) {
             background: #222;
             color: white;
             outline: none;
+            resize: none;
+            height: 45px;
+            font-family: inherit;
         }
 
         button {
@@ -334,7 +337,7 @@ if ($driveId > 0) {
                 <!-- Messages go here -->
             </div>
             <div class="input-area">
-                <input type="text" id="userInput" placeholder="Type your answer..." onkeypress="handleEnter(event)">
+                <textarea id="userInput" placeholder="Type your answer... (Enter to send, Shift+Enter for new line)" onkeydown="handleEnter(event)"></textarea>
                 <button class="btn-send" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
             </div>
         </div>
@@ -475,59 +478,59 @@ if ($driveId > 0) {
             const checkRes = await apiCall({ action: 'check_active_session', company: company, drive_id: driveId });
             
             if (checkRes.success && checkRes.has_active) {
-                if (confirm("You have an active session for this company. Would you like to resume?")) {
-                    sessionId = checkRes.session_id;
-                    isSessionActive = true;
-                    
-                    // Sync start time from server
-                    if (checkRes.started_at) {
-                        startTime = new Date(checkRes.started_at.replace(/-/g, "/")).getTime();
-                    } else {
-                        startTime = Date.now();
-                    }
-                    
-                    document.getElementById('introOverlay').classList.add('hidden');
-                    document.getElementById('roleBadge').innerText = checkRes.role || roleInput;
-                    
-                    if (document.documentElement.requestFullscreen) {
-                        await document.documentElement.requestFullscreen().catch((e) => console.log(e));
-                    }
-                    
-                    startTimer();
-                    updateState("Resuming technical session...", "neutral");
-                    
-                    // Re-render history
-                    if (checkRes.history && checkRes.history.length > 0) {
-                        let lastPayload = null;
-                        checkRes.history.forEach(m => {
-                            if (m.content) {
-                                // If it's a structured JSON string from assistant, try parsing it
-                                let text = m.content;
-                                try {
-                                    const parsed = JSON.parse(m.content);
-                                    if (m.role === 'assistant') {
-                                        lastPayload = parsed;
-                                    }
-                                    if (parsed.question) text = parsed.question;
-                                    else if (parsed.problem_statement) text = parsed.problem_statement;
-                                } catch(e) {}
-                                addMessage(m.role === 'assistant' ? 'ai' : 'user', text);
-                            }
-                        });
-                        addMessage('ai', "Continuing interview. Please look at the previous context.");
-                        
-                        if (lastPayload && lastPayload.type === 'coding') {
-                            currentProblem = lastPayload;
-                            activateCodingMode(lastPayload);
-                        } else {
-                            currentProblem = null;
-                            document.getElementById('editorLocked').style.display = 'flex';
-                        }
-                    } else {
-                        loadNextQuestion();
-                    }
-                    return;
+                sessionId = checkRes.session_id;
+                isSessionActive = true;
+                
+                // Sync start time from server using elapsed_seconds to prevent timezone mismatches
+                if (checkRes.elapsed_seconds !== undefined) {
+                    startTime = Date.now() - (checkRes.elapsed_seconds * 1000);
+                } else if (checkRes.started_at) {
+                    startTime = new Date(checkRes.started_at.replace(/-/g, "/")).getTime();
+                } else {
+                    startTime = Date.now();
                 }
+                
+                document.getElementById('introOverlay').classList.add('hidden');
+                document.getElementById('roleBadge').innerText = checkRes.role || roleInput;
+                
+                if (document.documentElement.requestFullscreen) {
+                    await document.documentElement.requestFullscreen().catch((e) => console.log(e));
+                }
+                
+                startTimer();
+                updateState("Resuming technical session...", "neutral");
+                
+                // Re-render history
+                if (checkRes.history && checkRes.history.length > 0) {
+                    let lastPayload = null;
+                    checkRes.history.forEach(m => {
+                        if (m.content) {
+                            // If it's a structured JSON string from assistant, try parsing it
+                            let text = m.content;
+                            try {
+                                const parsed = JSON.parse(m.content);
+                                if (m.role === 'assistant') {
+                                    lastPayload = parsed;
+                                }
+                                if (parsed.question) text = parsed.question;
+                                else if (parsed.problem_statement) text = parsed.problem_statement;
+                            } catch(e) {}
+                            addMessage(m.role === 'assistant' ? 'ai' : 'user', text);
+                        }
+                    });
+                    addMessage('ai', "Continuing interview. Please look at the previous context.");
+                    
+                    if (lastPayload && lastPayload.type === 'coding') {
+                        currentProblem = lastPayload;
+                        activateCodingMode(lastPayload);
+                    } else {
+                        currentProblem = null;
+                        document.getElementById('editorLocked').style.display = 'flex';
+                    }
+                } else {
+                    loadNextQuestion();
+                }
+                return;
             }
 
             const role = roleInput;
@@ -642,8 +645,25 @@ if ($driveId > 0) {
                 try { payload = JSON.parse(data.content); } catch(e) {}
             }
 
-            const isCode = payload.type === 'coding';
-            const questionText = isCode ? payload.problem_statement : payload.question;
+            let isCode = payload.type === 'coding';
+            let questionText = isCode ? payload.problem_statement : payload.question;
+
+            // Fallback detection: if the AI asked a coding question but marked it as conceptual
+            if (!isCode && questionText && (
+                questionText.toLowerCase().includes('write a function') || 
+                questionText.toLowerCase().includes('write a program') || 
+                questionText.toLowerCase().includes('write code') || 
+                questionText.toLowerCase().includes('implement a function') || 
+                questionText.toLowerCase().includes('write a python') ||
+                questionText.toLowerCase().includes('write a java') ||
+                questionText.toLowerCase().includes('coding question') ||
+                questionText.toLowerCase().includes('coding challenge')
+            )) {
+                isCode = true;
+                payload.type = 'coding';
+                payload.problem_statement = questionText;
+            }
+
             const feedbackText = payload.feedback && payload.feedback.trim() !== '' ? `**Evaluation:** ${payload.feedback}\n\n` : '';
             
             let messageText = feedbackText;
@@ -760,7 +780,7 @@ if ($driveId > 0) {
                 
                 modal.classList.remove('hidden');
             } else {
-                alert("Failed to generate score data.");
+                alert(res.message || "Failed to generate score data.");
             }
         }
         
@@ -774,7 +794,8 @@ if ($driveId > 0) {
             document.getElementById('problemTitle').innerText = "CHALLENGE ACTIVE";
             
             // Set starter code or comment
-            const starter = `# Problem: ${data.question}\n# Constraints: ${data.constraints || 'None'}\n# Write your solution below:\n\n`;
+            const problemText = data.problem_statement || data.question || '';
+            const starter = `# Problem: ${problemText}\n# Constraints: ${data.constraints || 'None'}\n# Write your solution below:\n\n`;
             editor.setValue(starter);
         }
 
@@ -825,7 +846,13 @@ if ($driveId > 0) {
         function hideTyping() { /* optional loader */ }
         
         function handleEnter(e) {
-            if (e.key === 'Enter') sendMessage();
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+        function updateState(msg, type) {
+            console.log(`[State Update] ${type}: ${msg}`);
         }
     </script>
 </body>

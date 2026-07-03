@@ -114,11 +114,13 @@ switch ($action) {
             }
 
             $details = json_decode($session['details'], true);
+            $elapsedSeconds = time() - strtotime($session['started_at']);
             ob_clean(); echo json_encode([
                 'success' => true, 
                 'has_active' => true,
                 'session_id' => $session['id'],
                 'started_at' => $session['started_at'],
+                'elapsed_seconds' => $elapsedSeconds,
                 'role' => $details['role'] ?? 'Software Engineer',
                 'concept' => $details['concept'] ?? '',
                 'history' => $details['history'] ?? []

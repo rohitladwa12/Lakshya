@@ -31,8 +31,15 @@ if (isPost()) {
         if ($action === 'resolve') {
             $correctOption = strtoupper(trim((string)post('correct_option')));
             $questionText = post('question_text');
+            $originalQuestionText = post('original_question_text') ?: $questionText;
             $testType = post('test_type');
             $testId = post('test_id');
+            
+            $optA = post('option_a');
+            $optB = post('option_b');
+            $optC = post('option_c');
+            $optD = post('option_d');
+            $hasEditedOptions = ($optA !== null && $optB !== null && $optC !== null && $optD !== null);
             
             if ($testType !== 'coding_problem' && !in_array($correctOption, ['A', 'B', 'C', 'D'])) {
                 $errorMsg = 'Please select a valid correct option (A, B, C, or D).';
@@ -50,8 +57,14 @@ if (isPost()) {
                         $dbQuestionId = $testId;
                     } else {
                         // Update report status
-                        $stmt = $db->prepare("UPDATE reported_questions SET status = 'resolved', correct_answer = ? WHERE id = ?");
-                        $stmt->execute([$correctOption, $reportId]);
+                        if ($hasEditedOptions) {
+                            $optionsJson = json_encode([$optA, $optB, $optC, $optD]);
+                            $stmt = $db->prepare("UPDATE reported_questions SET status = 'resolved', correct_answer = ?, question_text = ?, options = ? WHERE id = ?");
+                            $stmt->execute([$correctOption, $questionText, $optionsJson, $reportId]);
+                        } else {
+                            $stmt = $db->prepare("UPDATE reported_questions SET status = 'resolved', correct_answer = ?, question_text = ? WHERE id = ?");
+                            $stmt->execute([$correctOption, $questionText, $reportId]);
+                        }
 
                         // Try to locate and update the question in the DB tables
                         $updatedInDb = false;
@@ -60,26 +73,36 @@ if (isPost()) {
 
                         // 1. Check aptitude_questions
                         $stmt = $db->prepare("SELECT id FROM aptitude_questions WHERE question = ? OR question LIKE ? LIMIT 1");
-                        $stmt->execute([$questionText, '%' . $questionText . '%']);
+                        $stmt->execute([$originalQuestionText, '%' . $originalQuestionText . '%']);
                         $match = $stmt->fetch();
                         if ($match) {
                             $dbQuestionId = $match['id'];
                             $dbTableName = 'aptitude_questions';
-                            $updateStmt = $db->prepare("UPDATE aptitude_questions SET correct_option = ? WHERE id = ?");
-                            $updateStmt->execute([$correctOption, $dbQuestionId]);
+                            if ($hasEditedOptions) {
+                                $updateStmt = $db->prepare("UPDATE aptitude_questions SET question = ?, option_a = ?, option_b = ?, option_c = ?, option_d = ?, correct_option = ? WHERE id = ?");
+                                $updateStmt->execute([$questionText, $optA, $optB, $optC, $optD, $correctOption, $dbQuestionId]);
+                            } else {
+                                $updateStmt = $db->prepare("UPDATE aptitude_questions SET question = ?, correct_option = ? WHERE id = ?");
+                                $updateStmt->execute([$questionText, $correctOption, $dbQuestionId]);
+                            }
                             $updatedInDb = true;
                         }
 
                         // 2. Check nqt_aptitude_questions if not found
                         if (!$updatedInDb) {
                             $stmt = $db->prepare("SELECT id FROM nqt_aptitude_questions WHERE question = ? OR question LIKE ? LIMIT 1");
-                            $stmt->execute([$questionText, '%' . $questionText . '%']);
+                            $stmt->execute([$originalQuestionText, '%' . $originalQuestionText . '%']);
                             $match = $stmt->fetch();
                             if ($match) {
                                 $dbQuestionId = $match['id'];
                                 $dbTableName = 'nqt_aptitude_questions';
-                                $updateStmt = $db->prepare("UPDATE nqt_aptitude_questions SET correct_option = ? WHERE id = ?");
-                                $updateStmt->execute([$correctOption, $dbQuestionId]);
+                                if ($hasEditedOptions) {
+                                    $updateStmt = $db->prepare("UPDATE nqt_aptitude_questions SET question = ?, option_a = ?, option_b = ?, option_c = ?, option_d = ?, correct_option = ? WHERE id = ?");
+                                    $updateStmt->execute([$questionText, $optA, $optB, $optC, $optD, $correctOption, $dbQuestionId]);
+                                } else {
+                                    $updateStmt = $db->prepare("UPDATE nqt_aptitude_questions SET question = ?, correct_option = ? WHERE id = ?");
+                                    $updateStmt->execute([$questionText, $correctOption, $dbQuestionId]);
+                                }
                                 $updatedInDb = true;
                             }
                         }
@@ -87,13 +110,18 @@ if (isPost()) {
                         // 3. Check task_manual_questions if not found
                         if (!$updatedInDb) {
                             $stmt = $db->prepare("SELECT id FROM task_manual_questions WHERE question_text = ? OR question_text LIKE ? LIMIT 1");
-                            $stmt->execute([$questionText, '%' . $questionText . '%']);
+                            $stmt->execute([$originalQuestionText, '%' . $originalQuestionText . '%']);
                             $match = $stmt->fetch();
                             if ($match) {
                                 $dbQuestionId = $match['id'];
                                 $dbTableName = 'task_manual_questions';
-                                $updateStmt = $db->prepare("UPDATE task_manual_questions SET correct_option = ? WHERE id = ?");
-                                $updateStmt->execute([$correctOption, $dbQuestionId]);
+                                if ($hasEditedOptions) {
+                                    $updateStmt = $db->prepare("UPDATE task_manual_questions SET question_text = ?, option_a = ?, option_b = ?, option_c = ?, option_d = ?, correct_option = ? WHERE id = ?");
+                                    $updateStmt->execute([$questionText, $optA, $optB, $optC, $optD, $correctOption, $dbQuestionId]);
+                                } else {
+                                    $updateStmt = $db->prepare("UPDATE task_manual_questions SET question_text = ?, correct_option = ? WHERE id = ?");
+                                    $updateStmt->execute([$questionText, $correctOption, $dbQuestionId]);
+                                }
                                 $updatedInDb = true;
                             }
                         }
@@ -103,7 +131,7 @@ if (isPost()) {
 
                     $successMsg = 'Report resolved successfully.';
                     if ($updatedInDb) {
-                        $successMsg .= " Automatically updated answer key in database table '{$dbTableName}' (ID: {$dbQuestionId}) to Option " . ($testType === 'coding_problem' ? 'RESOLVED' : $correctOption) . ".";
+                        $successMsg .= " Automatically updated question & options in database table '{$dbTableName}' (ID: {$dbQuestionId}).";
                     }
 
                 } catch (Exception $e) {
@@ -956,8 +984,41 @@ try {
                                     <?php endif; ?>
 
                                     <?php if ($dbMatchId): ?>
-                                        <div class="badge-db-match">
+                                        <div class="badge-db-match" style="margin-bottom: 8px;">
                                             <i class="fas fa-database"></i> Matches DB question in '<?php echo $dbMatchTable; ?>' (ID: <?php echo $dbMatchId; ?>, Key: <?php echo htmlspecialchars($dbCurrentKey); ?>)
+                                        </div>
+                                    <?php endif; ?>
+
+                                    <?php if ($r['status'] === 'pending' && $r['test_type'] !== 'coding_problem'): ?>
+                                        <div style="margin-top: 12px;">
+                                            <button type="button" class="btn-simple" style="padding: 6px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; border-radius: 6px; border: 1px solid var(--primary-maroon); color: var(--primary-maroon); background: transparent;" onclick="toggleEditQuestion(<?php echo $r['id']; ?>)">
+                                                <i class="fas fa-edit"></i> Edit Question & Options
+                                            </button>
+                                        </div>
+                                        
+                                        <div id="edit-box-<?php echo $r['id']; ?>" style="display: none; margin-top: 15px; border-top: 1px dashed #e2e8f0; padding-top: 15px; background: #fafafa; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                            <div style="margin-bottom: 10px;">
+                                                <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Edit Question Text</label>
+                                                <textarea name="question_text" id="edit-qtext-<?php echo $r['id']; ?>" form="form-resolve-<?php echo $r['id']; ?>" style="width: 100%; min-height: 80px; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; font-family: inherit; font-size: 13px;" disabled required><?php echo htmlspecialchars($r['question_text']); ?></textarea>
+                                            </div>
+                                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                                                <div>
+                                                    <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Option A</label>
+                                                    <input type="text" name="option_a" id="edit-opta-<?php echo $r['id']; ?>" form="form-resolve-<?php echo $r['id']; ?>" value="<?php echo htmlspecialchars($opts[0] ?? ''); ?>" style="width: 100%; padding: 6px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;" disabled required>
+                                                </div>
+                                                <div>
+                                                    <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Option B</label>
+                                                    <input type="text" name="option_b" id="edit-optb-<?php echo $r['id']; ?>" form="form-resolve-<?php echo $r['id']; ?>" value="<?php echo htmlspecialchars($opts[1] ?? ''); ?>" style="width: 100%; padding: 6px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;" disabled required>
+                                                </div>
+                                                <div>
+                                                    <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Option C</label>
+                                                    <input type="text" name="option_c" id="edit-optc-<?php echo $r['id']; ?>" form="form-resolve-<?php echo $r['id']; ?>" value="<?php echo htmlspecialchars($opts[2] ?? ''); ?>" style="width: 100%; padding: 6px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;" disabled required>
+                                                </div>
+                                                <div>
+                                                    <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Option D</label>
+                                                    <input type="text" name="option_d" id="edit-optd-<?php echo $r['id']; ?>" form="form-resolve-<?php echo $r['id']; ?>" value="<?php echo htmlspecialchars($opts[3] ?? ''); ?>" style="width: 100%; padding: 6px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;" disabled required>
+                                                </div>
+                                            </div>
                                         </div>
                                     <?php endif; ?>
                                 </td>
@@ -969,10 +1030,11 @@ try {
                                     </div>
 
                                     <?php if ($r['status'] === 'pending'): ?>
-                                        <form method="POST" action="reported_questions.php" class="actions-form">
+                                        <form id="form-resolve-<?php echo $r['id']; ?>" method="POST" action="reported_questions.php" class="actions-form">
                                             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
                                             <input type="hidden" name="report_id" value="<?php echo $r['id']; ?>">
-                                            <input type="hidden" name="question_text" value="<?php echo htmlspecialchars($r['question_text']); ?>">
+                                            <input type="hidden" name="original_question_text" value="<?php echo htmlspecialchars($r['question_text']); ?>">
+                                            <input type="hidden" name="question_text" id="hidden-qtext-<?php echo $r['id']; ?>" value="<?php echo htmlspecialchars($r['question_text']); ?>">
                                             <input type="hidden" name="test_type" value="<?php echo htmlspecialchars($r['test_type']); ?>">
                                             <input type="hidden" name="test_id" value="<?php echo htmlspecialchars($r['test_id']); ?>">
                                             
@@ -1042,6 +1104,38 @@ try {
     </div>
 
     <script>
+        function toggleEditQuestion(id) {
+            const editBox = document.getElementById('edit-box-' + id);
+            const hiddenQText = document.getElementById('hidden-qtext-' + id);
+            const editQText = document.getElementById('edit-qtext-' + id);
+            const editOptA = document.getElementById('edit-opta-' + id);
+            const editOptB = document.getElementById('edit-optb-' + id);
+            const editOptC = document.getElementById('edit-optc-' + id);
+            const editOptD = document.getElementById('edit-optd-' + id);
+
+            if (editBox.style.display === 'none') {
+                editBox.style.display = 'block';
+                hiddenQText.disabled = true;
+                editQText.disabled = false;
+                if (editOptA) {
+                    editOptA.disabled = false;
+                    editOptB.disabled = false;
+                    editOptC.disabled = false;
+                    editOptD.disabled = false;
+                }
+            } else {
+                editBox.style.display = 'none';
+                hiddenQText.disabled = false;
+                editQText.disabled = true;
+                if (editOptA) {
+                    editOptA.disabled = true;
+                    editOptB.disabled = true;
+                    editOptC.disabled = true;
+                    editOptD.disabled = true;
+                }
+            }
+        }
+
         const statusFilter = document.getElementById('statusFilter');
         const typeFilter = document.getElementById('typeFilter');
         const reportSearch = document.getElementById('reportSearch');
@@ -1085,6 +1179,16 @@ try {
                 const formData = new FormData(form);
                 formData.append('action', action);
                 formData.append('ajax', '1');
+
+                // Append non-disabled elements referencing this form by ID
+                const formId = form.getAttribute('id');
+                if (formId) {
+                    document.querySelectorAll(`[form="${formId}"]`).forEach(el => {
+                        if (!el.disabled && el.name) {
+                            formData.set(el.name, el.value);
+                        }
+                    });
+                }
 
                 const row = form.closest('.report-row');
                 const actionCell = form.closest('td');

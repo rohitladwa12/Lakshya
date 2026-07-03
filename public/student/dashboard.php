@@ -104,7 +104,7 @@ if ($isGMIT) {
         $db = getDB();
         $studentIdToCheck = getUsername();
         $studentAadhar = $mainProfile['aadhar'] ?? '';
-        
+
         // Fetch all sem sgpa records for this student
         $stmt = $db->prepare(
             "SELECT semester, sgpa, is_current, freezed FROM student_sem_sgpa 
@@ -112,7 +112,7 @@ if ($isGMIT) {
         );
         $stmt->execute([$studentIdToCheck, $studentAadhar ?: $studentIdToCheck, INSTITUTION_GMIT]);
         $sgpaRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
-        
+
         if (empty($sgpaRecords)) {
             $hasFullHistory = false;
             $needsSgpaUpdate = true;
@@ -120,19 +120,19 @@ if ($isGMIT) {
             $currentActiveSem = 0;
             $sem6Sgpa = 0.0;
             $anyFreezed = false;
-            
+
             foreach ($sgpaRecords as $r) {
                 if ($r['is_current'] == 1) {
-                    $currentActiveSem = (int)$r['semester'];
+                    $currentActiveSem = (int) $r['semester'];
                 }
                 if ($r['semester'] == 6) {
-                    $sem6Sgpa = (float)$r['sgpa'];
+                    $sem6Sgpa = (float) $r['sgpa'];
                 }
                 if ($r['freezed'] == 1) {
                     $anyFreezed = true;
                 }
             }
-            
+
             // If not frozen:
             // - If current semester is 6 or less (they haven't moved to 7th sem yet)
             // - Or, if they don't have an active current semester
@@ -201,7 +201,7 @@ try {
 
     // Build placeholders for tc.student_id IN (...)
     $tcPlaceholders = implode(',', array_fill(0, count($studentIdentifiers), '?'));
-    
+
     // Build LIKE placeholders for ct.target_students LIKE ?
     $targetLikeSql = [];
     foreach ($studentIdentifiers as $id) {
@@ -287,15 +287,19 @@ try {
 
     foreach ($studentDrives as $drive) {
         $statusText = $drive['deadline'] ? 'Deadline: ' . date('M d, h:i A', strtotime($drive['deadline'])) : 'Active Now';
-        
+
         // Build subtitle with active rounds
         $activeRounds = [];
-        if ($drive['aptitude_active']) $activeRounds[] = 'Aptitude';
-        if ($drive['technical_active']) $activeRounds[] = 'Technical';
-        if ($drive['hr_active']) $activeRounds[] = 'HR';
+        if ($drive['aptitude_active'])
+            $activeRounds[] = 'Aptitude';
+        if ($drive['technical_active'])
+            $activeRounds[] = 'Technical';
+        if ($drive['hr_active'])
+            $activeRounds[] = 'HR';
         $roundsText = implode(', ', $activeRounds);
-        if (empty($roundsText)) $roundsText = 'No active rounds';
-        
+        if (empty($roundsText))
+            $roundsText = 'No active rounds';
+
         $subtitle = $drive['company_name'] . ' - Rounds: ' . $roundsText . ' | ' . $statusText;
 
         $feedItems[] = [
@@ -1612,7 +1616,10 @@ $dailyQuote = $_SESSION['grind_quote'];
             /* Compulsory SGPA Update Modal */
             .vtu-results-overlay {
                 position: fixed;
-                top: 0; left: 0; right: 0; bottom: 0;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
                 background: rgba(15, 23, 42, 0.95);
                 display: flex;
                 align-items: center;
@@ -1620,6 +1627,7 @@ $dailyQuote = $_SESSION['grind_quote'];
                 z-index: 99999;
                 backdrop-filter: blur(12px);
             }
+
             .vtu-results-modal {
                 background: #ffffff;
                 border-radius: 24px;
@@ -1631,10 +1639,19 @@ $dailyQuote = $_SESSION['grind_quote'];
                 border: 2px solid var(--accent-gold);
                 animation: modalSlideIn 0.5s cubic-bezier(0.16, 1, 0.3, 1);
             }
+
             @keyframes modalSlideIn {
-                from { transform: scale(0.9) translateY(30px); opacity: 0; }
-                to { transform: scale(1) translateY(0); opacity: 1; }
+                from {
+                    transform: scale(0.9) translateY(30px);
+                    opacity: 0;
+                }
+
+                to {
+                    transform: scale(1) translateY(0);
+                    opacity: 1;
+                }
             }
+
             .vtu-modal-icon {
                 font-size: 4rem;
                 color: #e53e3e;
@@ -1642,23 +1659,38 @@ $dailyQuote = $_SESSION['grind_quote'];
                 display: inline-block;
                 animation: pulseWarning 1.5s infinite;
             }
+
             @keyframes pulseWarning {
-                0% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(229, 62, 98, 0)); }
-                50% { transform: scale(1.08); filter: drop-shadow(0 0 15px rgba(229, 62, 98, 0.6)); }
-                100% { transform: scale(1); filter: drop-shadow(0 0 0 rgba(229, 62, 98, 0)); }
+                0% {
+                    transform: scale(1);
+                    filter: drop-shadow(0 0 0 rgba(229, 62, 98, 0));
+                }
+
+                50% {
+                    transform: scale(1.08);
+                    filter: drop-shadow(0 0 15px rgba(229, 62, 98, 0.6));
+                }
+
+                100% {
+                    transform: scale(1);
+                    filter: drop-shadow(0 0 0 rgba(229, 62, 98, 0));
+                }
             }
+
             .vtu-results-modal h2 {
                 font-size: 1.8rem;
                 font-weight: 800;
                 color: var(--primary-maroon);
                 margin-bottom: 15px;
             }
+
             .vtu-results-modal p {
                 color: var(--text-muted);
                 font-size: 1.05rem;
                 line-height: 1.6;
                 margin-bottom: 25px;
             }
+
             .vtu-results-modal .funny-sentence {
                 background: #fff5f5;
                 border: 1px dashed #feb2b2;
@@ -1672,9 +1704,11 @@ $dailyQuote = $_SESSION['grind_quote'];
                 text-align: center;
                 line-height: 1.5;
             }
+
             .vtu-results-modal .funny-sentence::before {
                 content: "🎓 ";
             }
+
             .vtu-update-btn {
                 background: linear-gradient(135deg, var(--primary-maroon) 0%, #a82020 100%);
                 color: white;
@@ -1692,11 +1726,13 @@ $dailyQuote = $_SESSION['grind_quote'];
                 transition: all 0.3s ease;
                 margin: 0 auto;
             }
+
             .vtu-update-btn:hover {
                 transform: translateY(-2px);
                 box-shadow: 0 15px 25px rgba(128, 0, 0, 0.35);
                 background: linear-gradient(135deg, #a82020 0%, var(--primary-maroon) 100%);
             }
+
             <?php
         endif; ?>
         .submit-btn {
@@ -2998,12 +3034,29 @@ $dailyQuote = $_SESSION['grind_quote'];
                         </div>
                     </div>
 
-                    <!-- <a href="showcase.php"
+                    <a href="showcase.php"
+                        onclick="event.preventDefault(); showPlacementReportLoading();"
                         style="display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 1.5rem; padding: 12px; background: var(--gradient-maroon); color: #fff; border-radius: 12px; font-size: 0.85rem; font-weight: 700; text-decoration: none; transition: all 0.3s; box-shadow: 0 4px 10px rgba(128, 0, 0, 0.15);"
                         onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 14px rgba(128,0,0,0.25)';"
                         onmouseout="this.style.transform='none'; this.style.boxShadow='0 4px 10px rgba(128,0,0,0.15)';">
-                        <i class="fas fa-id-card"></i> View AI Talent Showcase
-                    </a> -->
+                        <i class="fas fa-brain"></i> Placement Intelligence Report
+                    </a>
+
+                    <script>
+                        function showPlacementReportLoading() {
+                            const overlay = document.getElementById('globalLoadingOverlay');
+                            if (overlay) {
+                                overlay.style.display = 'flex';
+                                const loadingTitle = overlay.querySelector('.loading-content h3');
+                                const loadingText = overlay.querySelector('.loading-content p');
+                                if (loadingTitle) loadingTitle.innerText = 'Placement Intelligence Report';
+                                if (loadingText) loadingText.innerText = 'Compiling academic history, coding progress, and FFM behavioral insights...';
+                            }
+                            setTimeout(function() {
+                                window.location.href = 'showcase.php';
+                            }, 400);
+                        }
+                    </script>
 
                     <?php if ($isGMIT): ?>
                         <a href="sgpa_entry.php"
@@ -3188,11 +3241,17 @@ $dailyQuote = $_SESSION['grind_quote'];
                             portfolio is currently <strong><?php echo $completeness; ?>%</strong> complete.</p>
 
                         <!-- Daily Grind Motivation Widget -->
-                        <div class="grind-motivation-banner" style="margin-top: 18px; padding: 12px 20px; background: rgba(128, 0, 0, 0.03); border: 1px dashed rgba(128, 0, 0, 0.15); border-radius: 12px; display: flex; align-items: center; gap: 12px; max-width: 100%;">
-                            <div style="font-size: 1.2rem; color: var(--accent-gold); display: flex; align-items: center; justify-content: center; background: rgba(212, 175, 55, 0.1); width: 32px; height: 32px; border-radius: 50%;">⚡</div>
+                        <div class="grind-motivation-banner"
+                            style="margin-top: 18px; padding: 12px 20px; background: rgba(128, 0, 0, 0.03); border: 1px dashed rgba(128, 0, 0, 0.15); border-radius: 12px; display: flex; align-items: center; gap: 12px; max-width: 100%;">
+                            <div
+                                style="font-size: 1.2rem; color: var(--accent-gold); display: flex; align-items: center; justify-content: center; background: rgba(212, 175, 55, 0.1); width: 32px; height: 32px; border-radius: 50%;">
+                                ⚡</div>
                             <div style="flex: 1;">
-                                <span style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--primary-maroon); font-weight: 800; display: block; margin-bottom: 2px;">Daily Grind</span>
-                                <span style="font-style: italic; font-weight: 500; font-size: 0.85rem; color: #374151; line-height: 1.4;">
+                                <span
+                                    style="font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--primary-maroon); font-weight: 800; display: block; margin-bottom: 2px;">Daily
+                                    Grind</span>
+                                <span
+                                    style="font-style: italic; font-weight: 500; font-size: 0.85rem; color: #374151; line-height: 1.4;">
                                     "<?php echo htmlspecialchars($dailyQuote); ?>"
                                 </span>
                             </div>
@@ -3221,7 +3280,7 @@ $dailyQuote = $_SESSION['grind_quote'];
                         class="action-tool-btn <?php echo (!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
                         <div class="icon"><i class="fas fa-robot" style="color: #1e3a8a;"></i></div>
                         <h4>Campus Drives</h4>
-                    </a> 
+                    </a>
                     <?php if (isFeatureEnabled('feature_mock_ai')): ?>
                         <a href="mock_ai_interview"
                             class="action-tool-btn <?php echo (!$hasFullHistory && $isGMIT) ? 'locked-card' : ''; ?>">
@@ -3304,7 +3363,7 @@ $dailyQuote = $_SESSION['grind_quote'];
                                 if (is_string($questions)) {
                                     $questions = json_decode($questions, true);
                                 }
-                                
+
                                 // Robust extraction of questions array
                                 if (is_array($questions)) {
                                     // Check if it's a wrapper object (e.g. {"questions": [...]}, {"data": [...]})
@@ -3323,7 +3382,7 @@ $dailyQuote = $_SESSION['grind_quote'];
                                 if (is_array($questions) && !$isMultiple && isset($questions['question'])) {
                                     $questions = [$questions];
                                 }
-                                
+
                                 // Filter out invalid questions to prevent key errors
                                 $validQuestions = [];
                                 if (is_array($questions)) {
@@ -3335,126 +3394,128 @@ $dailyQuote = $_SESSION['grind_quote'];
                                 }
                                 $questions = $validQuestions;
                                 $totalQ = count($questions);
-                                
+
                                 if ($totalQ > 0):
-                                ?>
-                                <div class="challenge-header">
-                                    <div class="lbl"><i class="fas fa-brain"></i> Daily Challenge</div>
-                                    <span
-                                        class="topic-badge"><?php echo htmlspecialchars($dailyChallenge['topic_name']); ?></span>
-                                </div>
-
-                                <?php if ($dailyChallenge['status'] === 'pending'): ?>
-                                    <form id="daily-challenge-form"
-                                        onsubmit="submitChallenge(event, <?php echo $dailyChallenge['id']; ?>, <?php echo $totalQ; ?>)">
-                                        <div class="challenge-questions-wrapper">
-                                            <?php foreach ($questions as $qIdx => $q): ?>
-                                                <div class="challenge-question-slide" id="q-slide-<?php echo $qIdx; ?>"
-                                                    style="<?php echo $qIdx === 0 ? '' : 'display: none;'; ?>">
-                                                    <div class="question-meta-row"
-                                                        style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;">
-                                                        <span class="q-progress-text"
-                                                            style="font-size:0.7rem; font-weight:700; color:var(--text-muted);">Question
-                                                            <?php echo ($qIdx + 1); ?> of <?php echo $totalQ; ?></span>
-                                                    </div>
-                                                    <p class="question-text"><?php echo htmlspecialchars($q['question']); ?></p>
-
-                                                    <div class="options-container">
-                                                        <?php foreach ($q['options'] as $idx => $option): ?>
-                                                            <label class="option-item">
-                                                                <input type="radio" name="challenge_option_<?php echo $qIdx; ?>"
-                                                                    value="<?php echo $idx; ?>" required>
-                                                                <span class="option-marker"><?php echo chr(65 + $idx); ?></span>
-                                                                <span class="option-text"><?php echo htmlspecialchars($option); ?></span>
-                                                            </label>
-                                                        <?php endforeach; ?>
-                                                    </div>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        </div>
-
-                                        <!-- Navigation Footer -->
-                                        <div class="challenge-nav-buttons" style="display: flex; gap: 8px; margin-top: 0.75rem;">
-                                            <button type="button" class="challenge-nav-btn prev-btn" onclick="changeQuestion(-1)"
-                                                style="display: none; flex: 1; background: #e2e8f0; color: #475569; border: none; padding: 8px; border-radius: 8px; font-size: 0.75rem; font-weight: 700; cursor: pointer;">Previous</button>
-                                            <button type="button" class="challenge-nav-btn next-btn" onclick="changeQuestion(1)"
-                                                style="flex: 1; background: var(--gradient-maroon); color: white; border: none; padding: 8px; border-radius: 8px; font-size: 0.75rem; font-weight: 700; cursor: pointer;">Next</button>
-                                            <button type="submit" class="challenge-submit-btn"
-                                                style="display: none; flex: 1; background: var(--gradient-maroon); color: white; border: none; padding: 8px; border-radius: 8px; font-size: 0.75rem; font-weight: 700; cursor: pointer;">Submit
-                                                Answers</button>
-                                        </div>
-                                    </form>
-                                <?php else:
-                                    $correctCount = (int) ($dailyChallenge['performance_result'] ?? 0);
                                     ?>
-                                    <div class="challenge-completed-state">
-                                        <div class="challenge-score-summary"
-                                            style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; background: rgba(128, 0, 0, 0.03); padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(128, 0, 0, 0.08);">
-                                            <span style="font-size: 0.8rem; font-weight: 700; color: var(--primary-maroon);">Your
-                                                Daily Score</span>
-                                            <span
-                                                style="font-size: 0.9rem; font-weight: 800; color: var(--primary-maroon); background: white; padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(128,0,0,0.15);"><?php echo $correctCount; ?>
-                                                / <?php echo $totalQ; ?> Correct</span>
-                                        </div>
+                                    <div class="challenge-header">
+                                        <div class="lbl"><i class="fas fa-brain"></i> Daily Challenge</div>
+                                        <span
+                                            class="topic-badge"><?php echo htmlspecialchars($dailyChallenge['topic_name']); ?></span>
+                                    </div>
 
-                                        <div class="challenge-results-list">
-                                            <?php foreach ($questions as $qIdx => $q):
-                                                $selected = isset($q['selected_answer']) ? (int) $q['selected_answer'] : -1;
-                                                $correct = (int) ($q['answer'] ?? 0);
-                                                $isQCorrect = ($selected === $correct);
-                                                ?>
-                                                <div class="challenge-result-item"
-                                                    style="border: 1px solid <?php echo $isQCorrect ? '#10b981' : '#ef4444'; ?>; background: <?php echo $isQCorrect ? '#ecfdf5' : '#fef2f2'; ?>; border-radius: 10px; padding: 10px; margin-bottom: 10px;">
-                                                    <p class="question-text"
-                                                        style="margin-bottom:0.4rem; font-size:0.75rem; line-height: 1.35;">
-                                                        <?php echo htmlspecialchars($q['question']); ?>
-                                                    </p>
-                                                    <div
-                                                        style="font-size:0.7rem; font-weight:600; color: #4b5563; margin-bottom:0.4rem; display:flex; flex-direction:column; gap:2px;">
-                                                        <div><strong>Your Answer:</strong>
-                                                            <?php echo htmlspecialchars($q['options'][$selected] ?? 'None'); ?>
-                                                            <?php if ($isQCorrect): ?>
-                                                                <i class="fas fa-check-circle" style="color:#10b981; margin-left:4px;"></i>
-                                                            <?php else: ?>
-                                                                <i class="fas fa-times-circle" style="color:#ef4444; margin-left:4px;"></i>
+                                    <?php if ($dailyChallenge['status'] === 'pending'): ?>
+                                        <form id="daily-challenge-form"
+                                            onsubmit="submitChallenge(event, <?php echo $dailyChallenge['id']; ?>, <?php echo $totalQ; ?>)">
+                                            <div class="challenge-questions-wrapper">
+                                                <?php foreach ($questions as $qIdx => $q): ?>
+                                                    <div class="challenge-question-slide" id="q-slide-<?php echo $qIdx; ?>"
+                                                        style="<?php echo $qIdx === 0 ? '' : 'display: none;'; ?>">
+                                                        <div class="question-meta-row"
+                                                            style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 0.5rem;">
+                                                            <span class="q-progress-text"
+                                                                style="font-size:0.7rem; font-weight:700; color:var(--text-muted);">Question
+                                                                <?php echo ($qIdx + 1); ?> of <?php echo $totalQ; ?></span>
+                                                        </div>
+                                                        <p class="question-text"><?php echo htmlspecialchars($q['question']); ?></p>
+
+                                                        <div class="options-container">
+                                                            <?php foreach ($q['options'] as $idx => $option): ?>
+                                                                <label class="option-item">
+                                                                    <input type="radio" name="challenge_option_<?php echo $qIdx; ?>"
+                                                                        value="<?php echo $idx; ?>" required>
+                                                                    <span class="option-marker"><?php echo chr(65 + $idx); ?></span>
+                                                                    <span class="option-text"><?php echo htmlspecialchars($option); ?></span>
+                                                                </label>
+                                                            <?php endforeach; ?>
+                                                        </div>
+                                                    </div>
+                                                <?php endforeach; ?>
+                                            </div>
+
+                                            <!-- Navigation Footer -->
+                                            <div class="challenge-nav-buttons" style="display: flex; gap: 8px; margin-top: 0.75rem;">
+                                                <button type="button" class="challenge-nav-btn prev-btn" onclick="changeQuestion(-1)"
+                                                    style="display: none; flex: 1; background: #e2e8f0; color: #475569; border: none; padding: 8px; border-radius: 8px; font-size: 0.75rem; font-weight: 700; cursor: pointer;">Previous</button>
+                                                <button type="button" class="challenge-nav-btn next-btn" onclick="changeQuestion(1)"
+                                                    style="flex: 1; background: var(--gradient-maroon); color: white; border: none; padding: 8px; border-radius: 8px; font-size: 0.75rem; font-weight: 700; cursor: pointer;">Next</button>
+                                                <button type="submit" class="challenge-submit-btn"
+                                                    style="display: none; flex: 1; background: var(--gradient-maroon); color: white; border: none; padding: 8px; border-radius: 8px; font-size: 0.75rem; font-weight: 700; cursor: pointer;">Submit
+                                                    Answers</button>
+                                            </div>
+                                        </form>
+                                    <?php else:
+                                        $correctCount = (int) ($dailyChallenge['performance_result'] ?? 0);
+                                        ?>
+                                        <div class="challenge-completed-state">
+                                            <div class="challenge-score-summary"
+                                                style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; background: rgba(128, 0, 0, 0.03); padding: 10px 14px; border-radius: 10px; border: 1px solid rgba(128, 0, 0, 0.08);">
+                                                <span style="font-size: 0.8rem; font-weight: 700; color: var(--primary-maroon);">Your
+                                                    Daily Score</span>
+                                                <span
+                                                    style="font-size: 0.9rem; font-weight: 800; color: var(--primary-maroon); background: white; padding: 2px 8px; border-radius: 6px; border: 1px solid rgba(128,0,0,0.15);"><?php echo $correctCount; ?>
+                                                    / <?php echo $totalQ; ?> Correct</span>
+                                            </div>
+
+                                            <div class="challenge-results-list">
+                                                <?php foreach ($questions as $qIdx => $q):
+                                                    $selected = isset($q['selected_answer']) ? (int) $q['selected_answer'] : -1;
+                                                    $correct = (int) ($q['answer'] ?? 0);
+                                                    $isQCorrect = ($selected === $correct);
+                                                    ?>
+                                                    <div class="challenge-result-item"
+                                                        style="border: 1px solid <?php echo $isQCorrect ? '#10b981' : '#ef4444'; ?>; background: <?php echo $isQCorrect ? '#ecfdf5' : '#fef2f2'; ?>; border-radius: 10px; padding: 10px; margin-bottom: 10px;">
+                                                        <p class="question-text"
+                                                            style="margin-bottom:0.4rem; font-size:0.75rem; line-height: 1.35;">
+                                                            <?php echo htmlspecialchars($q['question']); ?>
+                                                        </p>
+                                                        <div
+                                                            style="font-size:0.7rem; font-weight:600; color: #4b5563; margin-bottom:0.4rem; display:flex; flex-direction:column; gap:2px;">
+                                                            <div><strong>Your Answer:</strong>
+                                                                <?php echo htmlspecialchars($q['options'][$selected] ?? 'None'); ?>
+                                                                <?php if ($isQCorrect): ?>
+                                                                    <i class="fas fa-check-circle" style="color:#10b981; margin-left:4px;"></i>
+                                                                <?php else: ?>
+                                                                    <i class="fas fa-times-circle" style="color:#ef4444; margin-left:4px;"></i>
+                                                                <?php endif; ?>
+                                                            </div>
+                                                            <?php if (!$isQCorrect): ?>
+                                                                <div><strong>Correct Answer:</strong>
+                                                                    <?php echo htmlspecialchars($q['options'][$correct] ?? ''); ?></div>
                                                             <?php endif; ?>
                                                         </div>
-                                                        <?php if (!$isQCorrect): ?>
-                                                            <div><strong>Correct Answer:</strong>
-                                                                <?php echo htmlspecialchars($q['options'][$correct] ?? ''); ?></div>
-                                                        <?php endif; ?>
+                                                        <details style="margin-top: 0.25rem;">
+                                                            <summary
+                                                                style="cursor: pointer; font-size: 0.65rem; font-weight: 700; color: var(--primary-maroon); outline: none; list-style: none; display: flex; align-items: center; gap: 4px;">
+                                                                <i class="fas fa-chevron-down" style="font-size: 0.55rem;"></i> View
+                                                                Explanation
+                                                            </summary>
+                                                            <div class="explanation-box"
+                                                                style="margin-top: 5px; margin-bottom: 0; background: white; padding: 8px; border-radius: 6px; font-size: 0.7rem; border: 1px solid rgba(0,0,0,0.05);">
+                                                                <p><?php echo formatExplanation($q['explanation'] ?? ''); ?></p>
+                                                            </div>
+                                                        </details>
                                                     </div>
-                                                    <details style="margin-top: 0.25rem;">
-                                                        <summary
-                                                            style="cursor: pointer; font-size: 0.65rem; font-weight: 700; color: var(--primary-maroon); outline: none; list-style: none; display: flex; align-items: center; gap: 4px;">
-                                                            <i class="fas fa-chevron-down" style="font-size: 0.55rem;"></i> View
-                                                            Explanation
-                                                        </summary>
-                                                        <div class="explanation-box"
-                                                            style="margin-top: 5px; margin-bottom: 0; background: white; padding: 8px; border-radius: 6px; font-size: 0.7rem; border: 1px solid rgba(0,0,0,0.05);">
-                                                            <p><?php echo formatExplanation($q['explanation'] ?? ''); ?></p>
-                                                        </div>
-                                                    </details>
-                                                </div>
-                                            <?php endforeach; ?>
-                                        </div>
+                                                <?php endforeach; ?>
+                                            </div>
 
-                                        <p class="completed-note" style="margin-top:0.75rem; text-align:center; font-size:0.65rem;">
-                                            Completed. Tomorrow's challenge will unlock in 24 hours.</p>
+                                            <p class="completed-note" style="margin-top:0.75rem; text-align:center; font-size:0.65rem;">
+                                                Completed. Tomorrow's challenge will unlock in 24 hours.</p>
+                                        </div>
+                                    <?php endif; ?>
+                                <?php else: ?>
+                                    <div class="challenge-header">
+                                        <div class="lbl"><i class="fas fa-brain"></i> Daily Challenge</div>
                                     </div>
+                                    <p class="no-challenge">Daily challenge format error. Please re-sync your AI profile to
+                                        regenerate.</p>
                                 <?php endif; ?>
                             <?php else: ?>
                                 <div class="challenge-header">
                                     <div class="lbl"><i class="fas fa-brain"></i> Daily Challenge</div>
                                 </div>
-                                <p class="no-challenge">Daily challenge format error. Please re-sync your AI profile to regenerate.</p>
+                                <p class="no-challenge">No challenge generated today. Re-sync your AI profile to set up topics.
+                                </p>
                             <?php endif; ?>
-                        <?php else: ?>
-                            <div class="challenge-header">
-                                <div class="lbl"><i class="fas fa-brain"></i> Daily Challenge</div>
-                            </div>
-                            <p class="no-challenge">No challenge generated today. Re-sync your AI profile to set up topics.</p>
-                        <?php endif; ?>
                         </div>
 
                         <!-- 3. AI Insights Feed -->
@@ -4960,7 +5021,7 @@ $dailyQuote = $_SESSION['grind_quote'];
             }, 10000);
         }
     </script>
-    
+
     <?php if ($needsSgpaUpdate && $isGMIT): ?>
         <?php
         $funnySentences = [
@@ -4977,7 +5038,8 @@ $dailyQuote = $_SESSION['grind_quote'];
                     <i class="fas fa-graduation-cap"></i>
                 </div>
                 <h2>6th Sem Results are Out!</h2>
-                <p>VTU has officially released the 6th Semester results. Before we can celebrate (or initiate a recovery plan), you must update your academic profile.</p>
+                <p>VTU has officially released the 6th Semester results. Before we can celebrate (or initiate a recovery
+                    plan), you must update your academic profile.</p>
                 <div class="funny-sentence">
                     "<?php echo htmlspecialchars($randomSentence); ?>"
                 </div>

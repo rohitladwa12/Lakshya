@@ -1028,13 +1028,15 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
         
         OUTPUT FORMAT (JSON):
         {
-            'type': 'conceptual' | 'coding',
-            'feedback': '...',
-            'question': '...',
-            'problem_statement': '...',
-            'constraints': '...',
-            'test_cases': []
-        }";
+            \"type\": \"conceptual\" | \"coding\",
+            \"feedback\": \"Evaluation feedback on previous answer...\",
+            \"question\": \"The conceptual question or discussion prompt...\",
+            \"problem_statement\": \"The coding challenge details (mandatory if type is coding, describe the function to write, inputs, and expected output)...\",
+            \"constraints\": \"Constraints on execution/space...\",
+            \"test_cases\": []
+        }
+        
+        CRITICAL RULE: If your question asks the student to write a function, write a program, implement code, or solve an algorithmic problem, you MUST set the type to \"coding\" and populate \"problem_statement\". Only use \"conceptual\" for discussions and Q&A.";
 
         $messages = [['role' => 'system', 'content' => $systemPrompt]];
         foreach ($history as $msg) {

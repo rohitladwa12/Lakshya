@@ -418,19 +418,113 @@ function buildUrl($key, $val) {
         .tab-inst.active { background: var(--primary-maroon); color: white; }
         .tab-inst:hover:not(.active) { background: #e2e8f0; color: var(--primary-maroon); }
 
-        .filter-section { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.05); margin-bottom: 24px; }
-        .filter-grid { display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap; }
-        .filter-item { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 200px; }
-        .filter-item label { font-size: 13px; font-weight: 600; color: #64748b; }
-        
-        .form-input, .form-select { padding: 10px 14px; border: 1px solid #cbd5e1; border-radius: 8px; font-family: inherit; font-size: 14px; background: white; transition: all 0.2s; cursor: pointer; }
-        .form-input:focus, .form-select:focus { outline: none; border-color: var(--primary-maroon); box-shadow: 0 0 0 3px rgba(128,0,0,0.1); }
-        .filter-item select { appearance: none; padding-right: 35px; }
+        .filter-section {
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+            border: 1px solid #e2e8f0;
+            margin-bottom: 30px;
+        }
+        .filter-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            align-items: flex-end;
+        }
+        @media (max-width: 768px) {
+            .filter-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+        .filter-item {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .filter-item label {
+            font-size: 13px;
+            font-weight: 700;
+            color: #475569;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        .filter-item label i {
+            color: var(--primary-maroon);
+            font-size: 14px;
+        }
+        .form-input, .form-select {
+            height: 46px;
+            padding: 10px 16px;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 10px;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-main);
+            background: #fff;
+            transition: all 0.2s ease;
+            width: 100%;
+        }
+        .form-input::placeholder {
+            color: #94a3b8;
+        }
+        .form-input:focus, .form-select:focus {
+            outline: none;
+            border-color: var(--primary-maroon);
+            box-shadow: 0 0 0 4px rgba(128, 0, 0, 0.1);
+        }
+        .filter-actions-group {
+            display: flex;
+            gap: 12px;
+            height: 46px;
+        }
+        .btn-filter {
+            height: 100%;
+            flex: 1;
+            background: var(--primary-maroon);
+            color: white;
+            border: none;
+            padding: 0 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+        .btn-filter:hover {
+            background: #600000;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(128, 0, 0, 0.2);
+        }
+        .btn-filter-secondary {
+            height: 100%;
+            background: #f1f5f9;
+            color: #475569;
+            border: 1.5px solid #cbd5e1;
+            padding: 0 20px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 14px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+        .btn-filter-secondary:hover {
+            background: #e2e8f0;
+            color: #1e293b;
+        }
+
         .filter-item-wrapper { position: relative; }
-        .filter-item-wrapper i.filter-icon { position: absolute; right: 12px; top: 38px; color: var(--text-muted); pointer-events: none; }
-        
-        .btn-filter { background: var(--primary-maroon); color: white; border: none; padding: 10px 20px; border-radius: 6px; cursor: pointer; font-weight: 600; transition: background 0.2s; }
-        .btn-filter:hover { background: #600000; }
+        .filter-item-wrapper i.filter-icon { position: absolute; right: 14px; color: var(--text-muted); pointer-events: none; }
 
         /* Table */
         .table-container { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); overflow-x: auto; }
@@ -455,11 +549,50 @@ function buildUrl($key, $val) {
         .score-high { background: #d1e7dd; color: #0f5132; }
         .score-low { background: #f8d7da; color: #842029; }
 
-        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); align-items: center; justify-content: center; }
-        .modal-content { background: white; padding: 30px; border-radius: 16px; width: 90%; max-width: 500px; box-shadow: 0 10px 25px rgba(0,0,0,0.15); animation: slideUp 0.3s ease; }
+        .modal { 
+            display: none; 
+            position: fixed; 
+            z-index: 1100; 
+            left: 0; 
+            top: 0; 
+            width: 100%; 
+            height: 100%; 
+            background: rgba(15, 23, 42, 0.6); 
+            backdrop-filter: blur(4px); 
+            align-items: center; 
+            justify-content: center; 
+            padding: 20px;
+        }
+        .modal-content { 
+            background: white; 
+            padding: 30px; 
+            border-radius: 16px; 
+            width: 90%; 
+            max-width: 500px; 
+            max-height: calc(100vh - 40px); 
+            overflow-y: auto; 
+            position: relative;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); 
+            animation: slideUp 0.3s ease; 
+        }
         @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         
-        .modal-header { font-size: 22px; font-weight: 700; color: var(--primary-maroon); margin-bottom: 20px; }
+        .close-modal {
+            position: absolute;
+            top: 24px;
+            right: 24px;
+            background: none;
+            border: none;
+            font-size: 22px;
+            cursor: pointer;
+            color: var(--text-muted);
+            line-height: 1;
+            transition: color 0.2s;
+        }
+        .close-modal:hover {
+            color: var(--primary-maroon);
+        }
+        .modal-header { font-size: 22px; font-weight: 700; color: var(--primary-maroon); margin-bottom: 20px; padding-right: 30px; }
         .modal-actions { display: flex; gap: 12px; margin-top: 25px; }
         .btn-cancel { flex: 1; background: #e2e8f0; padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
         .btn-submit { flex: 1; background: var(--primary-maroon); color: white; padding: 12px; border-radius: 8px; border: none; cursor: pointer; font-weight: 600; }
@@ -468,6 +601,62 @@ function buildUrl($key, $val) {
         .page-link { padding: 8px 14px; border: 1px solid #e2e8f0; border-radius: 6px; text-decoration: none; color: #64748b; font-weight: 600; transition: all 0.2s; }
         .page-link.active { background: var(--primary-maroon); color: white; border-color: var(--primary-maroon); }
         .page-link:hover:not(.active) { background: #f1f5f9; }
+
+        /* Floating Bulk Actions Bar */
+        .bulk-actions-bar {
+            position: fixed;
+            bottom: 24px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(30, 41, 59, 0.96);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            padding: 14px 28px;
+            border-radius: 50px;
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            z-index: 1000;
+            transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+            opacity: 0;
+            pointer-events: none;
+        }
+        .bulk-actions-bar.show {
+            transform: translateX(-50%) translateY(0);
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .bulk-actions-content {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+        }
+        .selected-count {
+            color: #fff;
+            font-size: 14px;
+            font-weight: 600;
+            letter-spacing: 0.3px;
+        }
+        .btn-bulk-assign {
+            background: var(--primary-gold);
+            color: #1e293b;
+            border: none;
+            padding: 10px 24px;
+            border-radius: 30px;
+            cursor: pointer;
+            font-weight: 700;
+            font-size: 13px;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.2s ease;
+        }
+        .btn-bulk-assign:hover {
+            background: #e2be49;
+            transform: scale(1.03);
+            box-shadow: 0 4px 15px rgba(212, 175, 55, 0.4);
+        }
     </style>
 </head>
 <body>
@@ -514,6 +703,7 @@ function buildUrl($key, $val) {
                     <label><i class="fas fa-graduation-cap"></i> Min SGPA</label>
                     <input type="number" name="min_sgpa" class="form-input" value="<?php echo $min_sgpa > 0 ? $min_sgpa : ''; ?>" step="0.01" min="0" max="10" placeholder="e.g. 7.5">
                 </div>
+
                 <div class="filter-item filter-item-wrapper">
                     <label><i class="fas fa-calendar-alt"></i> Semester</label>
                     <select name="sem" class="form-input">
@@ -524,7 +714,7 @@ function buildUrl($key, $val) {
                             </option>
                         <?php endforeach; ?>
                     </select>
-                    <i class="fas fa-chevron-down filter-icon"></i>
+                    <i class="fas fa-chevron-down filter-icon" style="top: 38px;"></i>
                 </div>
 
                 <?php if (count($available_branches) > 1): ?>
@@ -538,19 +728,19 @@ function buildUrl($key, $val) {
                             </option>
                         <?php endforeach; ?>
                     </select>
-                    <i class="fas fa-chevron-down filter-icon"></i>
+                    <i class="fas fa-chevron-down filter-icon" style="top: 38px;"></i>
                 </div>
                 <?php endif; ?>
 
-                <div class="filter-item" style="flex: 0; display: flex; gap: 10px; align-items: flex-end;">
-                    <button type="submit" class="btn-filter">Apply Filters</button>
-                    <form method="POST" action="assign_task.php" style="display: contents;">
-                        <input type="hidden" name="reset_filters" value="1">
-                        <button type="submit" class="btn-filter" style="background: #64748b;">Reset</button>
-                    </form>
-                    <button type="button" class="btn-filter" style="background: #1e293b;" onclick="openBulkAssignModal()">
-                        <i class="fas fa-tasks"></i> Bulk Assign
-                    </button>
+                <div class="filter-item">
+                    <div class="filter-actions-group">
+                        <button type="submit" class="btn-filter">
+                            <i class="fas fa-filter"></i> Apply
+                        </button>
+                        <button type="button" class="btn-filter-secondary" onclick="resetFilters()">
+                            <i class="fas fa-sync-alt"></i> Reset
+                        </button>
+                    </div>
                 </div>
             </form>
         </div>
@@ -711,27 +901,29 @@ function buildUrl($key, $val) {
         </div>
     </div>
 
-    <!-- Assignment Modal (Same as before) -->
-    <div id="assignModal" class="modal">
-        <div class="modal-content">
-            <!-- Task History Modal -->
-            <div id="historyModal" class="modal">
-                <div class="modal-content" style="max-width: 500px;">
-                    <button class="close-modal" onclick="closeHistoryModal()">&times;</button>
-                    <div class="modal-header">
-                        <h2 style="font-size: 18px; color: var(--primary-maroon);">Task History</h2>
-                        <p id="historyStudentName" style="font-size: 13px; color: var(--text-muted);"></p>
-                    </div>
-                    <div class="modal-body">
-                        <div id="historyList" style="display: flex; flex-direction: column; gap: 12px; padding: 10px 0;">
-                            <!-- History items will be injected here -->
-                        </div>
-                        <div id="historyEmpty" style="display: none; text-align: center; padding: 30px; color: #94a3b8;">
-                            No task history found for this student.
-                        </div>
-                    </div>
+    <!-- Task History Modal -->
+    <div id="historyModal" class="modal">
+        <div class="modal-content" style="max-width: 500px;">
+            <button type="button" class="close-modal" onclick="closeHistoryModal()">&times;</button>
+            <div class="modal-header">
+                <h2 style="font-size: 18px; color: var(--primary-maroon);">Task History</h2>
+                <p id="historyStudentName" style="font-size: 13px; color: var(--text-muted);"></p>
+            </div>
+            <div class="modal-body">
+                <div id="historyList" style="display: flex; flex-direction: column; gap: 12px; padding: 10px 0;">
+                    <!-- History items will be injected here -->
+                </div>
+                <div id="historyEmpty" style="display: none; text-align: center; padding: 30px; color: #94a3b8;">
+                    No task history found for this student.
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Assignment Modal -->
+    <div id="assignModal" class="modal">
+        <div class="modal-content">
+            <button type="button" class="close-modal" onclick="closeAssignModal()">&times;</button>
             <div class="modal-header">Assign Task</div>
             <form method="POST">
                 <input type="hidden" name="student_id" id="modal_student_id">
@@ -895,13 +1087,56 @@ function buildUrl($key, $val) {
             document.querySelectorAll('.student-checkbox').forEach(cb => {
                 cb.checked = masterCb.checked;
             });
+            updateBulkActionBarStatus();
         }
+
+        function resetFilters() {
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = 'assign_task.php';
+            const input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = 'reset_filters';
+            input.value = '1';
+            form.appendChild(input);
+            document.body.appendChild(form);
+            form.submit();
+        }
+
+        function updateBulkActionBarStatus() {
+            const selected = Array.from(document.querySelectorAll('.student-checkbox:checked')).map(cb => cb.value);
+            const bar = document.getElementById('bulkActionsBar');
+            const countText = document.getElementById('selectedCountText');
+            
+            if (selected.length > 0) {
+                countText.innerText = selected.length;
+                bar.classList.add('show');
+            } else {
+                bar.classList.remove('show');
+            }
+        }
+
+        document.addEventListener('change', function(e) {
+            if (e.target && e.target.classList.contains('student-checkbox')) {
+                updateBulkActionBarStatus();
+            }
+        });
 
         window.onclick = function(event) {
             const modal = document.getElementById('assignModal');
             if (event.target === modal) closeAssignModal();
         }
     </script>
+
+    <!-- Floating Bulk Actions Bar -->
+    <div id="bulkActionsBar" class="bulk-actions-bar">
+        <div class="bulk-actions-content">
+            <span class="selected-count"><span id="selectedCountText">0</span> students selected</span>
+            <button type="button" class="btn-bulk-assign" onclick="openBulkAssignModal()">
+                <i class="fas fa-tasks"></i> Bulk Assign Task
+            </button>
+        </div>
+    </div>
 </body>
 </html>
 
