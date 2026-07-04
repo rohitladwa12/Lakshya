@@ -308,6 +308,11 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
                     <i class="fas fa-robot"></i> Student Monitor
                 </a>
             </li>
+            <li>
+                <a href="placement_intelligence.php" class="nav-link <?php echo $currentPage == 'placement_intelligence.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-shield-halved"></i> Placement Intelligence
+                </a>
+            </li>
         </ul>
     </div>
 

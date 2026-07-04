@@ -137,8 +137,21 @@ class PlacementIntelligenceService {
         $mocks = $stmtMock->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
         // Resume score from resume_analysis_cache
-        $stmtResume = $this->db->prepare("SELECT analysis_json FROM resume_analysis_cache WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1");
-        $stmtResume->execute([$studentId]);
+        $numericUserId = null;
+        try {
+            $stmtUserSl = $this->db->prepare("SELECT SL_NO FROM users WHERE USER_NAME = ? LIMIT 1");
+            $stmtUserSl->execute([$studentId]);
+            $numericUserId = $stmtUserSl->fetchColumn();
+        } catch (Exception $e) {
+            // Safe fallback
+        }
+
+        $stmtResume = $this->db->prepare("SELECT analysis_json FROM resume_analysis_cache WHERE user_id = ? " . ($numericUserId ? "OR user_id = ?" : "") . " ORDER BY updated_at DESC LIMIT 1");
+        if ($numericUserId) {
+            $stmtResume->execute([$studentId, $numericUserId]);
+        } else {
+            $stmtResume->execute([$studentId]);
+        }
         $resumeRow = $stmtResume->fetch(PDO::FETCH_ASSOC);
         $resumeInfo = [];
         if ($resumeRow) {
@@ -147,6 +160,27 @@ class PlacementIntelligenceService {
                 'score' => $analysis['score'] ?? ($analysis['overall_score'] ?? ($analysis['ats_score'] ?? 70)),
                 'analysis_json' => $resumeRow['analysis_json']
             ];
+        } else {
+            // Fallback: Check if they have built a resume in student_resumes using their USN string
+            try {
+                $stmtHasResume = $this->db->prepare("SELECT id, resume_data FROM student_resumes WHERE student_id = ? LIMIT 1");
+                $stmtHasResume->execute([$studentId]);
+                $resRow = $stmtHasResume->fetch(PDO::FETCH_ASSOC);
+                if ($resRow) {
+                    $rData = json_decode($resRow['resume_data'], true) ?: [];
+                    $score = 50;
+                    if (!empty($rData['education'])) $score += 10;
+                    if (!empty($rData['experience'])) $score += 10;
+                    if (!empty($rData['projects'])) $score += 10;
+                    if (!empty($rData['skills'])) $score += 10;
+                    $resumeInfo = [
+                        'score' => min(95, $score),
+                        'analysis_json' => json_encode(['score' => $score, 'status' => 'Draft - Built'])
+                    ];
+                }
+            } catch (Exception $e) {
+                // Safe fallback
+            }
         }
 
         // 5. AMPI FFM Personality Scores
@@ -648,7 +682,6 @@ PERSONALITY RULES
 • Always combine personality with technical evidence.
 • Frame personality traits constructively. Standard ethical safeguards:
   - Low Agreeableness: Phrase as 'strong analytical focus, skepticism, ideal for quality assurance or code auditing when backed by technical skill.'
-  - High Neuroticism: Phrase as 'high risk awareness, attention to detail, suited for pre-release testing or DevOps mitigation.'
 
 OUTPUT RULES
 • Use Markdown only.
@@ -662,13 +695,13 @@ SECTIONS STRUCTURE CONTRACT:
 1. EXECUTIVE SUMMARY: 2-3 sentences explaining readiness and best matches based on evidence.
 2. STUDENT SNAPSHOT: A clean table summarizing metrics (CGPA/SGPAs, Coding Score, project quality, and Data Completeness Score). Include a Confidence section exactly as follows:
    Confidence: [Value]%
-   Reason: [Provide detailed reason; if reduced, state why, e.g. \"Reduced because: GitHub unavailable, Mock Interview unavailable\"]
+   Reason: [Provide detailed reason; if reduced, state why, e.g. \"Reduced because: Mock Interview unavailable\"]
 3. HISTORICAL PROGRESS SNAPSHOT: Describe month-over-month growth trends in coding, communication, or other areas using historical metrics.
 4. ACADEMIC INTELLIGENCE: Explain exam performance consistency, discipline, and backlogs. For every conclusion, use:
    Evidence: [Value/data]
    Interpretation: [Meaning]
    Recommendation: [Action]
-5. TECHNICAL INTELLIGENCE: Detail project engineering depth, coding platform correctness, and GitHub quality. Cite specific evidence (Coding Score, Projects, GitHub). For every conclusion, use:
+5. TECHNICAL INTELLIGENCE: Detail project engineering depth and coding platform correctness. Cite specific evidence (Coding Score, Projects). For every conclusion, use:
    Evidence: [Value/data]
    Interpretation: [Meaning]
    Recommendation: [Action]
@@ -676,7 +709,7 @@ SECTIONS STRUCTURE CONTRACT:
    Evidence: [Value/data]
    Interpretation: [Meaning]
    Recommendation: [Action]
-7. BEHAVIORAL & WORK STYLE ANALYSIS: Interpret FFM AMPI personality traits (Extraversion, Agreeableness, Conscientiousness, Neuroticism, Openness) constructively. Always combine personality with technical evidence.
+7. BEHAVIORAL & WORK STYLE ANALYSIS: Interpret FFM AMPI personality traits (Extraversion, Agreeableness, Conscientiousness, Openness) constructively. Do not include Neuroticism as it is not measured. Always combine personality with technical evidence.
 8. CORRELATION ENGINE: Explain synergies between traits and academic/technical results. Detail and explain all engine-generated contradiction flags or anomalies.
 9. RECRUITER PERSPECTIVE & DRIVE CLASSIFICATION: Provide a detailed recruiter assessment structured exactly under these subheadings:
    - Resume Screening

@@ -66,9 +66,19 @@ if (!empty($discipline_filters)) {
         :root {
             --primary-maroon: #800000;
             --primary-gold: #D4AF37;
+            --primary-gold-dark: #b59228;
             --white: #ffffff;
             --bg-light: #f8fafc;
-            --shadow: 0 2px 8px rgba(0,0,0,0.06);
+            --text-main: #0f172a;
+            --text-muted: #64748b;
+            --text-light: #94a3b8;
+            --border-color: #e2e8f0;
+            
+            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.03);
+            --shadow-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 10px 10px -5px rgba(0, 0, 0, 0.03);
+            --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
         
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -76,121 +86,276 @@ if (!empty($discipline_filters)) {
         body {
             font-family: 'Outfit', sans-serif;
             background: var(--bg-light);
+            color: var(--text-main);
+            -webkit-font-smoothing: antialiased;
         }
         
         .navbar-spacer { height: 70px; }
         
         .main-content { 
-            /* Layout handled by navbar.php */
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 40px 24px 80px 24px;
         }
         
         .page-header { 
-            margin-bottom: 40px; 
+            margin-bottom: 32px; 
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 24px;
         }
         
         .page-header h2 { 
             font-size: 32px; 
             color: var(--primary-maroon); 
-            font-weight: 700;
+            font-weight: 800;
             margin-bottom: 8px;
+            letter-spacing: -0.5px;
         }
         
         .page-header p { 
-            color: #64748b; 
-            font-size: 15px; 
+            color: var(--text-muted); 
+            font-size: 14px; 
+            font-weight: 500;
         }
         
         .stats-card {
-            background: white;
+            background: var(--white);
             padding: 24px;
             border-radius: 16px;
-            box-shadow: var(--shadow);
+            box-shadow: var(--shadow-md);
+            border: 1px solid rgba(0, 0, 0, 0.03);
             margin-bottom: 32px;
             display: flex;
             align-items: center;
             gap: 20px;
+            transition: var(--transition);
+        }
+        
+        .stats-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
         }
         
         .stats-icon {
-            width: 60px;
-            height: 60px;
+            width: 56px;
+            height: 56px;
             background: linear-gradient(135deg, var(--primary-maroon), #600000);
             border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-size: 24px;
+            color: var(--white);
+            font-size: 22px;
+            box-shadow: 0 4px 12px rgba(128, 0, 0, 0.2);
         }
         
         .stats-info h3 {
-            font-size: 14px;
-            color: #64748b;
-            font-weight: 600;
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
             margin-bottom: 4px;
         }
         
         .stats-info p {
             font-size: 32px;
             font-weight: 800;
-            color: var(--primary-maroon);
+            color: var(--text-main);
+            line-height: 1;
         }
         
         .quick-actions {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 16px;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 20px;
         }
         
         .action-card {
-            background: white;
-            padding: 24px;
+            background: var(--white);
+            padding: 28px 24px;
             border-radius: 16px;
-            box-shadow: var(--shadow);
+            box-shadow: var(--shadow-md);
+            border: 1px solid rgba(0, 0, 0, 0.03);
             text-decoration: none;
-            color: #1e293b;
-            transition: all 0.3s ease;
+            color: var(--text-main);
+            transition: var(--transition);
             display: flex;
             flex-direction: column;
             gap: 12px;
+            position: relative;
+            overflow: hidden;
         }
         
         .action-card:hover {
             transform: translateY(-4px);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.12);
+            box-shadow: var(--shadow-hover);
+            border-color: rgba(128, 0, 0, 0.1);
         }
         
         .action-card.primary {
             background: linear-gradient(135deg, var(--primary-maroon), #600000);
-            color: white;
+            color: var(--white);
+            border: none;
+        }
+        
+        .action-card.primary:hover {
+            box-shadow: 0 15px 30px rgba(128, 0, 0, 0.25);
         }
         
         .action-card.secondary {
-            background: linear-gradient(135deg, var(--primary-gold), #c4a137);
-            color: #1e293b;
+            background: linear-gradient(135deg, var(--white), #fdfbf7);
+            border: 1px solid rgba(212, 175, 55, 0.2);
+        }
+        
+        .action-card.secondary:hover {
+            border-color: var(--primary-gold);
+            box-shadow: 0 15px 30px rgba(212, 175, 55, 0.15);
+        }
+        
+        .action-card.jobs-btn {
+            background: linear-gradient(135deg, #10b981, #047857);
+            color: var(--white);
+            border: none;
+        }
+        
+        .action-card.jobs-btn:hover {
+            box-shadow: 0 15px 30px rgba(16, 185, 129, 0.25);
         }
         
         .action-icon {
-            font-size: 28px;
-            opacity: 0.9;
+            font-size: 26px;
+            transition: var(--transition);
+        }
+        
+        .action-card:hover .action-icon {
+            transform: scale(1.1);
+        }
+        
+        .action-card.primary .action-icon {
+            color: var(--primary-gold);
+        }
+        
+        .action-card.secondary .action-icon {
+            color: var(--primary-gold-dark);
+        }
+        
+        .action-card.jobs-btn .action-icon {
+            color: #a7f3d0;
+        }
+        
+        .action-card:not(.primary):not(.secondary):not(.jobs-btn) .action-icon {
+            color: var(--primary-maroon);
         }
         
         .action-title {
             font-size: 16px;
             font-weight: 700;
+            letter-spacing: -0.2px;
         }
         
         .action-desc {
             font-size: 13px;
-            opacity: 0.8;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+        
+        .action-card.primary .action-desc,
+        .action-card.jobs-btn .action-desc {
+            color: rgba(255, 255, 255, 0.8);
+        }
+        
+        /* Feedback Section */
+        .feedback-section {
+            background: var(--white);
+            padding: 32px;
+            border-radius: 16px;
+            box-shadow: var(--shadow-md);
+            border: 1px solid rgba(0, 0, 0, 0.03);
+            margin-top: 40px;
+        }
+        
+        .feedback-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 16px;
+        }
+        
+        .feedback-header h3 {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .feedback-header a {
+            color: var(--primary-maroon);
+            font-weight: 700;
+            font-size: 13px;
+            text-decoration: none;
+            transition: var(--transition);
+        }
+        
+        .feedback-header a:hover {
+            color: #600000;
+            transform: translateX(3px);
+        }
+        
+        .feedback-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+        
+        .feedback-table th {
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+        }
+        
+        .feedback-table td {
+            padding: 16px;
+            border-bottom: 1px solid rgba(0, 0, 0, 0.03);
+            font-size: 13px;
+            color: var(--text-muted);
+            line-height: 1.5;
+            vertical-align: middle;
+        }
+        
+        .feedback-table tr {
+            transition: var(--transition);
+        }
+        
+        .feedback-table tr:hover td {
+            background-color: #fdfafa;
+        }
+        
+        .feedback-student-name {
+            font-weight: 700;
+            color: var(--text-main);
+            font-size: 14px;
+        }
+        
+        .feedback-student-meta {
+            font-size: 11px;
+            color: var(--text-light);
+            margin-top: 3px;
+            font-weight: 500;
         }
     </style>
 </head>
 <body>
     <?php include_once __DIR__ . '/includes/navbar.php'; ?>
     
-    <!-- <div class="navbar-spacer"></div> -->
-
     <div class="main-content">
         <div class="page-header">
             <h2>Dashboard</h2>
@@ -250,7 +415,7 @@ if (!empty($discipline_filters)) {
                 <div class="action-desc">Create coding problems</div>
             </a>
 
-            <a href="jobs.php" class="action-card primary" style="background: linear-gradient(135deg, #10b981, #047857);">
+            <a href="jobs.php" class="action-card jobs-btn">
                 <div class="action-icon"><i class="fas fa-briefcase"></i></div>
                 <div class="action-title">Jobs & Internships</div>
                 <div class="action-desc">Track department applications</div>
@@ -258,42 +423,42 @@ if (!empty($discipline_filters)) {
         </div>
 
         <!-- Recent Student Feedback Card -->
-        <div style="background: white; padding: 24px; border-radius: 16px; box-shadow: var(--shadow); margin-top: 30px;">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #f1f5f9; padding-bottom: 15px;">
-                <h3 style="font-size: 18px; font-weight: 700; color: #1e293b; display: flex; align-items: center; gap: 8px;">
+        <div class="feedback-section">
+            <div class="feedback-header">
+                <h3>
                     <i class="fas fa-comments" style="color: var(--primary-maroon);"></i> Recent Student Feedback
                 </h3>
-                <a href="feedback.php" style="color: var(--primary-maroon); font-weight: 700; font-size: 13px; text-decoration: none;">View All Feedback →</a>
+                <a href="feedback.php">View All Feedback →</a>
             </div>
             
             <?php if (empty($feedbacks)): ?>
-                <div style="text-align: center; padding: 20px; color: #64748b;">
+                <div style="text-align: center; padding: 30px; color: var(--text-muted);">
                     <p style="font-size: 14px; font-weight: 500;">No student feedback received yet.</p>
                 </div>
             <?php else: ?>
-                <table style="width: 100%; border-collapse: collapse; text-align: left;">
+                <table class="feedback-table">
                     <thead>
                         <tr>
-                            <th style="padding: 10px 15px; border-bottom: 1px solid #e2e8f0; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase;">Student</th>
-                            <th style="padding: 10px 15px; border-bottom: 1px solid #e2e8f0; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase;">Comments</th>
-                            <th style="padding: 10px 15px; border-bottom: 1px solid #e2e8f0; font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase;">Suggested Feature</th>
+                            <th>Student</th>
+                            <th>Comments</th>
+                            <th>Suggested Feature</th>
                         </tr>
                     </thead>
                     <tbody>
                         <?php foreach ($feedbacks as $fb): ?>
                             <tr>
-                                <td style="padding: 14px 15px; border-bottom: 1px solid #f1f5f9; font-size: 14px;">
-                                    <div style="font-weight: 700; color: #1e293b;"><?php echo htmlspecialchars($fb['student_name'] ?? 'N/A'); ?></div>
-                                    <div style="font-size: 11px; color: #64748b; margin-top: 2px;">
+                                <td>
+                                    <div class="feedback-student-name"><?php echo htmlspecialchars($fb['student_name'] ?? 'N/A'); ?></div>
+                                    <div class="feedback-student-meta">
                                         <?php echo htmlspecialchars(($fb['institution'] ?? 'GMU') . (($fb['current_sem'] ?? null) ? ' • Sem ' . $fb['current_sem'] : '')); ?>
                                     </div>
                                 </td>
-                                <td style="padding: 14px 15px; border-bottom: 1px solid #f1f5f9; font-size: 13px; color: #64748b; line-height: 1.4;">
+                                <td>
                                     <?php echo $fb['general_comments'] ? htmlspecialchars(substr($fb['general_comments'], 0, 80)) . (strlen($fb['general_comments']) > 80 ? '...' : '') : '<span style="font-style:italic;opacity:0.6;">None</span>'; ?>
                                 </td>
-                                <td style="padding: 14px 15px; border-bottom: 1px solid #f1f5f9; font-size: 13px; color: #64748b; line-height: 1.4;">
+                                <td>
                                     <?php if ($fb['new_feature_title']): ?>
-                                        <strong style="color: var(--primary-maroon);"><?php echo htmlspecialchars($fb['new_feature_title']); ?></strong>
+                                        <strong style="color: var(--primary-maroon); font-weight: 600;"><?php echo htmlspecialchars($fb['new_feature_title']); ?></strong>
                                     <?php else: ?>
                                         <span style="font-style:italic;opacity:0.6;">None</span>
                                     <?php endif; ?>

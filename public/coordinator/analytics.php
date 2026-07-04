@@ -445,11 +445,19 @@ if (!empty($studentIds)) {
         :root {
             --primary-maroon: #800000;
             --primary-gold: #D4AF37;
+            --primary-gold-dark: #b59228;
             --white: #ffffff;
             --bg-light: #f8fafc;
-            --text-main: #1e293b;
+            --text-main: #0f172a;
             --text-muted: #64748b;
-            --shadow: 0 4px 12px rgba(0,0,0,0.05);
+            --text-light: #94a3b8;
+            --border-color: #e2e8f0;
+            
+            --shadow-sm: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px 0 rgba(0, 0, 0, 0.03);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+            --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.05), 0 4px 6px -2px rgba(0, 0, 0, 0.03);
+            --shadow-hover: 0 20px 25px -5px rgba(0, 0, 0, 0.08), 0 10px 10px -5px rgba(0, 0, 0, 0.03);
+            --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
             --radius: 16px;
         }
         
@@ -460,31 +468,40 @@ if (!empty($studentIds)) {
             background: var(--bg-light);
             color: var(--text-main);
             line-height: 1.6;
+            -webkit-font-smoothing: antialiased;
         }
         
         .navbar-spacer { height: 70px; }
         
         .main-content { 
-            /* Layout handled by navbar.php */
+            max-width: 1280px;
+            margin: 0 auto;
+            padding: 40px 24px 80px 24px;
         }
         
         .page-header { 
-            margin-bottom: 32px;
+            margin-bottom: 40px;
             display: flex;
             justify-content: space-between;
-            align-items: flex-end;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 24px;
+            flex-wrap: wrap;
+            gap: 20px;
         }
         
         .header-info h2 { 
             font-size: 32px; 
             color: var(--primary-maroon); 
-            font-weight: 700;
-            margin-bottom: 4px;
+            font-weight: 800;
+            margin-bottom: 6px;
+            letter-spacing: -0.5px;
         }
         
         .header-info p { 
             color: var(--text-muted); 
-            font-size: 15px; 
+            font-size: 14px; 
+            font-weight: 500;
         }
 
         .back-btn {
@@ -492,128 +509,373 @@ if (!empty($studentIds)) {
             color: var(--primary-maroon);
             font-weight: 600;
             font-size: 14px;
-            display: flex;
+            display: inline-flex;
             align-items: center;
             gap: 8px;
-            margin-bottom: 12px;
-            transition: transform 0.2s;
+            margin-bottom: 24px;
+            transition: var(--transition);
         }
 
         .back-btn:hover {
+            color: #600000;
             transform: translateX(-4px);
         }
 
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 24px;
             margin-bottom: 40px;
         }
 
         .metric-card {
-            background: white;
+            background: var(--white);
             border-radius: var(--radius);
-            padding: 24px;
-            box-shadow: var(--shadow);
-            border: 1px solid rgba(0,0,0,0.03);
-            position: relative;
-            overflow: hidden;
-            transition: transform 0.3s ease;
+            padding: 28px 24px;
+            box-shadow: var(--shadow-md);
+            border: 1px solid rgba(0, 0, 0, 0.03);
+            transition: var(--transition);
+            display: flex;
+            flex-direction: column;
         }
 
         .metric-card:hover {
-            transform: translateY(-5px);
+            transform: translateY(-4px);
+            box-shadow: var(--shadow-hover);
         }
 
-        .metric-header {
+        .metric-tag {
+            font-size: 10px;
+            font-weight: 800;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 4px;
+            display: block;
+        }
+
+        .metric-title {
+            font-size: 18px;
+            color: var(--text-main);
+            font-weight: 700;
+            margin-bottom: 16px;
+            line-height: 1.3;
+        }
+
+        .stats-row {
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            gap: 24px;
             margin-bottom: 20px;
         }
-
-        .metric-icon {
-            width: 48px;
-            height: 48px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
+        
+        .stats-col {
+            flex: 1;
         }
-
-        .metric-info h3 {
-            font-size: 14px;
-            color: var(--text-muted);
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+        
+        .stats-col:not(:first-child) {
+            padding-left: 24px;
+            border-left: 1px solid var(--border-color);
         }
-
-        .metric-value {
-            font-size: 36px;
+        
+        .stats-number {
+            font-size: 24px;
             font-weight: 800;
-            color: var(--text-main);
-            margin: 10px 0;
-            display: flex;
-            align-items: baseline;
-            gap: 8px;
+            line-height: 1.1;
+            margin-bottom: 4px;
         }
-
-        .metric-total {
-            font-size: 16px;
+        .stats-number.completed { color: #16a34a; }
+        .stats-number.missed { color: #ef4444; }
+        .stats-number.total { color: var(--text-main); }
+        
+        .stats-label {
+            font-size: 10px;
             color: var(--text-muted);
-            font-weight: 500;
+            font-weight: 700;
+            letter-spacing: 0.5px;
         }
 
         .progress-container {
             height: 8px;
-            background: #e2e8f0;
+            background: #f1f5f9;
             border-radius: 4px;
-            margin-top: 15px;
+            margin-bottom: 24px;
             overflow: hidden;
         }
 
         .progress-bar {
             height: 100%;
             border-radius: 4px;
-            transition: width 1s ease-in-out;
+            transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        .percent-badge {
-            padding: 4px 8px;
-            border-radius: 6px;
-            font-size: 12px;
+        .btn-view-details {
+            width: 100%;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: var(--white);
+            color: var(--text-main);
             font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            transition: var(--transition);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-view-details:hover {
+            background: #f8fafc;
+            border-color: var(--text-muted);
         }
 
-        /* Metric Specific Colors */
-        .skills-theme { background: #eff6ff; color: #2563eb; }
-        .skills-bar { background: #2563eb; }
-        .skills-bg { background: #dbeafe; color: #1e40af; }
+        /* Portfolio Highlights */
+        .highlight-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 20px;
+            margin-bottom: 40px;
+        }
+        
+        .highlight-card {
+            background: var(--white);
+            border-radius: 14px;
+            padding: 20px;
+            box-shadow: var(--shadow-md);
+            border: 1px solid rgba(0, 0, 0, 0.02);
+            transition: var(--transition);
+        }
+        
+        .highlight-card:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+        
+        .highlight-icon-box {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+            margin-bottom: 12px;
+        }
+        
+        .highlight-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .highlight-value-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            margin-top: 4px;
+        }
+        
+        .highlight-value {
+            font-size: 24px;
+            font-weight: 800;
+            color: var(--text-main);
+        }
+        
+        .highlight-percent {
+            font-size: 13px;
+            font-weight: 700;
+            color: #16a34a;
+        }
 
-        .certs-theme { background: #fef2f2; color: #dc2626; }
-        .certs-bar { background: #dc2626; }
-        .certs-bg { background: #fee2e2; color: #991b1b; }
+        /* Modals */
+        .modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.5);
+            backdrop-filter: blur(6px);
+            z-index: 9999;
+            padding: 20px;
+            align-items: center;
+            justify-content: center;
+            transition: var(--transition);
+        }
+        
+        .modal-container {
+            background: var(--white);
+            width: 100%;
+            max-width: 900px;
+            max-height: 85vh;
+            border-radius: 20px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            box-shadow: var(--shadow-hover);
+            border: 1px solid var(--border-color);
+        }
+        
+        .modal-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-title h3 {
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--primary-maroon);
+            letter-spacing: -0.5px;
+        }
+        
+        .modal-title p {
+            font-size: 13px;
+            color: var(--text-muted);
+            margin-top: 2px;
+        }
+        
+        .modal-close-btn {
+            background: #f1f5f9;
+            border: none;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--text-muted);
+            transition: var(--transition);
+        }
+        
+        .modal-close-btn:hover {
+            background: #e2e8f0;
+            color: var(--text-main);
+        }
+        
+        .modal-body {
+            overflow-y: auto;
+            padding: 24px;
+        }
+        
+        .modal-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        
+        .modal-stat-box {
+            padding: 16px;
+            border-radius: 14px;
+            text-align: center;
+            border: 1px solid transparent;
+        }
+        
+        .modal-stat-box.completed {
+            background: #f0fdf4;
+            border-color: #dcfce7;
+            color: #166534;
+        }
+        
+        .modal-stat-box.missed {
+            background: #fff5f5;
+            border-color: #fee2e2;
+            color: #991b1b;
+        }
+        
+        .modal-stat-box.rate {
+            background: #f8fafc;
+            border-color: #e2e8f0;
+            color: #475569;
+        }
+        
+        .modal-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        
+        .modal-table th {
+            padding: 12px 16px;
+            background: #f8fafc;
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border-color);
+            text-align: left;
+        }
+        
+        .modal-table td {
+            padding: 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 13px;
+        }
+        
+        .modal-table tr {
+            transition: var(--transition);
+        }
+        
+        .modal-table tr:hover td {
+            background: #fdfafa;
+        }
 
-        .projects-theme { background: #f0fdf4; color: #16a34a; }
-        .projects-bar { background: #16a34a; }
-        .projects-bg { background: #dcfce7; color: #166534; }
-
-        .resumes-theme { background: #faf5ff; color: #9333ea; }
-        .resumes-bar { background: #9333ea; }
-        .resumes-bg { background: #f3e8ff; color: #6b21a8; }
-
-        .training-theme { background: #fffbeb; color: #d97706; }
-        .training-bar { background: #d97706; }
-        .training-bg { background: #fef3c7; color: #92400e; }
+        .btn-action-outline {
+            padding: 10px 20px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            background: white;
+            color: var(--text-main);
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: var(--transition);
+            text-decoration: none;
+        }
+        
+        .btn-action-outline:hover {
+            background: #f8fafc;
+            border-color: var(--text-muted);
+        }
+        
+        .btn-action-primary {
+            padding: 10px 20px;
+            border-radius: 10px;
+            background: var(--primary-maroon);
+            color: white;
+            cursor: pointer;
+            border: none;
+            font-size: 14px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: var(--transition);
+            box-shadow: 0 4px 12px rgba(128, 0, 0, 0.2);
+            text-decoration: none;
+        }
+        
+        .btn-action-primary:hover {
+            background: #600000;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 15px rgba(128, 0, 0, 0.3);
+            color: white;
+        }
 
         .empty-state {
             background: white;
             padding: 60px;
             border-radius: var(--radius);
             text-align: center;
-            box-shadow: var(--shadow);
+            box-shadow: var(--shadow-md);
+            border: 1px solid rgba(0, 0, 0, 0.02);
         }
 
         .empty-state i {
@@ -635,41 +897,49 @@ if (!empty($studentIds)) {
         .header-actions {
             display: flex;
             gap: 12px;
-        }
-
-        .btn-download {
-            background: var(--primary-maroon);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 10px;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 600;
-            display: flex;
             align-items: center;
-            gap: 8px;
-            transition: all 0.3s ease;
-            box-shadow: 0 4px 12px rgba(128, 0, 0, 0.2);
         }
 
-        .btn-download:hover {
-            background: #600000;
-            transform: translateY(-2px);
-            box-shadow: 0 6px 15px rgba(128, 0, 0, 0.3);
-            color: white;
+        .filter-form-wrapper {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            background: white;
+            padding: 10px 16px;
+            border-radius: 12px;
+            box-shadow: var(--shadow-sm);
+            border: 1px solid var(--border-color);
+            transition: var(--transition);
+        }
+        
+        .filter-form-wrapper:focus-within {
+            border-color: var(--primary-maroon);
+            box-shadow: 0 0 0 3px rgba(128, 0, 0, 0.1);
+        }
+        
+        .filter-select {
+            border: none;
+            background: transparent;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 600;
+            color: var(--text-main);
+            font-size: 14px;
+            cursor: pointer;
+            outline: none;
         }
 
         @media (max-width: 768px) {
             .main-content { padding: 20px; }
             .page-header { flex-direction: column; align-items: flex-start; gap: 16px; }
+            .header-actions { width: 100%; flex-direction: column; align-items: stretch; }
+            .filter-form-wrapper { justify-content: center; }
+            .btn-action-primary, .btn-action-outline { justify-content: center; }
         }
     </style>
 </head>
 <body>
     <?php include_once __DIR__ . '/includes/navbar.php'; ?>
     
-    <div class="navbar-spacer"></div>
-
     <div class="main-content">
         <a href="dashboard.php" class="back-btn">
             <i class="fas fa-arrow-left"></i> Back to Dashboard
@@ -682,9 +952,9 @@ if (!empty($studentIds)) {
             </div>
             <?php if ($studentCount > 0): ?>
             <div class="header-actions">
-                <form id="instFilterForm" method="POST" style="display: flex; gap: 10px; align-items: center; background: white; padding: 5px 15px; border-radius: 12px; box-shadow: var(--shadow); border: 1px solid #e2e8f0;">
+                <form id="instFilterForm" method="POST" class="filter-form-wrapper">
                     <i class="fas fa-filter" style="color: var(--text-muted); font-size: 14px;"></i>
-                    <select name="inst" onchange="this.form.submit()" style="border: none; background: transparent; font-family: 'Outfit', sans-serif; font-weight: 600; color: var(--text-main); font-size: 14px; cursor: pointer; outline: none;">
+                    <select name="inst" onchange="this.form.submit()" class="filter-select">
                         <option value="all" <?php echo $instFilter === 'all' ? 'selected' : ''; ?>>All Institutions</option>
                         <option value="GMU" <?php echo $instFilter === 'GMU' ? 'selected' : ''; ?>>GMU Only</option>
                         <option value="GMIT" <?php echo $instFilter === 'GMIT' ? 'selected' : ''; ?>>GMIT Only</option>
@@ -692,13 +962,12 @@ if (!empty($studentIds)) {
                 </form>
                 <form method="POST" target="_blank">
                     <input type="hidden" name="pdf" value="1">
-                    <button type="submit" class="btn-download" style="background: #2c3e50; border:none; cursor:pointer;">
+                    <button type="submit" class="btn-action-primary" style="background: #2c3e50; box-shadow: 0 4px 12px rgba(44, 62, 80, 0.2);">
                         <i class="fas fa-file-pdf"></i> Download PDF
                     </button>
                 </form>
             </div>
-            <?php
-endif; ?>
+            <?php endif; ?>
         </div>
 
         <?php if ($studentCount > 0): ?>
@@ -711,42 +980,42 @@ endif; ?>
                 <p style="color: var(--text-muted); font-size: 14px;">Real-time progress of assessments assigned by you.</p>
             </div>
 
-            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; margin-bottom: 48px;">
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; margin-bottom: 48px;">
                 <?php foreach ($tasksData as $task): ?>
-                <div class="metric-card" style="padding: 24px; border: 1px solid #e2e8f0; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); min-height: auto;">
+                <div class="metric-card">
                     <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px;">
                         <div>
-                            <span style="font-size: 10px; font-weight: 800; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px;">
-                                <?php echo ucfirst($task['type']); ?> TRACKING
+                            <span class="metric-tag">
+                                <?php echo strtoupper($task['type']); ?> TRACKING
                             </span>
-                            <h3 style="font-size: 18px; color: var(--text-main); margin-top: 2px; font-weight: 700;"><?php echo htmlspecialchars($task['title']); ?></h3>
+                            <h3 class="metric-title"><?php echo htmlspecialchars($task['title']); ?></h3>
                         </div>
                         <div style="background: <?php echo $task['percentage'] > 70 ? '#dcfce7' : ($task['percentage'] > 30 ? '#fef3c7' : '#fee2e2'); ?>; color: <?php echo $task['percentage'] > 70 ? '#166534' : ($task['percentage'] > 30 ? '#92400e' : '#991b1b'); ?>; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: 800;">
                             <?php echo $task['percentage']; ?>%
                         </div>
                     </div>
 
-                    <div style="display: flex; gap: 24px; margin-bottom: 20px;">
-                        <div>
-                            <div style="font-size: 20px; font-weight: 800; color: #16a34a;"><?php echo $task['completed']; ?></div>
-                            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px;">DONE</div>
+                    <div class="stats-row">
+                        <div class="stats-col">
+                            <div class="stats-number completed"><?php echo $task['completed']; ?></div>
+                            <div class="stats-label">DONE</div>
                         </div>
-                        <div style="padding-left: 24px; border-left: 1px solid #f1f5f9;">
-                            <div style="font-size: 20px; font-weight: 800; color: #ef4444;"><?php echo count($task['pending_list']) + $task['missed']; ?></div>
-                            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px;">MISSED</div>
+                        <div class="stats-col">
+                            <div class="stats-number missed"><?php echo count($task['pending_list']) + $task['missed']; ?></div>
+                            <div class="stats-label">MISSED</div>
                         </div>
-                        <div style="padding-left: 24px; border-left: 1px solid #f1f5f9;">
-                            <div style="font-size: 20px; font-weight: 800; color: var(--text-main);"><?php echo $task['total']; ?></div>
-                            <div style="font-size: 10px; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px;">TOTAL</div>
+                        <div class="stats-col">
+                            <div class="stats-number total"><?php echo $task['total']; ?></div>
+                            <div class="stats-label">TOTAL</div>
                         </div>
                     </div>
 
-                    <div class="progress-container" style="height: 8px; margin-bottom: 20px; background: #f1f5f9; border-radius: 4px;">
-                        <div class="progress-bar" style="width: <?php echo $task['percentage']; ?>%; background: linear-gradient(90deg, #16a34a, #22c55e); border-radius: 4px;"></div>
+                    <div class="progress-container">
+                        <div class="progress-bar" style="width: <?php echo $task['percentage']; ?>%; background: linear-gradient(90deg, #16a34a, #22c55e);"></div>
                     </div>
                     
-                    <div style="display: flex; gap: 10px;">
-                        <button onclick="showTaskDetails('<?php echo $task['type']; ?>')" style="width: 100%; padding: 10px; border-radius: 10px; border: 1px solid #e2e8f0; background: #fff; color: var(--text-main); font-weight: 700; font-size: 13px; cursor: pointer; transition: all 0.2s; display: flex; align-items: center; justify-content: center; gap: 8px;">
+                    <div style="margin-top: auto;">
+                        <button onclick="showTaskDetails('<?php echo $task['type']; ?>')" class="btn-view-details">
                             <i class="fas fa-list-check"></i> View Detailed Breakdown
                         </button>
                     </div>
@@ -762,7 +1031,7 @@ endif; ?>
                 </h3>
             </div>
 
-            <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 16px;">
+            <div class="highlight-grid">
                 <?php 
                 $highlightMetrics = [
                     ['label' => 'Skills Added', 'key' => 'skills', 'icon' => 'fa-bolt', 'color' => '#fbbf24'],
@@ -775,18 +1044,16 @@ endif; ?>
                 foreach ($highlightMetrics as $hm): 
                     $p = $getPercentage($metrics[$hm['key']], $studentCount);
                 ?>
-                <div class="metric-card" style="padding: 16px; min-height: auto;">
-                    <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px;">
-                        <div style="width: 32px; height: 32px; background: <?php echo $hm['color']; ?>15; color: <?php echo $hm['color']; ?>; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px;">
-                            <i class="fas <?php echo $hm['icon']; ?>"></i>
-                        </div>
-                        <div style="font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase;"><?php echo $hm['label']; ?></div>
+                <div class="highlight-card">
+                    <div class="highlight-icon-box" style="background: <?php echo $hm['color']; ?>15; color: <?php echo $hm['color']; ?>;">
+                        <i class="fas <?php echo $hm['icon']; ?>"></i>
                     </div>
-                    <div style="display: flex; justify-content: space-between; align-items: baseline;">
-                        <div style="font-size: 20px; font-weight: 800; color: var(--text-main);"><?php echo $metrics[$hm['key']]; ?></div>
-                        <div style="font-size: 12px; font-weight: 700; color: #16a34a;"><?php echo $p; ?>%</div>
+                    <div class="highlight-label"><?php echo $hm['label']; ?></div>
+                    <div class="highlight-value-row">
+                        <div class="highlight-value"><?php echo $metrics[$hm['key']]; ?></div>
+                        <div class="highlight-percent"><?php echo $p; ?>%</div>
                     </div>
-                    <div style="height: 4px; background: #f1f5f9; border-radius: 2px; margin-top: 8px;">
+                    <div style="height: 4px; background: #f1f5f9; border-radius: 2px; margin-top: 8px; overflow: hidden;">
                         <div style="width: <?php echo $p; ?>%; height: 100%; background: <?php echo $hm['color']; ?>; border-radius: 2px;"></div>
                     </div>
                 </div>
@@ -796,13 +1063,13 @@ endif; ?>
             <div style="margin-top: 32px; border-top: 1px solid #f1f5f9; padding-top: 24px; display: flex; justify-content: flex-end; gap: 15px;">
                 <form method="POST">
                     <input type="hidden" name="export" value="1">
-                    <button type="submit" style="padding: 10px 20px; border-radius: 10px; border: 1px solid #e2e8f0; background: white; color: var(--text-main); cursor:pointer; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                    <button type="submit" class="btn-action-outline">
                         <i class="fas fa-file-csv"></i> Export CSV
                     </button>
                 </form>
                 <form method="POST" target="_blank">
                     <input type="hidden" name="pdf" value="1">
-                    <button type="submit" style="padding: 10px 20px; border-radius: 10px; background: var(--primary-maroon); color: white; cursor:pointer; border:none; font-size: 14px; font-weight: 700; display: flex; align-items: center; gap: 8px;">
+                    <button type="submit" class="btn-action-primary">
                         <i class="fas fa-file-pdf"></i> Download Full Report
                     </button>
                 </form>
@@ -810,96 +1077,96 @@ endif; ?>
 
             <!-- Detail Modals -->
             <?php foreach ($tasksData as $task): ?>
-                <div id="modal_<?php echo $task['type']; ?>" style="display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 9999; padding: 20px; align-items: center; justify-content: center;">
-                    <div style="background: white; width: 100%; max-width: 900px; max-height: 85vh; border-radius: 24px; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);">
-                        <div style="padding: 24px; border-bottom: 1px solid #f1f5f9; display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <h3 style="font-size: 20px; font-weight: 700; color: var(--primary-maroon);"><?php echo htmlspecialchars($task['title']); ?> - Detailed View</h3>
-                                <p style="font-size: 14px; color: var(--text-muted);"><?php echo $task['total']; ?> Total Assignments</p>
+                <div id="modal_<?php echo $task['type']; ?>" class="modal-overlay">
+                    <div class="modal-container">
+                        <div class="modal-header">
+                            <div class="modal-title">
+                                <h3><?php echo htmlspecialchars($task['title']); ?> - Detailed View</h3>
+                                <p><?php echo $task['total']; ?> Total Assignments</p>
                             </div>
-                            <div style="display: flex; gap: 10px;">
-                                <a href="?missed_pdf=1&type=<?php echo $task['type']; ?>&inst=<?php echo $instFilter; ?>" target="_blank" style="padding: 8px 16px; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; border-radius: 8px; font-size: 12px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 6px;">
+                            <div style="display: flex; gap: 10px; align-items: center;">
+                                <a href="?missed_pdf=1&type=<?php echo $task['type']; ?>&inst=<?php echo $instFilter; ?>" target="_blank" style="padding: 8px 16px; background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; border-radius: 8px; font-size: 12px; font-weight: 700; text-decoration: none; display: flex; align-items: center; gap: 6px; transition: var(--transition);">
                                     <i class="fas fa-file-pdf"></i> Download Missed List
                                 </a>
-                                <button onclick="hideTaskDetails('<?php echo $task['type']; ?>')" style="background: #f1f5f9; border: none; width: 40px; height: 40px; border-radius: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; transition: background 0.2s;">
+                                <button onclick="hideTaskDetails('<?php echo $task['type']; ?>')" class="modal-close-btn">
                                     <i class="fas fa-times"></i>
                                 </button>
                             </div>
                         </div>
                         
-                        <div style="overflow-y: auto; padding: 24px;">
+                        <div class="modal-body">
                             <!-- Summary Row -->
-                            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 15px; margin-bottom: 30px;">
-                                <div style="background: #f0fdf4; padding: 15px; border-radius: 16px; border: 1px solid #dcfce7; text-align: center;">
-                                    <h4 style="font-size: 11px; color: #166534; text-transform: uppercase;">Completed</h4>
-                                    <div style="font-size: 24px; font-weight: 800; color: #166534;"><?php echo $task['completed']; ?></div>
+                            <div class="modal-stats">
+                                <div class="modal-stat-box completed">
+                                    <h4 style="font-size: 11px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Completed</h4>
+                                    <div style="font-size: 24px; font-weight: 800; margin-top: 4px;"><?php echo $task['completed']; ?></div>
                                 </div>
-                                <div style="background: #fff5f5; padding: 15px; border-radius: 16px; border: 1px solid #fee2e2; text-align: center;">
-                                    <h4 style="font-size: 11px; color: #991b1b; text-transform: uppercase;">Missed</h4>
-                                    <div style="font-size: 24px; font-weight: 800; color: #991b1b;"><?php echo count($task['pending_list']) + $task['missed']; ?></div>
+                                <div class="modal-stat-box missed">
+                                    <h4 style="font-size: 11px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Missed</h4>
+                                    <div style="font-size: 24px; font-weight: 800; margin-top: 4px;"><?php echo count($task['pending_list']) + $task['missed']; ?></div>
                                 </div>
-                                <div style="background: #f8fafc; padding: 15px; border-radius: 16px; border: 1px solid #e2e8f0; text-align: center;">
-                                    <h4 style="font-size: 11px; color: #475569; text-transform: uppercase;">Rate</h4>
-                                    <div style="font-size: 24px; font-weight: 800; color: #475569;"><?php echo $task['percentage']; ?>%</div>
+                                <div class="modal-stat-box rate">
+                                    <h4 style="font-size: 11px; text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px;">Rate</h4>
+                                    <div style="font-size: 24px; font-weight: 800; margin-top: 4px;"><?php echo $task['percentage']; ?>%</div>
                                 </div>
                             </div>
 
-                            <table style="width: 100%; border-collapse: collapse;">
+                            <table class="modal-table">
                                 <thead>
-                                    <tr style="text-align: left; background: #f8fafc; border-radius: 10px;">
-                                        <th style="padding: 12px; font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Student Info</th>
-                                        <th style="padding: 12px; font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Assigned Task</th>
-                                        <th style="padding: 12px; font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Status</th>
-                                        <th style="padding: 12px; font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Detail</th>
+                                    <tr>
+                                        <th>Student Info</th>
+                                        <th>Assigned Task</th>
+                                        <th>Status</th>
+                                        <th>Detail</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     <?php foreach ($task['completed_list'] as $s): ?>
-                                    <tr style="border-bottom: 1px solid #f1f5f9;">
-                                        <td style="padding: 12px;">
-                                            <div style="font-weight: 600; font-size: 14px;"><?php echo htmlspecialchars($s['name']); ?></div>
-                                            <div style="font-size: 11px; color: var(--text-muted);"><?php echo $s['usn']; ?></div>
+                                    <tr>
+                                        <td>
+                                            <div style="font-weight: 700; font-size: 14px; color: var(--text-main);"><?php echo htmlspecialchars($s['name']); ?></div>
+                                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;"><?php echo $s['usn']; ?></div>
                                         </td>
-                                        <td style="padding: 12px; font-size: 13px;">
-                                            <div><?php echo htmlspecialchars($s['task_title']); ?></div>
-                                            <div style="font-size: 10px; color: var(--text-muted);"><?php echo date('d M Y', strtotime($s['assigned_at'])); ?></div>
+                                        <td>
+                                            <div style="font-weight: 600; color: var(--text-main);"><?php echo htmlspecialchars($s['task_title']); ?></div>
+                                            <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;"><?php echo date('d M Y', strtotime($s['assigned_at'])); ?></div>
                                         </td>
-                                        <td style="padding: 12px;">
-                                            <span style="background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;">COMPLETED</span>
+                                        <td>
+                                            <span style="background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px;">COMPLETED</span>
                                         </td>
-                                        <td style="padding: 12px; font-weight: 700; color: #166534;">Score: <?php echo $s['score'] ?: 'N/A'; ?></td>
+                                        <td style="font-weight: 700; color: #166534; font-size: 13px;">Score: <?php echo $s['score'] ?: 'N/A'; ?></td>
                                     </tr>
                                     <?php endforeach; ?>
                                     <?php foreach ($task['missed_list'] as $s): ?>
-                                    <tr style="border-bottom: 1px solid #f1f5f9;">
-                                        <td style="padding: 12px;">
-                                            <div style="font-weight: 600; font-size: 14px;"><?php echo htmlspecialchars($s['name']); ?></div>
-                                            <div style="font-size: 11px; color: var(--text-muted);"><?php echo $s['usn']; ?></div>
+                                    <tr>
+                                        <td>
+                                            <div style="font-weight: 700; font-size: 14px; color: var(--text-main);"><?php echo htmlspecialchars($s['name']); ?></div>
+                                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;"><?php echo $s['usn']; ?></div>
                                         </td>
-                                        <td style="padding: 12px; font-size: 13px;">
-                                            <div><?php echo htmlspecialchars($s['task_title']); ?></div>
-                                            <div style="font-size: 10px; color: var(--text-muted);"><?php echo date('d M Y', strtotime($s['assigned_at'])); ?></div>
+                                        <td>
+                                            <div style="font-weight: 600; color: var(--text-main);"><?php echo htmlspecialchars($s['task_title']); ?></div>
+                                            <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;"><?php echo date('d M Y', strtotime($s['assigned_at'])); ?></div>
                                         </td>
-                                        <td style="padding: 12px;">
-                                            <span style="background: #ffebee; color: #c62828; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;">MISSED</span>
+                                        <td>
+                                            <span style="background: #fee2e2; color: #991b1b; padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px;">MISSED</span>
                                         </td>
-                                        <td style="padding: 12px;">-</td>
+                                        <td>-</td>
                                     </tr>
                                     <?php endforeach; ?>
                                     <?php foreach ($task['pending_list'] as $s): ?>
-                                    <tr style="border-bottom: 1px solid #f1f5f9;">
-                                        <td style="padding: 12px;">
-                                            <div style="font-weight: 600; font-size: 14px;"><?php echo htmlspecialchars($s['name']); ?></div>
-                                            <div style="font-size: 11px; color: var(--text-muted);"><?php echo $s['usn']; ?></div>
+                                    <tr>
+                                        <td>
+                                            <div style="font-weight: 700; font-size: 14px; color: var(--text-main);"><?php echo htmlspecialchars($s['name']); ?></div>
+                                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;"><?php echo $s['usn']; ?></div>
                                         </td>
-                                        <td style="padding: 12px; font-size: 13px;">
-                                            <div><?php echo htmlspecialchars($s['task_title']); ?></div>
-                                            <div style="font-size: 10px; color: var(--text-muted);"><?php echo date('d M Y', strtotime($s['assigned_at'])); ?></div>
+                                        <td>
+                                            <div style="font-weight: 600; color: var(--text-main);"><?php echo htmlspecialchars($s['task_title']); ?></div>
+                                            <div style="font-size: 10px; color: var(--text-muted); margin-top: 2px;"><?php echo date('d M Y', strtotime($s['assigned_at'])); ?></div>
                                         </td>
-                                        <td style="padding: 12px;">
-                                            <span style="background: #fff3cd; color: #856404; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700;">MISSED</span>
+                                        <td>
+                                            <span style="background: #fff3cd; color: #856404; padding: 4px 10px; border-radius: 20px; font-size: 10px; font-weight: 800; letter-spacing: 0.5px;">MISSED</span>
                                         </td>
-                                        <td style="padding: 12px;">-</td>
+                                        <td>-</td>
                                     </tr>
                                     <?php endforeach; ?>
                                 </tbody>
@@ -918,7 +1185,6 @@ endif; ?>
                     document.getElementById('modal_' + type).style.display = 'none';
                     document.body.style.overflow = 'auto';
                 }
-                // Close on background click
                 window.onclick = function(event) {
                     if (event.target.id.startsWith('modal_')) {
                         event.target.style.display = "none";
@@ -926,17 +1192,14 @@ endif; ?>
                     }
                 }
             </script>
-        <?php
-else: ?>
+        <?php else: ?>
             <div class="empty-state">
                 <i class="fas fa-users-slash"></i>
                 <h3>No Students Found</h3>
                 <p>There are no students currently enrolled in your department for the selected filters.</p>
             </div>
-        <?php
-endif; ?>
+        <?php endif; ?>
     </div>
-
 </body>
 </html>
 

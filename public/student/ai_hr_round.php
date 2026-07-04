@@ -461,6 +461,8 @@ if ($driveId > 0) {
         const MIN_REQUIRED_TIME = 20 * 60; // 20 minutes
 
         let voices = [];
+        let speechQueue = [];
+        let speechWatchdog = null;
         
         function loadVoices() {
             voices = synth.getVoices();
@@ -524,29 +526,23 @@ if ($driveId > 0) {
             };
 
             recognition.onresult = (event) => {
-                let interim = '';
-                let final = '';
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                let finalTranscript = '';
+                let interimTranscript = '';
+                for (let i = 0; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
-                        final += event.results[i][0].transcript;
+                        finalTranscript += event.results[i][0].transcript;
                     } else {
-                        interim += event.results[i][0].transcript;
+                        interimTranscript += event.results[i][0].transcript;
                     }
                 }
-                if (final || interim) {
+                if (finalTranscript || interimTranscript) {
                     clearSilenceTimer();
                     silenceTimer = setTimeout(() => onSilenceComplete(), SILENCE_MS);
                 }
-                if (final) {
-                    currentUtterance = (currentUtterance + ' ' + final).trim();
-                    updateUserInterimLine(currentUtterance);
-                    showCaption(currentUtterance);
-                }
-                if (interim) {
-                    const display = (currentUtterance + ' ' + interim).trim();
-                    updateUserInterimLine(display);
-                    showCaption(display);
-                }
+                currentUtterance = finalTranscript.trim();
+                const display = (finalTranscript + ' ' + interimTranscript).trim();
+                updateUserInterimLine(display);
+                showCaption(display);
             };
 
             recognition.onerror = (event) => {
@@ -784,12 +780,66 @@ if ($driveId > 0) {
             loadNextQuestion(text);
         }
 
+        function clearSpeechWatchdog() {
+            if (speechWatchdog) {
+                clearTimeout(speechWatchdog);
+                speechWatchdog = null;
+            }
+        }
+
         function speak(text) {
+            window.currentUtteranceObj = null; // Invalidate previous utterance
+            clearSpeechWatchdog();
             if (synth.speaking) synth.cancel();
             
+            if (recognition) {
+                try { recognition.abort(); } catch(e) {}
+            }
+            
+            speechQueue = [];
+            isSpeaking = false;
+
+            let cleanText = text.replace(/\[END_INTERVIEW\]/g, '')
+                                .replace(/\*\*/g, '')
+                                .replace(/- /g, ', ')
+                                .replace(/\n/g, '. ')
+                                .replace(/=/g, ' equals ')
+                                .replace(/\+/g, ' plus ')
+                                .replace(/(\d+):(\d+)/g, '$1 $2');
+            
+            // Split into smaller chunks (sentences) for better reliability
+            const chunks = cleanText.match(/[^.!?]+[.!?]*|[^.!?]+/g) || [cleanText];
+            chunks.forEach(c => {
+                const trimmed = c.trim();
+                if (trimmed.length > 0) speechQueue.push(trimmed);
+            });
+
+            isSpeaking = true;
+            updateState("AI Speaking...", "speaking");
+            document.getElementById('micBtn').classList.add('disabled');
+
+            processSpeechQueue();
+        }
+
+        function processSpeechQueue() {
+            if (speechQueue.length === 0) {
+                clearSpeechWatchdog();
+                isSpeaking = false;
+                isProcessingAnswer = false;
+                currentUtterance = ''; // Clear for new question!
+                if (isSessionActive) {
+                    updateState("Your turn...", "neutral");
+                    document.getElementById('micBtn').classList.remove('disabled');
+                    // Auto start listening after AI speaks
+                    startListening();
+                }
+                return;
+            }
+
+            const text = speechQueue.shift();
             const utterance = new SpeechSynthesisUtterance(text);
             window.currentUtteranceObj = utterance; // Prevent GC sweeping it mid-speech
-            
+
             // Prefer a female/natural sounding voice if available
             const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Zira") || v.name.includes("Female"));
             if (preferredVoice) utterance.voice = preferredVoice;
@@ -797,20 +847,35 @@ if ($driveId > 0) {
             utterance.rate = 0.9;
             utterance.pitch = 1.0;
 
-            utterance.onstart = () => {
-                isSpeaking = true;
-                updateState("AI Speaking...", "speaking");
-                document.getElementById('micBtn').classList.add('disabled');
-            };
+            // Calculate safety watchdog timeout (150ms per character + 5000ms base)
+            const safetyTimeout = (text.length * 150) + 5000;
+            clearSpeechWatchdog();
+            speechWatchdog = setTimeout(() => {
+                console.warn("Speech Synthesis watchdog triggered. Force ending current chunk.");
+                if (window.currentUtteranceObj === utterance) {
+                    window.currentUtteranceObj = null;
+                    synth.cancel();
+                    processSpeechQueue();
+                }
+            }, safetyTimeout);
+
             utterance.onend = () => {
-                isSpeaking = false;
-                isProcessingAnswer = false;
-                currentUtterance = ''; // Clear for new question!
-                updateState("Your turn...", "neutral");
-                document.getElementById('micBtn').classList.remove('disabled');
-                // Auto start listening after AI speaks
-                startListening(); 
+                if (window.currentUtteranceObj !== utterance) return;
+                clearSpeechWatchdog();
+                setTimeout(() => {
+                    processSpeechQueue();
+                }, 100); // Tiny pause between chunks
             };
+
+            utterance.onerror = (event) => {
+                if (window.currentUtteranceObj !== utterance) return;
+                clearSpeechWatchdog();
+                console.error("Speech Synthesis error in chunk:", event);
+                setTimeout(() => {
+                    processSpeechQueue();
+                }, 100);
+            };
+
             synth.speak(utterance);
         }
 
@@ -848,6 +913,9 @@ if ($driveId > 0) {
         }
 
         function stopSpeaking() {
+            window.currentUtteranceObj = null;
+            clearSpeechWatchdog();
+            speechQueue = [];
             if (synth.speaking) synth.cancel();
         }
 

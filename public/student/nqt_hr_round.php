@@ -303,6 +303,8 @@ $fullName = getFullName();
         let isProcessingAnswer = false;
         let isSpeaking = false;
         let voices = [];
+        let speechQueue = [];
+        let speechWatchdog = null;
         let silenceTimer;
         let currentUtterance = "";
         let timeRemaining = 3600;
@@ -325,6 +327,9 @@ $fullName = getFullName();
         function handleTimeUp() {
             document.getElementById('timeUpOverlay').classList.remove('hidden');
             if (isListening && recognition) recognition.stop();
+            window.currentUtteranceObj = null;
+            clearSpeechWatchdog();
+            speechQueue = [];
             if (isSpeaking && synth) synth.cancel();
         }
 
@@ -381,27 +386,24 @@ $fullName = getFullName();
             };
 
             recognition.onresult = (event) => {
-                let interim = "";
-                let final = "";
-                for (let i = event.resultIndex; i < event.results.length; ++i) {
-                    if (event.results[i].isFinal) final += event.results[i][0].transcript;
-                    else interim += event.results[i][0].transcript;
+                let finalTranscript = '';
+                let interimTranscript = '';
+                for (let i = 0; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
                 }
-                
-                if (final || interim) {
+                if (finalTranscript || interimTranscript) {
                     clearTimeout(silenceTimer);
                     silenceTimer = setTimeout(() => {
                         if (currentUtterance.trim()) sendAnswer(currentUtterance);
                     }, 7000);
                 }
-                if (final) {
-                    currentUtterance = (currentUtterance + " " + final).trim();
-                    showCaption(currentUtterance);
-                }
-                if (interim) {
-                    const display = (currentUtterance + " " + interim).trim();
-                    showCaption(display);
-                }
+                currentUtterance = finalTranscript.trim();
+                const display = (finalTranscript + ' ' + interimTranscript).trim();
+                showCaption(display);
             };
 
             recognition.onerror = (event) => {
@@ -458,27 +460,100 @@ $fullName = getFullName();
             }
         }
 
+        function clearSpeechWatchdog() {
+            if (speechWatchdog) {
+                clearTimeout(speechWatchdog);
+                speechWatchdog = null;
+            }
+        }
+
         function speak(text) {
+            window.currentUtteranceObj = null; // Invalidate previous utterance
+            clearSpeechWatchdog();
             if (synth.speaking) synth.cancel();
-            const utterance = new SpeechSynthesisUtterance(text);
-            window.currentUtteranceObj = utterance; // Prevent GC sweeping it mid-speech
-            const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Female"));
-            if (preferredVoice) utterance.voice = preferredVoice;
             
-            utterance.rate = 1.0;
-            utterance.onstart = () => {
-                isSpeaking = true;
-                updateState("Speaking", "speaking");
-                document.getElementById('micBtn').classList.add('disabled');
-            };
-            utterance.onend = () => {
+            if (recognition) {
+                try { recognition.abort(); } catch(e) {}
+            }
+            
+            speechQueue = [];
+            isSpeaking = false;
+
+            let cleanText = text.replace(/\[END_INTERVIEW\]/g, '')
+                                .replace(/\*\*/g, '')
+                                .replace(/- /g, ', ')
+                                .replace(/\n/g, '. ')
+                                .replace(/=/g, ' equals ')
+                                .replace(/\+/g, ' plus ')
+                                .replace(/(\d+):(\d+)/g, '$1 $2');
+            
+            // Split into smaller chunks (sentences) for better reliability
+            const chunks = cleanText.match(/[^.!?]+[.!?]*|[^.!?]+/g) || [cleanText];
+            chunks.forEach(c => {
+                const trimmed = c.trim();
+                if (trimmed.length > 0) speechQueue.push(trimmed);
+            });
+
+            isSpeaking = true;
+            updateState("Speaking", "speaking");
+            document.getElementById('micBtn').classList.add('disabled');
+
+            processSpeechQueue();
+        }
+
+        function processSpeechQueue() {
+            if (speechQueue.length === 0) {
+                clearSpeechWatchdog();
                 isSpeaking = false;
                 isProcessingAnswer = false;
                 currentUtterance = "";
-                updateState("Ready", "neutral");
-                document.getElementById('micBtn').classList.remove('disabled');
-                recognition.start(); // Auto-start listening
+                if (sessionId) {
+                    updateState("Ready", "neutral");
+                    document.getElementById('micBtn').classList.remove('disabled');
+                    // Auto-start listening
+                    try { recognition.start(); } catch(e){}
+                }
+                return;
+            }
+
+            const text = speechQueue.shift();
+            const utterance = new SpeechSynthesisUtterance(text);
+            window.currentUtteranceObj = utterance; // Prevent GC sweeping it mid-speech
+            
+            const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Female"));
+            if (preferredVoice) utterance.voice = preferredVoice;
+
+            utterance.rate = 1.0;
+
+            // Calculate safety watchdog timeout (150ms per character + 5000ms base)
+            const safetyTimeout = (text.length * 150) + 5000;
+            clearSpeechWatchdog();
+            speechWatchdog = setTimeout(() => {
+                console.warn("Speech Synthesis watchdog triggered. Force ending current chunk.");
+                if (window.currentUtteranceObj === utterance) {
+                    window.currentUtteranceObj = null;
+                    synth.cancel();
+                    processSpeechQueue();
+                }
+            }, safetyTimeout);
+
+            utterance.onend = () => {
+                if (window.currentUtteranceObj !== utterance) return;
+                clearSpeechWatchdog();
+                setTimeout(() => {
+                    processSpeechQueue();
+                }, 100); // Tiny pause between chunks
             };
+
+            utterance.onerror = (event) => {
+                if (window.currentUtteranceObj !== utterance) return;
+                clearSpeechWatchdog();
+                console.error("Speech Synthesis error in chunk:", event);
+                setTimeout(() => {
+                    processSpeechQueue();
+                }, 100);
+            };
+
             synth.speak(utterance);
         }
 
@@ -561,6 +636,10 @@ $fullName = getFullName();
             showLoader("Finalizing Session...");
             const curSessionId = sessionId; // Capture it
             sessionId = null;
+            
+            window.currentUtteranceObj = null;
+            clearSpeechWatchdog();
+            speechQueue = [];
             
             if (document.fullscreenElement) document.exitFullscreen();
             if (synth.speaking) synth.cancel();

@@ -78,15 +78,24 @@ $totalPromptCost = (($totalCostStats['total_prompt_tokens'] ?? 0) / 1000) * 0.00
 $totalCompletionCost = (($totalCostStats['total_completion_tokens'] ?? 0) / 1000) * 0.00060;
 $totalEstimatedCost = $totalPromptCost + $totalCompletionCost;
 
+// Status Filter
+$statusFilter = $_GET['status'] ?? 'all';
+$statusWhere = "";
+if ($statusFilter === 'success') {
+    $statusWhere = "WHERE status = 'success'";
+} else if ($statusFilter === 'failed') {
+    $statusWhere = "WHERE status != 'success'";
+}
+
 // Recent Logs with Pagination (20 per page)
 $limit = 20;
 $page = isset($_GET['page']) ? max(1, intval($_GET['page'])) : 1;
 $offset = ($page - 1) * $limit;
 
-$totalRows = $db->query("SELECT COUNT(*) FROM ai_audit_logs")->fetchColumn();
+$totalRows = $db->query("SELECT COUNT(*) FROM ai_audit_logs $statusWhere")->fetchColumn();
 $totalPages = max(1, ceil($totalRows / $limit));
 
-$recentLogs = $db->query("SELECT * FROM ai_audit_logs ORDER BY created_at DESC LIMIT $limit OFFSET $offset")->fetchAll(PDO::FETCH_ASSOC);
+$recentLogs = $db->query("SELECT * FROM ai_audit_logs $statusWhere ORDER BY created_at DESC LIMIT $limit OFFSET $offset")->fetchAll(PDO::FETCH_ASSOC);
 
 // Worker Health (Redis)
 $redis = $redisHelper->getClient();
@@ -423,6 +432,11 @@ foreach ($workerPulses as $id => $time) {
             <div class="content-card">
                 <div class="card-header">
                     <h2>Live Request Stream</h2>
+                    <select id="statusFilter" onchange="window.location.href='?status=' + this.value;" style="padding: 4px 8px; font-size: 13px; border-radius: 8px; border: 1px solid var(--border); outline: none;">
+                        <option value="all" <?php echo $statusFilter === 'all' ? 'selected' : ''; ?>>All Status</option>
+                        <option value="success" <?php echo $statusFilter === 'success' ? 'selected' : ''; ?>>Success</option>
+                        <option value="failed" <?php echo $statusFilter === 'failed' ? 'selected' : ''; ?>>Failed</option>
+                    </select>
                 </div>
                 <div class="table-responsive">
                     <table>
@@ -436,8 +450,8 @@ foreach ($workerPulses as $id => $time) {
                         </thead>
                         <tbody>
                             <?php foreach ($recentLogs as $log): ?>
-                            <tr>
-                                <td style="color: var(--text-muted);"><?php echo date('H:i:s', strtotime($log['created_at'])); ?></td>
+                            <tr class="stream-row" data-status="<?php echo strtolower($log['status']); ?>">
+                                <td style="color: var(--text-muted);"><?php echo date('M d, H:i:s', strtotime($log['created_at'])); ?></td>
                                 <td><?php echo $log['service_method']; ?></td>
                                 <td><?php echo $log['total_tokens']; ?></td>
                                 <td>
@@ -452,7 +466,7 @@ foreach ($workerPulses as $id => $time) {
                 </div>
                 <?php if ($totalPages > 1): ?>
                 <div class="pagination">
-                    <a href="?page=<?php echo $page - 1; ?>" class="pagination-btn <?php echo $page <= 1 ? 'disabled' : ''; ?>" <?php echo $page <= 1 ? 'onclick="return false;"' : ''; ?>>
+                    <a href="?page=<?php echo $page - 1; ?>&status=<?php echo urlencode($statusFilter); ?>" class="pagination-btn <?php echo $page <= 1 ? 'disabled' : ''; ?>" <?php echo $page <= 1 ? 'onclick="return false;"' : ''; ?>>
                         <i class="fas fa-chevron-left"></i>
                     </a>
                     
@@ -461,7 +475,7 @@ foreach ($workerPulses as $id => $time) {
                     $endPage = min($totalPages, $page + 2);
                     
                     if ($startPage > 1) {
-                        echo '<a href="?page=1" class="pagination-btn">1</a>';
+                        echo '<a href="?page=1&status=' . urlencode($statusFilter) . '" class="pagination-btn">1</a>';
                         if ($startPage > 2) {
                             echo '<span style="color: var(--text-muted); padding: 0 4px;">...</span>';
                         }
@@ -469,18 +483,18 @@ foreach ($workerPulses as $id => $time) {
                     
                     for ($i = $startPage; $i <= $endPage; $i++) {
                         $activeClass = $i === $page ? 'active' : '';
-                        echo "<a href='?page=$i' class='pagination-btn $activeClass'>$i</a>";
+                        echo "<a href='?page=$i&status=" . urlencode($statusFilter) . "' class='pagination-btn $activeClass'>$i</a>";
                     }
                     
                     if ($endPage < $totalPages) {
                         if ($endPage < $totalPages - 1) {
                             echo '<span style="color: var(--text-muted); padding: 0 4px;">...</span>';
                         }
-                        echo "<a href='?page=$totalPages' class='pagination-btn'>$totalPages</a>";
+                        echo "<a href='?page=$totalPages&status=" . urlencode($statusFilter) . "' class='pagination-btn'>$totalPages</a>";
                     }
                     ?>
                     
-                    <a href="?page=<?php echo $page + 1; ?>" class="pagination-btn <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" <?php echo $page >= $totalPages ? 'onclick="return false;"' : ''; ?>>
+                    <a href="?page=<?php echo $page + 1; ?>&status=<?php echo urlencode($statusFilter); ?>" class="pagination-btn <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" <?php echo $page >= $totalPages ? 'onclick="return false;"' : ''; ?>>
                         <i class="fas fa-chevron-right"></i>
                     </a>
                 </div>

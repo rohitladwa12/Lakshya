@@ -336,6 +336,12 @@ $stmt = $remoteDB->prepare($query);
 $stmt->execute($params);
 $students = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
+// Fetch ALL matching USNs for bulk assignment across pages
+$allQuery = "SELECT asa.usn FROM {$combinedApproved} asa WHERE $where_sql GROUP BY asa.usn";
+$stmtAll = $remoteDB->prepare($allQuery);
+$stmtAll->execute($params);
+$allMatchedUsns = $stmtAll->fetchAll(PDO::FETCH_COLUMN);
+
 // Enrich with Local Data (GMIT Sem/SGPA + Task Status)
 foreach ($students as &$student) {
     // 1. GMIT Data Enrichment
@@ -407,6 +413,7 @@ function buildUrl($key, $val) {
             max-width: 1400px; 
             margin: 30px auto; 
             background: transparent;
+            padding-bottom: 100px;
         }
         
         .page-header { margin-bottom: 25px; padding-bottom: 15px; border-bottom: 2px solid #e2e8f0; }
@@ -527,7 +534,7 @@ function buildUrl($key, $val) {
         .filter-item-wrapper i.filter-icon { position: absolute; right: 14px; color: var(--text-muted); pointer-events: none; }
 
         /* Table */
-        .table-container { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); overflow-x: auto; }
+        .table-container { background: white; border-radius: 16px; padding: 20px; box-shadow: 0 4px 12px rgba(0,0,0,0.06); overflow-x: auto; margin-bottom: 100px; }
         table { width: 100%; border-collapse: collapse; font-size: 14px; }
         th { background: #f8f9fa; padding: 14px 12px; text-align: left; font-weight: 700; color: var(--text-main); border-bottom: 2px solid #e2e8f0; white-space: nowrap; }
         td { padding: 12px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
@@ -932,6 +939,13 @@ function buildUrl($key, $val) {
                     <label style="display:block; margin-bottom: 8px; font-weight: 600;">Student</label>
                     <input type="text" id="modal_student_name" class="form-input" style="width: 100%; padding: 12px; background: #f8fafc;" readonly>
                 </div>
+                
+                <div id="bulkAssignAllContainer" style="display: none; margin-bottom: 20px; padding: 12px; background: #f1f5f9; border-radius: 8px; border: 1px solid #cbd5e1;">
+                    <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; cursor:pointer; color: #1e293b; margin: 0;">
+                        <input type="checkbox" id="assign_all_matching" onchange="toggleAssignAllMatching()" style="width:16px; height:16px; accent-color: var(--primary-maroon);">
+                        Select all <?php echo count($allMatchedUsns); ?> students matching current filters (across all pages)
+                    </label>
+                </div>
 
                 <div class="form-group" style="margin-bottom: 20px;">
                     <label style="display:block; margin-bottom: 8px; font-weight: 600;">Task Type *</label>
@@ -995,29 +1009,39 @@ function buildUrl($key, $val) {
     </div>
 
     <script>
+        const allMatchedUsns = <?php echo json_encode($allMatchedUsns); ?>;
+        let isAllPagesSelected = false;
+        
         function openAssignModal(studentId, studentName) {
+            const bulkContainer = document.getElementById('bulkAssignAllContainer');
+            if (bulkContainer) bulkContainer.style.display = 'none';
             document.getElementById('modal_student_id').value = studentId;
             document.getElementById('modal_student_name').value = studentName;
             document.getElementById('assignModal').style.display = 'flex';
         }
 
         function openBulkAssignModal() {
-            const selected = Array.from(document.querySelectorAll('.student-checkbox:checked')).map(cb => cb.value);
-            if (selected.length === 0) {
-                alert('Please select at least one student.');
-                return;
+            if (isAllPagesSelected) {
+                document.getElementById('modal_student_id').value = allMatchedUsns.join(',');
+                document.getElementById('modal_student_name').value = `${allMatchedUsns.length} students selected (All Pages)`;
+            } else {
+                const selected = Array.from(document.querySelectorAll('.student-checkbox:checked')).map(cb => cb.value);
+                if (selected.length === 0) {
+                    alert('Please select at least one student.');
+                    return;
+                }
+                document.getElementById('modal_student_id').value = selected.join(',');
+                document.getElementById('modal_student_name').value = `${selected.length} students selected (Current Page)`;
             }
-            document.getElementById('modal_student_id').value = selected.join(',');
-            document.getElementById('modal_student_name').value = `${selected.length} students selected`;
+            
+            const bulkContainer = document.getElementById('bulkAssignAllContainer');
+            if (bulkContainer) bulkContainer.style.display = 'none';
+            
             document.getElementById('assignModal').style.display = 'flex';
         }
 
         function closeAssignModal() {
             document.getElementById('assignModal').style.display = 'none';
-        }
-
-        function selectAll(cb) {
-            document.querySelectorAll('.student-checkbox').forEach(c => c.checked = cb.checked);
         }
 
         // --- History Modal Functions ---
@@ -1084,6 +1108,7 @@ function buildUrl($key, $val) {
         }
 
         function toggleSelectAll(masterCb) {
+            isAllPagesSelected = masterCb.checked;
             document.querySelectorAll('.student-checkbox').forEach(cb => {
                 cb.checked = masterCb.checked;
             });
@@ -1104,20 +1129,30 @@ function buildUrl($key, $val) {
         }
 
         function updateBulkActionBarStatus() {
-            const selected = Array.from(document.querySelectorAll('.student-checkbox:checked')).map(cb => cb.value);
             const bar = document.getElementById('bulkActionsBar');
             const countText = document.getElementById('selectedCountText');
             
-            if (selected.length > 0) {
-                countText.innerText = selected.length;
+            if (isAllPagesSelected) {
+                countText.innerText = allMatchedUsns.length;
                 bar.classList.add('show');
             } else {
-                bar.classList.remove('show');
+                const selectedCount = document.querySelectorAll('.student-checkbox:checked').length;
+                if (selectedCount > 0) {
+                    countText.innerText = selectedCount;
+                    bar.classList.add('show');
+                } else {
+                    bar.classList.remove('show');
+                }
             }
         }
 
         document.addEventListener('change', function(e) {
-            if (e.target && e.target.classList.contains('student-checkbox')) {
+            if (e.target && e.target.classList.contains('student-checkbox') && e.target.id !== 'selectAll') {
+                if (!e.target.checked && isAllPagesSelected) {
+                    isAllPagesSelected = false;
+                    const masterCb = document.getElementById('selectAll');
+                    if (masterCb) masterCb.checked = false;
+                }
                 updateBulkActionBarStatus();
             }
         });

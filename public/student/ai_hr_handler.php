@@ -370,23 +370,36 @@ switch ($action) {
 
         try {
             if ($isDrive) {
+                // Fetch details first to securely update them
+                $stmt = $db->prepare("SELECT details FROM student_drive_attempts WHERE id = ?");
+                $stmt->execute([$sessionId]);
+                $details = json_decode($stmt->fetchColumn() ?? '{}', true);
+                
+                if (isset($reportRes['content'])) {
+                    $details['report_content'] = $reportRes['content'];
+                }
+
                 // Finalize Status immediately
                 $db->prepare("UPDATE student_drive_attempts 
-                              SET score = ?, status = 'Completed', completed_at = CURRENT_TIMESTAMP 
+                              SET score = ?, status = 'Completed', completed_at = CURRENT_TIMESTAMP, details = ? 
                               WHERE id = ?")
-                   ->execute([$score, $sessionId]);
+                   ->execute([$score, json_encode($details), $sessionId]);
             } else {
                 // Decode current details to safely append
                 $stmt = $db->prepare("SELECT details, started_at, usn FROM unified_ai_assessments WHERE id = ?");
                 $stmt->execute([$sessionId]);
                 $sessionData = $stmt->fetch(PDO::FETCH_ASSOC);
                 $details = json_decode($sessionData['details'] ?? '{}', true);
+                
+                if (isset($reportRes['content'])) {
+                    $details['report_content'] = $reportRes['content'];
+                }
 
                 // Finalize Status immediately so closing the browser doesn't orphan the completion
                 $db->prepare("UPDATE unified_ai_assessments 
-                              SET score = ?, feedback = ?, status = 'completed', completed_at = CURRENT_TIMESTAMP 
+                              SET score = ?, feedback = ?, status = 'completed', completed_at = CURRENT_TIMESTAMP, details = ? 
                               WHERE id = ?")
-                   ->execute([$score, "HR Report Generated (Pending PDF Save)", $sessionId]);
+                   ->execute([$score, "HR Report Generated", json_encode($details), $sessionId]);
                    
                 // Insert into task_completions immediately if it's an assigned task
                 if (isset($details['task_id']) && $details['task_id']) {
