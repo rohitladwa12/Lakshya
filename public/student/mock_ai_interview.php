@@ -26,12 +26,56 @@ if (isPost() && (isset($_POST['company']) || isset($_POST['type']))) {
 $filters = SessionFilterHelper::getFilters('mock_ai');
 $companyName = $filters['company'] ?? 'General';
 $roundType = $filters['type'] ?? 'Technical';
+
+$compLower = strtolower($companyName);
+$primaryColor = '#800000'; // Default Maroon
+$primaryDark = '#4a0000';
+$accentColor = '#e9c66f';  // Gold
+$logoIcon = 'fa-microchip';
+$brandThemeClass = 'theme-general';
+
+if (strpos($compLower, 'google') !== false) {
+    $primaryColor = '#4285f4'; // Google Blue
+    $primaryDark = '#1a73e8';
+    $accentColor = '#34a853';  // Google Green
+    $logoIcon = 'fa-google';
+    $brandThemeClass = 'theme-google';
+} else if (strpos($compLower, 'amazon') !== false) {
+    $primaryColor = '#ff9900'; // Amazon Orange
+    $primaryDark = '#e47911';
+    $accentColor = '#146eb4';  // Amazon Blue
+    $logoIcon = 'fa-amazon';
+    $brandThemeClass = 'theme-amazon';
+} else if (strpos($compLower, 'microsoft') !== false) {
+    $primaryColor = '#00a4ef'; // Microsoft Teal/Blue
+    $primaryDark = '#0078d4';
+    $accentColor = '#f25022';  // Microsoft Red/Orange
+    $logoIcon = 'fa-windows';
+    $brandThemeClass = 'theme-microsoft';
+} else if (strpos($compLower, 'tcs') !== false) {
+    $primaryColor = '#1f57a4'; // TCS Dark Blue
+    $primaryDark = '#123970';
+    $accentColor = '#00b4e5';  // TCS Cyan
+    $logoIcon = 'fa-laptop-code';
+    $brandThemeClass = 'theme-tcs';
+} else if (strpos($compLower, 'infosys') !== false) {
+    $primaryColor = '#007cc3'; // Infosys Blue
+    $primaryDark = '#005a90';
+    $accentColor = '#ff6600';  // Infosys Orange
+    $logoIcon = 'fa-building-columns';
+    $brandThemeClass = 'theme-infosys';
+}
 ?>
     <title>Mock AI Interview | Lakshya</title>
     <!-- Resilience & Cache Busting -->
     <script src="resilience.js?v=<?php echo APP_VERSION; ?>"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    
+    <!-- KaTeX for equation rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
     
     <!-- CodeMirror for Coding Workspace -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/codemirror.min.css">
@@ -42,15 +86,15 @@ $roundType = $filters['type'] ?? 'Technical';
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.13/mode/clike/clike.min.js"></script>
     <style>
         :root {
-            --primary: #800000;
-            --primary-dark: #4a0000;
-            --accent: #e9c66f;
+            --primary: <?php echo $primaryColor; ?>;
+            --primary-dark: <?php echo $primaryDark; ?>;
+            --accent: <?php echo $accentColor; ?>;
             --bg-body: #0f0f12;
             --card-glass: rgba(255, 255, 255, 0.03);
             --border-glass: rgba(255, 255, 255, 0.1);
             --text-main: #f8fafc;
             --text-muted: #94a3b8;
-            --user-bubble: linear-gradient(135deg, #800000 0%, #4a0000 100%);
+            --user-bubble: linear-gradient(135deg, <?php echo $primaryColor; ?> 0%, <?php echo $primaryDark; ?> 100%);
             --ai-bubble: rgba(255, 255, 255, 0.05);
             --header-height: 80px;
         }
@@ -541,7 +585,7 @@ $roundType = $filters['type'] ?? 'Technical';
             box-shadow: 0 15px 40px rgba(128, 0, 0, 0.2);
         }
 
-        .input-pill input {
+        .input-pill input, .input-pill textarea {
             flex: 1;
             background: transparent;
             border: none;
@@ -859,6 +903,262 @@ $roundType = $filters['type'] ?? 'Technical';
         .btn-new-session:hover {
             background: rgba(255,255,255,0.1);
         }
+
+        /* MCQ Panel Layout */
+        .mcq-panel {
+            flex: 1;
+            background: rgba(26, 26, 32, 0.4);
+            border-right: 1px solid var(--border-glass);
+            display: flex;
+            flex-direction: column;
+            padding: 3rem;
+            overflow-y: auto;
+            transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .mcq-header h3 {
+            font-size: 1.5rem;
+            color: var(--accent);
+            margin-bottom: 1.5rem;
+        }
+        .mcq-question-body {
+            font-size: 1.25rem;
+            line-height: 1.7;
+            color: var(--text-main);
+            margin-bottom: 2.5rem;
+        }
+        .mcq-options-container {
+            display: flex;
+            flex-direction: column;
+            gap: 15px;
+        }
+        .mcq-option {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--border-glass);
+            padding: 18px 25px;
+            border-radius: 16px;
+            cursor: pointer;
+            transition: all 0.25s ease;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            font-size: 1.1rem;
+            font-weight: 500;
+        }
+        .mcq-option:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(233, 198, 111, 0.5);
+            transform: translateX(5px);
+        }
+        .mcq-option.selected {
+            background: rgba(233, 198, 111, 0.1);
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .mcq-option-badge {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid var(--border-glass);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 0.9rem;
+        }
+        .mcq-option.selected .mcq-option-badge {
+            background: var(--accent);
+            color: black;
+            border-color: var(--accent);
+        }
+
+        /* Briefing Screen Overlay */
+        .briefing-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.96);
+            backdrop-filter: blur(25px);
+            z-index: 15000;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            animation: fadeIn 0.4s ease;
+        }
+        .briefing-card {
+            background: #16161c;
+            border: 1px solid var(--border-glass);
+            border-radius: 28px;
+            padding: 3rem;
+            width: 90%;
+            max-width: 600px;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.6);
+            text-align: center;
+        }
+        .briefing-card h2 {
+            font-size: 2.2rem;
+            color: white;
+            margin-bottom: 1.5rem;
+        }
+        .briefing-metrics {
+            display: flex;
+            justify-content: space-around;
+            margin: 2rem 0;
+            background: rgba(255, 255, 255, 0.02);
+            padding: 1.5rem;
+            border-radius: 20px;
+            border: 1px solid var(--border-glass);
+        }
+        .briefing-metrics div {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            font-weight: 600;
+            color: var(--text-muted);
+        }
+        .briefing-metrics span {
+            font-size: 1.25rem;
+            color: white;
+        }
+        .skills-tag-list {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-bottom: 2rem;
+            list-style: none;
+        }
+        .skills-tag-list li {
+            background: rgba(233, 198, 111, 0.1);
+            color: var(--accent);
+            padding: 6px 16px;
+            border-radius: 50px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            border: 1px solid rgba(233, 198, 111, 0.2);
+        }
+
+        /* Timeline Widget */
+        .timeline-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255,255,255,0.02);
+            padding: 8px 18px;
+            border-radius: 50px;
+            border: 1px solid var(--border-glass);
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+        .timeline-node {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: var(--text-muted);
+            transition: all 0.3s ease;
+        }
+        .timeline-node.active {
+            color: var(--accent);
+        }
+        .timeline-node.completed {
+            color: #10b981;
+        }
+        .timeline-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        /* Diagnostics Panel Overlay */
+        .diagnostics-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.85);
+            z-index: 10000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            backdrop-filter: blur(10px);
+        }
+        .diagnostics-card {
+            background: #111116;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            width: 550px;
+            max-width: 90%;
+            padding: 25px;
+            color: #e2e8f0;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+            font-family: 'Courier New', monospace;
+        }
+        .diagnostics-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 15px;
+            margin-bottom: 15px;
+        }
+        .diagnostics-header h3 {
+            margin: 0;
+            color: var(--accent);
+            font-size: 1.3rem;
+        }
+        .btn-close-diag {
+            background: none;
+            border: none;
+            color: #94a3b8;
+            font-size: 1.8rem;
+            cursor: pointer;
+        }
+        .diag-section {
+            margin-bottom: 20px;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            padding-bottom: 10px;
+        }
+        .diag-section h4 {
+            margin: 0 0 10px 0;
+            color: #94a3b8;
+            text-transform: uppercase;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+        }
+        .diag-section p {
+            margin: 5px 0;
+            font-size: 0.9rem;
+        }
+
+        /* Score Modal Styles */
+        #scoreModal {
+            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
+            z-index: 9999; display: none; align-items: center; justify-content: center;
+        }
+        .score-card {
+            background: linear-gradient(145deg, #1e1e2f, #11111a);
+            padding: 50px; border-radius: 24px; text-align: center;
+            border: 2px solid #333; box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            max-width: 500px; width: 90%; color: white;
+            animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.8); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        .score-title { font-size: 24px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; font-weight: 600; }
+        .score-number { font-size: 80px; font-weight: 900; color: #10b981; line-height: 1; text-shadow: 0 0 20px rgba(16, 185, 129, 0.4); margin-bottom: 5px; }
+        .score-percentage { font-size: 30px; font-weight: 700; color: #10b981; }
+        .score-zero { color: #ef4444; text-shadow: 0 0 20px rgba(239, 68, 68, 0.4); }
+        .score-desc { font-size: 16px; color: #bbb; margin-bottom: 40px; }
+        .btn-continue {
+            background: #800000; color: white; border: none; padding: 15px 40px;
+            border-radius: 12px; font-size: 18px; font-weight: 700; cursor: pointer;
+            transition: all 0.3s; width: 100%; box-shadow: 0 10px 20px rgba(128,0,0,0.3);
+        }
+        .btn-continue:hover { background: #a50000; transform: translateY(-3px); }
     </style>
 </head>
 <body>
@@ -869,7 +1169,7 @@ $roundType = $filters['type'] ?? 'Technical';
             <i class="fas fa-arrow-left"></i>
         </a>
         <div class="brand-logo">
-            <div class="logo-icon"><i class="fas fa-microchip"></i></div>
+            <div class="logo-icon"><i class="fas <?php echo $logoIcon; ?>"></i></div>
             <div class="brand-text">
                 <h1><?php echo $roundType; ?> INTERVIEW</h1>
                 <span>AI MOCK SESSION • <?php echo htmlspecialchars($companyName); ?></span>
@@ -877,16 +1177,28 @@ $roundType = $filters['type'] ?? 'Technical';
         </div>
     </div>
 
-    <div class="session-status" id="sessionStatus" style="display: none;">
+    <div class="session-status" id="sessionStatus" style="display: none; align-items: center; gap: 8px;">
         <div class="status-dot"></div>
-        LIVE SESSION ACTIVE
+        <span id="liveNetworkText">Connected</span>
+        <span style="opacity:0.4;">|</span>
+        <span id="liveAutosaveText" style="font-size:0.75rem; opacity:0.8;">Autosaved just now</span>
+        <span style="opacity:0.4;">|</span>
+        <span id="liveLatencyText" style="font-size:0.75rem; opacity:0.8;">Latency: 0ms</span>
+    </div>
+
+    <div class="timeline-container" id="timelineContainer" style="display: none;">
+        <div class="timeline-node" id="node-1"><div class="timeline-dot"></div> Aptitude</div>
+        <div style="color: var(--text-muted);">➔</div>
+        <div class="timeline-node" id="node-2"><div class="timeline-dot"></div> Coding</div>
+        <div style="color: var(--text-muted);">➔</div>
+        <div class="timeline-node" id="node-3"><div class="timeline-dot"></div> HR Round</div>
     </div>
 
     <div style="display: flex; gap: 15px; align-items: center;">
         <button class="btn-workspace" id="toggleWorkspace" style="display:none;" onclick="toggleCodingPanel()">
             <i class="fas fa-code"></i> Coding Workspace
         </button>
-        <button class="btn-end" onclick="endSessionManual()">
+        <button class="btn-end" onclick="dispatcher.dispatch('EndInterviewCommand', {})">
             <i class="fas fa-power-off"></i> End Session
         </button>
     </div>
@@ -941,8 +1253,43 @@ $roundType = $filters['type'] ?? 'Technical';
     </div>
 </div>
 
+<!-- Briefing Overlay -->
+<div id="briefingOverlay" class="briefing-overlay">
+    <div class="briefing-card">
+        <h2 id="briefingTitle">Quantitative Aptitude</h2>
+        <div class="briefing-metrics">
+            <div>
+                <span>Duration</span>
+                <span id="briefingDuration">10 Min</span>
+            </div>
+            <div>
+                <span>Questions</span>
+                <span id="briefingQCount">10 Qs</span>
+            </div>
+        </div>
+        <ul class="skills-tag-list" id="briefingSkills">
+            <li>Arithmetic</li>
+            <li>Algebra</li>
+        </ul>
+        <button class="btn-start" onclick="dismissBriefingAndStart()">BEGIN ROUND</button>
+    </div>
+</div>
+
 <div class="workspace-wrapper">
-    <main class="chat-container">
+    <!-- MCQ Panel -->
+    <div id="mcqPanel" class="mcq-panel" style="display: none;">
+        <div class="mcq-header">
+            <h3 id="mcqTitle">Question 1 of 10</h3>
+        </div>
+        <div id="mcqQuestionBody" class="mcq-question-body">
+            Loading question...
+        </div>
+        <div id="mcqOptionsContainer" class="mcq-options-container">
+            <!-- Rendered by MCQComponent -->
+        </div>
+    </div>
+
+    <main class="chat-container" id="chatContainer">
         <div class="chat-messages" id="chatHistory">
             <!-- Messages will appear here -->
         </div>
@@ -957,7 +1304,7 @@ $roundType = $filters['type'] ?? 'Technical';
                 <button class="btn-circle btn-mic" id="btnSpeak" title="Voice Input">
                     <i class="fas fa-microphone"></i>
                 </button>
-                <input type="text" id="userInput" placeholder="Type your answer here..." autocomplete="off">
+                <textarea id="userInput" placeholder="Type your answer here..." autocomplete="off" rows="1" style="resize: none; overflow-y: auto; max-height: 120px; line-height: 1.5; align-self: center;"></textarea>
                 <button class="btn-circle btn-submit" id="btnSend">
                     <i class="fas fa-paper-plane"></i>
                 </button>
@@ -989,7 +1336,7 @@ $roundType = $filters['type'] ?? 'Technical';
             <button class="btn-send-code" onclick="sendCodeToAI()">
                 <i class="fas fa-paper-plane"></i> Share
             </button>
-            <button class="btn-run-code" id="btnRunCode" onclick="runCodeSimulation()">
+            <button class="btn-run-code" id="btnRunCode" onclick="dispatcher.dispatch('RunCodeCommand', {})">
                 <i class="fas fa-play"></i> Run Code
             </button>
         </div>
@@ -1026,6 +1373,50 @@ $roundType = $filters['type'] ?? 'Technical';
     </div>
 </div>
 
+<!-- Score Modal -->
+<div id="scoreModal">
+    <div class="score-card">
+        <div class="score-title">Assessment Complete</div>
+        <div>
+            <span id="finalScoreNum" class="score-number">0</span><span id="finalScorePct" class="score-percentage">%</span>
+        </div>
+        <div class="score-desc">Your interview performance has been evaluated.</div>
+        <button class="btn-continue" onclick="closeSession()">Continue</button>
+    </div>
+</div>
+
+<!-- Diagnostics Panel Overlay -->
+<div id="diagnosticsPanel" class="diagnostics-overlay" style="display: none;">
+    <div class="diagnostics-card">
+        <div class="diagnostics-header">
+            <h3><i class="fas fa-terminal"></i> LAR Diagnostics</h3>
+            <button class="btn-close-diag" onclick="toggleDiagnostics()">&times;</button>
+        </div>
+        <div class="diagnostics-body">
+            <div class="diag-section">
+                <h4>System State</h4>
+                <p>Session ID: <span id="diagSessionId">N/A</span></p>
+                <p>Current Step: <span id="diagStep">N/A</span></p>
+                <p>Phase: <span id="diagPhase">N/A</span></p>
+            </div>
+            <div class="diag-section">
+                <h4>Active Components</h4>
+                <ul id="diagComponents"></ul>
+            </div>
+            <div class="diag-section">
+                <h4>Runtime Stats</h4>
+                <p>Timer Remaining: <span id="diagTimer">N/A</span>s</p>
+                <p>Events Logged: <span id="diagEventsCount">0</span></p>
+            </div>
+            <div class="diag-section">
+                <h4>Speech Engine</h4>
+                <p>API Status: <span id="diagSpeechAPI">Unsupported</span></p>
+                <p>Speaking: <span id="diagSpeaking">No</span></p>
+            </div>
+        </div>
+    </div>
+</div>
+
 <script>
     const CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
     let currentSessionId = null;
@@ -1042,144 +1433,663 @@ $roundType = $filters['type'] ?? 'Technical';
     const toggleWorkspaceBtn = document.getElementById('toggleWorkspace');
     const codingPanel = document.getElementById('codingPanel');
 
-    // Initialize CodeMirror
-    function initEditor() {
-        if (editor) return;
-        editor = CodeMirror.fromTextArea(document.getElementById("codeEditor"), {
-            mode: "python",
-            theme: "dracula",
-            lineNumbers: true,
-            autoCloseBrackets: true,
-            matchBrackets: true,
-            indentUnit: 4,
-            tabSize: 4,
-            lineWrapping: true
-        });
-        
-        document.getElementById('langSelector').onchange = (e) => {
-            editor.setOption("mode", e.target.value);
-        };
-    }
-
-    function toggleCodingPanel() {
-        codingPanel.classList.toggle('active');
-        const isShowing = codingPanel.classList.contains('active');
-        if (isShowing) {
-            initEditor();
-            setTimeout(() => editor.refresh(), 100);
+    // --- LAKSHYA ASSESSMENT RUNTIME (LAR) ARCHITECTURE ---
+    class EventBus {
+        constructor() { this.listeners = {}; }
+        on(event, cb) {
+            if (!this.listeners[event]) this.listeners[event] = [];
+            this.listeners[event].push(cb);
+        }
+        emit(event, data) {
+            if (!this.listeners[event]) return;
+            this.listeners[event].forEach(cb => cb(data));
         }
     }
 
-    function sendCodeToAI() {
-        const code = editor.getValue().trim();
-        if (!code) return alert("Workspace is empty.");
-        const lang = document.getElementById('langSelector').value;
-        
-        const message = `Here is my ${lang} implementation:\n\n\`\`\`${lang}\n${code}\n\`\`\``;
-        userInput.value = message;
-        sendMessage();
-        
-        // Optionally close panel on small screens
-        if (window.innerWidth < 1200) toggleCodingPanel();
+    class ComponentRegistry {
+        constructor() { this.components = new Map(); }
+        register(name, compClass) { this.components.set(name, compClass); }
+        create(name, container, eventBus) {
+            const CompClass = this.components.get(name);
+            if (!CompClass) throw new Error("Component " + name + " not registered");
+            return new CompClass(container, eventBus);
+        }
     }
 
-    // Prevent accidental navigation
-    window.addEventListener('beforeunload', (e) => {
-        if (currentSessionId) {
+    class StateStore {
+        constructor() {
+            this.state = {
+                currentStep: null,
+                editor: {
+                    language: 'python',
+                    code: ''
+                },
+                timerRemaining: 600, // 10 mins default
+                voiceEnabled: false,
+                chatHistory: [],
+                version: 0,
+                timestamp: Date.now(),
+                performance: {
+                    backendLatency: 0,
+                    fps: 60,
+                    autosaveSuccess: 100,
+                    apiResponseTimes: []
+                },
+                telemetry: {
+                    schema_version: 2,
+                    events: []
+                }
+            };
+            this.listeners = [];
+        }
+        subscribe(listener) {
+            this.listeners.push(listener);
+        }
+        update(key, val) {
+            if (Array.isArray(val)) {
+                this.state[key] = val;
+            } else if (typeof val === 'object' && val !== null) {
+                this.state[key] = { ...this.state[key], ...val };
+            } else {
+                this.state[key] = val;
+            }
+            this.notify();
+        }
+        setState(newState) {
+            this.state = { ...this.state, ...newState };
+            this.notify();
+        }
+        notify() {
+            this.listeners.forEach(listener => listener(this.state));
+            this.persist();
+        }
+        persist() {
+            if (currentSessionId) {
+                this.state.version = (this.state.version || 0) + 1;
+                this.state.timestamp = Date.now();
+                localStorage.setItem(`lar_session_${currentSessionId}`, JSON.stringify(this.state));
+            }
+        }
+        restore(sessionId) {
+            const data = localStorage.getItem(`lar_session_${sessionId}`);
+            if (data) {
+                try {
+                    this.state = JSON.parse(data);
+                    this.notify();
+                    return true;
+                } catch(e) {
+                    console.error("Failed to restore checkpoint", e);
+                }
+            }
+            return false;
+        }
+    }
+
+    class RuntimeScheduler {
+        constructor(eventBus, stateStore) {
+            this.bus = eventBus;
+            this.store = stateStore;
+            this.intervalId = null;
+            this.ticks = 0;
+        }
+        start() {
+            if (this.intervalId) return;
+            this.intervalId = setInterval(() => this.tick(), 1000);
+        }
+        stop() {
+            if (this.intervalId) {
+                clearInterval(this.intervalId);
+                this.intervalId = null;
+            }
+        }
+        tick() {
+            this.ticks++;
+            let currentTimer = this.store.state.timerRemaining;
+            if (currentTimer !== null && currentTimer > 0) {
+                currentTimer--;
+                this.store.update('timerRemaining', currentTimer);
+                this.bus.emit('TIMER_TICK', { remaining: currentTimer });
+                if (currentTimer === 0) {
+                    this.bus.emit('TIMER_EXPIRED');
+                }
+            }
+            if (this.ticks % 20 === 0) {
+                this.bus.emit('AUTOSAVE_TRIGGER');
+            }
+        }
+    }
+
+    class CommandDispatcher {
+        constructor(runtime, bus) {
+            this.runtime = runtime;
+            this.bus = bus;
+        }
+        dispatch(commandName, payload) {
+            console.log(`[Command Dispatcher] Executing: ${commandName}`, payload);
+            
+            const eventLog = stateStore.state.telemetry.events;
+            eventLog.push({
+                t: Date.now(),
+                event: commandName,
+                payload: payload
+            });
+            stateStore.update('telemetry', { events: eventLog });
+
+            switch(commandName) {
+                case 'SubmitAnswerCommand':
+                    sendMessage(payload.answer);
+                    break;
+                case 'RunCodeCommand':
+                    runCodeSimulation();
+                    break;
+                case 'SelectMCQCommand':
+                    sendMessage(payload.option);
+                    break;
+                case 'StartVoiceCommand':
+                    this.runtime.startListening();
+                    break;
+                case 'EndInterviewCommand':
+                    endSessionManual();
+                    break;
+                default:
+                    console.warn("Unknown Command", commandName);
+            }
+        }
+    }
+
+    class RuntimeSupervisor {
+        constructor(runtime, bus) {
+            this.runtime = runtime;
+            this.bus = bus;
+            this.supervisorInterval = null;
+        }
+        start() {
+            this.supervisorInterval = setInterval(() => this.inspect(), 5000);
+        }
+        stop() {
+            if (this.supervisorInterval) clearInterval(this.supervisorInterval);
+        }
+        inspect() {
+            if (this.runtime.components.voice && stateStore.state.voiceEnabled) {
+                // reboot if needed
+            }
+            if (this.runtime.components.editor && !this.runtime.components.editor.editor) {
+                console.warn("Supervisor: Code editor crashed. Rebooting component...");
+                this.runtime.components.editor.init();
+            }
+        }
+    }
+
+    class OfflineQueue {
+        constructor() {
+            this.queue = [];
+            this.isProcessing = false;
+            window.addEventListener('online', () => this.flush());
+        }
+        enqueue(actionData) {
+            this.queue.push(actionData);
+            this.showWarning();
+            localStorage.setItem('lar_offline_queue', JSON.stringify(this.queue));
+        }
+        showWarning() {
+            let notice = document.getElementById('offlineNotice');
+            if (!notice) {
+                notice = document.createElement('div');
+                notice.id = 'offlineNotice';
+                notice.style = 'position:fixed;bottom:20px;right:20px;background:#ef4444;color:white;padding:10px 20px;border-radius:8px;z-index:9999;font-weight:bold;box-shadow:0 4px 12px rgba(0,0,0,0.3);';
+                notice.innerText = '⚠️ Connection Lost. Actions queued offline.';
+                document.body.appendChild(notice);
+            }
+            notice.style.display = 'block';
+        }
+        hideWarning() {
+            const notice = document.getElementById('offlineNotice');
+            if (notice) notice.style.display = 'none';
+        }
+        async flush() {
+            if (this.isProcessing || this.queue.length === 0) return;
+            this.isProcessing = true;
+            this.hideWarning();
+            
+            console.log(`[Offline Queue] Reconnected. Syncing ${this.queue.length} items...`);
+            while (this.queue.length > 0) {
+                const item = this.queue[0];
+                try {
+                    await fetch(item.url, {
+                        method: 'POST',
+                        headers: item.headers,
+                        body: JSON.stringify(item.body)
+                    });
+                    this.queue.shift();
+                } catch(e) {
+                    console.warn("[Offline Queue] Sync failed. Will retry later.", e);
+                    this.showWarning();
+                    break;
+                }
+            }
+            localStorage.setItem('lar_offline_queue', JSON.stringify(this.queue));
+            this.isProcessing = false;
+        }
+    }
+
+    const eventBus = new EventBus();
+    const registry = new ComponentRegistry();
+    const stateStore = new StateStore();
+    const scheduler = new RuntimeScheduler(eventBus, stateStore);
+    const offlineQueue = new OfflineQueue();
+
+    class ChatComponent {
+        constructor(container, bus) {
+            this.container = container;
+            this.bus = bus;
+            this.bus.on('MESSAGE_RECEIVED', data => this.addBubble(data.role, data.content));
+        }
+        addBubble(role, content) {
+            const history = stateStore.state.chatHistory;
+            history.push({ role, content });
+            stateStore.update('chatHistory', history);
+
+            const div = document.createElement('div');
+            div.className = `chat-bubble bubble-${role === 'user' ? 'student' : (role === 'system' ? 'system' : 'interviewer')}`;
+            
+            let formatted = content;
+            if (role !== 'system') {
+                formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
+                formatted = formatted.replace(/\n/g, '<br>');
+            }
+            
+            div.innerHTML = `
+                <div class="bubble-avatar">${role === 'user' ? '👤' : (role === 'system' ? '⚙️' : '🤖')}</div>
+                <div class="bubble-content">
+                    <span class="bubble-sender">${role === 'user' ? 'You' : (role === 'system' ? 'SYSTEM' : 'Interviewer')}</span>
+                    <p>${formatted}</p>
+                </div>
+            `;
+            this.container.appendChild(div);
+            renderMath(div);
+            this.container.scrollTop = this.container.scrollHeight;
+        }
+    }
+
+    class EditorComponent {
+        constructor(container, bus) {
+            this.container = container;
+            this.bus = bus;
+            this.editor = null;
+            this.init();
+        }
+        init() {
+            const textarea = document.getElementById("codeEditor");
+            if (!textarea) return;
+            this.editor = CodeMirror.fromTextArea(textarea, {
+                mode: "python",
+                theme: "dracula",
+                lineNumbers: true,
+                autoCloseBrackets: true,
+                matchBrackets: true,
+                indentUnit: 4,
+                tabSize: 4,
+                lineWrapping: true
+            });
+            this.editor.on('change', () => {
+                stateStore.update('editor', { code: this.editor.getValue() });
+            });
+            document.getElementById('langSelector').onchange = (e) => {
+                this.editor.setOption("mode", e.target.value);
+                stateStore.update('editor', { language: e.target.value });
+            };
+        }
+        getValue() {
+            return this.editor ? this.editor.getValue().trim() : '';
+        }
+        setValue(val) {
+            if (this.editor) this.editor.setValue(val);
+        }
+        refresh() {
+            if (this.editor) this.editor.refresh();
+        }
+    }
+
+    class MCQComponent {
+        constructor(container, bus) {
+            this.container = container;
+            this.bus = bus;
+            this.selectedOption = null;
+        }
+        renderQuestion(question, options) {
+            this.container.innerHTML = '';
+            this.selectedOption = null;
+            options.forEach(opt => {
+                const div = document.createElement('div');
+                div.className = 'mcq-option';
+                div.innerHTML = `
+                    <div class="mcq-option-badge">${opt.key}</div>
+                    <div>${opt.text}</div>
+                `;
+                div.onclick = () => {
+                    this.selectOption(opt.key, div);
+                };
+                this.container.appendChild(div);
+            });
+        }
+        selectOption(key, el) {
+            const options = this.container.querySelectorAll('.mcq-option');
+            options.forEach(opt => opt.classList.remove('selected'));
+            el.classList.add('selected');
+            this.selectedOption = key;
+            this.bus.emit('MCQ_OPTION_SELECTED', { option: key });
+        }
+    }
+
+    class VoiceComponent {
+        constructor(container, bus) {
+            this.bus = bus;
+            const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
+            this.recognition = SpeechRec ? new SpeechRec() : null;
+            this.synth = window.speechSynthesis;
+            this.isSpeaking = false;
+            this.speechQueue = [];
+            this.setupRecognition();
+            
+            const btnSpeak = document.getElementById('btnSpeak');
+            if (btnSpeak) {
+                btnSpeak.onclick = () => {
+                    dispatcher.dispatch('StartVoiceCommand', {});
+                };
+            }
+        }
+        setupRecognition() {
+            if (!this.recognition) return;
+            this.recognition.continuous = true;
+            this.recognition.interimResults = true;
+            this.recognition.lang = 'en-US';
+            this.recognition.onstart = () => {
+                const btnSpeak = document.getElementById('btnSpeak');
+                if (btnSpeak) btnSpeak.classList.add('active');
+                stateStore.update('voiceEnabled', true);
+                this.currentSpeechFinal = userInput.value;
+            };
+            this.recognition.onend = () => {
+                const btnSpeak = document.getElementById('btnSpeak');
+                if (btnSpeak) btnSpeak.classList.remove('active');
+                stateStore.update('voiceEnabled', false);
+                if (userInput.value.trim().length > 0) {
+                    sendMessage();
+                }
+            };
+            this.recognition.onresult = (e) => {
+                let interimTranscript = '';
+                let finalTranscript = '';
+                for (let i = e.resultIndex; i < e.results.length; ++i) {
+                    if (e.results[i].isFinal) {
+                        finalTranscript += e.results[i][0].transcript;
+                    } else {
+                        interimTranscript += e.results[i][0].transcript;
+                    }
+                }
+                this.bus.emit('SPEECH_CAPTURED', { finalTranscript, interimTranscript, source: this });
+            };
+            this.recognition.onerror = (e) => {
+                console.error("Speech recognition error", e.error);
+                const btnSpeak = document.getElementById('btnSpeak');
+                if (btnSpeak) btnSpeak.classList.remove('active');
+                stateStore.update('voiceEnabled', false);
+                if (e.error === 'not-allowed') {
+                    alert('Microphone access was denied. Please allow microphone access to use voice input.');
+                }
+            };
+        }
+        startListening() {
+            if (this.recognition) {
+                try {
+                    if (stateStore.state.voiceEnabled) {
+                        this.recognition.stop();
+                    } else {
+                        this.recognition.start();
+                    }
+                } catch(e) {
+                    console.error("Speech toggle error:", e);
+                }
+            } else {
+                alert("Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.");
+            }
+        }
+        speak(text) {
+            if (this.synth) {
+                this.synth.cancel();
+            }
+        }
+        processQueue() {
+            // Voice playback disabled
+        }
+    }
+
+    registry.register('chat_window', ChatComponent);
+    registry.register('code_editor', EditorComponent);
+    registry.register('mcq_viewer', MCQComponent);
+    registry.register('voice_engine', VoiceComponent);
+
+    class AssessmentRuntime {
+        constructor(eventBus, registry) {
+            this.bus = eventBus;
+            this.registry = registry;
+            this.components = {
+                voice: registry.create('voice_engine', null, eventBus)
+            };
+            this.currentStep = null;
+            this.manifest = null;
+            this.setupSubscriptions();
+        }
+        setupSubscriptions() {
+            this.bus.on('SPEECH_CAPTURED', data => {
+                if (data.source) {
+                    if (data.finalTranscript) {
+                        data.source.currentSpeechFinal += data.finalTranscript;
+                    }
+                    userInput.value = data.source.currentSpeechFinal + (data.interimTranscript ? data.interimTranscript : '');
+                    userInput.style.height = 'auto';
+                    userInput.style.height = (userInput.scrollHeight) + 'px';
+                } else {
+                    userInput.value = data.transcript;
+                    sendMessage();
+                }
+            });
+            this.bus.on('MCQ_OPTION_SELECTED', data => {
+                sendMessage(data.option);
+            });
+            this.bus.on('TIMER_TICK', data => {
+                const min = Math.floor(data.remaining / 60);
+                const sec = data.remaining % 60;
+            });
+            this.bus.on('AUTOSAVE_TRIGGER', () => {
+                performAutosave();
+            });
+        }
+        setManifest(manifest) {
+            this.manifest = manifest;
+            document.getElementById('timelineContainer').style.display = 'flex';
+            scheduler.start();
+        }
+        applyStep(step) {
+            this.currentStep = step;
+            stateStore.update('currentStep', step);
+            this.transitionUI(step);
+            
+            const chatContainer = document.getElementById('chatHistory');
+            const mcqContainer = document.getElementById('mcqOptionsContainer');
+            
+            if (step.components.includes('chat_window') && !this.components.chat) {
+                this.components.chat = this.registry.create('chat_window', chatContainer, this.bus);
+            }
+            if (step.components.includes('code_editor') && !this.components.editor) {
+                this.components.editor = this.registry.create('code_editor', document.getElementById('codeEditor'), this.bus);
+            }
+            if (step.components.includes('mcq_viewer') && !this.components.mcq) {
+                this.components.mcq = this.registry.create('mcq_viewer', mcqContainer, this.bus);
+            }
+            if ((step.components.includes('voice_engine') || step.voice) && !this.components.voice) {
+                this.components.voice = this.registry.create('voice_engine', null, this.bus);
+            }
+
+            if (step.ui === 'mcq' && this.components.mcq && step.question) {
+                document.getElementById('mcqQuestionBody').innerText = step.question.body;
+                document.getElementById('mcqTitle').innerText = `${step.title} • Q${step.current_q} of ${step.total_questions}`;
+                this.components.mcq.renderQuestion(step.question.body, step.question.options);
+            }
+
+            if (step.tts && this.components.voice && step.message) {
+                this.components.voice.speak(step.message);
+            }
+        }
+        transitionUI(step) {
+            const chatBox = document.getElementById('chatContainer');
+            const codingBox = document.getElementById('codingPanel');
+            const mcqBox = document.getElementById('mcqPanel');
+            const toggleWorkspaceBtn = document.getElementById('toggleWorkspace');
+
+            codingBox.classList.remove('active');
+            mcqBox.style.display = 'none';
+            chatBox.style.width = '100%';
+            toggleWorkspaceBtn.style.display = 'none';
+
+            if (step.ui === 'mcq') {
+                mcqBox.style.display = 'flex';
+                chatBox.style.width = '40%';
+            } else if (step.ui === 'editor') {
+                codingBox.classList.add('active');
+                toggleWorkspaceBtn.style.display = 'flex';
+                if (this.components.editor) {
+                    setTimeout(() => this.components.editor.refresh(), 100);
+                }
+            }
+            
+            const nodes = ['node-1', 'node-2', 'node-3'];
+            nodes.forEach(n => document.getElementById(n).classList.remove('active'));
+            if (step.phase === 'APTITUDE') {
+                document.getElementById('node-1').classList.add('active');
+            } else if (step.phase === 'TECHNICAL_CODING' || step.phase === 'TECHNICAL') {
+                document.getElementById('node-1').classList.add('completed');
+                document.getElementById('node-2').classList.add('active');
+            } else if (step.phase === 'BEHAVIORAL_HR' || step.phase === 'HR') {
+                document.getElementById('node-1').classList.add('completed');
+                document.getElementById('node-2').classList.add('completed');
+                document.getElementById('node-3').classList.add('active');
+            }
+        }
+        speakText(text) {
+            if (this.components.voice) {
+                this.components.voice.speak(text);
+            }
+        }
+        startListening() {
+            if (this.components.voice) {
+                this.components.voice.startListening();
+            }
+        }
+        getEditorValue() {
+            return this.components.editor ? this.components.editor.getValue() : '';
+        }
+        refreshEditor() {
+            if (this.components.editor) this.components.editor.refresh();
+        }
+    }
+
+    const runtime = new AssessmentRuntime(eventBus, registry);
+    const dispatcher = new CommandDispatcher(runtime, eventBus);
+    const supervisor = new RuntimeSupervisor(runtime, eventBus);
+
+    supervisor.start();
+
+    let frameCount = 0;
+    let lastFPSUpdate = Date.now();
+    function calculateFPS() {
+        frameCount++;
+        const now = Date.now();
+        if (now - lastFPSUpdate >= 1000) {
+            const fps = Math.round((frameCount * 1000) / (now - lastFPSUpdate));
+            stateStore.update('performance', { fps });
+            frameCount = 0;
+            lastFPSUpdate = now;
+        }
+        requestAnimationFrame(calculateFPS);
+    }
+    requestAnimationFrame(calculateFPS);
+
+    function toggleDiagnostics() {
+        const panel = document.getElementById('diagnosticsPanel');
+        panel.style.display = panel.style.display === 'none' ? 'flex' : 'none';
+        if (panel.style.display === 'flex') {
+            updateDiagnosticsData();
+        }
+    }
+
+    function updateDiagnosticsData() {
+        document.getElementById('diagSessionId').innerText = currentSessionId || 'None';
+        document.getElementById('diagStep').innerText = runtime.currentStep ? runtime.currentStep.ui : 'None';
+        document.getElementById('diagPhase').innerText = runtime.currentStep ? runtime.currentStep.phase : 'None';
+        
+        const compsList = document.getElementById('diagComponents');
+        compsList.innerHTML = '';
+        Object.keys(runtime.components).forEach(key => {
+            const li = document.createElement('li');
+            li.innerText = `${key} (v${stateStore.state.version})`;
+            compsList.appendChild(li);
+        });
+        
+        document.getElementById('diagTimer').innerText = `${stateStore.state.timerRemaining}s (FPS: ${stateStore.state.performance.fps})`;
+        document.getElementById('diagEventsCount').innerText = `${stateStore.state.telemetry.events.length} (Latency: ${stateStore.state.performance.backendLatency}ms)`;
+        
+        const hasSpeech = ('webkitSpeechRecognition' in window);
+        document.getElementById('diagSpeechAPI').innerText = hasSpeech ? 'Available' : 'Unsupported';
+        document.getElementById('diagSpeaking').innerText = (runtime.components.voice && runtime.components.voice.isSpeaking) ? 'Yes' : 'No';
+    }
+
+    document.addEventListener('keydown', e => {
+        if (e.ctrlKey && e.shiftKey && e.key.toUpperCase() === 'D') {
             e.preventDefault();
-            e.returnValue = 'Interview session is active. Are you sure you want to exit without finishing?';
+            toggleDiagnostics();
         }
     });
 
-    // Web Speech API Setup
-    const recognition = 'webkitSpeechRecognition' in window ? new webkitSpeechRecognition() : null;
-    const synth = window.speechSynthesis;
-
-    if (recognition) {
-        recognition.continuous = false;
-        recognition.interimResults = false;
-        recognition.lang = 'en-US';
-
-        recognition.onstart = () => btnSpeak.classList.add('active');
-        recognition.onend = () => btnSpeak.classList.remove('active');
-        recognition.onresult = (event) => {
-            const transcript = event.results[0][0].transcript;
-            userInput.value = transcript;
-            sendMessage();
-        };
-    }
-
-    btnSpeak.onclick = () => {
-        if (!recognition) return alert('Speech recognition not supported in this browser.');
-        recognition.start();
-    };
-
-    let speechQueue = [];
-    let isSpeaking = false;
-
-    function speakText(text) {
-        synth.cancel();
-        speechQueue = [];
-        isSpeaking = false;
-
-        let cleanText = text.replace(/\[END_INTERVIEW\]/g, '')
-                            .replace(/\*\*/g, '')
-                            .replace(/- /g, ', ')
-                            .replace(/\n/g, '. ')
-                            .replace(/=/g, ' equals ')
-                            .replace(/\+/g, ' plus ')
-                            .replace(/(\d+):(\d+)/g, '$1 $2');
-        
-        // Split into smaller chunks (sentences) for better reliability
-        const chunks = cleanText.match(/[^.!?]+[.!?]*|[^.!?]+/g) || [cleanText];
-        chunks.forEach(c => {
-            const trimmed = c.trim();
-            if (trimmed.length > 0) speechQueue.push(trimmed);
-        });
-
-        processSpeechQueue();
-    }
-
-    function processSpeechQueue() {
-        if (isSpeaking || speechQueue.length === 0) return;
-
-        const text = speechQueue.shift();
-        const utterance = new SpeechSynthesisUtterance(text);
-        
-        const voices = synth.getVoices();
-        const professionalVoices = [
-            'Microsoft Aria Online (Natural)', 'Microsoft Jenny Online (Natural)',
-            'Google US English Female', 'Microsoft Zira Desktop', 'Samantha'
-        ];
-
-        let selectedVoice = null;
-        for (let name of professionalVoices) {
-            selectedVoice = voices.find(v => v.name.includes(name));
-            if (selectedVoice) break;
+    async function performAutosave() {
+        if (!currentSessionId) return;
+        const stateData = stateStore.state;
+        if (runtime.components.editor) {
+            stateData.editor.code = runtime.components.editor.getValue();
+            stateData.editor.language = document.getElementById('langSelector').value;
         }
 
-        if (!selectedVoice) {
-            selectedVoice = voices.find(v => (v.lang === 'en-US' || v.lang === 'en-GB') && v.name.toLowerCase().includes('female'));
+        const requestPayload = {
+            url: 'mock_ai_handler.php',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': CSRF_TOKEN
+            },
+            body: {
+                action: 'autosave',
+                session_id: currentSessionId,
+                checkpoint: stateData
+            }
+        };
+
+        if (!navigator.onLine) {
+            offlineQueue.enqueue(requestPayload);
+            return;
         }
 
-        if (selectedVoice) utterance.voice = selectedVoice;
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
-
-        utterance.onend = () => {
-            isSpeaking = false;
-            processSpeechQueue();
-        };
-
-        utterance.onerror = (e) => {
-            console.error("Speech error:", e);
-            isSpeaking = false;
-            processSpeechQueue();
-        };
-
-        isSpeaking = true;
-        synth.speak(utterance);
+        try {
+            await fetch(requestPayload.url, {
+                method: 'POST',
+                headers: requestPayload.headers,
+                body: JSON.stringify(requestPayload.body)
+            });
+            stateStore.update('performance', { autosaveSuccess: 100 });
+        } catch (e) {
+            console.warn("Autosave sync failed, queueing:", e);
+            offlineQueue.enqueue(requestPayload);
+            stateStore.update('performance', { autosaveSuccess: 0 });
+        }
     }
 
     function startInterviewWithCustomRole() {
@@ -1220,6 +2130,22 @@ $roundType = $filters['type'] ?? 'Technical';
         document.getElementById('finalLaunchBtn').style.display = 'inline-block';
     }
 
+    function renderMath(element) {
+        if (typeof renderMathInElement === 'function') {
+            renderMathInElement(element, {
+                delimiters: [
+                    {left: "$$", right: "$$", display: true},
+                    {left: "$", right: "$", display: false},
+                    {left: "\\(", right: "\\)", display: false},
+                    {left: "\\[", right: "\\]", display: true}
+                ],
+                throwOnError: false
+            });
+        } else {
+            setTimeout(() => renderMath(element), 100);
+        }
+    }
+
     let backendInitData = null;
     async function initiateBackendSession(role) {
         try {
@@ -1238,7 +2164,12 @@ $roundType = $filters['type'] ?? 'Technical';
                     type: "<?php echo $roundType; ?>"
                 })
             });
-            backendInitData = await res.json();
+            const text = await res.text();
+            try {
+                backendInitData = JSON.parse(text);
+            } catch (err) {
+                console.error("Failed to parse start session JSON:", text);
+            }
         } catch (e) {
             console.error("Backend init failed", e);
         }
@@ -1287,8 +2218,14 @@ $roundType = $filters['type'] ?? 'Technical';
                 },
                 body: JSON.stringify({ action: 'check_active' })
             });
-            const data = await res.json();
-            if (data.success && data.has_active) {
+            const text = await res.text();
+            let data = null;
+            try {
+                data = JSON.parse(text);
+            } catch (err) {
+                console.error("Failed to parse check_active JSON:", text);
+            }
+            if (data && data.success && data.has_active) {
                 const modal = document.getElementById('resumeModal');
                 const roleSpan = document.getElementById('resumeRole');
                 roleSpan.innerText = data.role || 'a Previous Role';
@@ -1301,9 +2238,29 @@ $roundType = $filters['type'] ?? 'Technical';
                     sessionStatus.style.display = 'flex';
                     isProctoringActive = true;
                     
-                    if (data.history && data.history.length > 0) {
+                    const restored = stateStore.restore(data.session_id);
+                    if (restored) {
+                        if (stateStore.state.currentStep) {
+                            runtime.applyStep(stateStore.state.currentStep);
+                        }
+                        if (stateStore.state.chatHistory.length > 0) {
+                            const container = document.getElementById('chatHistory');
+                            container.innerHTML = ''; // Clear fresh placeholders
+                            stateStore.state.chatHistory.forEach(m => {
+                                eventBus.emit('MESSAGE_RECEIVED', { role: m.role, content: m.content });
+                            });
+                        }
+                        if (stateStore.state.editor.code && runtime.components.editor) {
+                            runtime.components.editor.setValue(stateStore.state.editor.code);
+                        }
+                    } else if (data.step) {
+                        runtime.applyStep(data.step);
+                        if (data.history && data.history.length > 0) {
+                            data.history.forEach(m => addMessage(m.role, m.content));
+                        }
+                    } else if (data.history && data.history.length > 0) {
                         data.history.forEach(m => addMessage(m.role, m.content));
-                        speakText("Resuming session. Let's continue.");
+                        runtime.speakText("Resuming session. Let's continue.");
                     }
                     
                     if ("<?php echo $roundType; ?>" === "Technical") {
@@ -1334,6 +2291,22 @@ $roundType = $filters['type'] ?? 'Technical';
         }
 
         currentSessionId = backendInitData.session_id;
+        localStorage.removeItem(`lar_session_${currentSessionId}`);
+        stateStore.setState({
+            currentStep: null,
+            editor: {
+                language: 'python',
+                code: ''
+            },
+            timerRemaining: 600,
+            voiceEnabled: false,
+            chatHistory: [],
+            telemetry: {
+                schema_version: 2,
+                events: []
+            }
+        });
+
         sessionStatus.style.display = 'flex';
         isProctoringActive = true;
 
@@ -1341,15 +2314,68 @@ $roundType = $filters['type'] ?? 'Technical';
             toggleWorkspaceBtn.style.display = 'flex';
         }
 
+        if (backendInitData.step) {
+            runtime.applyStep(backendInitData.step);
+        }
+
         const msg = backendInitData.message;
         if (msg) {
             addMessage('ai', msg);
-            speakText(msg);
+            runtime.speakText(msg);
         }
     }
 
     async function startInterview(role) {
         // Deprecated by startInterviewWithCustomRole
+    }
+
+    let typingInterval = null;
+    const typingPhrases = [
+        "Analyzing technical accuracy...",
+        "Reviewing communication and clarity...",
+        "Evaluating design trade-offs...",
+        "Measuring response confidence...",
+        "Formulating follow-up challenge..."
+    ];
+
+    function startTypingIndicator() {
+        const textSpan = typingIndicator.querySelector('span');
+        if (textSpan) textSpan.innerText = "Interviewer is thinking...";
+        typingIndicator.style.display = 'flex';
+        
+        let index = 0;
+        if (typingInterval) clearInterval(typingInterval);
+        typingInterval = setInterval(() => {
+            if (textSpan) textSpan.innerText = typingPhrases[index];
+            index = (index + 1) % typingPhrases.length;
+        }, 1200);
+    }
+
+    function stopTypingIndicator() {
+        if (typingInterval) clearInterval(typingInterval);
+        typingIndicator.style.display = 'none';
+    }
+
+    function updateLiveHeaderStatus(status, latencyMs) {
+        const textNode = document.getElementById('liveNetworkText');
+        const dotNode = document.querySelector('.status-dot');
+        const latencyNode = document.getElementById('liveLatencyText');
+        const autosaveNode = document.getElementById('liveAutosaveText');
+        if (!textNode || !dotNode) return;
+        
+        if (status === 'connected') {
+            textNode.innerText = 'Connected';
+            dotNode.style.background = '#10b981';
+            dotNode.style.animation = 'pulse-green 2s infinite';
+            if (latencyMs !== undefined) {
+                latencyNode.innerText = `Latency: ${latencyMs}ms`;
+            }
+            autosaveNode.innerText = `Autosaved ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'})}`;
+        } else {
+            textNode.innerText = 'Offline';
+            dotNode.style.background = '#ef4444';
+            dotNode.style.animation = 'none';
+        }
     }
 
     async function sendMessage(customMsg = null) {
@@ -1359,29 +2385,68 @@ $roundType = $filters['type'] ?? 'Technical';
         if (!customMsg) {
             addMessage('user', msg);
             userInput.value = '';
+            userInput.style.height = 'auto';
         }
 
-        typingIndicator.style.display = 'flex';
+        startTypingIndicator();
 
+        const requestPayload = {
+            url: 'mock_ai_handler.php',
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-CSRF-TOKEN': CSRF_TOKEN
+            },
+            body: { 
+                action: 'chat', 
+                session_id: currentSessionId, 
+                message: msg,
+                type: "<?php echo $roundType; ?>"
+            }
+        };
+
+        if (!navigator.onLine) {
+            offlineQueue.enqueue(requestPayload);
+            stopTypingIndicator();
+            addMessage('system', '⚠️ Offline. Action buffered in queue.');
+            updateLiveHeaderStatus('disconnected');
+            return;
+        }
+
+        const startTime = Date.now();
         try {
-            const res = await fetch('mock_ai_handler.php', {
+            const res = await fetch(requestPayload.url, {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': CSRF_TOKEN
-                },
-                body: JSON.stringify({ 
-                    action: 'chat', 
-                    session_id: currentSessionId, 
-                    message: msg,
-                    type: "<?php echo $roundType; ?>"
-                })
+                headers: requestPayload.headers,
+                body: JSON.stringify(requestPayload.body)
             });
-            const data = await res.json();
+
+            const rawText = await res.text();
+            let data;
+            try {
+                data = JSON.parse(rawText);
+            } catch (parseErr) {
+                console.error('Server returned non-JSON:', rawText.substring(0, 500));
+                stopTypingIndicator();
+                updateLiveHeaderStatus('disconnected');
+                addMessage('system', '⚠️ Server error. Please refresh and try again.');
+                return;
+            }
+
+            if (!res.ok && !data.success) {
+                stopTypingIndicator();
+                addMessage('system', '⚠️ ' + (data.message || 'Server error. Please try again.'));
+                return;
+            }
             
-            typingIndicator.style.display = 'none';
+            const latency = Date.now() - startTime;
+            const times = stateStore.state.performance.apiResponseTimes;
+            times.push(latency);
+            stateStore.update('performance', { backendLatency: latency, apiResponseTimes: times });
+
+            stopTypingIndicator();
+            updateLiveHeaderStatus('connected', latency);
+
             if (data.success && data.job_id) {
-                // Poll for Job Status
                 const pollInterval = setInterval(async () => {
                     try {
                         const statusRes = await fetch(`ai_job_status.php?job_id=${data.job_id}`).then(r => r.json());
@@ -1389,7 +2454,7 @@ $roundType = $filters['type'] ?? 'Technical';
                             clearInterval(pollInterval);
                             const result = statusRes.result;
                             addMessage('ai', result.message || result.content);
-                            speakText(result.message || result.content);
+                            runtime.speakText(result.message || result.content);
                             if (result.is_end) {
                                 lockControls();
                                 addMessage('ai', 'SYSTEM: *Session concluded. Processing analytics...*');
@@ -1406,8 +2471,15 @@ $roundType = $filters['type'] ?? 'Technical';
                     }
                 }, 2000);
             } else if (data.success) {
-                addMessage('ai', data.message);
-                speakText(data.message);
+                if (data.step) {
+                    runtime.applyStep(data.step);
+                    if (data.step.message) {
+                        addMessage('ai', data.step.message);
+                    }
+                } else {
+                    addMessage('ai', data.message);
+                    runtime.speakText(data.message);
+                }
                 if (data.is_end) {
                     lockControls();
                     addMessage('ai', 'SYSTEM: *Session concluded. Processing analytics...*');
@@ -1416,10 +2488,14 @@ $roundType = $filters['type'] ?? 'Technical';
                         window.location.href = `mock_ai_report.php?session_id=${data.session_id}`;
                     }, 3000);
                 }
+            } else {
+                addMessage('system', '⚠️ ' + (data.message || 'AI response failed. Please try again.'));
             }
         } catch (e) {
             console.error(e);
-            alert('Failed to sync response.');
+            stopTypingIndicator();
+            updateLiveHeaderStatus('disconnected');
+            addMessage('system', '⚠️ Network error. Check your connection and try again.');
         }
     }
 
@@ -1432,7 +2508,7 @@ $roundType = $filters['type'] ?? 'Technical';
     }
 
     async function runCodeSimulation() {
-        const code = editor.getValue().trim();
+        const code = runtime.getEditorValue();
         if (!code) return;
         
         const btn = document.getElementById('btnRunCode');
@@ -1443,6 +2519,14 @@ $roundType = $filters['type'] ?? 'Technical';
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Executing...';
         consoleOut.innerHTML = `[System] Initializing ${lang} environment...\n[System] Compiling source...\n[System] Executing unit tests...`;
         consoleOut.className = 'console-out';
+
+        if (!navigator.onLine) {
+            consoleOut.innerHTML = `[Error] You are currently offline. Running code requires a server connection.`;
+            consoleOut.className = 'console-out console-error';
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-play"></i> Run Code';
+            return;
+        }
 
         try {
             const res = await fetch('mock_ai_handler.php', {
@@ -1458,18 +2542,22 @@ $roundType = $filters['type'] ?? 'Technical';
                     language: lang
                 })
             });
-            const data = await res.json();
+            const text = await res.text();
+            let data = null;
+            try {
+                data = JSON.parse(text);
+            } catch (err) {
+                console.error("Failed to parse evaluate_code JSON:", text);
+            }
             
-            if (data.success) {
+            if (data && data.success) {
                 const eval = data.evaluation;
                 consoleOut.innerHTML = `[Output]\n${eval.output_log || 'Execution successful.'}\n\n[Evaluation]\nScore: ${eval.score}/10\nStatus: ${eval.passed ? 'PASSED' : 'FAILED'}\n\n${eval.feedback}`;
                 consoleOut.className = eval.passed ? 'console-out console-success' : 'console-out console-error';
                 
-                // Also add a system message to chat so AI knows we ran code
                 addMessage('system', `Code Execution: Score ${eval.score}/10, Status: ${eval.passed ? 'PASSED' : 'FAILED'}`);
 
                 if (eval.passed) {
-                    // Auto-trigger next question if code passed
                     setTimeout(() => {
                         sendMessage(`System: The code execution was successful and scored ${eval.score}/10. Please provide your technical critique and ask the next question.`);
                     }, 1000);
@@ -1487,31 +2575,12 @@ $roundType = $filters['type'] ?? 'Technical';
     }
 
     function addMessage(role, text) {
-        const div = document.createElement('div');
-        div.className = `message ${role}`;
-        
         if (text.includes('[SHOW_WORKSPACE]')) {
             toggleWorkspaceBtn.style.display = 'flex';
             if (window.innerWidth >= 1200) toggleCodingPanel();
             text = text.replace(/\[SHOW_WORKSPACE\]/g, '');
         }
-
-        let formattedText = text
-            .replace(/\[END_INTERVIEW\]/g, '')
-            .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-            .replace(/- (.*?)\n/g, '<li>$1</li>')
-            .replace(/\n\n/g, '<br><br>');
-            
-        if (formattedText.includes('Next time, say it like this:')) {
-            formattedText = formattedText.replace(
-                /Next time, say it like this: (.*?)(<br|$)/, 
-                '<div class="expert-box"><strong>Expert Phrasing:</strong> $1</div>'
-            );
-        }
-
-        div.innerHTML = formattedText;
-        chatHistory.appendChild(div);
-        chatHistory.scrollTop = chatHistory.scrollHeight;
+        eventBus.emit('MESSAGE_RECEIVED', { role, content: text });
     }
 
     async function endSessionManual() {
@@ -1548,9 +2617,15 @@ $roundType = $filters['type'] ?? 'Technical';
                     type: '<?php echo $roundType; ?>'
                 })
             });
-            const data = await res.json();
+            const text = await res.text();
+            let data = null;
+            try {
+                data = JSON.parse(text);
+            } catch (err) {
+                console.error("Failed to parse end_session JSON:", text);
+            }
             
-            if (data.success) {
+            if (data && data.success) {
                 if (data.is_incomplete) {
                     alert(data.message);
                     currentSessionId = null;
@@ -1598,39 +2673,30 @@ $roundType = $filters['type'] ?? 'Technical';
         window.location.href = 'dashboard.php';
     }
 
-    userInput.onkeypress = (e) => { if (e.key === 'Enter') sendMessage(); };
+    function toggleCodingPanel() {
+        codingPanel.classList.toggle('active');
+        const isShowing = codingPanel.classList.contains('active');
+        if (isShowing) {
+            runtime.refreshEditor();
+        }
+    }
+
+    userInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+    userInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = (this.scrollHeight) + 'px';
+        if (this.value === '') this.style.height = 'auto';
+    });
     btnSend.onclick = sendMessage;
     window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
 
     // --- SECURITY PROTOCOLS ---
-    
-    // Disable Context Menu, Copy, Paste, Cut
-    document.addEventListener('contextmenu', e => e.preventDefault());
-    document.addEventListener('copy', e => e.preventDefault());
-    document.addEventListener('cut', e => e.preventDefault());
-    document.addEventListener('paste', e => e.preventDefault());
-
-    // Disable Developer Hotkeys
-    document.addEventListener('keydown', e => {
-        // Disable F12, Ctrl+Shift+I (Inspect), Ctrl+Shift+J (Console), Ctrl+U (Source)
-        if (e.key === 'F12') e.preventDefault();
-        if (e.ctrlKey && e.shiftKey && (e.key === 'I' || e.key === 'J')) e.preventDefault();
-        if (e.ctrlKey && e.key.toLowerCase() === 'u') e.preventDefault();
-        // Disable Ctrl+S, Ctrl+P, PrintScreen
-        if (e.ctrlKey && (e.key.toLowerCase() === 's' || e.key.toLowerCase() === 'p')) e.preventDefault();
-        if (e.key === 'PrintScreen') {
-            navigator.clipboard.writeText(""); // Clear clipboard
-            alert('Screenshots are disabled for this session.');
-            e.preventDefault();
-        }
-    });
-
-    // Clipboard clear loop during session
-    setInterval(() => {
-        if(isProctoringActive) {
-            try { navigator.clipboard.writeText(""); } catch(e){}
-        }
-    }, 2000);
+    // Security protocols (copy/paste & developer hotkeys blocks removed as requested)
 
     // Monitor Fullscreen Exit
     document.addEventListener('fullscreenchange', handleSecurityFlag);

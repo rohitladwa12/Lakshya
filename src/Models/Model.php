@@ -221,7 +221,12 @@ abstract class Model {
      */
     public function query($sql, $params = [], $fetchMode = PDO::FETCH_ASSOC, ...$fetchArgs) {
         $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
+        foreach ($params as $key => $value) {
+            $paramKey = is_int($key) ? $key + 1 : $key;
+            $type = is_int($value) ? PDO::PARAM_INT : (is_bool($value) ? PDO::PARAM_BOOL : (is_null($value) ? PDO::PARAM_NULL : PDO::PARAM_STR));
+            $stmt->bindValue($paramKey, $value, $type);
+        }
+        $stmt->execute();
         return $stmt->fetchAll($fetchMode, ...$fetchArgs);
     }
     
@@ -230,7 +235,12 @@ abstract class Model {
      */
     public function queryOne($sql, $params = [], $fetchMode = PDO::FETCH_ASSOC, ...$fetchArgs) {
         $stmt = $this->db->prepare($sql);
-        $stmt->execute($params);
+        foreach ($params as $key => $value) {
+            $paramKey = is_int($key) ? $key + 1 : $key;
+            $type = is_int($value) ? PDO::PARAM_INT : (is_bool($value) ? PDO::PARAM_BOOL : (is_null($value) ? PDO::PARAM_NULL : PDO::PARAM_STR));
+            $stmt->bindValue($paramKey, $value, $type);
+        }
+        $stmt->execute();
         return $stmt->fetch($fetchMode, ...$fetchArgs);
     }
     

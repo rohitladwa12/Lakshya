@@ -53,6 +53,10 @@ if (!$hasApplied) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $roundType; ?> Assessment | <?php echo htmlspecialchars($drive['drive_name']); ?></title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- KaTeX for equation rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
     <script src="report_question.js?v=<?php echo APP_VERSION; ?>"></script>
     <style>
         :root {
@@ -503,6 +507,22 @@ if (!$hasApplied) {
         let timerInterval = null;
         let tabSwitchCount = 0;
 
+        function renderMath(element) {
+            if (typeof renderMathInElement === 'function') {
+                renderMathInElement(element, {
+                    delimiters: [
+                        {left: "$$", right: "$$", display: true},
+                        {left: "$", right: "$", display: false},
+                        {left: "\\(", right: "\\)", display: false},
+                        {left: "\\[", right: "\\]", display: true}
+                    ],
+                    throwOnError: false
+                });
+            } else {
+                setTimeout(() => renderMath(element), 100);
+            }
+        }
+
         // --- ANTI-CHEAT SYSTEM ---
         document.addEventListener('contextmenu', event => event.preventDefault());
         document.addEventListener('copy', event => { event.preventDefault(); alert("Copying is strictly prohibited during the assessment."); });
@@ -643,6 +663,10 @@ if (!$hasApplied) {
                 item.appendChild(textSpan);
                 list.appendChild(item);
             });
+
+            // Render Math
+            renderMath(document.getElementById('questionText'));
+            renderMath(list);
 
             // Adjust navigation buttons
             document.getElementById('btnPrev').disabled = (currentIdx === 0);
@@ -849,6 +873,7 @@ if (!$hasApplied) {
             `;
 
             body.innerHTML = html;
+            renderMath(body);
         }
     </script>
 </body>

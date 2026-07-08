@@ -75,6 +75,10 @@ if ($driveId > 0) {
     <!-- Code Mirror for Editor -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
+    <!-- KaTeX for equation rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
     <!-- html2pdf -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="resilience.js?v=<?php echo APP_VERSION; ?>"></script>
@@ -413,6 +417,22 @@ if ($driveId > 0) {
 
     <script>
         window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
+        
+        function renderMath(element) {
+            if (typeof renderMathInElement === 'function') {
+                renderMathInElement(element, {
+                    delimiters: [
+                        {left: "$$", right: "$$", display: true},
+                        {left: "$", right: "$", display: false},
+                        {left: "\\(", right: "\\)", display: false},
+                        {left: "\\[", right: "\\]", display: true}
+                    ],
+                    throwOnError: false
+                });
+            } else {
+                setTimeout(() => renderMath(element), 100);
+            }
+        }
         let sessionId = null;
         let company = "<?php echo addslashes($companyName); ?>";
         let driveId = <?php echo $driveId; ?>;
@@ -839,6 +859,7 @@ if ($driveId > 0) {
             
             div.innerHTML = `<div class="bubble">${html}</div>`;
             document.getElementById('chatHistory').appendChild(div);
+            renderMath(div);
             document.getElementById('chatHistory').scrollTop = document.getElementById('chatHistory').scrollHeight;
         }
         

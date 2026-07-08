@@ -37,6 +37,9 @@ $fullName = getFullName();
     <script src="resilience.js?v=<?php echo APP_VERSION; ?>"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
     <script src="report_question.js?v=<?php echo APP_VERSION; ?>"></script>
     <style>
         :root {
@@ -419,7 +422,7 @@ $fullName = getFullName();
             <h1>AI Aptitude Assessment</h1>
             <p>Company: <strong><?php echo htmlspecialchars($companyName); ?></strong></p>
             <div style="text-align: left; margin: 30px 0; background: #f8f9fa; padding: 20px; border-radius: 12px;">
-                <p>• 40 Questions (36 DB + 4 AI)</p>
+                <p>• 40 Questions (Database Sourced)</p>
                 <p>• 40 Minutes Total Time</p>
                 <p>• Full-screen experience recommended</p>
                 <p>• Questions focus on company awareness & technical depth</p>
@@ -446,7 +449,7 @@ $fullName = getFullName();
 
         <div class="question-area" id="questionArea">
             <div class="loader" id="mainLoader"></div>
-            <p id="loaderText" style="text-align: center;">Reseaching company sector and generating custom domain assessment...</p>
+            <p id="loaderText" style="text-align: center;">Loading assessment questions...</p>
         </div>
 
         <div class="footer">
@@ -479,6 +482,22 @@ $fullName = getFullName();
         let timeLeft = 40 * 60; // 40 minutes for 40 questions
         let timerInterval;
         const companyName = "<?php echo addslashes($companyName); ?>";
+
+        function renderMath(element) {
+            if (typeof renderMathInElement === 'function') {
+                renderMathInElement(element, {
+                    delimiters: [
+                        {left: "$$", right: "$$", display: true},
+                        {left: "$", right: "$", display: false},
+                        {left: "\\(", right: "\\)", display: false},
+                        {left: "\\[", right: "\\]", display: true}
+                    ],
+                    throwOnError: false
+                });
+            } else {
+                setTimeout(() => renderMath(element), 100);
+            }
+        }
 
         function shuffleArray(arr) {
             for (let i = arr.length - 1; i > 0; i--) {
@@ -612,6 +631,7 @@ $fullName = getFullName();
             `;
 
             updateUI();
+            renderMath(area);
         }
 
         function selectOption(idx) {
@@ -745,6 +765,7 @@ $fullName = getFullName();
                         });
                         html += '</div>';
                         document.getElementById('resultDetails').innerHTML = html;
+                        renderMath(document.getElementById('resultDetails'));
                     }
                 } else {
                     document.getElementById('resultMsg').innerText = 'Submission failed but your progress was saved.';

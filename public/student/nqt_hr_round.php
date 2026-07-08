@@ -296,21 +296,325 @@ $fullName = getFullName();
     </div>
 
     <script>
+        window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
+    </script>
+    <script src="<?php echo APP_URL; ?>/js/security_interceptor.js?v=<?php echo APP_VERSION; ?>"></script>
+    <script>
         let sessionId = null;
         let recognition;
         let synth = window.speechSynthesis;
+
+        const State = {
+            IDLE: 'IDLE',
+            AI_SPEAKING: 'AI_SPEAKING',
+            WAITING: 'WAITING',
+            LISTENING: 'LISTENING',
+            PROCESSING: 'PROCESSING',
+            ERROR: 'ERROR',
+            ENDED: 'ENDED'
+        };
+
+        const ValidTransitions = {
+            [State.IDLE]: [State.AI_SPEAKING, State.ENDED],
+            [State.AI_SPEAKING]: [State.WAITING, State.ERROR, State.ENDED],
+            [State.WAITING]: [State.LISTENING, State.ERROR, State.ENDED],
+            [State.LISTENING]: [State.PROCESSING, State.ERROR, State.ENDED],
+            [State.PROCESSING]: [State.AI_SPEAKING, State.ERROR, State.ENDED],
+            [State.ERROR]: [State.LISTENING, State.ENDED],
+            [State.ENDED]: []
+        };
+
+        let currentState = State.IDLE;
         let isListening = false;
-        let isProcessingAnswer = false;
-        let isSpeaking = false;
+        let silenceTimer = null;
+        let currentUtterance = "";
+        let accumulatedTranscript = "";
+        let lastSpeechTimestamp = Date.now();
+        let timeRemaining = 3600;
+        let timerInterval = null;
+
         let voices = [];
         let speechQueue = [];
         let speechWatchdog = null;
-        let silenceTimer;
-        let currentUtterance = "";
-        let timeRemaining = 3600;
-        let timerInterval;
+
+        // Telemetry Statistics (Welford's Online Algorithm)
+        let confidenceCount = 0;
+        let confidenceMean = 0;
+        let confidenceM2 = 0;
+        let confidenceMin = 1.0;
+        let confidenceMax = 0.0;
+
+        let telemetryOnstartCount = 0;
+        let telemetryOnerrorCount = 0;
+        let telemetrySilenceTimeoutCount = 0;
+        let telemetryVADSpeechTime = 0;
+        let telemetrySubmissionReasons = [];
+
+        let timeStateTransitionToListening = 0;
+        let timeMicOpened = 0;
+        let timeFirstTranscriptReceived = 0;
+        let timeToFirstTranscriptLogged = false;
+
+        let telemetryEventLog = [];
+
+        let startTime = null; // Declare startTime for time differences
+
+        function logTelemetryEvent(eventName) {
+            const timeDiff = startTime ? (Date.now() - startTime) : 0;
+            telemetryEventLog.push({
+                t: timeDiff,
+                event: eventName
+            });
+        }
+
+        function calculateVoiceHealthScore() {
+            let score = 100;
+            score -= (telemetryOnerrorCount * 15);
+            const stats = getConfidenceStats();
+            if (stats.count > 0 && stats.mean < 0.75) {
+                score -= Math.min(25, Math.floor((0.75 - stats.mean) * 100));
+            }
+            score -= (reconnectAttempts * 8);
+            return Math.max(0, score);
+        }
+
+        function getTelemetryPayload() {
+            return JSON.stringify({
+                schema_version: 2,
+                voice_metrics: {
+                    browser: navigator.userAgent,
+                    onstart_events: telemetryOnstartCount,
+                    onerror_events: telemetryOnerrorCount,
+                    silence_timeouts: telemetrySilenceTimeoutCount,
+                    vad_speech_time_ms: telemetryVADSpeechTime,
+                    submission_reasons: telemetrySubmissionReasons,
+                    confidence_stats: getConfidenceStats(),
+                    voice_health_score: calculateVoiceHealthScore()
+                },
+                event_log: telemetryEventLog
+            });
+        }
+
+        function updateConfidenceStats(confidence) {
+            if (confidence <= 0) return;
+            confidenceCount++;
+            const delta = confidence - confidenceMean;
+            confidenceMean += delta / confidenceCount;
+            const delta2 = confidence - confidenceMean;
+            confidenceM2 += delta * delta2;
+            confidenceMin = Math.min(confidenceMin, confidence);
+            confidenceMax = Math.max(confidenceMax, confidence);
+        }
+
+        function resetConfidenceStats() {
+            confidenceCount = 0;
+            confidenceMean = 0;
+            confidenceM2 = 0;
+            confidenceMin = 1.0;
+            confidenceMax = 0.0;
+            timeToFirstTranscriptLogged = false;
+            timeStateTransitionToListening = 0;
+            timeMicOpened = 0;
+            timeFirstTranscriptReceived = 0;
+        }
+
+        function getConfidenceVariance() {
+            return confidenceCount > 1 ? confidenceM2 / (confidenceCount - 1) : 0;
+        }
+
+        function getConfidenceStats() {
+            return {
+                count: confidenceCount,
+                mean: confidenceMean,
+                variance: getConfidenceVariance(),
+                stdDev: Math.sqrt(getConfidenceVariance()),
+                min: confidenceMin,
+                max: confidenceMax
+            };
+        }
+
+        // Web Audio VAD & Energy Analysis
+        let audioCtx = null;
+        let micSource = null;
+        let analyser = null;
+        let animationFrameId = null;
+
+        let ambientNoiseFloor = 0.01;
+        let dynamicThreshold = 0.02;
+        const DYNAMIC_THRESHOLD_MULTIPLIER = 2.5;
+
+        let lastFrameTime = 0;
+        const FRAME_INTERVAL_MS = 66; // ~15 Hz
+
+        function initializeSessionAudio() {
+            if (audioCtx) return;
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+            
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then((stream) => {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    micSource = audioCtx.createMediaStreamSource(stream);
+                    analyser = audioCtx.createAnalyser();
+                    analyser.fftSize = 512;
+                    
+                    micSource.connect(analyser);
+                    
+                    setTimeout(() => calibrateNoiseFloor(), 1000);
+                })
+                .catch((err) => {
+                    console.error("Audio Context initialization failed:", err);
+                });
+        }
+
+        function calibrateNoiseFloor() {
+            if (!analyser) return;
+            const bufferLength = analyser.fftSize;
+            const dataArray = new Uint8Array(bufferLength);
+            let samples = [];
+            let count = 0;
+            
+            const interval = setInterval(() => {
+                analyser.getByteTimeDomainData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    const normalized = (dataArray[i] - 128) / 128;
+                    sum += normalized * normalized;
+                }
+                const rms = Math.sqrt(sum / bufferLength);
+                samples.push(rms);
+                count++;
+                if (count >= 15) {
+                    clearInterval(interval);
+                    const avgRms = samples.reduce((a, b) => a + b, 0) / samples.length;
+                    ambientNoiseFloor = Math.max(avgRms, 0.005);
+                    dynamicThreshold = ambientNoiseFloor * DYNAMIC_THRESHOLD_MULTIPLIER;
+                }
+            }, 100);
+        }
+
+        function trackEnergyLoop(timestamp) {
+            if (currentState !== State.LISTENING || !analyser) {
+                animationFrameId = requestAnimationFrame(trackEnergyLoop);
+                return;
+            }
+            
+            if (timestamp - lastFrameTime < FRAME_INTERVAL_MS) {
+                animationFrameId = requestAnimationFrame(trackEnergyLoop);
+                return;
+            }
+            lastFrameTime = timestamp;
+            
+            const bufferLength = analyser.fftSize;
+            const dataArray = new Uint8Array(bufferLength);
+            analyser.getByteTimeDomainData(dataArray);
+            
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                const normalized = (dataArray[i] - 128) / 128;
+                sum += normalized * normalized;
+            }
+            const rms = Math.sqrt(sum / bufferLength);
+            
+            if (rms > dynamicThreshold) {
+                lastSpeechTimestamp = Date.now();
+                telemetryVADSpeechTime += FRAME_INTERVAL_MS;
+            } else {
+                if (currentUtterance.length === 0) {
+                    ambientNoiseFloor = (ambientNoiseFloor * 0.95) + (rms * 0.05);
+                    dynamicThreshold = Math.max(ambientNoiseFloor * DYNAMIC_THRESHOLD_MULTIPLIER, 0.015);
+                }
+            }
+            
+            animationFrameId = requestAnimationFrame(trackEnergyLoop);
+        }
+
+        // FSM Transition Logic
+        function transitionTo(newState) {
+            if (currentState !== newState && !ValidTransitions[currentState].includes(newState)) {
+                console.warn(`Blocked invalid FSM state transition: ${currentState} -> ${newState}`);
+                return;
+            }
+            logTelemetryEvent(newState);
+            
+            console.log(`FSM Transition: ${currentState} -> ${newState}`);
+            
+            // 1. EXIT STATE (Cleanup)
+            switch (currentState) {
+                case State.LISTENING:
+                    isListening = false;
+                    if (recognition) {
+                        try { recognition.abort(); } catch(e) {}
+                    }
+                    clearSilenceTimer();
+                    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+                    break;
+                    
+                case State.AI_SPEAKING:
+                    stopSpeaking();
+                    break;
+            }
+            
+            currentState = newState;
+            
+            // 2. ENTER STATE (Setup)
+            switch (newState) {
+                case State.AI_SPEAKING:
+                    updateState("Speaking", "speaking");
+                    document.getElementById('micBtn').classList.add('disabled');
+                    break;
+                    
+                case State.WAITING:
+                    updateState("Preparing...", "neutral");
+                    document.getElementById('micBtn').classList.add('disabled');
+                    timeStateTransitionToListening = Date.now();
+                    if (recognition) {
+                        try { recognition.start(); } catch(e) {}
+                    }
+                    break;
+                    
+                case State.LISTENING:
+                    isListening = true;
+                    updateState("Listening", "listening");
+                    document.getElementById('micBtn').innerHTML = '<i class="fas fa-microphone"></i>';
+                    document.getElementById('micBtn').classList.add('active');
+                    document.getElementById('micBtn').classList.remove('disabled');
+                    
+                    lastSpeechTimestamp = Date.now();
+                    
+                    if (analyser) {
+                        animationFrameId = requestAnimationFrame(trackEnergyLoop);
+                    }
+                    break;
+                    
+                case State.PROCESSING:
+                    updateState("Thinking", "neutral");
+                    document.getElementById('micBtn').classList.add('disabled');
+                    break;
+                    
+                case State.ERROR:
+                    updateState("Connection issue. Retrying...", "neutral");
+                    document.getElementById('micBtn').classList.add('disabled');
+                    recoverRecognition();
+                    break;
+                    
+                case State.ENDED:
+                    updateState("Completed", "neutral");
+                    document.getElementById('micBtn').innerHTML = '<i class="fas fa-microphone-slash"></i>';
+                    document.getElementById('micBtn').classList.remove('active');
+                    document.getElementById('micBtn').classList.add('disabled');
+                    
+                    clearInterval(timerInterval);
+                    stopHealthMonitor();
+                    if (audioCtx) {
+                        audioCtx.close();
+                        audioCtx = null;
+                    }
+                    break;
+            }
+        }
 
         function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
             timerInterval = setInterval(() => {
                 timeRemaining--;
                 let m = Math.floor(timeRemaining / 60).toString().padStart(2, '0');
@@ -326,11 +630,7 @@ $fullName = getFullName();
 
         function handleTimeUp() {
             document.getElementById('timeUpOverlay').classList.remove('hidden');
-            if (isListening && recognition) recognition.stop();
-            window.currentUtteranceObj = null;
-            clearSpeechWatchdog();
-            speechQueue = [];
-            if (isSpeaking && synth) synth.cancel();
+            transitionTo(State.ENDED);
         }
 
         // Security Features
@@ -348,75 +648,103 @@ $fullName = getFullName();
         if (speechSynthesis.onvoiceschanged !== undefined) speechSynthesis.onvoiceschanged = loadVoices;
 
         window.onload = function() {
-            if (!('webkitSpeechRecognition' in window)) {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
                 alert("Speech recognition not supported in this browser. Please use Chrome.");
                 return;
             }
 
-            recognition = new webkitSpeechRecognition();
+            recognition = new SpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = true;
             recognition.lang = 'en-US';
 
             recognition.onstart = () => {
-                isListening = true;
-                isProcessingAnswer = false;
-                clearTimeout(silenceTimer);
-                updateState("Listening", "listening");
-                document.getElementById('micBtn').classList.add('active');
+                logTelemetryEvent("MIC_OPEN");
+                telemetryOnstartCount++;
+                recoveryInProgress = false;
+                timeMicOpened = Date.now();
+                if (currentState === State.WAITING) {
+                    transitionTo(State.LISTENING);
+                }
             };
 
             recognition.onend = () => {
-                isListening = false;
+                logTelemetryEvent("MIC_CLOSE");
+                document.getElementById('micBtn').innerHTML = '<i class="fas fa-microphone-slash"></i>';
                 document.getElementById('micBtn').classList.remove('active');
-                if (!isSpeaking && sessionId) {
-                    if (isProcessingAnswer) {
-                        updateState("Thinking", "neutral");
-                    } else {
-                        updateState("Ready", "neutral");
-                        setTimeout(() => {
-                            if (!isSpeaking && sessionId && !isListening && !isProcessingAnswer) {
-                                console.log("Auto-restarting speech recognition...");
-                                try { recognition.start(); } catch(e){}
-                            }
-                        }, 300);
-                    }
+                if (currentState === State.LISTENING) {
+                    console.log("Mic unexpectedly stopped in LISTENING state. Recovering...");
+                    transitionTo(State.ERROR);
                 }
                 document.getElementById('captionArea').style.display = 'none';
             };
 
             recognition.onresult = (event) => {
-                let finalTranscript = '';
+                if (currentState !== State.LISTENING) return;
+                
                 let interimTranscript = '';
-                for (let i = 0; i < event.results.length; ++i) {
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript;
+                        logTelemetryEvent("TRANSCRIPT_RECEIVED");
+                        accumulatedTranscript += event.results[i][0].transcript + ' ';
+                        if (event.results[i][0].confidence > 0) {
+                            updateConfidenceStats(event.results[i][0].confidence);
+                        }
+                        if (!timeToFirstTranscriptLogged) {
+                            timeFirstTranscriptReceived = Date.now();
+                            timeToFirstTranscriptLogged = true;
+                        }
                     } else {
                         interimTranscript += event.results[i][0].transcript;
                     }
                 }
-                if (finalTranscript || interimTranscript) {
-                    clearTimeout(silenceTimer);
-                    silenceTimer = setTimeout(() => {
-                        if (currentUtterance.trim()) sendAnswer(currentUtterance);
-                    }, 7000);
+                
+                lastSpeechTimestamp = Date.now();
+                
+                if (accumulatedTranscript || interimTranscript) {
+                    clearSilenceTimer();
+                    silenceTimer = setTimeout(() => onSilenceComplete(), 7000);
                 }
-                currentUtterance = finalTranscript.trim();
-                const display = (finalTranscript + ' ' + interimTranscript).trim();
-                showCaption(display);
+                currentUtterance = (accumulatedTranscript + interimTranscript).trim();
+                showCaption(currentUtterance);
             };
 
             recognition.onerror = (event) => {
+                logTelemetryEvent("ERROR_" + event.error);
+                telemetryOnerrorCount++;
                 console.error("Speech Recognition Error:", event.error);
-                if (event.error === 'not-allowed') {
-                    alert("Microphone Access Blocked: Please click the microphone icon in your browser address bar and choose 'Allow' to participate in the interview.");
-                    updateState("Mic Blocked", "neutral");
+                if (event.error === 'no-speech' || event.error === 'network') {
+                    transitionTo(State.ERROR);
                 }
             };
 
             document.addEventListener('fullscreenchange', () => {
                 if (!document.fullscreenElement && sessionId) {
                     document.getElementById('securityOverlay').classList.remove('hidden');
+                }
+            });
+
+            // Visibility lifecycle change
+            document.addEventListener("visibilitychange", () => {
+                if (document.visibilityState === "hidden") {
+                    console.log("Tab hidden. Pausing session...");
+                    if (currentState === State.LISTENING) {
+                        if (recognition) {
+                            try { recognition.abort(); } catch(e) {}
+                        }
+                    }
+                } else {
+                    console.log("Tab visible. Resuming session...");
+                    if (currentState === State.LISTENING) {
+                        recoverRecognition();
+                    }
+                }
+            });
+
+            window.addEventListener('beforeunload', () => {
+                if (sessionId) {
+                    transitionTo(State.ENDED);
                 }
             });
         };
@@ -438,14 +766,17 @@ $fullName = getFullName();
             });
             const data = await res.json();
             if (data.success) {
+                startTime = Date.now();
                 sessionId = data.session_id;
+                initializeSessionAudio();
                 startTimer();
+                startHealthMonitor();
                 getQuestion();
             }
         }
 
         async function getQuestion(msg = '') {
-            updateState("Thinking", "neutral");
+            transitionTo(State.PROCESSING);
             const res = await fetch('nqt_hr_handler', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -460,6 +791,32 @@ $fullName = getFullName();
             }
         }
 
+        function clearSilenceTimer() {
+            if (silenceTimer) {
+                clearTimeout(silenceTimer);
+                silenceTimer = null;
+            }
+        }
+
+        function onSilenceComplete() {
+            silenceTimer = null;
+            if (currentState !== State.LISTENING) return;
+            
+            const now = Date.now();
+            const timeSinceLastSpeech = now - lastSpeechTimestamp;
+            if (timeSinceLastSpeech < 7000) {
+                const remaining = 7000 - timeSinceLastSpeech;
+                silenceTimer = setTimeout(() => onSilenceComplete(), remaining);
+                return;
+            }
+            
+            const text = currentUtterance.trim();
+            if (text) {
+                telemetrySilenceTimeoutCount++;
+                sendAnswer(text, false);
+            }
+        }
+
         function clearSpeechWatchdog() {
             if (speechWatchdog) {
                 clearTimeout(speechWatchdog);
@@ -468,7 +825,7 @@ $fullName = getFullName();
         }
 
         function speak(text) {
-            window.currentUtteranceObj = null; // Invalidate previous utterance
+            window.currentUtteranceObj = null;
             clearSpeechWatchdog();
             if (synth.speaking) synth.cancel();
             
@@ -477,7 +834,6 @@ $fullName = getFullName();
             }
             
             speechQueue = [];
-            isSpeaking = false;
 
             let cleanText = text.replace(/\[END_INTERVIEW\]/g, '')
                                 .replace(/\*\*/g, '')
@@ -487,45 +843,36 @@ $fullName = getFullName();
                                 .replace(/\+/g, ' plus ')
                                 .replace(/(\d+):(\d+)/g, '$1 $2');
             
-            // Split into smaller chunks (sentences) for better reliability
             const chunks = cleanText.match(/[^.!?]+[.!?]*|[^.!?]+/g) || [cleanText];
             chunks.forEach(c => {
                 const trimmed = c.trim();
                 if (trimmed.length > 0) speechQueue.push(trimmed);
             });
 
-            isSpeaking = true;
-            updateState("Speaking", "speaking");
-            document.getElementById('micBtn').classList.add('disabled');
-
+            transitionTo(State.AI_SPEAKING);
             processSpeechQueue();
         }
 
         function processSpeechQueue() {
             if (speechQueue.length === 0) {
                 clearSpeechWatchdog();
-                isSpeaking = false;
-                isProcessingAnswer = false;
                 currentUtterance = "";
+                accumulatedTranscript = "";
                 if (sessionId) {
-                    updateState("Ready", "neutral");
-                    document.getElementById('micBtn').classList.remove('disabled');
-                    // Auto-start listening
-                    try { recognition.start(); } catch(e){}
+                    transitionTo(State.WAITING);
                 }
                 return;
             }
 
             const text = speechQueue.shift();
             const utterance = new SpeechSynthesisUtterance(text);
-            window.currentUtteranceObj = utterance; // Prevent GC sweeping it mid-speech
+            window.currentUtteranceObj = utterance;
             
             const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Female"));
             if (preferredVoice) utterance.voice = preferredVoice;
 
             utterance.rate = 1.0;
 
-            // Calculate safety watchdog timeout (150ms per character + 5000ms base)
             const safetyTimeout = (text.length * 150) + 5000;
             clearSpeechWatchdog();
             speechWatchdog = setTimeout(() => {
@@ -542,7 +889,7 @@ $fullName = getFullName();
                 clearSpeechWatchdog();
                 setTimeout(() => {
                     processSpeechQueue();
-                }, 100); // Tiny pause between chunks
+                }, 100);
             };
 
             utterance.onerror = (event) => {
@@ -557,13 +904,46 @@ $fullName = getFullName();
             synth.speak(utterance);
         }
 
+        let reconnectAttempts = 0;
+        let recoveryInProgress = false;
+        let backoffResetTimer = null;
+
+        function recoverRecognition() {
+            if (currentState !== State.ERROR || recoveryInProgress) return;
+            
+            recoveryInProgress = true;
+            const delay = Math.min(Math.pow(2, reconnectAttempts) * 1000, 16000);
+            console.log(`Scheduling recognition restart in ${delay}ms (Attempt #${reconnectAttempts + 1})`);
+            
+            setTimeout(() => {
+                try {
+                    recognition.start();
+                    transitionTo(State.LISTENING);
+                    
+                    if (backoffResetTimer) clearTimeout(backoffResetTimer);
+                    backoffResetTimer = setTimeout(() => {
+                        reconnectAttempts = 0;
+                        console.log("Speech recognition connection stabilized. Resetting backoff.");
+                    }, 5000);
+                    
+                } catch (e) {
+                    console.warn("Failed to restart recognition:", e);
+                    reconnectAttempts++;
+                    recoveryInProgress = false;
+                    recoverRecognition();
+                } finally {
+                    recoveryInProgress = false;
+                }
+            }, delay);
+        }
+
         function toggleMic() {
-            if (isSpeaking) return;
-            if (isListening) {
-                isProcessingAnswer = true;
-                recognition.stop();
+            if (currentState === State.AI_SPEAKING) return;
+            if (currentState === State.LISTENING) {
+                sendAnswer(currentUtterance, true);
+            } else {
+                transitionTo(State.WAITING);
             }
-            else recognition.start();
         }
 
         function showCaption(text) {
@@ -581,20 +961,28 @@ $fullName = getFullName();
             container.scrollTop = container.scrollHeight;
         }
 
-        function sendAnswer(val = "") {
-            isProcessingAnswer = true;
+        function sendAnswer(val = "", isManual = false) {
             if (!val) {
                 const input = document.getElementById('userInput');
                 val = input.value.trim();
                 input.value = "";
+                isManual = true;
             }
             if (!val) return;
             
-            recognition.stop();
+            if (isManual) {
+                logTelemetryEvent("MANUAL_SUBMIT");
+                telemetrySubmissionReasons.push("manual");
+            } else {
+                logTelemetryEvent("SILENCE_TIMEOUT");
+                telemetrySubmissionReasons.push("silence");
+            }
             appendToTranscript('user', val);
             document.getElementById('aiText').innerText = "Analyzing response...";
             getQuestion(val);
             currentUtterance = "";
+            accumulatedTranscript = "";
+            resetConfidenceStats();
         }
 
         function updateState(status, visualState) {
@@ -630,6 +1018,39 @@ $fullName = getFullName();
             }
         }
 
+        let healthCheckInterval = null;
+        function startHealthMonitor() {
+            if (healthCheckInterval) clearInterval(healthCheckInterval);
+            healthCheckInterval = setInterval(() => {
+                if (!sessionId) return;
+                
+                if (currentState === State.LISTENING) {
+                    if (audioCtx && audioCtx.state === 'suspended') {
+                        console.warn("AudioContext suspended during LISTENING. Resuming...");
+                        audioCtx.resume();
+                    }
+                    if (recognition && !recoveryInProgress && !isListening) {
+                        console.warn("Speech recognition lost in LISTENING state. Retrying...");
+                        transitionTo(State.ERROR);
+                    }
+                }
+            }, 5000);
+        }
+
+        function stopHealthMonitor() {
+            if (healthCheckInterval) {
+                clearInterval(healthCheckInterval);
+                healthCheckInterval = null;
+            }
+        }
+
+        function stopSpeaking() {
+            window.currentUtteranceObj = null;
+            clearSpeechWatchdog();
+            speechQueue = [];
+            if (synth.speaking) synth.cancel();
+        }
+
         async function finishInterview() {
             if (!confirm("End NQT HR Session? Progress will be finalized and your report will be generated.")) return;
             
@@ -637,15 +1058,18 @@ $fullName = getFullName();
             const curSessionId = sessionId; // Capture it
             sessionId = null;
             
-            window.currentUtteranceObj = null;
-            clearSpeechWatchdog();
-            speechQueue = [];
-            
-            if (document.fullscreenElement) document.exitFullscreen();
-            if (synth.speaking) synth.cancel();
+            transitionTo(State.ENDED);
 
-            // 1. Submit/Finalize
-            await apiCall({ action: 'submit_interview', session_id: curSessionId });
+            const telemetryData = getTelemetryPayload();
+
+            if (document.fullscreenElement) document.exitFullscreen();
+
+            // 1. Submit/Finalize with Telemetry
+            await apiCall({ 
+                action: 'submit_interview', 
+                session_id: curSessionId,
+                telemetry: telemetryData
+            });
             
             // 2. Generate Report Data
             showLoader("Analyzing Performance...");

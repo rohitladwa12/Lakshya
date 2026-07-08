@@ -1,4 +1,4 @@
-﻿<?php
+<?php
 require_once __DIR__ . '/../../config/bootstrap.php';
 require_once __DIR__ . '/../../src/Models/StudentProfile.php';
 require_once __DIR__ . '/../../src/Models/User.php';
@@ -68,6 +68,10 @@ $date = date('d M Y', strtotime($session['started_at']));
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Interview Performance Report - GM University</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- KaTeX for equation rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <style>
         :root {
@@ -331,8 +335,25 @@ $date = date('d M Y', strtotime($session['started_at']));
         html2pdf().set(opt).from(element).save();
     }
 
+    function renderMath(element) {
+        if (typeof renderMathInElement === 'function') {
+            renderMathInElement(element, {
+                delimiters: [
+                    {left: "$$", right: "$$", display: true},
+                    {left: "$", right: "$", display: false},
+                    {left: "\\(", right: "\\)", display: false},
+                    {left: "\\[", right: "\\]", display: true}
+                ],
+                throwOnError: false
+            });
+        } else {
+            setTimeout(() => renderMath(element), 100);
+        }
+    }
+
     // Trigger auto-save after a short delay for rendering
     window.onload = () => {
+        renderMath(document.getElementById('reportContent'));
         setTimeout(autoSaveReport, 1500);
     };
 </script>

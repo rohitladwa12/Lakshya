@@ -24,19 +24,18 @@ class ModuleProgress extends Model {
         return $stmt->fetch();
     }
 
-    /**
-     * Get recently completed topics
-     */
     public function getRecentTopics($studentId, $limit = 3) {
         $sql = "SELECT m.title as module_title, c.title as chapter_title, p.completed_at
                 FROM {$this->table} p
                 JOIN learning_modules m ON p.module_id = m.id
                 JOIN learning_chapters c ON m.chapter_id = c.id
-                WHERE p.student_id = ? AND p.status = 'Completed'
+                WHERE p.student_id = :student_id AND p.status = 'Completed'
                 ORDER BY p.completed_at DESC
-                LIMIT ?";
+                LIMIT :limit";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$studentId, $limit]);
+        $stmt->bindValue(':student_id', $studentId, PDO::PARAM_STR);
+        $stmt->bindValue(':limit', (int)$limit, PDO::PARAM_INT);
+        $stmt->execute();
         return $stmt->fetchAll();
     }
 }

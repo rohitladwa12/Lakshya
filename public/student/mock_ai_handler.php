@@ -1,7 +1,12 @@
 <?php
+ob_start(); // Buffer output to prevent stray PHP warnings from corrupting JSON
 require_once __DIR__ . '/../../config/bootstrap.php';
 require_once __DIR__ . '/../../src/Services/AIService.php';
 require_once __DIR__ . '/../../src/Models/StudentProfile.php';
+
+// Discard any output generated during bootstrap (e.g. PHP warnings when display_errors=1)
+ob_end_clean();
+ob_start();
 
 header('Content-Type: application/json');
 
@@ -37,6 +42,84 @@ $db = getDB();
 $aiService = new AIService();
 $studentModel = new StudentProfile();
 
+function buildOrchestratedStep($type, $questionNum, $totalQs, $message, $aiService) {
+    $phase = strtoupper($type);
+    
+    $step = [
+        "title" => $type . " Round",
+        "phase" => $phase,
+        "current_q" => $questionNum,
+        "total_questions" => $totalQs,
+        "message" => $message,
+        "tts" => true,
+        "voice" => false
+    ];
+
+    if ($phase === 'APTITUDE') {
+        $step["ui"] = "chat";
+        $step["components"] = ["chat_window", "timer"];
+    } elseif ($phase === 'TECHNICAL' || $phase === 'TECHNICAL_CODING') {
+        $step["ui"] = "editor";
+        $step["components"] = ["chat_window", "code_editor", "timer"];
+    } else {
+        $step["ui"] = "chat";
+        $step["components"] = ["chat_window", "voice_engine", "tts_engine"];
+        $step["voice"] = true;
+    }
+
+    return $step;
+}
+
+function parseMCQOptions($text) {
+    $options = [];
+    $body = $text;
+    
+    $pattern = '/\b([A-D])[\.\)]\s*(.*?)(?=\b[A-D][\.\)]|$)/is';
+    if (preg_match_all($pattern, $text, $matches, PREG_SET_ORDER)) {
+        foreach ($matches as $match) {
+            $options[] = [
+                "key" => trim($match[1]),
+                "text" => trim($match[2])
+            ];
+        }
+        $body = preg_replace('/(\b([A-D])[\.\)]\s*.*)/is', '', $text);
+    } else {
+        $options = [
+            ["key" => "A", "text" => "Option A"],
+            ["key" => "B", "text" => "Option B"],
+            ["key" => "C", "text" => "Option C"],
+            ["key" => "D", "text" => "Option D"]
+        ];
+    }
+    
+    return [
+        "body" => trim($body),
+        "options" => $options
+    ];
+}
+
+function sanitizeHistory($history) {
+    if (!is_array($history)) {
+        return [];
+    }
+    $sanitized = [];
+    foreach ($history as $msg) {
+        if (!is_array($msg)) {
+            continue;
+        }
+        $role = (string)($msg['role'] ?? 'user');
+        $content = $msg['content'] ?? '';
+        if (!is_string($content)) {
+            $content = is_array($content) ? json_encode($content) : (string)$content;
+        }
+        $sanitized[] = [
+            'role' => $role,
+            'content' => $content
+        ];
+    }
+    return $sanitized;
+}
+
 switch ($action) {
     case 'check_active':
         $institution = getInstitution() ?: 'GMU';
@@ -48,12 +131,71 @@ switch ($action) {
         $session = $stmt->fetch();
         
         if ($session) {
+            $history = sanitizeHistory(json_decode($session['conversation_history'], true));
+            $assistantMessages = array_filter($history, fn($m) => $m['role'] === 'assistant');
+            $questionNum = max(1, count($assistantMessages));
+            $lastMsg = end($history);
+            $lastContent = $lastMsg ? $lastMsg['content'] : 'Welcome back';
+            
+            $checkpoint = null;
+            try {
+                $checkStmt = $db->prepare("SELECT checkpoint FROM mock_ai_interview_sessions WHERE id = ?");
+                $checkStmt->execute([$session['id']]);
+                $cRow = $checkStmt->fetch();
+                if ($cRow && !empty($cRow['checkpoint'])) {
+                    $checkpoint = json_decode($cRow['checkpoint'], true);
+                }
+            } catch (\Exception $e) {}
+
+            $type = 'Technical'; // Default fallback
+            for ($i = count($history) - 1; $i >= 0; $i--) {
+                $hMsg = $history[$i];
+                if ($hMsg['role'] === 'assistant') {
+                    $hContentLower = strtolower($hMsg['content']);
+                    if (preg_match('/\b[A-D][\.\)]\s*/i', $hMsg['content'])) {
+                        $type = 'Aptitude';
+                        break;
+                    }
+                    if (stripos($hContentLower, 'starting with the aptitude') !== false || stripos($hContentLower, 'start with aptitude') !== false || stripos($hContentLower, 'welcome to the aptitude') !== false) {
+                        $type = 'Aptitude';
+                        break;
+                    }
+                    if (stripos($hContentLower, 'starting with the technical') !== false || stripos($hContentLower, 'start with technical') !== false || stripos($hContentLower, 'welcome to the technical') !== false) {
+                        $type = 'Technical';
+                        break;
+                    }
+                    if (stripos($hContentLower, 'starting with the hr') !== false || stripos($hContentLower, 'start with hr') !== false || stripos($hContentLower, 'welcome to the hr') !== false) {
+                        $type = 'HR';
+                        break;
+                    }
+                } elseif ($hMsg['role'] === 'user') {
+                    $uContentLower = strtolower(trim($hMsg['content']));
+                    if ($uContentLower === 'aptitude' || $uContentLower === 'switch to aptitude' || $uContentLower === 'logical') {
+                        $type = 'Aptitude';
+                        break;
+                    }
+                    if ($uContentLower === 'technical' || $uContentLower === 'switch to technical' || $uContentLower === 'coding') {
+                        $type = 'Technical';
+                        break;
+                    }
+                    if ($uContentLower === 'hr' || $uContentLower === 'switch to hr' || $uContentLower === 'behavioral') {
+                        $type = 'HR';
+                        break;
+                    }
+                }
+            }
+
+            $totalQs = ($type === 'Aptitude') ? 25 : (($type === 'Technical') ? 10 : 8);
+            $step = buildOrchestratedStep($type, $questionNum, $totalQs, $lastContent, $aiService);
+
             echo json_encode([
                 'success' => true,
                 'has_active' => true,
                 'session_id' => $session['id'],
                 'role' => $session['role_name'],
-                'history' => json_decode($session['conversation_history'], true) ?: []
+                'history' => $history,
+                'step' => $step,
+                'checkpoint' => $checkpoint
             ]);
         } else {
             echo json_encode(['success' => true, 'has_active' => false]);
@@ -72,9 +214,14 @@ $role = $input['role'] ?? 'AI Engineer';
         $concept = $input['concept'] ?? '';
         $type = $input['type'] ?? 'Technical';
         $institution = getInstitution() ?: 'GMU';
-        $sql = "INSERT INTO mock_ai_interview_sessions (student_id, role_name, status, institution, concept) VALUES (?, ?, 'active', ?, ?)";
+        
+        try {
+            $db->exec("ALTER TABLE mock_ai_interview_sessions ADD COLUMN IF NOT EXISTS company_name VARCHAR(255) DEFAULT 'General'");
+        } catch (\Exception $e) {}
+
+        $sql = "INSERT INTO mock_ai_interview_sessions (student_id, role_name, status, institution, concept, company_name) VALUES (?, ?, 'active', ?, ?, ?)";
         $stmt = $db->prepare($sql);
-        $stmt->execute([$studentIdForDb, $role, $institution, $concept]);
+        $stmt->execute([$studentIdForDb, $role, $institution, $concept, $company]);
         $sessionId = $db->lastInsertId();
 
         // Log session start
@@ -88,7 +235,7 @@ $role = $input['role'] ?? 'AI Engineer';
         // For now, let's just add it to the first message metadata.
         
         // Initial Welcome Message
-        $welcomeMsg = "Hi, welcome to your Mock AI Interview for the **$role** position. Ready to begin? If ready, type 'start' or 'yes' to start the session.";
+        $welcomeMsg = "Hi, welcome to your Mock AI Interview for the **$role** position. We will start with the **$type** round. Please let me know when you are ready to begin.";
         $aiMsg = ['role' => 'assistant', 'content' => $welcomeMsg];
         $history = [$aiMsg];
         
@@ -96,10 +243,13 @@ $role = $input['role'] ?? 'AI Engineer';
         $sqlUpdate = "UPDATE mock_ai_interview_sessions SET conversation_history = ? WHERE id = ?";
         $db->prepare($sqlUpdate)->execute([json_encode($history), $sessionId]);
         
+        $step = buildOrchestratedStep($type, 1, 10, $welcomeMsg, $aiService);
+
         echo json_encode([
             'success' => true,
             'session_id' => $sessionId,
-            'message' => $welcomeMsg
+            'message' => $welcomeMsg,
+            'step' => $step
         ]);
         break;
 
@@ -120,7 +270,7 @@ $role = $input['role'] ?? 'AI Engineer';
         $role = (string)($session['role_name'] ?? '');
         $concept = (string)($session['concept'] ?? '');
         $type = (string)($input['type'] ?? 'Technical');
-        $history = json_decode($session['conversation_history'], true) ?: [];
+        $history = sanitizeHistory(json_decode($session['conversation_history'], true));
 
         // Ensure $userMessage is always a plain string (never an array from json_decode)
         $userMessage = $input['message'] ?? '';
@@ -128,16 +278,56 @@ $role = $input['role'] ?? 'AI Engineer';
             $userMessage = is_array($userMessage) ? json_encode($userMessage) : (string)$userMessage;
         }
 
-        // Sanitize stored history to ensure all content fields are strings
-        $history = array_filter(array_map(function($msg) {
-            if (!isset($msg['role']) || !isset($msg['content'])) return null;
-            if (!is_string($msg['content'])) {
-                $msg['content'] = is_array($msg['content']) ? json_encode($msg['content']) : (string)$msg['content'];
-            }
-            return $msg;
-        }, $history));
-
         $history[] = ['role' => 'user', 'content' => $userMessage];
+
+        // Dynamically detect and update the interview round type (Aptitude, Technical, HR)
+        $msgLower = strtolower(trim($userMessage));
+        if ($msgLower === 'aptitude' || stripos($msgLower, 'switch to aptitude') !== false || stripos($msgLower, 'start aptitude') !== false || stripos($msgLower, 'select aptitude') !== false || $msgLower === '1' || $msgLower === 'option 1') {
+            $type = 'Aptitude';
+        } elseif ($msgLower === 'technical' || stripos($msgLower, 'switch to technical') !== false || stripos($msgLower, 'start technical') !== false || stripos($msgLower, 'select technical') !== false || $msgLower === '2' || $msgLower === 'option 2') {
+            $type = 'Technical';
+        } elseif ($msgLower === 'hr' || stripos($msgLower, 'switch to hr') !== false || stripos($msgLower, 'start hr') !== false || stripos($msgLower, 'select hr') !== false || $msgLower === '3' || $msgLower === 'option 3') {
+            $type = 'HR';
+        } else {
+            // Scan history backwards to find the active round type
+            for ($i = count($history) - 2; $i >= 0; $i--) {
+                $hMsg = $history[$i];
+                if ($hMsg['role'] === 'assistant') {
+                    $hContentLower = strtolower($hMsg['content']);
+                    // If assistant sent a message containing MCQ options, we are in Aptitude mode
+                    if (preg_match('/\b[A-D][\.\)]\s*/i', $hMsg['content'])) {
+                        $type = 'Aptitude';
+                        break;
+                    }
+                    if (stripos($hContentLower, 'starting with the aptitude') !== false || stripos($hContentLower, 'start with aptitude') !== false || stripos($hContentLower, 'welcome to the aptitude') !== false) {
+                        $type = 'Aptitude';
+                        break;
+                    }
+                    if (stripos($hContentLower, 'starting with the technical') !== false || stripos($hContentLower, 'start with technical') !== false || stripos($hContentLower, 'welcome to the technical') !== false) {
+                        $type = 'Technical';
+                        break;
+                    }
+                    if (stripos($hContentLower, 'starting with the hr') !== false || stripos($hContentLower, 'start with hr') !== false || stripos($hContentLower, 'welcome to the hr') !== false) {
+                        $type = 'HR';
+                        break;
+                    }
+                } elseif ($hMsg['role'] === 'user') {
+                    $uContentLower = strtolower(trim($hMsg['content']));
+                    if ($uContentLower === 'aptitude' || $uContentLower === 'switch to aptitude' || $uContentLower === 'logical') {
+                        $type = 'Aptitude';
+                        break;
+                    }
+                    if ($uContentLower === 'technical' || $uContentLower === 'switch to technical' || $uContentLower === 'coding') {
+                        $type = 'Technical';
+                        break;
+                    }
+                    if ($uContentLower === 'hr' || $uContentLower === 'switch to hr' || $uContentLower === 'behavioral') {
+                        $type = 'HR';
+                        break;
+                    }
+                }
+            }
+        }
         
         $profile = $studentModel->getByUserId($userId);
         
@@ -155,8 +345,10 @@ $role = $input['role'] ?? 'AI Engineer';
             $aptitudeQuestions = $aptModel->getRandomQuestions(25);
         }
 
+        $company = (string)($session['company_name'] ?? 'General');
+
         session_write_close();
-        $response = $aiService->getTechnicalInterviewResponse($role, $history, $profile, '', $type, $projects, $aptitudeQuestions, $concept);
+        $response = $aiService->getTechnicalInterviewResponse($role, $history, $profile, '', $type, $projects, $aptitudeQuestions, $concept, $company);
         
         if ($response['success']) {
             $aiContent = $response['content'];
@@ -245,16 +437,40 @@ $role = $input['role'] ?? 'AI Engineer';
             $sqlH = "UPDATE mock_ai_interview_sessions SET conversation_history = ?, status = ?, completed_at = ?, report_content = ?, overall_score = ? WHERE id = ?";
             $db->prepare($sqlH)->execute([json_encode($history), $status, $completedAt, $reportContent, $overallScore, $sessionId]);
             
+            $assistantMessages = array_filter($history, fn($m) => $m['role'] === 'assistant');
+            $questionNum = count($assistantMessages);
+            $totalQs = ($type === 'Aptitude') ? 25 : (($type === 'Technical') ? 10 : 8);
+
+            $step = buildOrchestratedStep($type, $questionNum, $totalQs, $aiContent, $aiService);
+
             echo json_encode([
                 'success' => true,
                 'message' => $aiContent,
                 'is_end' => $isEnd,
-                'session_id' => $sessionId
+                'session_id' => $sessionId,
+                'step' => $step
             ]);
         } else {
             echo json_encode(['success' => false, 'message' => 'AI Response Failed']);
         }
         break;
+
+    case 'autosave':
+        $sessionId = $input['session_id'] ?? 0;
+        $checkpoint = $input['checkpoint'] ?? [];
+        
+        $_SESSION["lar_checkpoint_{$sessionId}"] = $checkpoint;
+        
+        try {
+            $db->exec("ALTER TABLE mock_ai_interview_sessions ADD COLUMN IF NOT EXISTS checkpoint TEXT NULL");
+            $sql = "UPDATE mock_ai_interview_sessions SET checkpoint = ? WHERE id = ?";
+            $db->prepare($sql)->execute([json_encode($checkpoint), $sessionId]);
+        } catch (\Exception $e) {
+            error_log("LAR autosave db write bypassed: " . $e->getMessage());
+        }
+        
+        echo json_encode(['success' => true]);
+        exit;
 
     case 'evaluate_code':
         $sessionId = $input['session_id'] ?? 0;
@@ -272,7 +488,7 @@ $role = $input['role'] ?? 'AI Engineer';
             exit;
         }
 
-        $history = json_decode($session['conversation_history'], true) ?: [];
+        $history = sanitizeHistory(json_decode($session['conversation_history'], true));
         $role = $session['role_name'];
 
         // Use AI Service to evaluate code
@@ -280,11 +496,17 @@ $role = $input['role'] ?? 'AI Engineer';
         $evalRes = $aiService->evaluateCode($code, $language, "Technical task for role: $role");
         
         if ($evalRes['success']) {
-            $evaluation = json_decode($evalRes['content'], true);
-            
+            // evaluateCode() returns ['result' => <already-decoded array>]
+            $evaluation = $evalRes['result'];
+
+            // Ensure we have a valid evaluation array (fallback if AI returned null)
+            if (!is_array($evaluation)) {
+                $evaluation = ['passed' => false, 'score' => 0, 'feedback' => 'Evaluation could not be parsed.'];
+            }
+
             // Log to history
             $history[] = ['role' => 'user', 'content' => "User ran code simulation ({$language}). Result: " . ($evaluation['passed'] ? 'PASSED' : 'FAILED') . " - Score: {$evaluation['score']}/10"];
-            $history[] = ['role' => 'system', 'content' => "Code Evaluation: " . $evalRes['content']];
+            $history[] = ['role' => 'system', 'content' => "Code Evaluation: " . json_encode($evaluation)];
             
             $db->prepare("UPDATE mock_ai_interview_sessions SET conversation_history = ? WHERE id = ?")
                ->execute([json_encode($history), $sessionId]);
@@ -314,7 +536,7 @@ $role = $input['role'] ?? 'AI Engineer';
 
         $role = $session['role_name'];
         $concept = $session['concept'] ?? '';
-        $history = json_decode($session['conversation_history'], true) ?: [];
+        $history = sanitizeHistory(json_decode($session['conversation_history'], true));
         $completedAt = date('Y-m-d H:i:s');
         
         // Engagement Check for Manual End

@@ -47,6 +47,10 @@ $issuer = $cert['sub_title'];
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- KaTeX for equation rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
     <style>
         :root {
             --primary-maroon: #800000;
@@ -426,6 +430,22 @@ $issuer = $cert['sub_title'];
     const portfolioId = <?php echo $portfolioId; ?>;
     const CSRF_TOKEN = '<?php echo $_SESSION['csrf_token']; ?>';
 
+    function renderMath(element) {
+        if (typeof renderMathInElement === 'function') {
+            renderMathInElement(element, {
+                delimiters: [
+                    {left: "$$", right: "$$", display: true},
+                    {left: "$", right: "$", display: false},
+                    {left: "\\(", right: "\\)", display: false},
+                    {left: "\\[", right: "\\]", display: true}
+                ],
+                throwOnError: false
+            });
+        } else {
+            setTimeout(() => renderMath(element), 100);
+        }
+    }
+
     // --- Life Cycle Management ---
 
     document.addEventListener('DOMContentLoaded', () => {
@@ -527,6 +547,7 @@ $issuer = $cert['sub_title'];
         const label = `VERIFICATION QUESTION ${currentIdx + 1}/${questions.length}`;
         document.getElementById('stepCounterLabel').innerText = label;
         document.getElementById('questionText').innerText = questions[currentIdx];
+        renderMath(document.getElementById('questionText'));
         document.getElementById('userAnswer').value = '';
         document.getElementById('userAnswer').focus();
 
@@ -629,6 +650,7 @@ $issuer = $cert['sub_title'];
         document.getElementById('finalStatusText').innerText = isVerified ? 'VERIFIED' : 'NOT VERIFIED';
         document.getElementById('finalStatusText').style.color = isVerified ? '#10b981' : '#ef4444';
         document.getElementById('finalFeedback').innerText = evalData.feedback;
+        renderMath(document.getElementById('finalFeedback'));
         
         if (!isVerified) {
             document.getElementById('successRing').style.color = '#ef4444';

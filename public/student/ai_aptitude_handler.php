@@ -88,12 +88,12 @@ $companyName = post('company_name');
                 exit;
             }
 
-            // 1. Fetch 36 random questions from aptitude_questions table
+            // 1. Fetch 40 random questions from aptitude_questions table
             $db = getDB();
             $stmt = $db->query("SELECT question, option_a, option_b, option_c, option_d, correct_option as answer, topic as category 
                                FROM aptitude_questions 
                                ORDER BY RAND() 
-                               LIMIT 36");
+                               LIMIT 40");
             $dbQuestions = $stmt->fetchAll(PDO::FETCH_ASSOC);
             
             // Format DB questions
@@ -108,15 +108,11 @@ $companyName = post('company_name');
             $_SESSION['aptitude_db_questions'] = $dbQuestions;
             $_SESSION['aptitude_ai_questions'] = [];
 
-            // 2. Offload to AI Worker for combined Aptitude Generation (In-Memory merge for now)
-            require_once ROOT_PATH . '/src/Services/QueueService.php';
-            $jobId = \App\Services\QueueService::pushJob('getCompanyAptitudeQuestions', [$companyName, 4], getUserId());
-
-            ob_clean(); echo json_encode([
+            ob_clean();
+            echo json_encode([
                 'success' => true, 
-                'job_id' => $jobId,
-                'db_questions' => $dbQuestions,
-                'message' => 'Generating domain-specific questions...'
+                'questions' => $dbQuestions,
+                'message' => 'Loaded questions from database.'
             ]);
             break;
 

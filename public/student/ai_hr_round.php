@@ -440,8 +440,32 @@ if ($driveId > 0) {
 
     <script>
         window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
-        const SILENCE_MS = 7000; // Mic turns off after 7 sec of no speech
+    </script>
+    <script src="<?php echo APP_URL; ?>/js/security_interceptor.js?v=<?php echo APP_VERSION; ?>"></script>
+    <script>
+        const SILENCE_MS = 7000; 
 
+        const State = {
+            IDLE: 'IDLE',
+            AI_SPEAKING: 'AI_SPEAKING',
+            WAITING: 'WAITING',
+            LISTENING: 'LISTENING',
+            PROCESSING: 'PROCESSING',
+            ERROR: 'ERROR',
+            ENDED: 'ENDED'
+        };
+
+        const ValidTransitions = {
+            [State.IDLE]: [State.AI_SPEAKING, State.ENDED],
+            [State.AI_SPEAKING]: [State.WAITING, State.ERROR, State.ENDED],
+            [State.WAITING]: [State.LISTENING, State.ERROR, State.ENDED],
+            [State.LISTENING]: [State.PROCESSING, State.ERROR, State.ENDED],
+            [State.PROCESSING]: [State.AI_SPEAKING, State.ERROR, State.ENDED],
+            [State.ERROR]: [State.LISTENING, State.ENDED],
+            [State.ENDED]: []
+        };
+
+        let currentState = State.IDLE;
         let sessionId = null;
         let company = "<?php echo addslashes($companyName); ?>";
         let driveId = <?php echo $driveId; ?>;
@@ -450,148 +474,353 @@ if ($driveId > 0) {
         let recognition;
         let synth = window.speechSynthesis;
         let isListening = false;
-        let isSpeaking = false;
-        let isProcessingAnswer = false; // Flag to prevent auto-restart when submitting
         let silenceTimer = null;
-        let currentUtterance = '';      // Accumulated final text for current answer
-        let userInterimEl = null;       // DOM element for live "You: ..." interim line
+        let currentUtterance = '';      
+        let accumulatedTranscript = '';  
+        let lastSpeechTimestamp = Date.now(); 
+        let userInterimEl = null;       
         
         let startTime = null;
         let isTaskId = <?php echo $taskId ? 'true' : 'false'; ?>;
-        const MIN_REQUIRED_TIME = 20 * 60; // 20 minutes
+        const MIN_REQUIRED_TIME = 20 * 60; 
 
         let voices = [];
         let speechQueue = [];
         let speechWatchdog = null;
-        
-        function loadVoices() {
-            voices = synth.getVoices();
-        }
-        
-        loadVoices();
-        if (speechSynthesis.onvoiceschanged !== undefined) {
-            speechSynthesis.onvoiceschanged = loadVoices;
+
+        let confidenceCount = 0;
+        let confidenceMean = 0;
+        let confidenceM2 = 0;
+        let confidenceMin = 1.0;
+        let confidenceMax = 0.0;
+
+        let telemetryOnstartCount = 0;
+        let telemetryOnerrorCount = 0;
+        let telemetrySilenceTimeoutCount = 0;
+        let telemetryVADSpeechTime = 0;
+        let telemetrySubmissionReasons = [];
+
+        let timeStateTransitionToListening = 0;
+        let timeMicOpened = 0;
+        let timeFirstTranscriptReceived = 0;
+        let timeToFirstTranscriptLogged = false;
+
+        let telemetryEventLog = [];
+
+        function logTelemetryEvent(eventName) {
+            const timeDiff = startTime ? (Date.now() - startTime) : 0;
+            telemetryEventLog.push({
+                t: timeDiff,
+                event: eventName
+            });
         }
 
-        window.onload = function() {
-            // Check for Speech API
-            if (!('webkitSpeechRecognition' in window)) {
-                alert("Your browser does not support Speech Recognition. Please use Chrome.");
+        function calculateVoiceHealthScore() {
+            let score = 100;
+            score -= (telemetryOnerrorCount * 15);
+            const stats = getConfidenceStats();
+            if (stats.count > 0 && stats.mean < 0.75) {
+                score -= Math.min(25, Math.floor((0.75 - stats.mean) * 100));
+            }
+            score -= (reconnectAttempts * 8);
+            return Math.max(0, score);
+        }
+
+        function getTelemetryPayload() {
+            return JSON.stringify({
+                schema_version: 2,
+                voice_metrics: {
+                    browser: navigator.userAgent,
+                    onstart_events: telemetryOnstartCount,
+                    onerror_events: telemetryOnerrorCount,
+                    silence_timeouts: telemetrySilenceTimeoutCount,
+                    vad_speech_time_ms: telemetryVADSpeechTime,
+                    submission_reasons: telemetrySubmissionReasons,
+                    confidence_stats: getConfidenceStats(),
+                    voice_health_score: calculateVoiceHealthScore()
+                },
+                event_log: telemetryEventLog
+            });
+        }
+
+        function updateConfidenceStats(confidence) {
+            if (confidence <= 0) return;
+            confidenceCount++;
+            const delta = confidence - confidenceMean;
+            confidenceMean += delta / confidenceCount;
+            const delta2 = confidence - confidenceMean;
+            confidenceM2 += delta * delta2;
+            confidenceMin = Math.min(confidenceMin, confidence);
+            confidenceMax = Math.max(confidenceMax, confidence);
+        }
+
+        function resetConfidenceStats() {
+            confidenceCount = 0;
+            confidenceMean = 0;
+            confidenceM2 = 0;
+            confidenceMin = 1.0;
+            confidenceMax = 0.0;
+            timeToFirstTranscriptLogged = false;
+            timeStateTransitionToListening = 0;
+            timeMicOpened = 0;
+            timeFirstTranscriptReceived = 0;
+        }
+
+        function getConfidenceVariance() {
+            return confidenceCount > 1 ? confidenceM2 / (confidenceCount - 1) : 0;
+        }
+
+        function getConfidenceStats() {
+            return {
+                count: confidenceCount,
+                mean: confidenceMean,
+                variance: getConfidenceVariance(),
+                stdDev: Math.sqrt(getConfidenceVariance()),
+                min: confidenceMin,
+                max: confidenceMax
+            };
+        }
+
+        let audioCtx = null;
+        let micSource = null;
+        let analyser = null;
+        let animationFrameId = null;
+
+        let ambientNoiseFloor = 0.01;
+        let dynamicThreshold = 0.02;
+        const DYNAMIC_THRESHOLD_MULTIPLIER = 2.5;
+
+        let lastFrameTime = 0;
+        const FRAME_INTERVAL_MS = 66; 
+
+        function initializeSessionAudio() {
+            if (audioCtx) return;
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return;
+            
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then((stream) => {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    micSource = audioCtx.createMediaStreamSource(stream);
+                    analyser = audioCtx.createAnalyser();
+                    analyser.fftSize = 512;
+                    
+                    micSource.connect(analyser);
+                    
+                    setTimeout(() => calibrateNoiseFloor(), 1000);
+                })
+                .catch((err) => {
+                    console.error("Audio Context initialization failed:", err);
+                });
+        }
+
+        function calibrateNoiseFloor() {
+            if (!analyser) return;
+            const bufferLength = analyser.fftSize;
+            const dataArray = new Uint8Array(bufferLength);
+            let samples = [];
+            let count = 0;
+            
+            const interval = setInterval(() => {
+                analyser.getByteTimeDomainData(dataArray);
+                let sum = 0;
+                for (let i = 0; i < bufferLength; i++) {
+                    const normalized = (dataArray[i] - 128) / 128;
+                    sum += normalized * normalized;
+                }
+                const rms = Math.sqrt(sum / bufferLength);
+                samples.push(rms);
+                count++;
+                if (count >= 15) {
+                    clearInterval(interval);
+                    const avgRms = samples.reduce((a, b) => a + b, 0) / samples.length;
+                    ambientNoiseFloor = Math.max(avgRms, 0.005);
+                    dynamicThreshold = ambientNoiseFloor * DYNAMIC_THRESHOLD_MULTIPLIER;
+                }
+            }, 100);
+        }
+
+        function trackEnergyLoop(timestamp) {
+            if (currentState !== State.LISTENING || !analyser) {
+                animationFrameId = requestAnimationFrame(trackEnergyLoop);
                 return;
             }
+            
+            if (timestamp - lastFrameTime < FRAME_INTERVAL_MS) {
+                animationFrameId = requestAnimationFrame(trackEnergyLoop);
+                return;
+            }
+            lastFrameTime = timestamp;
+            
+            const bufferLength = analyser.fftSize;
+            const dataArray = new Uint8Array(bufferLength);
+            analyser.getByteTimeDomainData(dataArray);
+            
+            let sum = 0;
+            for (let i = 0; i < bufferLength; i++) {
+                const normalized = (dataArray[i] - 128) / 128;
+                sum += normalized * normalized;
+            }
+            const rms = Math.sqrt(sum / bufferLength);
+            
+            if (rms > dynamicThreshold) {
+                lastSpeechTimestamp = Date.now();
+                telemetryVADSpeechTime += FRAME_INTERVAL_MS;
+            } else {
+                if (currentUtterance.length === 0) {
+                    ambientNoiseFloor = (ambientNoiseFloor * 0.95) + (rms * 0.05);
+                    dynamicThreshold = Math.max(ambientNoiseFloor * DYNAMIC_THRESHOLD_MULTIPLIER, 0.015);
+                }
+            }
+            
+            animationFrameId = requestAnimationFrame(trackEnergyLoop);
+        }
 
-            recognition = new webkitSpeechRecognition();
-            recognition.continuous = true;  // Keep listening until 3 sec silence
+        function transitionTo(newState) {
+            if (currentState !== newState && !ValidTransitions[currentState].includes(newState)) {
+                return;
+            }
+            logTelemetryEvent(newState);
+            
+            switch (currentState) {
+                case State.LISTENING:
+                    isListening = false;
+                    if (recognition) {
+                        try { recognition.abort(); } catch(e) {}
+                    }
+                    clearSilenceTimer();
+                    if (animationFrameId) cancelAnimationFrame(animationFrameId);
+                    break;
+                    
+                case State.AI_SPEAKING:
+                    stopSpeaking();
+                    break;
+            }
+            
+            currentState = newState;
+            
+            switch (newState) {
+                case State.AI_SPEAKING:
+                    updateState("AI Speaking...", "speaking");
+                    document.getElementById('micBtn').classList.add('disabled');
+                    break;
+                    
+                case State.WAITING:
+                    updateState("Preparing...", "neutral");
+                    document.getElementById('micBtn').classList.add('disabled');
+                    timeStateTransitionToListening = Date.now();
+                    if (recognition) {
+                        try { recognition.start(); } catch(e) {}
+                    }
+                    break;
+                    
+                case State.LISTENING:
+                    isListening = true;
+                    updateState("Listening... (stops after 7 sec silence)", "listening");
+                    document.getElementById('micBtn').innerHTML = '<i class="fas fa-microphone"></i>';
+                    document.getElementById('micBtn').classList.add('active');
+                    document.getElementById('micBtn').classList.remove('disabled');
+                    lastSpeechTimestamp = Date.now();
+                    if (analyser) animationFrameId = requestAnimationFrame(trackEnergyLoop);
+                    if (!userInterimEl) addUserInterimLine("");
+                    break;
+                    
+                case State.PROCESSING:
+                    updateState("Processing...", "neutral");
+                    document.getElementById('micBtn').classList.add('disabled');
+                    break;
+                    
+                case State.ERROR:
+                    updateState("Connection issue. Retrying...", "neutral");
+                    document.getElementById('micBtn').classList.add('disabled');
+                    recoverRecognition();
+                    break;
+                    
+                case State.ENDED:
+                    updateState("Completed", "neutral");
+                    document.getElementById('micBtn').innerHTML = '<i class="fas fa-microphone-slash"></i>';
+                    document.getElementById('micBtn').classList.remove('active');
+                    document.getElementById('micBtn').classList.add('disabled');
+                    stopTimer();
+                    stopHealthMonitor();
+                    if (audioCtx) { audioCtx.close(); audioCtx = null; }
+                    break;
+            }
+        }
+
+        window.onload = () => {
+            const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+            if (!SpeechRecognition) {
+                alert("Web Speech API not supported.");
+                return;
+            }
+            recognition = new SpeechRecognition();
+            recognition.continuous = true;
             recognition.interimResults = true;
             recognition.lang = 'en-US';
 
+            const loadVoices = () => { voices = synth.getVoices(); };
+            loadVoices();
+            if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
+
             recognition.onstart = () => {
-                isListening = true;
-                isProcessingAnswer = false;
-                clearSilenceTimer();
-                updateState("Listening... (stops after 7 sec silence)", "listening");
-                document.getElementById('micBtn').innerHTML = '<i class="fas fa-microphone"></i>';
-                document.getElementById('micBtn').classList.add('active');
-                if (!userInterimEl) {
-                    addUserInterimLine(currentUtterance);
-                }
+                logTelemetryEvent("MIC_OPEN");
+                telemetryOnstartCount++;
+                recoveryInProgress = false;
+                timeMicOpened = Date.now();
+                if (currentState === State.WAITING) transitionTo(State.LISTENING);
             };
 
             recognition.onend = () => {
-                isListening = false;
+                logTelemetryEvent("MIC_CLOSE");
                 document.getElementById('micBtn').innerHTML = '<i class="fas fa-microphone-slash"></i>';
                 document.getElementById('micBtn').classList.remove('active');
-                
-                if (!isSpeaking && isSessionActive) {
-                    if (isProcessingAnswer) {
-                        updateState("Processing...", "neutral");
-                    } else {
-                        updateState("Your turn...", "neutral");
-                        // Auto-restart if the browser stopped it unexpectedly during user speaking turn
-                        setTimeout(() => {
-                            if (!isSpeaking && isSessionActive && !isListening && !isProcessingAnswer) {
-                                console.log("Auto-restarting speech recognition...");
-                                startListening();
-                            }
-                        }, 300);
-                    }
-                }
-                
+                if (currentState === State.LISTENING) transitionTo(State.ERROR);
                 if (userInterimEl && !userInterimEl.classList.contains('final')) {
-                    if (isProcessingAnswer) {
-                        userInterimEl.remove();
-                        userInterimEl = null;
-                    }
+                    if (currentState === State.PROCESSING) { userInterimEl.remove(); userInterimEl = null; }
                 }
             };
 
             recognition.onresult = (event) => {
-                let finalTranscript = '';
+                if (currentState !== State.LISTENING) return;
                 let interimTranscript = '';
-                for (let i = 0; i < event.results.length; ++i) {
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript;
+                        logTelemetryEvent("TRANSCRIPT_RECEIVED");
+                        accumulatedTranscript += event.results[i][0].transcript + ' ';
+                        if (event.results[i][0].confidence > 0) updateConfidenceStats(event.results[i][0].confidence);
+                        if (!timeToFirstTranscriptLogged) {
+                            timeFirstTranscriptReceived = Date.now();
+                            timeToFirstTranscriptLogged = true;
+                        }
                     } else {
                         interimTranscript += event.results[i][0].transcript;
                     }
                 }
-                if (finalTranscript || interimTranscript) {
+                lastSpeechTimestamp = Date.now();
+                if (accumulatedTranscript || interimTranscript) {
                     clearSilenceTimer();
                     silenceTimer = setTimeout(() => onSilenceComplete(), SILENCE_MS);
                 }
-                currentUtterance = finalTranscript.trim();
-                const display = (finalTranscript + ' ' + interimTranscript).trim();
-                updateUserInterimLine(display);
-                showCaption(display);
+                currentUtterance = (accumulatedTranscript + interimTranscript).trim();
+                updateUserInterimLine(currentUtterance);
+                showCaption(currentUtterance);
             };
 
             recognition.onerror = (event) => {
-                console.error("Speech Recognition Error:", event.error);
-                if (event.error === 'not-allowed') {
-                    alert("Microphone Access Blocked: Please click the microphone icon in your browser address bar and choose 'Allow' to participate in the interview.");
-                    updateState("Mic Blocked", "neutral");
-                }
+                logTelemetryEvent("ERROR_" + event.error);
+                telemetryOnerrorCount++;
+                if (event.error === 'no-speech' || event.error === 'network') transitionTo(State.ERROR);
             };
-            
-            // Fullscreen Enforcement Listener
+
             document.addEventListener('fullscreenchange', () => {
                 const warning = document.getElementById('warningOverlay');
                 if (!document.fullscreenElement && isSessionActive) {
                     warning.classList.remove('hidden');
-                    // Taunt user on violation
-                    speak("Haha you are soo scared of the interview that you want to use chatgpt or other websites to answer the questions");
-                } else {
-                    // Automatically hide if they somehow re-entered (though button is preferred)
-                    if(document.fullscreenElement) warning.classList.add('hidden');
-                }
+                    speak("Please return to full screen.");
+                } else if (document.fullscreenElement) warning.classList.add('hidden');
             });
 
-            // Prevent ESC key default if possible (Best effort)
-            document.addEventListener('keydown', (e) => {
-                if (isSessionActive && e.key === 'Escape') {
-                    e.preventDefault();
-                    document.getElementById('warningOverlay').classList.remove('hidden');
-                }
-            });
-
-            // STRICT SESSION LOCK
-            // Stop everything if they leave the page (Reload/Back)
-            window.addEventListener('beforeunload', () => {
-                if (isSessionActive) {
-                    stopSpeaking();
-                    if (recognition) recognition.stop();
-                    // We can't really "save" state reliably here for a "new start"
-                    // But effectively, reloading will restart the JS state anyway.
-                    // This ensures the VOICE stops immediately.
-                    speechSynthesis.cancel();
-                }
-            });
-            
-            // For mobile/certain browsers
-            window.addEventListener('pagehide', () => {
-                stopSpeaking();
-                speechSynthesis.cancel();
-            });
+            window.addEventListener('beforeunload', () => { if (isSessionActive) transitionTo(State.ENDED); });
         };
 
         function resumeFullscreen() {
@@ -601,445 +830,195 @@ if ($driveId > 0) {
         }
 
         async function startSession() {
-            const roleInput = document.getElementById('roleInput').value;
-            
-            // Check for active session first for resumption
-            const checkRes = await apiCall({ action: 'check_active_session', company: company, drive_id: driveId });
-            
-            if (checkRes.success && checkRes.has_active) {
-                if (confirm("You have an active session for this company. Would you like to resume?")) {
-                    sessionId = checkRes.session_id;
-                    isSessionActive = true;
-                    // Sync start time from server using relative elapsed seconds (Skew-resistant)
-                    if (checkRes.elapsed_seconds !== undefined) {
-                        startTime = Date.now() - (checkRes.elapsed_seconds * 1000); 
-                    } else {
-                        startTime = Date.now(); 
-                    }
-                    
-                    document.getElementById('introOverlay').classList.add('hidden');
-                    if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen().catch(e=>e);
-                    
-                    updateState("Resuming Session...", "neutral");
-                    startTimer();
-                    
-                    // Re-render transcript if items exist
-                    if (checkRes.history && checkRes.history.length > 0) {
-                        checkRes.history.forEach(m => {
-                            if (m.role === 'assistant') appendToTranscript('ai', m.content, false);
-                            else if (m.role === 'user') appendToTranscript('user', m.content, false);
-                        });
-                        // Ask them to continue
-                        speak("Resuming interview. Let's continue from where we left off.");
-                    } else {
-                        loadNextQuestion("");
-                    }
-                    return;
-                }
-            }
-
-            const role = roleInput;
+            const role = document.getElementById('roleInput').value;
             document.getElementById('introOverlay').classList.add('hidden');
-            
-            if (document.documentElement.requestFullscreen) {
-                await document.documentElement.requestFullscreen().catch(err=>console.log(err));
-            }
-
+            if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen().catch(e=>e);
             const res = await apiCall({ action: 'start_session', role: role, company: company, task_id: "<?php echo $taskId; ?>", drive_id: driveId, concept: concept });
             if (res.success) {
                 sessionId = res.session_id;
                 isSessionActive = true;
                 startTime = Date.now();
+                initializeSessionAudio();
                 startTimer();
-                updateState("Connecting...", "neutral");
-                loadNextQuestion(""); // Start interaction
-            } else {
-                alert("Failed to start session: " + (res.message || "Unknown error"));
-                document.getElementById('introOverlay').classList.remove('hidden');
+                startHealthMonitor();
+                transitionTo(State.AI_SPEAKING);
+                loadNextQuestion("");
             }
         }
 
-        
-
+        let totalDurationTimer = null;
         function startTimer() {
-            const timerContainer = document.getElementById('sessionTimer');
-            const timerText = document.getElementById('timerText');
-            const endBtn = document.getElementById('endBtn');
-
-            setInterval(() => {
+            totalDurationTimer = setInterval(() => {
                 if (!isSessionActive) return;
-
                 const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                
                 if (isTaskId && elapsed < MIN_REQUIRED_TIME) {
                     const remaining = MIN_REQUIRED_TIME - elapsed;
-                    const mins = Math.floor(remaining / 60);
-                    const secs = remaining % 60;
-                    timerText.innerText = `Lock: ${mins}:${secs.toString().padStart(2, '0')}`;
-                    timerContainer.className = 'locked';
-                    endBtn.disabled = true;
-                    endBtn.title = `Wait ${mins}m ${secs}s more for this assigned task.`;
+                    document.getElementById('timerText').innerText = `Lock: ${Math.floor(remaining/60)}:${(remaining%60).toString().padStart(2,'0')}`;
+                    document.getElementById('sessionTimer').className = 'locked';
                 } else {
-                    const mins = Math.floor(elapsed / 60);
-                    const secs = elapsed % 60;
-                    timerText.innerText = `Duration: ${mins}:${secs.toString().padStart(2, '0')}`;
-                    timerContainer.className = 'unlocked';
-                    endBtn.disabled = false;
-                    endBtn.classList.add('unlocked');
-                    endBtn.title = "";
+                    document.getElementById('timerText').innerText = `Duration: ${Math.floor(elapsed/60)}:${(elapsed%60).toString().padStart(2,'0')}`;
+                    document.getElementById('sessionTimer').className = 'unlocked';
+                    document.getElementById('endBtn').disabled = false;
                 }
             }, 1000);
         }
-        async function loadNextQuestion(userMsg) {
-            updateState("AI Thinking...", "neutral");
-            
-            const res = await apiCall({ action: 'get_question', session_id: sessionId, message: userMsg });
-            
-            if (res.success && res.job_id) {
-                // Poll for result
-                const pollInterval = setInterval(async () => {
-                    try {
-                        const statusRes = await fetch(`ai_job_status.php?job_id=${res.job_id}`).then(r => r.json());
-                        if (statusRes.success && statusRes.status === 'completed') {
-                            clearInterval(pollInterval);
-                            let data = statusRes.result;
-                            
-                            // Extract payload robustly
-                            if (data && data.result && typeof data.result === 'object') {
-                                data = data.result;
-                            } else if (data && data.content && typeof data.content === 'string') {
-                                try { data = JSON.parse(data.content); } catch(e) {}
-                            }
-                            
-                            const textToSpeak = (data.feedback ? data.feedback + ". " : "") + data.question;
-                            const questionText = data.question || '';
-                            if (questionText) appendToTranscript('ai', questionText, false);
-                            showCaption(questionText);
-                            speak(textToSpeak);
 
-                            // Save AI response to DB
-                            apiCall({ action: 'append_ai_history', session_id: sessionId, message: JSON.stringify(data) });
-                        } else if (statusRes.status === 'failed') {
-                            clearInterval(pollInterval);
-                            alert("AI generation failed: " + statusRes.error);
-                            updateState("Error", "neutral");
-                        }
-                    } catch (e) {
-                        console.error("Polling error:", e);
+        function stopTimer() { clearInterval(totalDurationTimer); }
+
+        async function loadNextQuestion(userMsg) {
+            transitionTo(State.PROCESSING);
+            const res = await apiCall({ action: 'get_question', session_id: sessionId, message: userMsg });
+            if (res.success && res.job_id) {
+                const pollInterval = setInterval(async () => {
+                    const statusRes = await fetch(`ai_job_status.php?job_id=${res.job_id}`).then(r => r.json());
+                    if (statusRes.success && statusRes.status === 'completed') {
+                        clearInterval(pollInterval);
+                        const data = statusRes.result;
+                        const text = (data.feedback ? data.feedback + ". " : "") + data.question;
+                        appendToTranscript('ai', data.question, false);
+                        speak(text);
                     }
                 }, 2000);
-            } else if (res.success && res.data) {
-                // Legacy fallback if not queued
-                let data = res.data;
-                if (data && data.result && typeof data.result === 'object') {
-                    data = data.result;
-                } else if (data && data.content && typeof data.content === 'string') {
-                    try { data = JSON.parse(data.content); } catch(e) {}
-                }
-
-                const textToSpeak = (data.feedback ? data.feedback + ". " : "") + data.question;
-                const questionText = data.question || '';
-                if (questionText) appendToTranscript('ai', questionText, false);
-                showCaption(questionText);
-                speak(textToSpeak);
-
-                apiCall({ action: 'append_ai_history', session_id: sessionId, message: JSON.stringify(data) });
-            } else {
-                alert("Failed to get question: " + (res.message || "Unknown error"));
             }
         }
 
-        function clearSilenceTimer() {
-            if (silenceTimer) {
-                clearTimeout(silenceTimer);
-                silenceTimer = null;
-            }
-        }
+        function clearSilenceTimer() { if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; } }
 
         function onSilenceComplete() {
             silenceTimer = null;
-            if (!isListening || !isSessionActive) return;
+            if (currentState !== State.LISTENING) return;
             const text = currentUtterance.trim();
             if (text) {
-                isProcessingAnswer = true;
-                recognition.stop();
+                logTelemetryEvent("SILENCE_TIMEOUT");
+                telemetrySilenceTimeoutCount++;
+                telemetrySubmissionReasons.push("silence");
                 finalizeUserTranscriptLine(text);
-                updateState("Processing...", "neutral");
+                transitionTo(State.PROCESSING);
                 loadNextQuestion(text);
+                accumulatedTranscript = '';
+                resetConfidenceStats();
             }
         }
 
         function processUserAnswer(text) {
+            logTelemetryEvent("MANUAL_SUBMIT");
+            telemetrySubmissionReasons.push("manual");
             clearSilenceTimer();
-            isProcessingAnswer = true;
-            recognition.stop();
-            if (userInterimEl && !userInterimEl.classList.contains('final')) {
-                finalizeUserTranscriptLine(text);
-            }
-            updateState("Processing...", "neutral");
+            finalizeUserTranscriptLine(text);
+            transitionTo(State.PROCESSING);
             loadNextQuestion(text);
+            accumulatedTranscript = '';
+            resetConfidenceStats();
         }
 
-        function clearSpeechWatchdog() {
-            if (speechWatchdog) {
-                clearTimeout(speechWatchdog);
-                speechWatchdog = null;
-            }
-        }
+        function clearSpeechWatchdog() { if (speechWatchdog) clearTimeout(speechWatchdog); }
 
         function speak(text) {
-            window.currentUtteranceObj = null; // Invalidate previous utterance
-            clearSpeechWatchdog();
             if (synth.speaking) synth.cancel();
-            
-            if (recognition) {
-                try { recognition.abort(); } catch(e) {}
-            }
-            
-            speechQueue = [];
-            isSpeaking = false;
-
-            let cleanText = text.replace(/\[END_INTERVIEW\]/g, '')
-                                .replace(/\*\*/g, '')
-                                .replace(/- /g, ', ')
-                                .replace(/\n/g, '. ')
-                                .replace(/=/g, ' equals ')
-                                .replace(/\+/g, ' plus ')
-                                .replace(/(\d+):(\d+)/g, '$1 $2');
-            
-            // Split into smaller chunks (sentences) for better reliability
-            const chunks = cleanText.match(/[^.!?]+[.!?]*|[^.!?]+/g) || [cleanText];
-            chunks.forEach(c => {
-                const trimmed = c.trim();
-                if (trimmed.length > 0) speechQueue.push(trimmed);
-            });
-
-            isSpeaking = true;
-            updateState("AI Speaking...", "speaking");
-            document.getElementById('micBtn').classList.add('disabled');
-
+            speechQueue = text.match(/[^.!?]+[.!?]*|[^.!?]+/g) || [text];
+            transitionTo(State.AI_SPEAKING);
             processSpeechQueue();
         }
 
         function processSpeechQueue() {
             if (speechQueue.length === 0) {
-                clearSpeechWatchdog();
-                isSpeaking = false;
-                isProcessingAnswer = false;
-                currentUtterance = ''; // Clear for new question!
-                if (isSessionActive) {
-                    updateState("Your turn...", "neutral");
-                    document.getElementById('micBtn').classList.remove('disabled');
-                    // Auto start listening after AI speaks
-                    startListening();
-                }
+                if (isSessionActive) transitionTo(State.WAITING);
                 return;
             }
-
-            const text = speechQueue.shift();
-            const utterance = new SpeechSynthesisUtterance(text);
-            window.currentUtteranceObj = utterance; // Prevent GC sweeping it mid-speech
-
-            // Prefer a female/natural sounding voice if available
-            const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Zira") || v.name.includes("Female"));
-            if (preferredVoice) utterance.voice = preferredVoice;
-
-            utterance.rate = 0.9;
-            utterance.pitch = 1.0;
-
-            // Calculate safety watchdog timeout (150ms per character + 5000ms base)
-            const safetyTimeout = (text.length * 150) + 5000;
-            clearSpeechWatchdog();
-            speechWatchdog = setTimeout(() => {
-                console.warn("Speech Synthesis watchdog triggered. Force ending current chunk.");
-                if (window.currentUtteranceObj === utterance) {
-                    window.currentUtteranceObj = null;
-                    synth.cancel();
-                    processSpeechQueue();
-                }
-            }, safetyTimeout);
-
-            utterance.onend = () => {
-                if (window.currentUtteranceObj !== utterance) return;
-                clearSpeechWatchdog();
-                setTimeout(() => {
-                    processSpeechQueue();
-                }, 100); // Tiny pause between chunks
-            };
-
-            utterance.onerror = (event) => {
-                if (window.currentUtteranceObj !== utterance) return;
-                clearSpeechWatchdog();
-                console.error("Speech Synthesis error in chunk:", event);
-                setTimeout(() => {
-                    processSpeechQueue();
-                }, 100);
-            };
-
+            const utterance = new SpeechSynthesisUtterance(speechQueue.shift());
+            utterance.onend = () => setTimeout(processSpeechQueue, 100);
             synth.speak(utterance);
         }
 
-        function startListening() {
-            try {
-                recognition.start();
-            } catch (e) { console.log("Mic already active"); }
+        let reconnectAttempts = 0;
+        let recoveryInProgress = false;
+        function recoverRecognition() {
+            if (recoveryInProgress) return;
+            recoveryInProgress = true;
+            setTimeout(() => {
+                try {
+                    recognition.start();
+                    transitionTo(State.LISTENING);
+                    recoveryInProgress = false;
+                } catch (e) {
+                    recoveryInProgress = false;
+                    reconnectAttempts++;
+                    recoverRecognition();
+                }
+            }, Math.min(Math.pow(2, reconnectAttempts) * 1000, 16000));
         }
 
         function toggleMic() {
-            if (isSpeaking) return;
-            if (isListening) {
-                clearSilenceTimer();
-                const text = currentUtterance.trim();
-                if (text) {
-                    isProcessingAnswer = true;
-                    recognition.stop();
-                    finalizeUserTranscriptLine(text);
-                    updateState("Processing...", "neutral");
-                    loadNextQuestion(text);
-                } else {
-                    recognition.stop();
-                }
-            } else {
-                recognition.start();
-            }
+            if (currentState === State.LISTENING) processUserAnswer(currentUtterance);
+            else transitionTo(State.WAITING);
         }
 
         function updateState(status, visualState) {
             document.getElementById('statusText').innerText = status;
-            const avatar = document.getElementById('avatar');
-            avatar.className = 'avatar-container'; // Reset
-            if (visualState === 'speaking') avatar.classList.add('state-speaking');
-            if (visualState === 'listening') avatar.classList.add('state-listening');
+            document.getElementById('avatar').className = 'avatar-container ' + (visualState === 'speaking' ? 'state-speaking' : visualState === 'listening' ? 'state-listening' : '');
         }
 
-        function stopSpeaking() {
-            window.currentUtteranceObj = null;
-            clearSpeechWatchdog();
-            speechQueue = [];
-            if (synth.speaking) synth.cancel();
-        }
+        function stopSpeaking() { if (synth.speaking) synth.cancel(); }
 
-        function showCaption(text) {
-            const cap = document.getElementById('captions');
-            cap.innerText = text;
-            cap.style.display = text ? 'block' : 'none';
-            if (text) setTimeout(() => cap.style.display = 'none', 8000);
-        }
+        function showCaption(text) { const cap = document.getElementById('captions'); cap.innerText = text; cap.style.display = text ? 'block' : 'none'; }
 
         function appendToTranscript(who, text, isInterim) {
             const scroll = document.getElementById('transcriptScroll');
             const el = document.createElement('div');
-            el.className = 'transcript-msg ' + who + (isInterim ? ' interim' : '');
-            el.innerHTML = '<div class="label">' + (who === 'ai' ? 'AI' : 'You') + '</div><div class="text">' + escapeHtml(text || '') + '</div>';
+            el.className = 'transcript-msg ' + who;
+            el.innerHTML = `<b>${who === 'ai' ? 'AI' : 'You'}</b><div>${text}</div>`;
             scroll.appendChild(el);
             scroll.scrollTop = scroll.scrollHeight;
-            return el;
         }
 
         function addUserInterimLine(text) {
             const scroll = document.getElementById('transcriptScroll');
             userInterimEl = document.createElement('div');
             userInterimEl.className = 'transcript-msg user interim';
-            userInterimEl.innerHTML = '<div class="label">You (speaking…)</div><div class="text">' + escapeHtml(text) + '</div>';
+            userInterimEl.innerHTML = `<b>You</b><div class="text">${text}</div>`;
             scroll.appendChild(userInterimEl);
-            scroll.scrollTop = scroll.scrollHeight;
         }
 
-        function updateUserInterimLine(text) {
-            if (userInterimEl) {
-                userInterimEl.querySelector('.text').textContent = text;
-                const scroll = document.getElementById('transcriptScroll');
-                scroll.scrollTop = scroll.scrollHeight;
-            }
-        }
+        function updateUserInterimLine(text) { if (userInterimEl) userInterimEl.querySelector('.text').textContent = text; }
 
         function finalizeUserTranscriptLine(text) {
-            if (userInterimEl) {
-                userInterimEl.classList.remove('interim');
-                userInterimEl.classList.add('final');
-                userInterimEl.querySelector('.label').textContent = 'You';
-                userInterimEl.querySelector('.text').textContent = text;
-                userInterimEl = null;
-            } else if (text) {
-                appendToTranscript('user', text, false);
-            }
-            const scroll = document.getElementById('transcriptScroll');
-            if (scroll) scroll.scrollTop = scroll.scrollHeight;
+            if (userInterimEl) { userInterimEl.classList.remove('interim'); userInterimEl.querySelector('.text').textContent = text; userInterimEl = null; }
+            else appendToTranscript('user', text, false);
         }
 
-        function escapeHtml(s) {
-            const div = document.createElement('div');
-            div.textContent = s;
-            return div.innerHTML;
+        let healthCheckInterval = null;
+        function startHealthMonitor() {
+            healthCheckInterval = setInterval(() => {
+                if (currentState === State.LISTENING && recognition && !isListening) transitionTo(State.ERROR);
+            }, 5000);
         }
+
+        function stopHealthMonitor() { clearInterval(healthCheckInterval); }
 
         async function endSession() {
-            if (!confirm("End Interview & Generate Score?")) return;
-            
+            if (!confirm("End Interview?")) return;
             isSessionActive = false;
-            stopSpeaking();
+            transitionTo(State.ENDED);
             document.getElementById('loadingOverlay').classList.remove('hidden');
-
-            // 1. Get Data
-            const res = await apiCall({ action: 'generate_report_data', session_id: sessionId });
-            
+            const res = await apiCall({ 
+                action: 'generate_report_data', 
+                session_id: sessionId,
+                telemetry: getTelemetryPayload()
+            });
             document.getElementById('loadingOverlay').classList.add('hidden');
             if (res.success) {
-                const modal = document.getElementById('scoreModal');
-                const scoreNum = document.getElementById('finalScoreNum');
-                const scorePct = document.getElementById('finalScorePct');
-                
-                scoreNum.innerText = res.score;
-                if (res.score <= 0) {
-                    scoreNum.classList.add('score-zero');
-                    scorePct.classList.add('score-zero');
-                } else {
-                    scoreNum.classList.remove('score-zero');
-                    scorePct.classList.remove('score-zero');
-                }
-                
-                modal.classList.remove('hidden');
-            } else {
-                alert("Score Generation Failed: " + (res.message || "Unknown Error"));
-                updateState("Error Generating Score", "neutral");
+                document.getElementById('finalScoreNum').innerText = res.score;
+                document.getElementById('scoreModal').classList.remove('hidden');
             }
-        }
-        
-        function closeSession() {
-            window.location.href = driveId > 0 ? `student_drive.php?drive_id=${driveId}` : 'dashboard.php';
         }
 
         async function apiCall(data) {
-            try {
-                const formData = new FormData();
-                for (const k in data) formData.append(k, data[k]);
-                formData.append('csrf_token', window.CSRF_TOKEN);
-                const response = await fetch('ai_hr_handler', { 
-                    method: 'POST', 
-                    body: formData,
-                    headers: {
-                        'Accept': 'application/json',
-                        'X-CSRF-TOKEN': window.CSRF_TOKEN
-                    }
-                });
-                const responseClone = response.clone();
-                let result;
-                try {
-                    result = await response.json();
-                } catch (jsonErr) {
-                    const rawText = await responseClone.text();
-                    console.error('Failed to parse JSON response:', jsonErr, 'Raw response:', rawText);
-                    alert("Server returned an invalid response. Error: " + rawText.substring(0, 300));
-                    return { success: false };
-                }
-                return result;
-            } catch (e) {
-                console.error(e);
-                alert("Error connecting to server. Check console.");
-                return { success: false };
-            }
+            const formData = new FormData();
+            for (const k in data) formData.append(k, data[k]);
+            return fetch('ai_hr_handler', { method: 'POST', body: formData }).then(r => r.json());
         }
+
+        function closeSession() { window.location.href = 'dashboard.php'; }
     </script>
 </body>
 </html>
-

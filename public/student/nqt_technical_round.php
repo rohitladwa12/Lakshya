@@ -42,6 +42,11 @@ $taskId = $filters['task_id'] ?? 0;
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
     
+    <!-- KaTeX for equation rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
+    
     <!-- html2pdf -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 
@@ -293,6 +298,22 @@ $taskId = $filters['task_id'] ?? 0;
         let timeRemaining = 3600;
         let timerInterval;
 
+        function renderMath(element) {
+            if (typeof renderMathInElement === 'function') {
+                renderMathInElement(element, {
+                    delimiters: [
+                        {left: "$$", right: "$$", display: true},
+                        {left: "$", right: "$", display: false},
+                        {left: "\\(", right: "\\)", display: false},
+                        {left: "\\[", right: "\\]", display: true}
+                    ],
+                    throwOnError: false
+                });
+            } else {
+                setTimeout(() => renderMath(element), 100);
+            }
+        }
+
         function startTimer() {
             timerInterval = setInterval(() => {
                 timeRemaining--;
@@ -354,6 +375,7 @@ $taskId = $filters['task_id'] ?? 0;
                     <strong>Input:</strong> <code style="color: var(--secondary);">${q.example_input || 'N/A'}</code><br>
                     <strong>Output:</strong> <code style="color: var(--secondary);">${q.example_output || 'N/A'}</code>
                 `;
+                renderMath(document.getElementById('pText'));
                 
                 addMessage('ai', q.question || "Implement the logic described in the panel above.");
             }
@@ -465,6 +487,7 @@ $taskId = $filters['task_id'] ?? 0;
             div.className = `bubble ${role}`;
             div.innerHTML = text.replace(/\n/g, '<br>');
             document.getElementById('chatHistory').appendChild(div);
+            renderMath(div);
             document.getElementById('chatHistory').scrollTop = document.getElementById('chatHistory').scrollHeight;
         }
 

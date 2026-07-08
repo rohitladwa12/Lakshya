@@ -398,6 +398,17 @@ foreach ($workerPulses as $id => $time) {
                 <div class="value" style="color: var(--danger);"><?php echo $stats['failures']; ?></div>
                 <div class="trend">Critical errors (24h)</div>
             </div>
+
+            <div class="metric-card rpm-card">
+                <div class="label">Requests / Min</div>
+                <div class="value" id="rpm-value" style="color: var(--accent-blue);">—</div>
+                <div class="trend">
+                    <span id="rpm-status" style="display:inline-flex;align-items:center;gap:5px;">
+                        <span id="rpm-dot" style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;animation:rpm-pulse 2s infinite;"></span>
+                        Live · updates every 15s
+                    </span>
+                </div>
+            </div>
         </div>
 
         <div class="dashboard-grid">
@@ -546,5 +557,53 @@ foreach ($workerPulses as $id => $time) {
 
     <!-- Global Maintenance Interceptor -->
     <script src="<?php echo APP_URL; ?>/js/maintenance_interceptor.js"></script>
+
+    <script>
+    (function () {
+        const el    = document.getElementById('rpm-value');
+        const dot   = document.getElementById('rpm-dot');
+        const BASE  = '<?php echo APP_URL; ?>/admin/ajax/ai_rpm.php';
+
+        function animateCount(from, to, duration) {
+            const start = performance.now();
+            function step(now) {
+                const t = Math.min((now - start) / duration, 1);
+                const ease = t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
+                const val = from + (to - from) * ease;
+                el.textContent = Number.isInteger(to) ? Math.round(val) : val.toFixed(2);
+                if (t < 1) requestAnimationFrame(step);
+            }
+            requestAnimationFrame(step);
+        }
+
+        function fetchRPM() {
+            dot.style.background = '#f59e0b'; // amber while fetching
+            fetch(BASE)
+                .then(r => r.json())
+                .then(data => {
+                    const prev = parseFloat(el.textContent) || 0;
+                    const rpm  = data.rpm ?? 0;
+                    animateCount(prev, rpm, 600);
+                    dot.style.background = '#10b981'; // green on success
+                })
+                .catch(() => {
+                    dot.style.background = '#ef4444'; // red on error
+                    el.textContent = 'err';
+                });
+        }
+
+        // Initial fetch on page load
+        fetchRPM();
+        // Refresh every 15 seconds
+        setInterval(fetchRPM, 15000);
+    })();
+    </script>
+
+    <style>
+    @keyframes rpm-pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50%       { opacity: 0.4; transform: scale(0.7); }
+    }
+    </style>
 </body>
 </html>

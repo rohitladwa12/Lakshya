@@ -110,8 +110,17 @@ switch ($action) {
 
     case 'submit_interview':
         $sessionId = $input['session_id'];
-        $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', completed_at = NOW() WHERE id = ?")
-           ->execute([$sessionId]);
+        $telemetry = isset($input['telemetry']) ? json_decode($input['telemetry'], true) : null;
+        
+        $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ?");
+        $stmt->execute([$sessionId]);
+        $details = json_decode($stmt->fetchColumn() ?? '{}', true);
+        if ($telemetry) {
+            $details['telemetry'] = $telemetry;
+        }
+        
+        $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', completed_at = NOW(), details = ? WHERE id = ?")
+           ->execute([json_encode($details), $sessionId]);
         echo json_encode(['success' => true]);
         break;
 

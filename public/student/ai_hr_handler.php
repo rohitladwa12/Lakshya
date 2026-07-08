@@ -366,9 +366,8 @@ switch ($action) {
                 error_log("HR Report generation failed for session $sessionId: " . ($reportRes['message'] ?? 'Unknown Error'));
                 $score = 0; // Fallback score so the submission can complete
             }
-        }
-
-        try {
+        }        try {
+            $telemetry = isset($input['telemetry']) ? json_decode($input['telemetry'], true) : null;
             if ($isDrive) {
                 // Fetch details first to securely update them
                 $stmt = $db->prepare("SELECT details FROM student_drive_attempts WHERE id = ?");
@@ -377,6 +376,9 @@ switch ($action) {
                 
                 if (isset($reportRes['content'])) {
                     $details['report_content'] = $reportRes['content'];
+                }
+                if ($telemetry) {
+                    $details['telemetry'] = $telemetry;
                 }
 
                 // Finalize Status immediately
@@ -393,6 +395,9 @@ switch ($action) {
                 
                 if (isset($reportRes['content'])) {
                     $details['report_content'] = $reportRes['content'];
+                }
+                if ($telemetry) {
+                    $details['telemetry'] = $telemetry;
                 }
 
                 // Finalize Status immediately so closing the browser doesn't orphan the completion

@@ -295,6 +295,47 @@ if (isPost()) {
             } catch (Exception $e) {
                 $errorMsg = 'Error dismissing report: ' . $e->getMessage();
             }
+        } elseif ($action === 'edit_db_question') {
+            $dbTable = post('db_table');
+            $questionId = (int)post('question_id');
+            $questionText = post('question_text');
+            $optA = post('option_a');
+            $optB = post('option_b');
+            $optC = post('option_c');
+            $optD = post('option_d');
+            $correctOption = strtoupper(trim((string)post('correct_option')));
+
+            if (!in_array($dbTable, ['aptitude_questions', 'nqt_aptitude_questions', 'task_manual_questions', 'manual_aptitude_questions'])) {
+                $errorMsg = 'Invalid database table specified.';
+            } elseif (!in_array($correctOption, ['A', 'B', 'C', 'D'])) {
+                $errorMsg = 'Please select a valid correct option (A, B, C, or D).';
+            } else {
+                try {
+                    $qCol = ($dbTable === 'aptitude_questions' || $dbTable === 'nqt_aptitude_questions') ? 'question' : 'question_text';
+                    $sql = "UPDATE {$dbTable} SET {$qCol} = ?, option_a = ?, option_b = ?, option_c = ?, option_d = ?, correct_option = ? WHERE id = ?";
+                    $stmt = $db->prepare($sql);
+                    $stmt->execute([$questionText, $optA, $optB, $optC, $optD, $correctOption, $questionId]);
+                    
+                    $successMsg = 'Question updated successfully.';
+                } catch (Exception $e) {
+                    $errorMsg = 'Error updating question: ' . $e->getMessage();
+                }
+            }
+        } elseif ($action === 'delete_db_question') {
+            $dbTable = post('db_table');
+            $questionId = (int)post('question_id');
+
+            if (!in_array($dbTable, ['aptitude_questions', 'nqt_aptitude_questions', 'task_manual_questions', 'manual_aptitude_questions'])) {
+                $errorMsg = 'Invalid database table specified.';
+            } else {
+                try {
+                    $stmt = $db->prepare("DELETE FROM {$dbTable} WHERE id = ?");
+                    $stmt->execute([$questionId]);
+                    $successMsg = 'Question deleted successfully.';
+                } catch (Exception $e) {
+                    $errorMsg = 'Error deleting question: ' . $e->getMessage();
+                }
+            }
         }
     }
 
@@ -302,6 +343,14 @@ if (isPost()) {
         ob_clean();
         header('Content-Type: application/json');
         
+        if ($action === 'edit_db_question' || $action === 'delete_db_question') {
+            echo json_encode([
+                'success' => empty($errorMsg),
+                'message' => $errorMsg ?: $successMsg
+            ]);
+            exit;
+        }
+
         $newStatus = 'dismissed';
         if ($action === 'resolve' || $action === 'ai_autofix') {
             $newStatus = 'resolved';
@@ -351,6 +400,28 @@ try {
     }
 } catch (Exception $e) {
     error_log("Error fetching reported questions: " . $e->getMessage());
+}
+
+// Fetch all questions from the database tables
+$dbQuestions = [];
+try {
+    // 1. Fetch aptitude_questions
+    $stmt = $db->query("SELECT id, 'aptitude_questions' AS source_table, question AS question_text, option_a, option_b, option_c, option_d, correct_option, NULL AS extra_info FROM aptitude_questions");
+    $dbQuestions = array_merge($dbQuestions, $stmt->fetchAll());
+    
+    // 2. Fetch nqt_aptitude_questions
+    $stmt = $db->query("SELECT id, 'nqt_aptitude_questions' AS source_table, question AS question_text, option_a, option_b, option_c, option_d, correct_option, NULL AS extra_info FROM nqt_aptitude_questions");
+    $dbQuestions = array_merge($dbQuestions, $stmt->fetchAll());
+    
+    // 3. Fetch task_manual_questions
+    $stmt = $db->query("SELECT id, 'task_manual_questions' AS source_table, question_text, option_a, option_b, option_c, option_d, correct_option, CONCAT('Task ID: ', task_id) AS extra_info FROM task_manual_questions");
+    $dbQuestions = array_merge($dbQuestions, $stmt->fetchAll());
+    
+    // 4. Fetch manual_aptitude_questions
+    $stmt = $db->query("SELECT id, 'manual_aptitude_questions' AS source_table, question_text, option_a, option_b, option_c, option_d, correct_option, CONCAT('Company: ', company_name) AS extra_info FROM manual_aptitude_questions");
+    $dbQuestions = array_merge($dbQuestions, $stmt->fetchAll());
+} catch (Exception $e) {
+    error_log("Error fetching database questions: " . $e->getMessage());
 }
 ?>
 <!DOCTYPE html>
@@ -777,8 +848,19 @@ try {
             </div>
         </div>
 
-        <!-- Stats Grid -->
-        <div class="stats-grid">
+        <!-- Tabs Nav -->
+        <div class="tabs-container" style="display: flex; gap: 20px; border-bottom: 2px solid #eef2f8; margin-bottom: 25px;">
+            <a href="javascript:void(0)" class="tab-link active" onclick="switchTab('reports')" style="padding: 10px 20px; color: var(--primary-maroon); font-weight: 700; text-decoration: none; border-bottom: 3px solid var(--primary-maroon); font-size: 16px;">
+                <i class="fas fa-flag"></i> Reported Questions
+            </a>
+            <a href="javascript:void(0)" class="tab-link" onclick="switchTab('all-questions')" style="padding: 10px 20px; color: var(--text-muted); font-weight: 600; text-decoration: none; border-bottom: 3px solid transparent; font-size: 16px;">
+                <i class="fas fa-database"></i> All Database Questions
+            </a>
+        </div>
+
+        <div id="reportsTabContent">
+            <!-- Stats Grid -->
+            <div class="stats-grid">
             <div class="stat-card">
                 <div class="stat-icon icon-total"><i class="fas fa-flag"></i></div>
                 <div class="stat-info">
@@ -848,15 +930,16 @@ try {
                 <table class="data-table" id="reportsTable">
                     <thead>
                         <tr>
+                            <th style="width: 5%;">Sl No</th>
                             <th style="width: 12%;">Reported At</th>
-                            <th style="width: 15%;">Student</th>
-                            <th style="width: 15%;">Source Test</th>
-                            <th style="width: 38%;">Question Details</th>
+                            <th style="width: 14%;">Student</th>
+                            <th style="width: 14%;">Source Test</th>
+                            <th style="width: 35%;">Question Details</th>
                             <th style="width: 20%;">Review & Resolve</th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php foreach($reports as $r): ?>
+                        <?php $slNo = 1; foreach($reports as $r): ?>
                             <?php 
                                 $opts = json_decode($r['options'] ?? '[]', true) ?: [];
                                 
@@ -925,6 +1008,9 @@ try {
                                     ($r['issue_type'] ?? '')
                                 ); 
                             ?>">
+                                <td style="font-weight: 600; text-align: center; color: var(--text-dark);">
+                                    <?php echo $slNo++; ?>
+                                </td>
                                 <td style="font-size: 13px; color: var(--text-muted); font-weight: 500;">
                                     <?php echo date('d M Y', strtotime($r['created_at'])); ?>
                                     <div style="font-size: 11px; margin-top: 4px;"><?php echo date('h:i A', strtotime($r['created_at'])); ?></div>
@@ -1100,6 +1186,145 @@ try {
                     </tbody>
                 </table>
             <?php endif; ?>
+        </div>
+        </div>
+
+        <div id="allQuestionsTabContent" style="display: none;">
+            <div class="panel">
+                <div class="panel-header">
+                    <div class="panel-title">
+                        <i class="fas fa-database" style="color: var(--primary-maroon);"></i> All Questions List
+                    </div>
+                    
+                    <div class="filters-container">
+                        <select id="dbTableFilter" class="filter-select">
+                            <option value="">All Tables</option>
+                            <option value="aptitude_questions">General Aptitude (aptitude_questions)</option>
+                            <option value="nqt_aptitude_questions">NQT Aptitude (nqt_aptitude_questions)</option>
+                            <option value="task_manual_questions">Task Manual (task_manual_questions)</option>
+                            <option value="manual_aptitude_questions">Manual Aptitude (manual_aptitude_questions)</option>
+                        </select>
+
+                        <div class="search-box">
+                            <i class="fas fa-search"></i>
+                            <input type="text" id="dbSearch" placeholder="Search questions...">
+                        </div>
+                    </div>
+                </div>
+                
+                <?php if (empty($dbQuestions)): ?>
+                    <div style="text-align: center; padding: 50px 20px; color: var(--text-muted);">
+                        <i class="fas fa-folder-open" style="font-size: 48px; margin-bottom: 15px;"></i>
+                        <p style="font-size: 16px; font-weight: 600;">No database questions found.</p>
+                    </div>
+                <?php else: ?>
+                    <table class="data-table" id="allQuestionsTable">
+                        <thead>
+                            <tr>
+                                <th style="width: 5%;">Sl No</th>
+                                <th style="width: 20%;">Source Table</th>
+                                <th style="width: 55%;">Question Details</th>
+                                <th style="width: 20%;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php $dbSlNo = 1; foreach($dbQuestions as $q): ?>
+                                <tr class="db-question-row" 
+                                    data-table="<?php echo htmlspecialchars($q['source_table']); ?>"
+                                    data-search="<?php echo htmlspecialchars(strtolower($q['question_text'])); ?>">
+                                    <td style="font-weight: 600; text-align: center; color: var(--text-dark);">
+                                        <?php echo $dbSlNo++; ?>
+                                    </td>
+                                    <td>
+                                        <div style="font-weight: 700; color: var(--text-dark);"><?php echo htmlspecialchars(strtoupper(str_replace('_', ' ', $q['source_table']))); ?></div>
+                                        <?php if ($q['extra_info']): ?>
+                                            <div style="font-size: 11px; color: var(--text-muted); margin-top: 6px;">
+                                                <?php echo htmlspecialchars($q['extra_info']); ?>
+                                            </div>
+                                        <?php endif; ?>
+                                    </td>
+                                    <td>
+                                        <div class="q-display-box">
+                                            <div class="db-q-text q-text"><?php echo htmlspecialchars($q['question_text']); ?></div>
+                                            <ul class="db-options-list options-list">
+                                                <?php foreach (['A', 'B', 'C', 'D'] as $oIdx => $optKey): ?>
+                                                    <?php 
+                                                        $optVal = $q['option_' . strtolower($optKey)];
+                                                        $isCorrect = ($q['correct_option'] === $optKey);
+                                                        $optClass = $isCorrect ? 'opt-item correct' : 'opt-item';
+                                                        $suffix = $isCorrect ? ' [System Key]' : '';
+                                                    ?>
+                                                    <li class="<?php echo $optClass; ?>">
+                                                        <span><strong><?php echo $optKey; ?>)</strong> <?php echo htmlspecialchars($optVal); ?></span>
+                                                        <span style="font-size: 10px; opacity: 0.8;"><?php echo $suffix; ?></span>
+                                                    </li>
+                                                <?php endforeach; ?>
+                                            </ul>
+                                        </div>
+                                    </td>
+                                    <td class="db-action-cell">
+                                        <div>
+                                            <button type="button" class="btn-simple" style="padding: 6px 12px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; border-radius: 6px; border: 1px solid var(--primary-maroon); color: var(--primary-maroon); background: transparent;" onclick="toggleEditDbQuestion('<?php echo $q['source_table']; ?>', <?php echo $q['id']; ?>)">
+                                                <i class="fas fa-edit"></i> Edit Question & Options
+                                            </button>
+                                        </div>
+                                        
+                                        <div id="edit-db-box-<?php echo $q['source_table']; ?>-<?php echo $q['id']; ?>" style="display: none; margin-top: 15px; border-top: 1px dashed #e2e8f0; padding-top: 15px; background: #fafafa; padding: 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                                            <form id="form-db-edit-<?php echo $q['source_table']; ?>-<?php echo $q['id']; ?>" method="POST" action="reported_questions.php" class="db-actions-form">
+                                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
+                                                <input type="hidden" name="db_table" value="<?php echo $q['source_table']; ?>">
+                                                <input type="hidden" name="question_id" value="<?php echo $q['id']; ?>">
+                                                
+                                                <div style="margin-bottom: 10px;">
+                                                    <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Edit Question Text</label>
+                                                    <textarea name="question_text" style="width: 100%; min-height: 80px; padding: 8px; border: 1px solid #e2e8f0; border-radius: 6px; font-family: inherit; font-size: 13px;" required><?php echo htmlspecialchars($q['question_text']); ?></textarea>
+                                                </div>
+                                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+                                                    <div>
+                                                        <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Option A</label>
+                                                        <input type="text" name="option_a" value="<?php echo htmlspecialchars($q['option_a']); ?>" style="width: 100%; padding: 6px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;" required>
+                                                    </div>
+                                                    <div>
+                                                        <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Option B</label>
+                                                        <input type="text" name="option_b" value="<?php echo htmlspecialchars($q['option_b']); ?>" style="width: 100%; padding: 6px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;" required>
+                                                    </div>
+                                                    <div>
+                                                        <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Option C</label>
+                                                        <input type="text" name="option_c" value="<?php echo htmlspecialchars($q['option_c']); ?>" style="width: 100%; padding: 6px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;" required>
+                                                    </div>
+                                                    <div>
+                                                        <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Option D</label>
+                                                        <input type="text" name="option_d" value="<?php echo htmlspecialchars($q['option_d']); ?>" style="width: 100%; padding: 6px; border: 1px solid #e2e8f0; border-radius: 6px; font-size: 13px;" required>
+                                                    </div>
+                                                </div>
+                                                
+                                                <div style="margin-bottom: 10px;">
+                                                    <label style="font-size: 11px; font-weight: 700; color: #475569; text-transform: uppercase; display: block; margin-bottom: 4px;">Correct Option</label>
+                                                    <select name="correct_option" class="filter-select" style="width: 100%; padding: 6px; font-size: 13px; border-radius: 6px;" required>
+                                                        <option value="A" <?php echo $q['correct_option'] === 'A' ? 'selected' : ''; ?>>Option A</option>
+                                                        <option value="B" <?php echo $q['correct_option'] === 'B' ? 'selected' : ''; ?>>Option B</option>
+                                                        <option value="C" <?php echo $q['correct_option'] === 'C' ? 'selected' : ''; ?>>Option C</option>
+                                                        <option value="D" <?php echo $q['correct_option'] === 'D' ? 'selected' : ''; ?>>Option D</option>
+                                                    </select>
+                                                </div>
+
+                                                <div style="display: flex; gap: 8px;">
+                                                    <button type="submit" name="action" value="edit_db_question" class="btn-action btn-resolve" style="flex: 1;">
+                                                        <i class="fas fa-save"></i> Save Changes
+                                                    </button>
+                                                    <button type="submit" name="action" value="delete_db_question" class="btn-action btn-dismiss" style="flex: 1;" onclick="return confirm('Are you sure you want to delete this question? This cannot be undone.');">
+                                                        <i class="fas fa-trash-alt"></i> Delete Question
+                                                    </button>
+                                                </div>
+                                            </form>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+            </div>
         </div>
     </div>
 
@@ -1291,6 +1516,171 @@ try {
 
         // Run initially to apply the default 'pending' filter
         applyFilters();
+
+        // Tabs switcher
+        function switchTab(tabId) {
+            const reportsTab = document.getElementById('reportsTabContent');
+            const allQuestionsTab = document.getElementById('allQuestionsTabContent');
+            const links = document.querySelectorAll('.tab-link');
+
+            links.forEach(link => {
+                link.classList.remove('active');
+                link.style.color = 'var(--text-muted)';
+                link.style.borderBottomColor = 'transparent';
+                link.style.fontWeight = '600';
+            });
+
+            if (tabId === 'reports') {
+                reportsTab.style.display = 'block';
+                allQuestionsTab.style.display = 'none';
+                links[0].classList.add('active');
+                links[0].style.color = 'var(--primary-maroon)';
+                links[0].style.borderBottomColor = 'var(--primary-maroon)';
+                links[0].style.fontWeight = '700';
+            } else {
+                reportsTab.style.display = 'none';
+                allQuestionsTab.style.display = 'block';
+                links[1].classList.add('active');
+                links[1].style.color = 'var(--primary-maroon)';
+                links[1].style.borderBottomColor = 'var(--primary-maroon)';
+                links[1].style.fontWeight = '700';
+            }
+        }
+
+        // Toggle DB question edit box
+        function toggleEditDbQuestion(dbTable, id) {
+            const editBox = document.getElementById('edit-db-box-' + dbTable + '-' + id);
+            if (editBox) {
+                editBox.style.display = editBox.style.display === 'none' ? 'block' : 'none';
+            }
+        }
+
+        // DB questions filtering
+        const dbTableFilter = document.getElementById('dbTableFilter');
+        const dbSearch = document.getElementById('dbSearch');
+
+        function applyDbFilters() {
+            const tableVal = dbTableFilter.value;
+            const searchVal = dbSearch.value.toLowerCase();
+
+            const rows = document.querySelectorAll('#allQuestionsTable tbody tr.db-question-row');
+            rows.forEach(row => {
+                const rTable = row.getAttribute('data-table');
+                const rSearch = row.getAttribute('data-search');
+
+                const matchesTable = !tableVal || rTable === tableVal;
+                const matchesSearch = !searchVal || rSearch.includes(searchVal);
+
+                if (matchesTable && matchesSearch) {
+                    row.style.display = '';
+                } else {
+                    row.style.display = 'none';
+                }
+            });
+        }
+
+        if (dbTableFilter) dbTableFilter.addEventListener('change', applyDbFilters);
+        if (dbSearch) dbSearch.addEventListener('keyup', applyDbFilters);
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        // AJAX Db Questions Submission Handler
+        document.querySelectorAll('.db-actions-form').forEach(form => {
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+
+                const submitter = e.submitter;
+                if (!submitter) return;
+
+                const action = submitter.value;
+                const formData = new FormData(form);
+                formData.append('action', action);
+                formData.append('ajax', '1');
+
+                const row = form.closest('.db-question-row');
+
+                // Disable submit buttons and show spinner
+                form.querySelectorAll('button').forEach(btn => btn.disabled = true);
+                const originalHtml = submitter.innerHTML;
+                submitter.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+                fetch('reported_questions.php', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        if (action === 'delete_db_question') {
+                            row.remove();
+                        } else {
+                            const qText = formData.get('question_text');
+                            const optA = formData.get('option_a');
+                            const optB = formData.get('option_b');
+                            const optC = formData.get('option_c');
+                            const optD = formData.get('option_d');
+                            const correctOption = formData.get('correct_option');
+
+                            row.querySelector('.db-q-text').textContent = qText;
+                            row.setAttribute('data-search', qText.toLowerCase());
+                            
+                            // Re-render options in the row
+                            const optsContainer = row.querySelector('.db-options-list');
+                            const opts = [optA, optB, optC, optD];
+                            let optsHtml = '';
+                            opts.forEach((optText, oIdx) => {
+                                const isCorrect = (String.fromCharCode(65 + oIdx) === correctOption);
+                                const optClass = isCorrect ? 'opt-item correct' : 'opt-item';
+                                const suffix = isCorrect ? ' [System Key]' : '';
+                                optsHtml += `
+                                    <li class="${optClass}">
+                                        <span><strong>${String.fromCharCode(65 + oIdx)})</strong> ${escapeHtml(optText)}</span>
+                                        <span style="font-size: 10px; opacity: 0.8;">${suffix}</span>
+                                    </li>
+                                `;
+                            });
+                            optsContainer.innerHTML = optsHtml;
+
+                            // Collapse edit box
+                            const dbTable = formData.get('db_table');
+                            const questionId = formData.get('question_id');
+                            const editBox = document.getElementById('edit-db-box-' + dbTable + '-' + questionId);
+                            if (editBox) editBox.style.display = 'none';
+
+                            // Re-enable buttons
+                            form.querySelectorAll('button').forEach(btn => btn.disabled = false);
+                            submitter.innerHTML = originalHtml;
+                        }
+
+                        // Display floating alert
+                        const alertBox = document.createElement('div');
+                        alertBox.className = 'alert alert-success';
+                        alertBox.innerHTML = `<i class="fas fa-check-circle"></i> <span>${data.message}</span>`;
+                        document.querySelector('.main-content').insertBefore(alertBox, document.querySelector('.header') || document.querySelector('.page-header'));
+                        
+                        setTimeout(() => {
+                            alertBox.style.transition = 'opacity 0.5s ease';
+                            alertBox.style.opacity = '0';
+                            setTimeout(() => alertBox.remove(), 500);
+                        }, 3000);
+                    } else {
+                        alert(data.message || 'An error occurred.');
+                        form.querySelectorAll('button').forEach(btn => btn.disabled = false);
+                        submitter.innerHTML = originalHtml;
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert('Request failed. Please try again.');
+                    form.querySelectorAll('button').forEach(btn => btn.disabled = false);
+                    submitter.innerHTML = originalHtml;
+                });
+            });
+        });
     </script>
 </body>
 </html>
