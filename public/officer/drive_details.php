@@ -769,6 +769,13 @@ foreach ($attemptsList as $att) {
                         autoSubmitWarning = `<div style="color: #dc2626; font-size: 12px; margin-top: 4px; font-weight: 600;"><i class="fas fa-triangle-exclamation"></i> Auto-Submitted: ${att.auto_submit_reason}</div>`;
                     }
                     
+                    let reportUrl = '';
+                    if (roundName === 'Aptitude') {
+                        reportUrl = `../student/aptitude_report.php?id=${att.id}&type=drive`;
+                    } else {
+                        reportUrl = `../student/nqt_report.php?id=${att.id}&type=drive`;
+                    }
+                    
                     html += `
                         <div class="attempt-item">
                             <div>
@@ -776,7 +783,10 @@ foreach ($attemptsList as $att) {
                                 <div class="attempt-date"><i class="fas fa-clock"></i> Completed: ${formattedDate}</div>
                                 ${autoSubmitWarning}
                             </div>
-                            <strong style="font-size: 16px; color: ${parseFloat(att.score) >= 80 ? '#15803d' : (parseFloat(att.score) >= 60 ? '#a16207' : '#b91c1c')}">${parseFloat(att.score).toFixed(1)}%</strong>
+                            <div style="text-align: right; display: flex; flex-direction: column; align-items: flex-end; gap: 4px;">
+                                <strong style="font-size: 16px; color: ${parseFloat(att.score) >= 80 ? '#15803d' : (parseFloat(att.score) >= 60 ? '#a16207' : '#b91c1c')}">${parseFloat(att.score).toFixed(1)}%</strong>
+                                <a href="${reportUrl}" target="_blank" style="font-size: 11px; color: var(--brand); text-decoration: none; font-weight: 700;"><i class="fas fa-file-invoice"></i> View Report</a>
+                            </div>
                         </div>
                     `;
                 });

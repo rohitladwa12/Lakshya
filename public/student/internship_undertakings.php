@@ -11,46 +11,8 @@ $username = getUsername();
 $fullName = getFullName();
 $institution = $_SESSION['institution'] ?? '';
 
-// Self-healing database check: create undertakings table if it does not exist
+// Removed self-healing DB check as per request
 $db = getDB();
-if ($db) {
-    try {
-        $db->exec("CREATE TABLE IF NOT EXISTS student_internship_undertakings (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            usn VARCHAR(50) NOT NULL,
-            name VARCHAR(100) NOT NULL,
-            sem VARCHAR(20) NOT NULL,
-            branch VARCHAR(100) NOT NULL,
-            course VARCHAR(100) NOT NULL DEFAULT 'B.Tech./B.Sc., etc',
-            undertaking_type ENUM('private', 'govt') NOT NULL,
-            ref_number VARCHAR(100) NOT NULL UNIQUE,
-            company_name VARCHAR(255) NOT NULL,
-            company_city VARCHAR(100) NOT NULL,
-            academic_year VARCHAR(20) NOT NULL,
-            hod_name VARCHAR(100) NOT NULL,
-            hod_email VARCHAR(100) NOT NULL,
-            undertaking_date DATE NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )");
-
-        // Self-heal: Check for missing columns in existing table
-        $columns = $db->query("DESCRIBE student_internship_undertakings")->fetchAll(PDO::FETCH_COLUMN);
-        if (!in_array('company_name', $columns)) {
-            $db->exec("ALTER TABLE student_internship_undertakings 
-                ADD COLUMN company_name VARCHAR(255) NOT NULL AFTER ref_number,
-                ADD COLUMN company_city VARCHAR(100) NOT NULL AFTER company_name,
-                ADD COLUMN hod_name VARCHAR(100) NOT NULL AFTER company_city,
-                ADD COLUMN hod_email VARCHAR(100) NOT NULL AFTER hod_name,
-                ADD COLUMN undertaking_date DATE NOT NULL AFTER hod_email");
-        }
-        if (!in_array('course', $columns)) {
-            $db->exec("ALTER TABLE student_internship_undertakings 
-                ADD COLUMN course VARCHAR(100) NOT NULL DEFAULT 'B.Tech./B.Sc., etc' AFTER branch");
-        }
-    } catch (Exception $e) {
-        error_log("Failed to create/alter student_internship_undertakings table: " . $e->getMessage());
-    }
-}
 
 require_once ROOT_PATH . '/src/Models/StudentProfile.php';
 $studentProfileModel = new StudentProfile();
@@ -154,7 +116,7 @@ if (isPost()) {
 
         $formUsn = trim(post('usn'));
         $formName = trim(post('name'));
-        $formSem = trim(post('sem'));
+        $formYear = trim(post('year'));
         $formBranch = trim(post('branch'));
         $formCourse = trim(post('course')) ?: 'B.Tech./B.Sc., etc';
         $formAcademicYear = trim(post('academic_year'));
@@ -163,26 +125,33 @@ if (isPost()) {
             $error = "Please fill in all company and HOD details.";
         } else {
             try {
-                // Generate next sequence number for this branch & academic year
-                $stmtCount = $db->prepare("SELECT COUNT(*) FROM student_internship_undertakings WHERE branch = ? AND academic_year = ?");
-                $stmtCount->execute([$formBranch, $formAcademicYear]);
-                $count = (int) $stmtCount->fetchColumn();
+                // Global sequential counter — every new letter gets the next number
+                // regardless of branch, academic year, or student.
+                // We derive the next number from MAX(id)+12:
+                //   - first row ever inserted → id=1 → serial = 1+11 = 12
+                //   - second row           → id=2 → serial = 2+11 = 13  … and so on.
+                // Using id (AUTO_INCREMENT) instead of COUNT(*) means concurrent
+                // inserts never collide on the serial before we even INSERT.
+                $stmtMax = $db->query("SELECT COALESCE(MAX(id), 0) FROM student_internship_undertakings");
+                $maxId   = (int) $stmtMax->fetchColumn();
+                $nextSerial = $maxId + 12;   // first letter → 12, next → 13 …
 
-                // Retry loop to ensure unique Ref Number under concurrency
+                // Retry loop handles the rare race where two students click at the same
+                // millisecond and both read the same maxId.
                 $inserted = false;
                 $attempts = 0;
                 while (!$inserted && $attempts < 5) {
-                    $serial = str_pad($count + 1 + $attempts, 2, '0', STR_PAD_LEFT);
+                    $serial    = $nextSerial + $attempts;
                     $refNumber = "Ref:-{$instPrefix}/UIICI/{$formBranch}/{$formAcademicYear}/{$serial}";
 
                     try {
                         $stmtInsert = $db->prepare("INSERT INTO student_internship_undertakings 
-                            (usn, name, sem, branch, course, undertaking_type, ref_number, company_name, company_city, academic_year, hod_name, hod_email, undertaking_date)
+                            (usn, name, year, branch, course, undertaking_type, ref_number, company_name, company_city, academic_year, hod_name, hod_email, undertaking_date)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                         $stmtInsert->execute([
                             $formUsn,
                             $formName,
-                            $formSem,
+                            $formYear,
                             $formBranch,
                             $formCourse,
                             $type,
@@ -214,16 +183,29 @@ if (isPost()) {
                 $error = "Failed to generate undertaking: " . $e->getMessage();
             }
         }
-    } elseif ($action === 'delete') {
-        $id = (int) post('id');
+    } elseif ($action === 'update') {
+        $editId = (int) post('edit_id');
+        $type = post('undertaking_type');
+        $compName = trim(post('company_name'));
+        $compCity = trim(post('company_city'));
+        $hodNameInput = trim(post('hod_name'));
+        $hodEmailInput = trim(post('hod_email'));
+        $uDate = post('undertaking_date') ?: date('Y-m-d');
+        
+        $formYear = trim(post('year'));
+        $formBranch = trim(post('branch'));
+        $formCourse = trim(post('course')) ?: 'B.Tech./B.Sc., etc';
+        $formAcademicYear = trim(post('academic_year'));
+
         try {
-            $stmtDel = $db->prepare("DELETE FROM student_internship_undertakings WHERE id = ? AND usn = ?");
-            $stmtDel->execute([$id, $studentUSN]);
-            Session::flash('success', "Undertaking deleted successfully.");
+            $stmtUpdate = $db->prepare("UPDATE student_internship_undertakings SET year=?, branch=?, course=?, undertaking_type=?, company_name=?, company_city=?, academic_year=?, hod_name=?, hod_email=?, undertaking_date=? WHERE id=? AND usn=?");
+            $stmtUpdate->execute([$formYear, $formBranch, $formCourse, $type, $compName, $compCity, $formAcademicYear, $hodNameInput, $hodEmailInput, $uDate, $editId, $studentUSN]);
+            Session::flash('success', "Undertaking updated successfully.");
+            redirect("internship_undertakings?view_id=" . $editId . "&print=1");
         } catch (Exception $e) {
-            Session::flash('error', "Failed to delete record: " . $e->getMessage());
+            Session::flash('error', "Failed to update record: " . $e->getMessage());
+            redirect("internship_undertakings");
         }
-        redirect("internship_undertakings");
     }
 }
 
@@ -239,11 +221,19 @@ if ($db) {
     }
 }
 
-// Check if specifically viewing one undertaking
 $viewId = (int) get('view_id');
+$editId = (int) get('edit_id');
+
 if ($viewId > 0) {
     foreach ($undertakings as $u) {
         if ((int) $u['id'] === $viewId) {
+            $viewUndertaking = $u;
+            break;
+        }
+    }
+} elseif ($editId > 0) {
+    foreach ($undertakings as $u) {
+        if ((int) $u['id'] === $editId) {
             $viewUndertaking = $u;
             break;
         }
@@ -605,10 +595,23 @@ if ($viewId > 0) {
         }
 
         .lh-header {
-            text-align: center;
+            display: flex;
+            align-items: center;
             border-bottom: 2px double #333;
             padding-bottom: 1rem;
             margin-bottom: 2.25rem;
+        }
+
+        .lh-logo-img {
+            width: 90px;
+            height: auto;
+            margin-right: 20px;
+            flex-shrink: 0;
+        }
+
+        .lh-header-text {
+            flex: 1;
+            text-align: center;
         }
 
         .lh-logo-title {
@@ -621,12 +624,13 @@ if ($viewId > 0) {
         }
 
         .lh-sub {
-            font-size: 11pt;
+            font-size: 10pt;
             font-weight: bold;
             color: #444;
             margin: 0.3rem 0;
             text-transform: uppercase;
-            letter-spacing: 1px;
+            letter-spacing: 0.5px;
+            white-space: nowrap;
         }
 
         .lh-info {
@@ -651,9 +655,7 @@ if ($viewId > 0) {
         .lh-subject {
             text-align: center;
             font-weight: bold;
-            text-decoration: underline;
             margin-bottom: 2.25rem;
-            text-transform: uppercase;
             line-height: 1.4;
         }
 
@@ -779,11 +781,16 @@ if ($viewId > 0) {
             box-shadow: 0 4px 10px rgba(128, 0, 0, 0.15);
         }
 
-        .btn-action.btn-delete:hover {
-            border-color: var(--danger);
+        .btn-action.btn-edit {
+            color: var(--primary);
+            background: rgba(14, 165, 233, 0.1);
+        }
+
+        .btn-action.btn-edit:hover {
+            border-color: var(--primary);
             color: white;
-            background: var(--danger);
-            box-shadow: 0 4px 10px rgba(239, 68, 68, 0.2);
+            background: var(--primary);
+            box-shadow: 0 4px 10px rgba(128, 0, 0, 0.15);
         }
 
         /* Print styling */
@@ -927,7 +934,7 @@ if ($viewId > 0) {
                 'undertaking_type' => 'private',
                 'usn' => $studentUSN,
                 'name' => $studentName,
-                'sem' => $studentYear,
+                'year' => $studentYear,
                 'branch' => $studentBranch ?: '[Branch]',
                 'course' => 'B.Tech./B.Sc., etc',
                 'academic_year' => $studentAcademicYear
@@ -985,7 +992,8 @@ if ($viewId > 0) {
             <?php if (!$isReadOnly): ?>
                 <form id="hiddenUndertakingForm" method="POST" style="display: none;">
                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
-                    <input type="hidden" name="action" value="generate">
+                    <input type="hidden" name="action" id="hidden_action" value="generate">
+                    <input type="hidden" name="edit_id" id="hidden_edit_id" value="">
                     <input type="hidden" name="undertaking_type" id="hidden_type" value="private">
                     <input type="hidden" name="company_name" id="hidden_company_name">
                     <input type="hidden" name="company_city" id="hidden_company_city">
@@ -994,7 +1002,7 @@ if ($viewId > 0) {
                     <input type="hidden" name="hod_email" id="hidden_hod_email">
                     <input type="hidden" name="usn" value="<?php echo htmlspecialchars($studentUSN); ?>">
                     <input type="hidden" name="name" value="<?php echo htmlspecialchars($studentName); ?>">
-                    <input type="hidden" name="sem" id="hidden_sem" value="<?php echo htmlspecialchars($studentYear); ?>">
+                    <input type="hidden" name="year" id="hidden_year" value="<?php echo htmlspecialchars($studentYear); ?>">
                     <input type="hidden" name="course" id="hidden_course" value="B.Tech./B.Sc., etc">
                     <input type="hidden" name="branch" id="hidden_branch" value="<?php echo htmlspecialchars($branchCode); ?>">
                     <input type="hidden" name="academic_year" id="hidden_academic_year" value="<?php echo htmlspecialchars($studentAcademicYear); ?>">
@@ -1007,10 +1015,12 @@ if ($viewId > 0) {
                 <div class="letterhead-paper" id="letter_paper">
                     <!-- Letterhead Top Bar -->
                     <div class="lh-header">
-                        <h1 class="lh-logo-title"><?php echo htmlspecialchars($instLogoTitle); ?></h1>
-                        <div class="lh-sub">University Industry Interaction Cell (UIICI)</div>
-                        <div class="lh-info"><?php echo htmlspecialchars($instAddress); ?></div>
-                        <div class="lh-info">Web: <?php echo htmlspecialchars($instWeb); ?> | Email: dir.col@gmu.ac.in
+                        <img src="<?php echo APP_URL; ?>/assets/img/ai/<?php echo $isGMIT ? 'gmitlogo.png' : 'gmulogo.png'; ?>" alt="Institution Logo" class="lh-logo-img">
+                        <div class="lh-header-text">
+                            <h1 class="lh-logo-title"><?php echo htmlspecialchars($instLogoTitle); ?></h1>
+                            <div class="lh-sub" >University Industry Interaction Cell for Student Internships (UIICI)</div>
+                            <div class="lh-info"><?php echo htmlspecialchars($instAddress); ?></div>
+                            <div class="lh-info">Web: <?php echo htmlspecialchars($instWeb); ?> | Email: dir.col@gmu.ac.in</div>
                         </div>
                     </div>
 
@@ -1078,13 +1088,13 @@ if ($viewId > 0) {
                                 id="body_usn_govt"
                                 style="font-weight: bold;"><?php echo htmlspecialchars($u['usn']); ?></span>,
                             <?php if ($isReadOnly): ?>
-                                <strong><?php echo htmlspecialchars($u['sem']); ?></strong> Year,
-                                <strong><?php echo htmlspecialchars($u['course']); ?></strong> during the academic year
+                                <strong><?php echo htmlspecialchars($u['year']); ?></strong> Year,
+                                <strong><?php echo htmlspecialchars($u['course']); ?></strong> during the
                                 <strong><?php echo htmlspecialchars($u['academic_year']); ?></strong>.
                             <?php else: ?>
                                 <span id="inline_year_govt" class="editable-inline" contenteditable="true"
                                     placeholder="[Year]"
-                                    style="min-width: 40px;"><?php echo htmlspecialchars($u['sem']); ?></span> Year, <span
+                                    style="min-width: 40px;"><?php echo htmlspecialchars($u['year']); ?></span> Year, <span
                                     id="inline_course_govt" class="editable-inline" contenteditable="true"
                                     placeholder="[Course]"
                                     style="min-width: 150px;"><?php echo htmlspecialchars($u['course']); ?></span> during
@@ -1123,13 +1133,13 @@ if ($viewId > 0) {
                                 id="body_usn_private"
                                 style="font-weight: bold;"><?php echo htmlspecialchars($u['usn']); ?></span>,
                             <?php if ($isReadOnly): ?>
-                                <strong><?php echo htmlspecialchars($u['sem']); ?></strong> Year,
-                                <strong><?php echo htmlspecialchars($u['course']); ?></strong> during the academic year
+                                <strong><?php echo htmlspecialchars($u['year']); ?></strong> Year,
+                                <strong><?php echo htmlspecialchars($u['course']); ?></strong> during the
                                 <strong><?php echo htmlspecialchars($u['academic_year']); ?></strong>.
                             <?php else: ?>
                                 <span id="inline_year_private" class="editable-inline" contenteditable="true"
                                     placeholder="[Year]"
-                                    style="min-width: 40px;"><?php echo htmlspecialchars($u['sem']); ?></span> Year, <span
+                                    style="min-width: 40px;"><?php echo htmlspecialchars($u['year']); ?></span> Year, <span
                                     id="inline_course_private" class="editable-inline" contenteditable="true"
                                     placeholder="[Course]"
                                     style="min-width: 150px;"><?php echo htmlspecialchars($u['course']); ?></span> during
@@ -1233,16 +1243,10 @@ if ($viewId > 0) {
                                                     class="btn-action" title="View & Print">
                                                     <i class="fas fa-print"></i>
                                                 </a>
-                                                <form method="POST" style="display: inline-block;"
-                                                    onsubmit="return confirm('Are you sure you want to delete this undertaking? This will release the Ref Number sequence.');">
-                                                    <input type="hidden" name="csrf_token"
-                                                        value="<?php echo $_SESSION['csrf_token']; ?>">
-                                                    <input type="hidden" name="action" value="delete">
-                                                    <input type="hidden" name="id" value="<?php echo $item['id']; ?>">
-                                                    <button type="submit" class="btn-action btn-delete" title="Delete">
-                                                        <i class="fas fa-trash"></i>
-                                                    </button>
-                                                </form>
+                                                <a href="internship_undertakings?edit_id=<?php echo $item['id']; ?>" 
+                                                    class="btn-action btn-edit" title="Edit">
+                                                    <i class="fas fa-edit"></i>
+                                                </a>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -1278,48 +1282,27 @@ if ($viewId > 0) {
 
             const toTitle = document.getElementById('to_title');
             const toCompany = document.getElementById('inline_company_name');
-            const bodyTextEl = document.getElementById('letter_body_text');
+            
+            const bodyGovt = document.getElementById('body_govt');
+            const bodyPrivate = document.getElementById('body_private');
 
             if (type === 'govt') {
                 toTitle.innerText = "The Head of the Organization / Director / HR Division";
                 if (toCompany.innerText === '' || toCompany.innerText === '[Type Industry / Organization Name]') {
                     toCompany.innerText = '[Type Government Org / Dept Name]';
                 }
+                
+                if (bodyGovt) bodyGovt.style.display = 'block';
+                if (bodyPrivate) bodyPrivate.style.display = 'none';
 
-                bodyTextEl.innerHTML = `
-                    The University Industry Interaction Cell for Student Internships (UIICI) in association with the Department of <span id="body_dept">${escapeHtml(studentBranch || '[Branch]')}</span> respectfully requests your esteemed organization to consider providing internship opportunities for our student Mr/Mrs. <span id="body_name" style="font-weight: bold;">${escapeHtml(studentName)}</span> USN <span id="body_usn" style="font-weight: bold;">${escapeHtml(studentUSN)}</span>, <span id="body_year">${studentYear}</span> Year, B.Tech./B.Sc., etc during the academic year <span id="body_academic_year">${escapeHtml(studentAcademicYear)}</span>.
-                    <br><br>
-                    As part of our academic curriculum and experiential learning initiatives, students are encouraged to gain practical exposure through structured internships in reputed Government organizations and public institutions. Such opportunities enable students to understand professional practices, enhance technical and administrative competencies, and connect academic learning with real-world applications.
-                    <br><br>
-                    In this regard, we kindly request your support to:
-                    <ul style="margin-top: 0.5rem; padding-left: 20px;">
-                        <li>Facilitate internship opportunities for eligible students.</li>
-                        <li>Permit students to undertake practical assignments/projects relevant to their discipline.</li>
-                    </ul>
-                    <p style="text-indent: 0; margin-top: 1.5rem;">
-                        We look forward to your kind support and an opportunity to establish meaningful industry–academia collaboration with your esteemed organization.
-                        <br><br>
-                        Thank you for your valuable time and consideration.
-                    </p>
-                `;
             } else {
                 toTitle.innerText = "The HR Manager / Concerned authority";
                 if (toCompany.innerText === '' || toCompany.innerText === '[Type Government Org / Dept Name]') {
                     toCompany.innerText = '[Type Industry / Organization Name]';
                 }
-
-                bodyTextEl.innerHTML = `
-                    The University Industry Interaction Cell for Student Internships (UIICI) in association with the Department of <span id="body_dept">${escapeHtml(studentBranch || '[Branch]')}</span> is pleased to request your esteemed organization to provide internship opportunity for our student Mr/Mrs. <span id="body_name" style="font-weight: bold;">${escapeHtml(studentName)}</span> USN <span id="body_usn" style="font-weight: bold;">${escapeHtml(studentUSN)}</span>, <span id="body_year">${studentYear}</span> Year, B.Tech./B.Sc., etc during the academic year <span id="body_academic_year">${escapeHtml(studentAcademicYear)}</span>.
-                    <br><br>
-                    At ${escapeHtml(instName)}, we emphasize experiential and industry-oriented learning to bridge the gap between academic knowledge and professional practice. The internship programme is designed to provide students with practical exposure, enhance technical and professional competencies, and prepare them for future career opportunities.
-                    <br><br>
-                    We kindly request your support in facilitating internship opportunities for our eligible students and permitting them to gain hands-on experience through industrial exposure and project-based learning under the guidance of your experts.
-                    <p style="text-indent: 0; margin-top: 1.5rem;">
-                        We look forward to your positive response and to establishing a strong and mutually beneficial industry–academia partnership.
-                        <br><br>
-                        Thank you for your support and cooperation.
-                    </p>
-                `;
+                
+                if (bodyGovt) bodyGovt.style.display = 'none';
+                if (bodyPrivate) bodyPrivate.style.display = 'block';
             }
         }
 
@@ -1372,9 +1355,17 @@ if ($viewId > 0) {
             document.getElementById('hidden_hod_name').value = hodName;
             document.getElementById('hidden_hod_email').value = hodEmail;
             if (dept)         document.getElementById('hidden_branch').value = dept;
-            if (editedYear)   document.getElementById('hidden_sem').value = editedYear;
+            if (editedYear)   document.getElementById('hidden_year').value = editedYear;
             if (editedCourse) document.getElementById('hidden_course').value = editedCourse;
             if (editedAcYear) document.getElementById('hidden_academic_year').value = editedAcYear;
+
+            const editId = new URLSearchParams(window.location.search).get('edit_id');
+            if (editId) {
+                document.getElementById('hidden_action').value = 'update';
+                document.getElementById('hidden_edit_id').value = editId;
+            } else {
+                document.getElementById('hidden_action').value = 'generate';
+            }
 
             document.getElementById('hiddenUndertakingForm').submit();
         }
@@ -1388,13 +1379,37 @@ if ($viewId > 0) {
                 .replace(/'/g, "&#039;");
         }
 
-        // Auto-print check
+        // Auto-print check & live Ref display
         window.addEventListener('DOMContentLoaded', () => {
             const urlParams = new URLSearchParams(window.location.search);
             if (urlParams.get('print') === '1') {
                 const newUrl = window.location.pathname + '?view_id=' + urlParams.get('view_id');
                 window.history.replaceState({}, document.title, newUrl);
                 window.print();
+            }
+
+            if (!isReadOnly) {
+                function updateRefNumber() {
+                    const refDisplay = document.getElementById('ref_display');
+                    if (!refDisplay) return;
+                    
+                    const type = document.getElementById('undertaking_type_val').value;
+                    const suffix = type === 'govt' ? '_govt' : '_private';
+                    
+                    const dept = (document.getElementById('body_dept' + suffix)?.innerText || '[Branch]').trim();
+                    const acYear = (document.getElementById('inline_academic_year' + suffix)?.innerText || '[Year]').trim();
+                    
+                    refDisplay.innerText = `Ref:-${instPrefix}/UIICI/${dept}/${acYear}/[AUTO]`;
+                }
+
+                ['body_dept_govt', 'inline_academic_year_govt', 'body_dept_private', 'inline_academic_year_private'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el) el.addEventListener('input', updateRefNumber);
+                });
+                
+                document.querySelectorAll('.tab-btn').forEach(btn => {
+                    btn.addEventListener('click', () => setTimeout(updateRefNumber, 10));
+                });
             }
         });
     </script>

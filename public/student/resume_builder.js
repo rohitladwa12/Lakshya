@@ -32,6 +32,7 @@ let RD = {               // Resume Data
 
 let previewTimer  = null;
 let autoSaveTimer = null;
+let isResumeLoaded = false;
 let entryCounters = { education:0, experience:0, projects:0, certifications:0, achievements:0 };
 
 // ─────────────────────────────────────────────────────────
@@ -130,6 +131,8 @@ function applyResumeData(r) {
     ['summary', 'education', 'experience', 'projects', 'skills', 'certifications', 'achievements'].forEach(sec => {
         updateVisibilityUI(sec);
     });
+
+    isResumeLoaded = true;
 }
 
 // ─── SYNC FROM PORTFOLIO ─────────────────────────────────
@@ -156,7 +159,12 @@ async function syncPortfolio() {
         const currentTechLower = RD.skills.technical.flatMap(g => g.items.map(s => s.toLowerCase()));
         (data.skills || []).forEach(s => {
             if (!currentTechLower.includes(s.toLowerCase())) {
-                const firstGroupId = document.querySelector('[data-tech-group-index="0"]')?.id.replace('tech-group-','');
+                let firstGroupEl = document.querySelector('[data-tech-group-index="0"]');
+                if (!firstGroupEl) {
+                    addSkillGroup('');
+                    firstGroupEl = document.querySelector('[data-tech-group-index="0"]');
+                }
+                const firstGroupId = firstGroupEl?.id.replace('tech-group-','');
                 if (firstGroupId) {
                     addTag('technical', s, firstGroupId);
                     newSkills++;
@@ -262,6 +270,10 @@ function collectEntries(type) {
 // ─────────────────────────────────────────────────────────
 // Expose to global scope
 window.saveResume = async function(isAuto = false) {
+    if (!isResumeLoaded) {
+        console.warn('Save aborted: resume data has not finished loading.');
+        return;
+    }
     // 0) Pre-save: Ensure data and preview are fully updated
     collectData();
     renderPreview(); 
@@ -345,13 +357,13 @@ window.saveResume = async function(isAuto = false) {
             const syncData = new FormData();
             syncData.append('action', 'sync_skills');
             syncData.append('skill_groups', JSON.stringify(RD.skills.technical));
-            fetch('portfolio_handler', { method: 'POST', body: syncData });
+            fetch('portfolio_handler.php', { method: 'POST', body: syncData });
 
             // Background Project Sync
             const projSyncData = new FormData();
             projSyncData.append('action', 'sync_projects');
             projSyncData.append('projects', JSON.stringify(RD.projects));
-            fetch('portfolio_handler', { method: 'POST', body: projSyncData });
+            fetch('portfolio_handler.php', { method: 'POST', body: projSyncData });
             
             const btn = document.getElementById('saveBtn');
             btn.classList.add('saved');
@@ -978,7 +990,7 @@ let techGroupCounter = 0;
 window.importSkillsFromProfile = async function() {
     showToast('Fetching skills from your profile...');
     try {
-        const res = await fetch('portfolio_handler', {
+        const res = await fetch('portfolio_handler.php', {
             method: 'POST',
             body: new URLSearchParams({ action: 'list' })
         });

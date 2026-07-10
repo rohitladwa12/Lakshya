@@ -2378,9 +2378,20 @@ if (strpos($compLower, 'google') !== false) {
         }
     }
 
+    let isSending = false;
+
     async function sendMessage(customMsg = null) {
+        if (customMsg && (customMsg instanceof Event || typeof customMsg !== 'string')) {
+            customMsg = null;
+        }
         const msg = customMsg || userInput.value.trim();
         if (!msg || !currentSessionId) return;
+
+        // Prevent double-sends while AI is still processing
+        if (isSending) return;
+        isSending = true;
+        userInput.disabled = true;
+        btnSend.disabled = true;
 
         if (!customMsg) {
             addMessage('user', msg);
@@ -2412,13 +2423,24 @@ if (strpos($compLower, 'google') !== false) {
             return;
         }
 
+        // Snapshot session id so the closure captures the right value even if
+        // currentSessionId changes before the async response arrives.
+        const snapshotSessionId = currentSessionId;
+
+        // 100-second client-side timeout — slightly above the PHP set_time_limit(300)
+        // cURL timeout of 90s to give the server time to respond before we abort.
+        const chatController = new AbortController();
+        const chatTimeout = setTimeout(() => chatController.abort(), 100000);
+
         const startTime = Date.now();
         try {
             const res = await fetch(requestPayload.url, {
                 method: 'POST',
+                signal: chatController.signal,
                 headers: requestPayload.headers,
                 body: JSON.stringify(requestPayload.body)
             });
+            clearTimeout(chatTimeout);
 
             const rawText = await res.text();
             let data;
@@ -2459,7 +2481,7 @@ if (strpos($compLower, 'google') !== false) {
                                 lockControls();
                                 addMessage('ai', 'SYSTEM: *Session concluded. Processing analytics...*');
                                 setTimeout(() => {
-                                    window.location.href = `mock_ai_report.php?session_id=${data.session_id}`;
+                                    window.location.href = `mock_ai_report.php?session_id=${snapshotSessionId}`;
                                 }, 3000);
                             }
                         } else if (statusRes.status === 'failed') {
@@ -2471,31 +2493,41 @@ if (strpos($compLower, 'google') !== false) {
                     }
                 }, 2000);
             } else if (data.success) {
+                // Always render the AI reply first, then apply UI step if provided
+                const aiReply = (data.message || '').trim();
+                if (aiReply) {
+                    addMessage('ai', aiReply);
+                    runtime.speakText(aiReply);
+                }
                 if (data.step) {
                     runtime.applyStep(data.step);
-                    if (data.step.message) {
-                        addMessage('ai', data.step.message);
-                    }
-                } else {
-                    addMessage('ai', data.message);
-                    runtime.speakText(data.message);
                 }
                 if (data.is_end) {
                     lockControls();
                     addMessage('ai', 'SYSTEM: *Session concluded. Processing analytics...*');
                     setTimeout(() => {
                         currentSessionId = null; // Unblock navigation
-                        window.location.href = `mock_ai_report.php?session_id=${data.session_id}`;
+                        window.location.href = `mock_ai_report.php?session_id=${snapshotSessionId}`;
                     }, 3000);
                 }
             } else {
                 addMessage('system', '⚠️ ' + (data.message || 'AI response failed. Please try again.'));
             }
         } catch (e) {
-            console.error(e);
+            clearTimeout(chatTimeout);
             stopTypingIndicator();
             updateLiveHeaderStatus('disconnected');
-            addMessage('system', '⚠️ Network error. Check your connection and try again.');
+            if (e.name === 'AbortError') {
+                addMessage('system', '⚠️ Request timed out (>100s). The AI service is slow. Please try again.');
+            } else {
+                console.error(e);
+                addMessage('system', '⚠️ Network error. Check your connection and try again.');
+            }
+        } finally {
+            isSending = false;
+            userInput.disabled = false;
+            btnSend.disabled = false;
+            userInput.focus();
         }
     }
 
@@ -2509,7 +2541,10 @@ if (strpos($compLower, 'google') !== false) {
 
     async function runCodeSimulation() {
         const code = runtime.getEditorValue();
-        if (!code) return;
+        if (!code || !code.trim()) {
+            alert('Please write some code before running.');
+            return;
+        }
         
         const btn = document.getElementById('btnRunCode');
         const consoleOut = document.getElementById('consoleOutput');
@@ -2517,7 +2552,7 @@ if (strpos($compLower, 'google') !== false) {
         
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Executing...';
-        consoleOut.innerHTML = `[System] Initializing ${lang} environment...\n[System] Compiling source...\n[System] Executing unit tests...`;
+        consoleOut.innerHTML = `[System] Initializing ${lang} environment...\n[System] Compiling source...\n[System] Evaluating with AI (this may take 30–60 seconds)...`;
         consoleOut.className = 'console-out';
 
         if (!navigator.onLine) {
@@ -2528,9 +2563,14 @@ if (strpos($compLower, 'google') !== false) {
             return;
         }
 
+        // AbortController gives us a real client-side timeout for the AI call
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2-minute max
+
         try {
             const res = await fetch('mock_ai_handler.php', {
                 method: 'POST',
+                signal: controller.signal,
                 headers: { 
                     'Content-Type': 'application/json',
                     'X-CSRF-TOKEN': CSRF_TOKEN
@@ -2542,32 +2582,50 @@ if (strpos($compLower, 'google') !== false) {
                     language: lang
                 })
             });
+            clearTimeout(timeoutId);
+
             const text = await res.text();
             let data = null;
             try {
                 data = JSON.parse(text);
             } catch (err) {
-                console.error("Failed to parse evaluate_code JSON:", text);
+                console.error("Failed to parse evaluate_code JSON:", text.substring(0, 300));
+                consoleOut.innerHTML = `[Error] Server returned an unexpected response. Check server logs.`;
+                consoleOut.className = 'console-out console-error';
+                return;
             }
             
             if (data && data.success) {
-                const eval = data.evaluation;
-                consoleOut.innerHTML = `[Output]\n${eval.output_log || 'Execution successful.'}\n\n[Evaluation]\nScore: ${eval.score}/10\nStatus: ${eval.passed ? 'PASSED' : 'FAILED'}\n\n${eval.feedback}`;
-                consoleOut.className = eval.passed ? 'console-out console-success' : 'console-out console-error';
+                const ev = data.evaluation;
+                const status = ev.passed ? 'PASSED ✅' : 'FAILED ❌';
+                consoleOut.innerHTML = `[Output]\n${ev.output_log || 'Execution complete.'}\n\n[Evaluation]\nScore: ${ev.score}/10\nStatus: ${status}\n\n[Feedback]\n${ev.feedback}`;
+                consoleOut.className = ev.passed ? 'console-out console-success' : 'console-out console-error';
                 
-                addMessage('system', `Code Execution: Score ${eval.score}/10, Status: ${eval.passed ? 'PASSED' : 'FAILED'}`);
+                addMessage('system', `Code Execution: Score ${ev.score}/10 — ${status}`);
 
-                if (eval.passed) {
-                    setTimeout(() => {
-                        sendMessage(`System: The code execution was successful and scored ${eval.score}/10. Please provide your technical critique and ask the next question.`);
-                    }, 1000);
-                }
+                // Always send result to AI so it gives feedback and the next question,
+                // regardless of pass/fail. Truncate long feedback to avoid polluting the
+                // chat message with the full evaluation text.
+                setTimeout(() => {
+                    const shortFeedback = (ev.feedback || '').substring(0, 200);
+                    const resultMsg = ev.passed
+                        ? `System: The code execution was successful and scored ${ev.score}/10. Please provide your technical critique and ask the next question.`
+                        : `System: The code execution failed with score ${ev.score}/10. Feedback summary: ${shortFeedback}. Please briefly comment on this and continue with the next question.`;
+                    sendMessage(resultMsg);
+                }, 1000);
             } else {
-                consoleOut.innerHTML = `[Error] ${data.message}`;
+                const errMsg = (data && data.message) ? data.message : 'Evaluation service did not respond.';
+                consoleOut.innerHTML = `[Error] ${errMsg}`;
                 consoleOut.className = 'console-out console-error';
             }
         } catch (e) {
-            consoleOut.innerHTML = `[Fatal] Connection error.`;
+            clearTimeout(timeoutId);
+            if (e.name === 'AbortError') {
+                consoleOut.innerHTML = `[Timeout] Evaluation took too long (>2 min). The AI service may be overloaded. Please try again.`;
+            } else {
+                consoleOut.innerHTML = `[Fatal] Connection error: ${e.message}`;
+            }
+            consoleOut.className = 'console-out console-error';
         } finally {
             btn.disabled = false;
             btn.innerHTML = '<i class="fas fa-play"></i> Run Code';
@@ -2601,28 +2659,35 @@ if (strpos($compLower, 'google') !== false) {
         exitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Finalizing...';
         exitBtn.style.pointerEvents = 'none';
 
-        // Add a system log message
+        const snapshotSessionId = currentSessionId;
+
+        // Give the report generation up to 3 minutes before giving up
+        const endController = new AbortController();
+        const endTimeout = setTimeout(() => endController.abort(), 180000);
 
         try {
             const res = await fetch('mock_ai_handler.php', {
                 method: 'POST',
+                signal: endController.signal,
                 headers: { 
                     'Content-Type': 'application/json',
                     'X-CSRF-TOKEN': CSRF_TOKEN
                 },
                 body: JSON.stringify({ 
                     action: 'end_session', 
-                    session_id: currentSessionId,
-                    company: '<?php echo $companyName; ?>',
+                    session_id: snapshotSessionId,
+                    company: '<?php echo addslashes($companyName); ?>',
                     type: '<?php echo $roundType; ?>'
                 })
             });
+            clearTimeout(endTimeout);
+
             const text = await res.text();
             let data = null;
             try {
                 data = JSON.parse(text);
             } catch (err) {
-                console.error("Failed to parse end_session JSON:", text);
+                console.error("Failed to parse end_session JSON:", text.substring(0, 300));
             }
             
             if (data && data.success) {
@@ -2634,16 +2699,9 @@ if (strpos($compLower, 'google') !== false) {
                 }
                 document.getElementById('reportLoading').style.display = 'none';
                 
-                // Show Score Modal
                 const modal = document.getElementById('scoreModal');
                 const scoreNum = document.getElementById('finalScoreNum');
                 const scorePct = document.getElementById('finalScorePct');
-                
-                // Use a generic logic to fetch score if the data returns it. Wait, the endpoint doesn't return score.
-                // Let's modify the endpoint to return the score.
-                // Actually, let's fetch the score via get_report or just have end_session return it.
-                // Since I already modified end_session to return success, I should modify it to return score.
-                // For now, I'll redirect to dashboard, but let's assume end_session returns score.
                 
                 let s = data.score || 0;
                 scoreNum.innerText = s;
@@ -2658,12 +2716,17 @@ if (strpos($compLower, 'google') !== false) {
                 modal.style.display = 'flex';
                 currentSessionId = null; // Unblock navigation
             } else {
-                alert('Session error: ' + data.message);
+                alert('Session error: ' + (data ? data.message : 'No response from server.'));
                 currentSessionId = null;
                 window.location.href = 'dashboard.php';
             }
         } catch (err) {
-            console.error(err);
+            clearTimeout(endTimeout);
+            if (err.name === 'AbortError') {
+                alert('Report generation timed out (>3 min). Your session data is saved. Please check your report from the dashboard.');
+            } else {
+                console.error(err);
+            }
             currentSessionId = null;
             window.location.href = 'dashboard.php';
         }

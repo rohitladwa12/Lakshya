@@ -440,8 +440,11 @@ $isClosed = $deadlineTime && ($deadlineTime < time());
                         <div class="attempts-title">Previous Attempts</div>
                         <div class="attempts-list">
                             <?php foreach ($roundAttempts['Aptitude'] as $att): ?>
-                            <div class="attempt-tag">
+                            <div class="attempt-tag" style="display: inline-flex; align-items: center; gap: 8px;">
                                 Attempt #<?php echo $att['attempt_number']; ?>: <strong><?php echo number_format((float)($att['score'] ?? 0), 1); ?>%</strong>
+                                <?php if ($att['status'] === 'Completed'): ?>
+                                    <a href="aptitude_report.php?id=<?php echo $att['id']; ?>&type=drive" class="round-badge enabled" style="text-decoration: none; font-size: 9px; padding: 1px 4px;">Results</a>
+                                <?php endif; ?>
                             </div>
                             <?php endforeach; ?>
                         </div>
@@ -493,8 +496,11 @@ $isClosed = $deadlineTime && ($deadlineTime < time());
                         <div class="attempts-title">Previous Attempts</div>
                         <div class="attempts-list">
                             <?php foreach ($roundAttempts['Technical'] as $att): ?>
-                            <div class="attempt-tag">
+                            <div class="attempt-tag" style="display: inline-flex; align-items: center; gap: 8px;">
                                 Attempt #<?php echo $att['attempt_number']; ?>: <strong><?php echo number_format((float)($att['score'] ?? 0), 1); ?>%</strong>
+                                <?php if ($att['status'] === 'Completed'): ?>
+                                    <a href="nqt_report.php?id=<?php echo $att['id']; ?>&type=drive" class="round-badge enabled" style="text-decoration: none; font-size: 9px; padding: 1px 4px;">Report</a>
+                                <?php endif; ?>
                             </div>
                             <?php endforeach; ?>
                         </div>
@@ -546,8 +552,11 @@ $isClosed = $deadlineTime && ($deadlineTime < time());
                         <div class="attempts-title">Previous Attempts</div>
                         <div class="attempts-list">
                             <?php foreach ($roundAttempts['HR'] as $att): ?>
-                            <div class="attempt-tag">
+                            <div class="attempt-tag" style="display: inline-flex; align-items: center; gap: 8px;">
                                 Attempt #<?php echo $att['attempt_number']; ?>: <strong><?php echo number_format((float)($att['score'] ?? 0), 1); ?>%</strong>
+                                <?php if ($att['status'] === 'Completed'): ?>
+                                    <a href="nqt_report.php?id=<?php echo $att['id']; ?>&type=drive" class="round-badge enabled" style="text-decoration: none; font-size: 9px; padding: 1px 4px;">Report</a>
+                                <?php endif; ?>
                             </div>
                             <?php endforeach; ?>
                         </div>

@@ -27,7 +27,11 @@ if (!isPost() && isset($_GET['session_id']) && intval($_GET['session_id']) > 0) 
 }
 
 $filters = SessionFilterHelper::getFilters('mock_ai_report');
-$sessionId = $filters['session_id'] ?? 0;
+$sessionId = intval($filters['session_id'] ?? 0);
+
+// Clear the stored filter immediately so the next report visit starts fresh
+// instead of always showing the same old session's score.
+SessionFilterHelper::clearFilters('mock_ai_report');
 
 $db = getDB();
 $sql = "SELECT m.* FROM mock_ai_interview_sessions m WHERE m.id = ? AND m.student_id = ?";

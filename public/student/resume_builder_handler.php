@@ -274,21 +274,50 @@ if ($action === 'save_resume' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             $institution = $_SESSION['institution'] ?? 'GMU';
             $portfolioModel = new Portfolio();
             
-            // 1. Sync Projects
+            // 1. Sync Projects (only if at least one project has a non-empty title)
             if (!empty($resumeData['projects'])) {
-                $portfolioModel->syncProjects($username, $institution, $resumeData['projects']);
+                $hasProjects = false;
+                foreach ($resumeData['projects'] as $p) {
+                    if (!empty($p['title']) && trim($p['title']) !== '') {
+                        $hasProjects = true;
+                        break;
+                    }
+                }
+                if ($hasProjects) {
+                    $portfolioModel->syncProjects($username, $institution, $resumeData['projects']);
+                }
             }
             
-            // 2. Sync Certifications
+            // 2. Sync Certifications (only if at least one certification has a non-empty name)
             if (!empty($resumeData['certifications'])) {
-                $portfolioModel->syncCertifications($username, $institution, $resumeData['certifications']);
+                $hasCerts = false;
+                foreach ($resumeData['certifications'] as $c) {
+                    if (!empty($c['name']) && trim($c['name']) !== '') {
+                        $hasCerts = true;
+                        break;
+                    }
+                }
+                if ($hasCerts) {
+                    $portfolioModel->syncCertifications($username, $institution, $resumeData['certifications']);
+                }
             }
             
             // 3. Sync Skills (Technical ONLY, mapping to expected format)
             if (!empty($resumeData['skills']['technical'])) {
-                // Resume Builder format: [{"category": "Languages", "items": ["Java", "C++"]}]
-                // Expected Portfolio format: [{"category": "Languages", "items": ["Java", "C++"]}]
-                $portfolioModel->syncSkills($username, $institution, $resumeData['skills']['technical']);
+                $hasSkills = false;
+                foreach ($resumeData['skills']['technical'] as $g) {
+                    if (!empty($g['items'])) {
+                        foreach ($g['items'] as $item) {
+                            if (trim($item) !== '') {
+                                $hasSkills = true;
+                                break 2;
+                            }
+                        }
+                    }
+                }
+                if ($hasSkills) {
+                    $portfolioModel->syncSkills($username, $institution, $resumeData['skills']['technical']);
+                }
             }
         }
         // ----------------------------------

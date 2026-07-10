@@ -283,10 +283,27 @@ try {
                 echo json_encode(['success' => false, 'message' => 'Invalid skill groups data.']);
                 exit;
             }
-            if ($portfolioModel->syncSkills($username, $institution, $skillGroups)) {
-                echo json_encode(['success' => true, 'message' => 'Skills synchronized with profile.']);
+            
+            $hasSkills = false;
+            foreach ($skillGroups as $g) {
+                if (!empty($g['items'])) {
+                    foreach ($g['items'] as $item) {
+                        if (trim($item) !== '') {
+                            $hasSkills = true;
+                            break 2;
+                        }
+                    }
+                }
+            }
+            
+            if ($hasSkills) {
+                if ($portfolioModel->syncSkills($username, $institution, $skillGroups)) {
+                    echo json_encode(['success' => true, 'message' => 'Skills synchronized with profile.']);
+                } else {
+                    echo json_encode(['success' => false, 'message' => 'Failed to synchronize skills.']);
+                }
             } else {
-                echo json_encode(['success' => false, 'message' => 'Failed to synchronize skills.']);
+                echo json_encode(['success' => true, 'message' => 'Skills preserved (no new skills provided).']);
             }
             break;
 
@@ -296,10 +313,23 @@ try {
                 echo json_encode(['success' => false, 'message' => 'Invalid projects data.']);
                 exit;
             }
-            if ($portfolioModel->syncProjects($username, $institution, $projects)) {
-                echo json_encode(['success' => true, 'message' => 'Projects synchronized with profile.']);
+            
+            $hasProjects = false;
+            foreach ($projects as $p) {
+                if (!empty($p['title']) && trim($p['title']) !== '') {
+                    $hasProjects = true;
+                    break;
+                }
+            }
+            
+            if ($hasProjects) {
+                if ($portfolioModel->syncProjects($username, $institution, $projects)) {
+                    echo json_encode(['success' => true, 'message' => 'Projects synchronized with profile.']);
+                } else {
+                    echo json_encode(['success' => false, 'message' => 'Failed to synchronize projects.']);
+                }
             } else {
-                echo json_encode(['success' => false, 'message' => 'Failed to synchronize projects.']);
+                echo json_encode(['success' => true, 'message' => 'Projects preserved (no new projects provided).']);
             }
             break;
 

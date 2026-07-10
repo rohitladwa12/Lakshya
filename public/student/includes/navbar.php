@@ -493,10 +493,10 @@ if ($db && getUsername()) {
                         <i class="fas fa-user-graduate" style="color: #0d9488; background: rgba(13,148,136,0.1);"></i>
                         Internships
                     </a>
-                    <!-- <a href="internship_undertakings" class="dropdown-item">
+                    <a href="internship_undertakings" class="dropdown-item">
                         <i class="fas fa-file-contract" style="color: #d97706; background: rgba(217,119,6,0.1);"></i>
                         Undertakings
-                    </a> -->
+                    </a>
                     <a href="applications" class="dropdown-item">
                         <i class="fas fa-file-signature" style="color: #4f46e5; background: rgba(79,70,229,0.1);"></i>
                         My Applications

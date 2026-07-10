@@ -27,9 +27,43 @@ if (isPost() && isset($_POST['id'])) {
 $filters = SessionFilterHelper::getFilters('aptitude_report');
 $id = $filters['id'] ?? 0;
 
-// Fetch assessment details (student_id is USN for GMIT, user_id for GMU)
-$stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
-$stmt->execute([$id, $studentIdForDb]);
+$isStaff = isLoggedIn() && in_array(getRole(), [ROLE_ADMIN, ROLE_PLACEMENT_OFFICER, ROLE_HOD, ROLE_DEPT_COORDINATOR, ROLE_VC, ROLE_DEMO]);
+
+if ($isDrive) {
+    if ($isStaff) {
+        $stmt = $db->prepare("
+            SELECT sda.id, sda.round_type as assessment_type, c.name as company_name, 
+                   sda.score, sda.status, sda.details, sda.started_at, sda.completed_at, sda.student_name,
+                   sda.student_id as usn, sda.branch, sda.sem as current_sem
+            FROM student_drive_attempts sda
+            LEFT JOIN campus_drives cd ON sda.drive_id = cd.id
+            LEFT JOIN job_postings jp ON cd.job_id = jp.id
+            LEFT JOIN companies c ON jp.company_id = c.id
+            WHERE sda.id = ?
+        ");
+        $stmt->execute([$id]);
+    } else {
+        $stmt = $db->prepare("
+            SELECT sda.id, sda.round_type as assessment_type, c.name as company_name, 
+                   sda.score, sda.status, sda.details, sda.started_at, sda.completed_at, sda.student_name,
+                   sda.student_id as usn, sda.branch, sda.sem as current_sem
+            FROM student_drive_attempts sda
+            LEFT JOIN campus_drives cd ON sda.drive_id = cd.id
+            LEFT JOIN job_postings jp ON cd.job_id = jp.id
+            LEFT JOIN companies c ON jp.company_id = c.id
+            WHERE sda.id = ? AND sda.student_id = ?
+        ");
+        $stmt->execute([$id, $studentIdForDb]);
+    }
+} else {
+    if ($isStaff) {
+        $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ?");
+        $stmt->execute([$id]);
+    } else {
+        $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
+        $stmt->execute([$id, $studentIdForDb]);
+    }
+}
 $assessment = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$assessment) {
@@ -39,6 +73,7 @@ if (!$assessment) {
 $details = json_decode($assessment['details'], true) ?? [];
 $questions = $details['questions'] ?? [];
 $userAnswers = $details['user_answers'] ?? [];
+$reportContent = $details['report_content'] ?? null;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -163,7 +198,7 @@ $userAnswers = $details['user_answers'] ?? [];
         </div>
         <div class="stat-card">
             <div class="label">Total Questions</div>
-            <div class="value"><?php echo $assessment['total_marks']; ?></div>
+            <div class="value"><?php echo $assessment['total_marks'] ?? count($questions); ?></div>
         </div>
         <div class="stat-card">
             <div class="label">Status</div>
@@ -233,6 +268,50 @@ $userAnswers = $details['user_answers'] ?? [];
                 <?php endif; ?>
             </div>
             <?php endforeach; ?>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <?php if (!empty($reportContent)): ?>
+    <div class="section" style="background: var(--card-bg); padding: 40px; border-radius: 24px; border: 1px solid rgba(255,255,255,0.05); margin-bottom: 30px;">
+        <h2 class="section-title"><i class="fas fa-file-invoice"></i> Detailed Feedback Report</h2>
+        <div class="report-body-content" style="color: #e0e0e0; font-size: 1.05rem;">
+            <?php 
+                $parsedReport = json_decode($reportContent, true);
+                if (json_last_error() === JSON_ERROR_NONE && is_array($parsedReport)) {
+                    $htmlContent = $parsedReport['content'] ?? '';
+                } else {
+                    $htmlContent = $reportContent;
+                }
+
+                // If it is HTML, clean body tags
+                if (preg_match('/<body[^>]*>(.*?)<\/body>/is', $htmlContent, $matches)) {
+                    $htmlContent = $matches[1];
+                } else {
+                    // It is markdown, convert it to HTML
+                    $htmlContent = preg_replace('/^# (.*$)/m', '<h1>$1</h1>', $htmlContent);
+                    $htmlContent = preg_replace('/^## (.*$)/m', '<h2>$1</h2>', $htmlContent);
+                    $htmlContent = preg_replace('/^### (.*$)/m', '<h3>$1</h3>', $htmlContent);
+                    $htmlContent = preg_replace('/\*\*(.*?)\*\*/', '<strong>$1</strong>', $htmlContent);
+                    $htmlContent = preg_replace('/^- (.*$)/m', '<li>$1</li>', $htmlContent);
+                    $htmlContent = preg_replace('/(<li>.*<\/li>)/s', '<ul>$1</ul>', $htmlContent);
+                    $htmlContent = str_replace('</ul><ul>', '', $htmlContent);
+                    $htmlContent = preg_replace('/Score: (\d+\/10)/', 'Score: <span style="background: var(--secondary); color: var(--dark); padding: 2px 8px; border-radius: 4px; font-weight: 700; font-size: 0.9rem;">$1</span>', $htmlContent);
+                }
+
+                // Inject stylesheet styling for the elements
+                echo "<style>
+                    .report-body-content h1, .report-body-content h2, .report-body-content h3 { color: var(--secondary); margin: 25px 0 15px 0; }
+                    .report-body-content h1 { font-size: 1.8rem; }
+                    .report-body-content h2 { font-size: 1.4rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 8px; }
+                    .report-body-content h3 { font-size: 1.2rem; }
+                    .report-body-content p { margin-bottom: 15px; }
+                    .report-body-content ul, .report-body-content ol { margin-bottom: 15px; padding-left: 20px; }
+                    .report-body-content li { margin-bottom: 8px; }
+                    .report-body-content strong { color: var(--white); font-weight: 700; }
+                </style>";
+                echo $htmlContent;
+            ?>
         </div>
     </div>
     <?php endif; ?>

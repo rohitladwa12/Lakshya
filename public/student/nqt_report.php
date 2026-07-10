@@ -26,9 +26,42 @@ if (isPost() && isset($_POST['id'])) {
 $filters = SessionFilterHelper::getFilters('nqt_report');
 $sessionId = $filters['id'] ?? 0;
 
+$isStaff = isLoggedIn() && in_array(getRole(), [ROLE_ADMIN, ROLE_PLACEMENT_OFFICER, ROLE_HOD, ROLE_DEPT_COORDINATOR, ROLE_VC, ROLE_DEMO]);
+
 $db = getDB();
-$stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
-$stmt->execute([$sessionId, $studentIdForDb]);
+if ($isDrive) {
+    if ($isStaff) {
+        $stmt = $db->prepare("
+            SELECT sda.id, sda.round_type as assessment_type, c.name as company_name, 
+                   sda.score, sda.status, sda.details, sda.started_at, sda.completed_at, sda.student_name 
+            FROM student_drive_attempts sda
+            LEFT JOIN campus_drives cd ON sda.drive_id = cd.id
+            LEFT JOIN job_postings jp ON cd.job_id = jp.id
+            LEFT JOIN companies c ON jp.company_id = c.id
+            WHERE sda.id = ?
+        ");
+        $stmt->execute([$sessionId]);
+    } else {
+        $stmt = $db->prepare("
+            SELECT sda.id, sda.round_type as assessment_type, c.name as company_name, 
+                   sda.score, sda.status, sda.details, sda.started_at, sda.completed_at, sda.student_name 
+            FROM student_drive_attempts sda
+            LEFT JOIN campus_drives cd ON sda.drive_id = cd.id
+            LEFT JOIN job_postings jp ON cd.job_id = jp.id
+            LEFT JOIN companies c ON jp.company_id = c.id
+            WHERE sda.id = ? AND sda.student_id = ?
+        ");
+        $stmt->execute([$sessionId, $studentIdForDb]);
+    }
+} else {
+    if ($isStaff) {
+        $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ?");
+        $stmt->execute([$sessionId]);
+    } else {
+        $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
+        $stmt->execute([$sessionId, $studentIdForDb]);
+    }
+}
 $session = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$session) {

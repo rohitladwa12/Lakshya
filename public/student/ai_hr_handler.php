@@ -240,37 +240,62 @@ switch ($action) {
         // Append user voice transcript if exists
         if (!empty($userMessage)) {
             $history[] = ['role' => 'user', 'content' => $userMessage];
-            $details['history'] = $history;
-            if ($isDrive) {
-                $db->prepare("UPDATE student_drive_attempts SET details = ? WHERE id = ?")
-                   ->execute([json_encode($details), $sessionId]);
-            } else {
-                $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ?")
-                   ->execute([json_encode($details), $sessionId]);
-            }
+        } elseif (count($history) > 0) {
+            // User skipped or did not respond
+            $history[] = ['role' => 'user', 'content' => '[No response / skipped]'];
+        }
+        $details['history'] = $history;
+        if ($isDrive) {
+            $db->prepare("UPDATE student_drive_attempts SET details = ? WHERE id = ?")
+               ->execute([json_encode($details), $sessionId]);
+        } else {
+            $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ?")
+               ->execute([json_encode($details), $sessionId]);
         }
 
         // Fetch previously asked questions for this student to prevent repetition
         $previousQuestions = [];
-        if ($isDrive) {
-            $stmtPrev = $db->prepare("SELECT details FROM student_drive_attempts WHERE drive_id = ? AND student_id = ? AND round_type = 'HR' AND id != ?");
-            $stmtPrev->execute([$driveId, $usn, $sessionId]);
-            while ($row = $stmtPrev->fetch(PDO::FETCH_ASSOC)) {
-                $det = json_decode($row['details'], true);
-                if (!empty($det['history'])) {
-                    foreach ($det['history'] as $msg) {
-                        if ($msg['role'] === 'assistant') {
-                            try {
-                                $parsed = json_decode($msg['content'], true);
-                                if ($parsed && !empty($parsed['question'])) {
-                                    $previousQuestions[] = $parsed['question'];
-                                }
-                            } catch (Exception $e) {}
-                        }
+        
+        // Helper: extract questions from a session's history array
+        $extractQuestions = function($historyArr) {
+            $questions = [];
+            if (!is_array($historyArr)) return $questions;
+            foreach ($historyArr as $msg) {
+                if (($msg['role'] ?? '') === 'assistant') {
+                    $content = $msg['content'] ?? '';
+                    // Try JSON first (legacy format)
+                    $parsed = @json_decode($content, true);
+                    if ($parsed && !empty($parsed['question'])) {
+                        $questions[] = $parsed['question'];
+                    } elseif (!empty(trim($content))) {
+                        // Plain text question (current format)
+                        $questions[] = trim($content);
                     }
                 }
             }
+            return $questions;
+        };
+        
+        // 1. Extract from CURRENT session's own history (already asked in this sitting)
+        $previousQuestions = array_merge($previousQuestions, $extractQuestions($history));
+        
+        // 2. Extract from OTHER sessions for this student
+        if ($isDrive) {
+            $stmtPrev = $db->prepare("SELECT details FROM student_drive_attempts WHERE drive_id = ? AND student_id = ? AND round_type = 'HR' AND id != ?");
+            $stmtPrev->execute([$driveId, $usn, $sessionId]);
+        } else {
+            $stmtPrev = $db->prepare("SELECT details FROM unified_ai_assessments WHERE student_id = ? AND assessment_type = 'HR' AND id != ? ORDER BY started_at DESC LIMIT 5");
+            $stmtPrev->execute([$studentIdForDb, $sessionId]);
         }
+        while ($row = $stmtPrev->fetch(PDO::FETCH_ASSOC)) {
+            $det = json_decode($row['details'], true);
+            if (!empty($det['history'])) {
+                $previousQuestions = array_merge($previousQuestions, $extractQuestions($det['history']));
+            }
+        }
+        
+        // De-duplicate
+        $previousQuestions = array_values(array_unique($previousQuestions));
 
         // Get AI HR Question with project context using Queue
         $jobId = \App\Services\QueueService::pushJob('getHRQuestion', [$role, $history, $projects, $concept, $previousQuestions], $userId);
@@ -351,6 +376,8 @@ switch ($action) {
             }
         }
 
+        $reportRes = ['success' => false, 'content' => null, 'overall_score' => 0];
+        
         if ($userInteractions === 0) {
             $score = 0;
         } else {
@@ -366,7 +393,8 @@ switch ($action) {
                 error_log("HR Report generation failed for session $sessionId: " . ($reportRes['message'] ?? 'Unknown Error'));
                 $score = 0; // Fallback score so the submission can complete
             }
-        }        try {
+        }
+        try {
             $telemetry = isset($input['telemetry']) ? json_decode($input['telemetry'], true) : null;
             if ($isDrive) {
                 // Fetch details first to securely update them

@@ -1,5 +1,9 @@
 <?php
 ob_start(); // Buffer output to prevent stray PHP warnings from corrupting JSON
+// AI calls are synchronous and can take up to ~120s (see AIService::callAPI).
+// Without this the default 30s max_execution_time kills the request mid-flight,
+// producing truncated/empty responses -> "next question doesn't appear".
+set_time_limit(300);
 require_once __DIR__ . '/../../config/bootstrap.php';
 require_once __DIR__ . '/../../src/Services/AIService.php';
 require_once __DIR__ . '/../../src/Models/StudentProfile.php';
@@ -12,7 +16,7 @@ header('Content-Type: application/json');
 
 if ($_SERVER['REQUEST_METHOD'] !== 'POST') {
     echo json_encode([
-        'success' => false, 
+        'success' => false,
         'message' => 'Invalid request method: ' . $_SERVER['REQUEST_METHOD'] . '. Please ensure you are submitting a POST request.'
     ]);
     exit;
@@ -31,8 +35,12 @@ if (!isLoggedIn()) {
 $userId = getUserId();
 $studentIdForDb = getStudentIdForAssessment(); // USN for GMIT, user_id for GMU (avoids 0 for GMIT)
 
-// Rate Limit: 15 requests per minute (Higher for chat sessions)
-if (!checkRateLimit("mock_ai_api_" . $userId, 15, 60)) {
+// Rate Limit only the AI-heavy actions. Lightweight/background actions
+// (autosave every 20s, check_active, polling, pdf save) must NOT consume the
+// AI budget, otherwise a normal session exhausts it and the next question is
+// silently blocked with "Too many requests".
+$aiHeavyActions = ['chat', 'evaluate_code', 'end_session', 'start'];
+if (in_array($action, $aiHeavyActions, true) && !checkRateLimit("mock_ai_api_" . $userId, 30, 60)) {
     ob_clean();
     echo json_encode(['success' => false, 'message' => 'Too many requests. Please wait a minute.']);
     exit;
@@ -42,9 +50,10 @@ $db = getDB();
 $aiService = new AIService();
 $studentModel = new StudentProfile();
 
-function buildOrchestratedStep($type, $questionNum, $totalQs, $message, $aiService) {
+function buildOrchestratedStep($type, $questionNum, $totalQs, $message, $aiService)
+{
     $phase = strtoupper($type);
-    
+
     $step = [
         "title" => $type . " Round",
         "phase" => $phase,
@@ -70,10 +79,11 @@ function buildOrchestratedStep($type, $questionNum, $totalQs, $message, $aiServi
     return $step;
 }
 
-function parseMCQOptions($text) {
+function parseMCQOptions($text)
+{
     $options = [];
     $body = $text;
-    
+
     $pattern = '/\b([A-D])[\.\)]\s*(.*?)(?=\b[A-D][\.\)]|$)/is';
     if (preg_match_all($pattern, $text, $matches, PREG_SET_ORDER)) {
         foreach ($matches as $match) {
@@ -91,14 +101,15 @@ function parseMCQOptions($text) {
             ["key" => "D", "text" => "Option D"]
         ];
     }
-    
+
     return [
         "body" => trim($body),
         "options" => $options
     ];
 }
 
-function sanitizeHistory($history) {
+function sanitizeHistory($history)
+{
     if (!is_array($history)) {
         return [];
     }
@@ -107,10 +118,10 @@ function sanitizeHistory($history) {
         if (!is_array($msg)) {
             continue;
         }
-        $role = (string)($msg['role'] ?? 'user');
+        $role = (string) ($msg['role'] ?? 'user');
         $content = $msg['content'] ?? '';
         if (!is_string($content)) {
-            $content = is_array($content) ? json_encode($content) : (string)$content;
+            $content = is_array($content) ? json_encode($content) : (string) $content;
         }
         $sanitized[] = [
             'role' => $role,
@@ -129,14 +140,14 @@ switch ($action) {
         $stmt = $db->prepare($sql);
         $stmt->execute([$studentIdForDb, $institution]);
         $session = $stmt->fetch();
-        
+
         if ($session) {
             $history = sanitizeHistory(json_decode($session['conversation_history'], true));
             $assistantMessages = array_filter($history, fn($m) => $m['role'] === 'assistant');
             $questionNum = max(1, count($assistantMessages));
             $lastMsg = end($history);
             $lastContent = $lastMsg ? $lastMsg['content'] : 'Welcome back';
-            
+
             $checkpoint = null;
             try {
                 $checkStmt = $db->prepare("SELECT checkpoint FROM mock_ai_interview_sessions WHERE id = ?");
@@ -145,7 +156,8 @@ switch ($action) {
                 if ($cRow && !empty($cRow['checkpoint'])) {
                     $checkpoint = json_decode($cRow['checkpoint'], true);
                 }
-            } catch (\Exception $e) {}
+            } catch (\Exception $e) {
+            }
 
             $type = 'Technical'; // Default fallback
             for ($i = count($history) - 1; $i >= 0; $i--) {
@@ -209,15 +221,16 @@ switch ($action) {
             echo json_encode(['success' => false, 'message' => 'Slow down! You can only start 2 sessions per minute.']);
             exit;
         }
-$role = $input['role'] ?? 'AI Engineer';
+        $role = $input['role'] ?? 'AI Engineer';
         $company = $input['company'] ?? 'General';
         $concept = $input['concept'] ?? '';
         $type = $input['type'] ?? 'Technical';
         $institution = getInstitution() ?: 'GMU';
-        
+
         try {
             $db->exec("ALTER TABLE mock_ai_interview_sessions ADD COLUMN IF NOT EXISTS company_name VARCHAR(255) DEFAULT 'General'");
-        } catch (\Exception $e) {}
+        } catch (\Exception $e) {
+        }
 
         $sql = "INSERT INTO mock_ai_interview_sessions (student_id, role_name, status, institution, concept, company_name) VALUES (?, ?, 'active', ?, ?, ?)";
         $stmt = $db->prepare($sql);
@@ -233,16 +246,16 @@ $role = $input['role'] ?? 'AI Engineer';
 
         // Note: We might want to store company/type in the session history or a temp table if legacy doesn't have it.
         // For now, let's just add it to the first message metadata.
-        
+
         // Initial Welcome Message
         $welcomeMsg = "Hi, welcome to your Mock AI Interview for the **$role** position. We will start with the **$type** round. Please let me know when you are ready to begin.";
         $aiMsg = ['role' => 'assistant', 'content' => $welcomeMsg];
         $history = [$aiMsg];
-        
+
         // Update history in DB
         $sqlUpdate = "UPDATE mock_ai_interview_sessions SET conversation_history = ? WHERE id = ?";
         $db->prepare($sqlUpdate)->execute([json_encode($history), $sessionId]);
-        
+
         $step = buildOrchestratedStep($type, 1, 10, $welcomeMsg, $aiService);
 
         echo json_encode([
@@ -255,27 +268,28 @@ $role = $input['role'] ?? 'AI Engineer';
 
     case 'chat':
         $sessionId = $input['session_id'] ?? 0;
-        
+
         // Fetch session
         $sql = "SELECT * FROM mock_ai_interview_sessions WHERE id = ? AND student_id = ? AND status = 'active'";
         $stmt = $db->prepare($sql);
         $stmt->execute([$sessionId, $studentIdForDb]);
         $session = $stmt->fetch();
-        
+
         if (!$session) {
+            ob_clean();
             echo json_encode(['success' => false, 'message' => 'Session not found or already closed']);
             exit;
         }
-        
-        $role = (string)($session['role_name'] ?? '');
-        $concept = (string)($session['concept'] ?? '');
-        $type = (string)($input['type'] ?? 'Technical');
+
+        $role = (string) ($session['role_name'] ?? '');
+        $concept = (string) ($session['concept'] ?? '');
+        $type = (string) ($input['type'] ?? 'Technical');
         $history = sanitizeHistory(json_decode($session['conversation_history'], true));
 
         // Ensure $userMessage is always a plain string (never an array from json_decode)
         $userMessage = $input['message'] ?? '';
         if (!is_string($userMessage)) {
-            $userMessage = is_array($userMessage) ? json_encode($userMessage) : (string)$userMessage;
+            $userMessage = is_array($userMessage) ? json_encode($userMessage) : (string) $userMessage;
         }
 
         $history[] = ['role' => 'user', 'content' => $userMessage];
@@ -328,9 +342,9 @@ $role = $input['role'] ?? 'AI Engineer';
                 }
             }
         }
-        
+
         $profile = $studentModel->getByUserId($userId);
-        
+
         // Fetch Portfolio Projects for HR context
         require_once __DIR__ . '/../../src/Models/Portfolio.php';
         $portfolioModel = new Portfolio();
@@ -345,15 +359,27 @@ $role = $input['role'] ?? 'AI Engineer';
             $aptitudeQuestions = $aptModel->getRandomQuestions(25);
         }
 
-        $company = (string)($session['company_name'] ?? 'General');
+        $company = (string) ($session['company_name'] ?? 'General');
+
+        // --- Sliding Window: trim history to prevent token overflow ---
+        // The system prompt is ~3000+ tokens.  Keep the first 2 messages
+        // (welcome exchange) for context and the last 20 messages (10 Q&A
+        // pairs) so the AI always sees the student's latest answer.
+        $trimmedHistory = $history;
+        $maxMessages = 22; // 2 anchor + 20 recent
+        if (count($trimmedHistory) > $maxMessages) {
+            $anchor = array_slice($trimmedHistory, 0, 2);      // first welcome exchange
+            $recent = array_slice($trimmedHistory, -20);        // last 20 messages
+            $trimmedHistory = array_merge($anchor, [['role' => 'system', 'content' => '[Earlier conversation trimmed for brevity]']], $recent);
+        }
 
         session_write_close();
-        $response = $aiService->getTechnicalInterviewResponse($role, $history, $profile, '', $type, $projects, $aptitudeQuestions, $concept, $company);
-        
+        $response = $aiService->getTechnicalInterviewResponse($role, $trimmedHistory, $profile, '', $type, $projects, $aptitudeQuestions, $concept, $company);
+
         if ($response['success']) {
             $aiContent = $response['content'];
             $history[] = ['role' => 'assistant', 'content' => $aiContent];
-            
+
             $isEnd = (strpos($aiContent, '[END_INTERVIEW]') !== false);
             $status = $isEnd ? 'completed' : 'active';
             $completedAt = $isEnd ? date('Y-m-d H:i:s') : null;
@@ -385,12 +411,14 @@ $role = $input['role'] ?? 'AI Engineer';
                         // We need the company name. We can try to infer it from the first prompt or pass it in chat.
                         // Since we don't have it in legacy schema, let's assume 'General' if not found.
                         // Better: The client can pass it in the final chat message or we can store it in a session.
-                        $companyNameFromInput = $input['company'] ?? 'General'; 
+                        $companyNameFromInput = $input['company'] ?? 'General';
                         $assessmentTypeFromInput = $input['type'] ?? 'Technical';
                         // Map to allowed ENUM values: 'Aptitude','Technical','HR','Skill Verification','Project Defense'
                         $enumType = 'Technical';
-                        if (stripos($assessmentTypeFromInput, 'HR') !== false) $enumType = 'HR';
-                        if (stripos($assessmentTypeFromInput, 'Aptitude') !== false) $enumType = 'Aptitude';
+                        if (stripos($assessmentTypeFromInput, 'HR') !== false)
+                            $enumType = 'HR';
+                        if (stripos($assessmentTypeFromInput, 'Aptitude') !== false)
+                            $enumType = 'Aptitude';
 
                         $sqlUnified = "INSERT INTO unified_ai_assessments (
                             student_id, institution, student_name, usn, aadhar, 
@@ -398,7 +426,7 @@ $role = $input['role'] ?? 'AI Engineer';
                             company_name, score, total_marks, 
                             feedback, details, status, completed_at
                         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)";
-                        
+
                         $db->prepare($sqlUnified)->execute([
                             $studentIdForDb,
                             getInstitution(),
@@ -432,17 +460,18 @@ $role = $input['role'] ?? 'AI Engineer';
                     }
                 }
             }
-            
+
             // Update DB to include overall_score
             $sqlH = "UPDATE mock_ai_interview_sessions SET conversation_history = ?, status = ?, completed_at = ?, report_content = ?, overall_score = ? WHERE id = ?";
             $db->prepare($sqlH)->execute([json_encode($history), $status, $completedAt, $reportContent, $overallScore, $sessionId]);
-            
+
             $assistantMessages = array_filter($history, fn($m) => $m['role'] === 'assistant');
             $questionNum = count($assistantMessages);
             $totalQs = ($type === 'Aptitude') ? 25 : (($type === 'Technical') ? 10 : 8);
 
             $step = buildOrchestratedStep($type, $questionNum, $totalQs, $aiContent, $aiService);
 
+            ob_clean();
             echo json_encode([
                 'success' => true,
                 'message' => $aiContent,
@@ -451,16 +480,17 @@ $role = $input['role'] ?? 'AI Engineer';
                 'step' => $step
             ]);
         } else {
-            echo json_encode(['success' => false, 'message' => 'AI Response Failed']);
+            ob_clean();
+            echo json_encode(['success' => false, 'message' => 'AI Response Failed. Please try sending your answer again.']);
         }
         break;
 
     case 'autosave':
         $sessionId = $input['session_id'] ?? 0;
         $checkpoint = $input['checkpoint'] ?? [];
-        
+
         $_SESSION["lar_checkpoint_{$sessionId}"] = $checkpoint;
-        
+
         try {
             $db->exec("ALTER TABLE mock_ai_interview_sessions ADD COLUMN IF NOT EXISTS checkpoint TEXT NULL");
             $sql = "UPDATE mock_ai_interview_sessions SET checkpoint = ? WHERE id = ?";
@@ -468,7 +498,7 @@ $role = $input['role'] ?? 'AI Engineer';
         } catch (\Exception $e) {
             error_log("LAR autosave db write bypassed: " . $e->getMessage());
         }
-        
+
         echo json_encode(['success' => true]);
         exit;
 
@@ -476,13 +506,13 @@ $role = $input['role'] ?? 'AI Engineer';
         $sessionId = $input['session_id'] ?? 0;
         $code = $input['code'] ?? '';
         $language = $input['language'] ?? 'python';
-        
+
         // Fetch session
         $sql = "SELECT * FROM mock_ai_interview_sessions WHERE id = ? AND student_id = ? AND status = 'active'";
         $stmt = $db->prepare($sql);
         $stmt->execute([$sessionId, $studentIdForDb]);
         $session = $stmt->fetch();
-        
+
         if (!$session) {
             echo json_encode(['success' => false, 'message' => 'Session not found or already closed']);
             exit;
@@ -494,7 +524,7 @@ $role = $input['role'] ?? 'AI Engineer';
         // Use AI Service to evaluate code
         session_write_close();
         $evalRes = $aiService->evaluateCode($code, $language, "Technical task for role: $role");
-        
+
         if ($evalRes['success']) {
             // evaluateCode() returns ['result' => <already-decoded array>]
             $evaluation = $evalRes['result'];
@@ -507,29 +537,32 @@ $role = $input['role'] ?? 'AI Engineer';
             // Log to history
             $history[] = ['role' => 'user', 'content' => "User ran code simulation ({$language}). Result: " . ($evaluation['passed'] ? 'PASSED' : 'FAILED') . " - Score: {$evaluation['score']}/10"];
             $history[] = ['role' => 'system', 'content' => "Code Evaluation: " . json_encode($evaluation)];
-            
-            $db->prepare("UPDATE mock_ai_interview_sessions SET conversation_history = ? WHERE id = ?")
-               ->execute([json_encode($history), $sessionId]);
 
+            $db->prepare("UPDATE mock_ai_interview_sessions SET conversation_history = ? WHERE id = ?")
+                ->execute([json_encode($history), $sessionId]);
+
+            ob_clean();
             echo json_encode([
-                'success' => true, 
+                'success' => true,
                 'evaluation' => $evaluation
             ]);
         } else {
-            echo json_encode(['success' => false, 'message' => 'Evaluation service failed']);
+            ob_clean();
+            echo json_encode(['success' => false, 'message' => 'Evaluation service failed. Please try again.']);
         }
         break;
 
     case 'end_session':
         $sessionId = $input['session_id'] ?? 0;
-        
+
         // Fetch session
         $sql = "SELECT * FROM mock_ai_interview_sessions WHERE id = ? AND student_id = ? AND status = 'active'";
         $stmt = $db->prepare($sql);
         $stmt->execute([$sessionId, $studentIdForDb]);
         $session = $stmt->fetch();
-        
+
         if (!$session) {
+            ob_clean();
             echo json_encode(['success' => false, 'message' => 'Session not found or already closed']);
             exit;
         }
@@ -538,7 +571,7 @@ $role = $input['role'] ?? 'AI Engineer';
         $concept = $session['concept'] ?? '';
         $history = sanitizeHistory(json_decode($session['conversation_history'], true));
         $completedAt = date('Y-m-d H:i:s');
-        
+
         // Engagement Check for Manual End
         $userMsgs = array_filter($history, fn($m) => $m['role'] === 'user' && !empty(trim($m['content'])));
         if (count($userMsgs) === 0) {
@@ -550,15 +583,16 @@ $role = $input['role'] ?? 'AI Engineer';
             $reportContent = null;
             $overallScore = null;
             $type = $input['type'] ?? 'Technical';
-            
+
             $reportRes = $aiService->generateTechnicalInterviewReport($role, $history, $type, $concept);
             if ($reportRes['success']) {
                 $reportContent = $reportRes['content'];
                 $overallScore = $reportRes['overall_score'] ?? null;
             } else {
+                ob_clean();
                 echo json_encode([
-                    'success' => false, 
-                    'message' => 'Report generation failed'
+                    'success' => false,
+                    'message' => 'Report generation failed. Please try ending the session again.'
                 ]);
                 exit;
             }
@@ -568,12 +602,14 @@ $role = $input['role'] ?? 'AI Engineer';
         if ($reportContent !== null) {
             try {
                 $profile = $studentModel->getByUserId($userId);
-                $companyNameFromInput = $input['company'] ?? 'General'; 
+                $companyNameFromInput = $input['company'] ?? 'General';
                 $assessmentTypeFromInput = $input['type'] ?? 'Technical';
                 // Map to allowed ENUM values
                 $enumType = 'Technical';
-                if (stripos($assessmentTypeFromInput, 'HR') !== false) $enumType = 'HR';
-                if (stripos($assessmentTypeFromInput, 'Aptitude') !== false) $enumType = 'Aptitude';
+                if (stripos($assessmentTypeFromInput, 'HR') !== false)
+                    $enumType = 'HR';
+                if (stripos($assessmentTypeFromInput, 'Aptitude') !== false)
+                    $enumType = 'Aptitude';
 
                 $sqlUnified = "INSERT INTO unified_ai_assessments (
                     student_id, institution, student_name, usn, aadhar, 
@@ -581,7 +617,7 @@ $role = $input['role'] ?? 'AI Engineer';
                     company_name, score, total_marks, 
                     feedback, details, status, completed_at
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)";
-                
+
                 $db->prepare($sqlUnified)->execute([
                     $studentIdForDb,
                     getInstitution(),
@@ -593,7 +629,7 @@ $role = $input['role'] ?? 'AI Engineer';
                     $enumType,
                     $companyNameFromInput,
                     $overallScore,
-                    100, 
+                    100,
                     "Interview Manually Completed",
                     json_encode([
                         'transcript' => $history,
@@ -611,6 +647,7 @@ $role = $input['role'] ?? 'AI Engineer';
         $sqlH = "UPDATE mock_ai_interview_sessions SET status = 'completed', completed_at = ?, report_content = ?, overall_score = ? WHERE id = ?";
         $db->prepare($sqlH)->execute([$completedAt, $reportContent, $overallScore, $sessionId]);
 
+        ob_clean();
         echo json_encode([
             'success' => true,
             'message' => 'Session ended',
@@ -640,7 +677,7 @@ $role = $input['role'] ?? 'AI Engineer';
         }
 
         $sessionId = $_POST['session_id'] ?? null;
-        $currentUser = getUsername() ?? $studentIdForDb; 
+        $currentUser = getUsername() ?? $studentIdForDb;
         $sem = 'Sem';
 
         if ($sessionId) {
@@ -659,13 +696,13 @@ $role = $input['role'] ?? 'AI Engineer';
 
         $filename = "{$currentUser}_{$sem}_{$sessionId}.pdf";
         $uploadDir = REPORTS_UPLOAD_PATH . '/mock_ai/';
-        
+
         if (!is_dir($uploadDir)) {
             mkdir($uploadDir, 0777, true);
         }
 
         $destination = $uploadDir . $filename;
-        
+
         if (move_uploaded_file($_FILES['report_pdf']['tmp_name'], $destination)) {
             $publicPath = "uploads/reports/mock_ai/" . $filename;
             echo json_encode(['success' => true, 'message' => 'Report stored successfully', 'path' => $publicPath]);

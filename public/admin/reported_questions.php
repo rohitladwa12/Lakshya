@@ -125,6 +125,25 @@ if (isPost()) {
                                 $updatedInDb = true;
                             }
                         }
+
+                        // 4. Check manual_aptitude_questions if not found
+                        if (!$updatedInDb) {
+                            $stmt = $db->prepare("SELECT id FROM manual_aptitude_questions WHERE question_text = ? OR question_text LIKE ? LIMIT 1");
+                            $stmt->execute([$originalQuestionText, '%' . $originalQuestionText . '%']);
+                            $match = $stmt->fetch();
+                            if ($match) {
+                                $dbQuestionId = $match['id'];
+                                $dbTableName = 'manual_aptitude_questions';
+                                if ($hasEditedOptions) {
+                                    $updateStmt = $db->prepare("UPDATE manual_aptitude_questions SET question_text = ?, option_a = ?, option_b = ?, option_c = ?, option_d = ?, correct_option = ? WHERE id = ?");
+                                    $updateStmt->execute([$questionText, $optA, $optB, $optC, $optD, $correctOption, $dbQuestionId]);
+                                } else {
+                                    $updateStmt = $db->prepare("UPDATE manual_aptitude_questions SET question_text = ?, correct_option = ? WHERE id = ?");
+                                    $updateStmt->execute([$questionText, $correctOption, $dbQuestionId]);
+                                }
+                                $updatedInDb = true;
+                            }
+                        }
                     }
 
                     $db->commit();
@@ -207,6 +226,20 @@ if (isPost()) {
                             }
                         }
 
+                        // 4. Check manual_aptitude_questions
+                        if (!$updatedInDb) {
+                            $stmt = $db->prepare("SELECT id FROM manual_aptitude_questions WHERE question_text = ? OR question_text LIKE ? LIMIT 1");
+                            $stmt->execute([$questionText, '%' . $questionText . '%']);
+                            $match = $stmt->fetch();
+                            if ($match) {
+                                $dbQuestionId = $match['id'];
+                                $dbTableName = 'manual_aptitude_questions';
+                                $updateStmt = $db->prepare("UPDATE manual_aptitude_questions SET correct_option = ? WHERE id = ?");
+                                $updateStmt->execute([$correctOption, $dbQuestionId]);
+                                $updatedInDb = true;
+                            }
+                        }
+
                         $db->commit();
 
                         $successMsg = "AI Auto-Fix resolved this question to Option {$correctOption}.";
@@ -271,6 +304,20 @@ if (isPost()) {
                         $dbQuestionId = $match['id'];
                         $dbTableName = 'task_manual_questions';
                         $delStmt = $db->prepare("DELETE FROM task_manual_questions WHERE id = ?");
+                        $delStmt->execute([$dbQuestionId]);
+                        $deletedFromDb = true;
+                    }
+                }
+
+                // 4. Check manual_aptitude_questions
+                if (!$deletedFromDb) {
+                    $stmt = $db->prepare("SELECT id FROM manual_aptitude_questions WHERE question_text = ? OR question_text LIKE ? LIMIT 1");
+                    $stmt->execute([$questionText, '%' . $questionText . '%']);
+                    $match = $stmt->fetch();
+                    if ($match) {
+                        $dbQuestionId = $match['id'];
+                        $dbTableName = 'manual_aptitude_questions';
+                        $delStmt = $db->prepare("DELETE FROM manual_aptitude_questions WHERE id = ?");
                         $delStmt->execute([$dbQuestionId]);
                         $deletedFromDb = true;
                     }
@@ -992,6 +1039,15 @@ try {
                                             $dbMatchId = $matchDb['id'];
                                             $dbMatchTable = 'task_manual_questions';
                                             $dbCurrentKey = $matchDb['correct_option'];
+                                        } else {
+                                            $stmtDb = $db->prepare("SELECT id, correct_option FROM manual_aptitude_questions WHERE question_text = ? OR question_text LIKE ? LIMIT 1");
+                                            $stmtDb->execute([$r['question_text'], '%' . $r['question_text'] . '%']);
+                                            $matchDb = $stmtDb->fetch();
+                                            if ($matchDb) {
+                                                $dbMatchId = $matchDb['id'];
+                                                $dbMatchTable = 'manual_aptitude_questions';
+                                                $dbCurrentKey = $matchDb['correct_option'];
+                                            }
                                         }
                                     }
                                 }

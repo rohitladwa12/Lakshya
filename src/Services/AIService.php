@@ -62,8 +62,11 @@ class AIService
         ]);
 
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 120);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 120);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 90);
+        // Connect timeout must be short: establishing a TCP/TLS connection should
+        // take a couple of seconds, not 120. A large value let a single stalled
+        // connection block for minutes on top of the read timeout.
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
         curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
 
         $maxRetries = 3;
@@ -75,11 +78,16 @@ class AIService
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
 
-            if (!curl_errno($ch) && $httpCode >= 500 && $httpCode < 600) {
-                // OpenAI internal server error or gateway timeout. Retry after a delay.
+            // Retry on transient failures: server errors (5xx), rate limiting (429)
+            // and request timeout (408). 429 is common under load and previously
+            // fell straight through to failure ("code does not run at all").
+            $isTransient = $httpCode === 429 || $httpCode === 408 || ($httpCode >= 500 && $httpCode < 600);
+
+            if (!curl_errno($ch) && $isTransient) {
                 $attempt++;
                 if ($attempt < $maxRetries) {
-                    sleep(2);
+                    // Exponential backoff: 1s, 2s.
+                    sleep($attempt);
                     continue;
                 }
             } else {
@@ -726,7 +734,7 @@ RULES:
             $messages[] = ['role' => 'user', 'content' => $userMessage];
         }
 
-        return $this->callAPI($messages, ['audit_method' => __FUNCTION__]);
+        return $this->callAPI($messages, ['audit_method' => __FUNCTION__, 'max_tokens' => 4000]);
     }
 
     /**
@@ -1113,7 +1121,7 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
             $portfolioContext = "\nCANDIDATE'S PORTFOLIO / SKILLS / PROJECTS:\n";
             foreach ($projects as $idx => $p) {
                 $num = $idx + 1;
-                $portfolioContext .= "{$num}. Title: {$p['title']} (Category: {$p['category']})\n   Description: {$p['description']}\n";
+                $portfolioContext .= "{$num}. Title: {$p['title']} (Tech: {$p['tech_stack']})\n   Description: {$p['description']}\n";
             }
         }
 
@@ -1192,10 +1200,34 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
 
         if ($response['success']) {
             $aiData = $response['parsed'];
+            $contentVal = "Report content missing.";
+            $scoreVal = 0;
+
+            if (is_array($aiData)) {
+                $contentVal = $aiData['content'] ?? "Report content missing.";
+                $scoreVal = (int) ($aiData['overall_score'] ?? 0);
+            } else {
+                $rawContent = $response['content'] ?? '';
+                
+                // Extract score via regex
+                if (preg_match('/["\']overall_score["\']\s*:\s*"?(\d+)"?/i', $rawContent, $m)) {
+                    $scoreVal = (int)$m[1];
+                }
+                
+                // Extract content block or fallback to raw content
+                if (preg_match('/["\']content["\']\s*:\s*"(.*)"\s*\}\s*$/s', $rawContent, $m)) {
+                    $contentVal = $m[1];
+                } elseif (preg_match('/["\']content["\']\s*:\s*\'(.*)\'\s*\}\s*$/s', $rawContent, $m)) {
+                    $contentVal = $m[1];
+                } else {
+                    $contentVal = $rawContent;
+                }
+            }
+
             return [
                 'success' => true,
-                'content' => is_array($aiData) ? ($aiData['content'] ?? "Report content missing.") : $aiData,
-                'overall_score' => is_array($aiData) ? ((int) ($aiData['overall_score'] ?? 0)) : 0
+                'content' => $contentVal,
+                'overall_score' => $scoreVal
             ];
         }
 
@@ -1938,4 +1970,3 @@ Format: Return a JSON object with this structure:
         }
     }
 }
-
