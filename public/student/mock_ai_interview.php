@@ -2243,11 +2243,13 @@ if (strpos($compLower, 'google') !== false) {
                 if (step.ui === 'mcq') {
                     mcqBox.style.display = 'flex';
                     chatBox.style.width = '40%';
-                } else if (step.ui === 'editor') {
-                    codingBox.classList.add('active');
+                } else if (step.ui === 'editor' || step.phase === 'TECHNICAL' || step.phase === 'TECHNICAL_CODING') {
                     toggleWorkspaceBtn.style.display = 'flex';
-                    if (this.components.editor) {
-                        setTimeout(() => this.components.editor.refresh(), 100);
+                    if (step.ui === 'editor') {
+                        codingBox.classList.add('active');
+                        if (this.components.editor) {
+                            setTimeout(() => this.components.editor.refresh(), 100);
+                        }
                     }
                 }
 

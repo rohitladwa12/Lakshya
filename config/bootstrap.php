@@ -58,8 +58,23 @@ if (php_sapi_name() !== 'cli') {
 
     // 2. Global Protection for all POST requests
     if (isset($_SERVER['REQUEST_METHOD']) && $_SERVER['REQUEST_METHOD'] === 'POST') {
-        // List of files that are allowed to skip CSRF (e.g., specialized webhooks, login page)
-        $skipCSRF = ['notifications_stream.php', 'ai_worker.php', 'login.php', 'login'];
+        // List of files that are allowed to skip CSRF (e.g., specialized webhooks, login page, student AI round handlers)
+        $skipCSRF = [
+            'notifications_stream.php', 
+            'ai_worker.php', 
+            'login.php', 
+            'login',
+            'ai_technical_handler.php',
+            'ai_hr_handler.php',
+            'mock_ai_handler.php',
+            'nqt_technical_handler.php',
+            'nqt_hr_handler.php',
+            'nqt_aptitude_handler.php',
+            'student_drive_test_handler.php',
+            'certification_viva_handler.php',
+            'project_viva_handler.php',
+            'skill_verification_handler.php'
+        ];
         
         // Skip CSRF check for HOD Portal SSO when MENTOR_ID or emp_id is passed
         if (isset($_REQUEST['MENTOR_ID']) || isset($_REQUEST['mentor_id']) || isset($_REQUEST['emp_id'])) {

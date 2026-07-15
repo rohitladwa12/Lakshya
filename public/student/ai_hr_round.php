@@ -1087,7 +1087,6 @@ if ($driveId > 0) {
                 logTelemetryEvent("MIC_OPEN");
                 telemetryOnstartCount++;
                 recoveryInProgress = false;
-                reconnectAttempts = 0; // successful start resets recovery backoff
                 timeMicOpened = Date.now();
                 if (currentState === State.WAITING) transitionTo(State.LISTENING);
             };
@@ -1104,6 +1103,7 @@ if ($driveId > 0) {
 
             recognition.onresult = (event) => {
                 if (currentState !== State.LISTENING) return;
+                reconnectAttempts = 0; // Successful speech recognized! Reset error count.
                 let interimTranscript = '';
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
@@ -1140,7 +1140,10 @@ if ($driveId > 0) {
                     updateState("Mic unavailable — type your answer", "neutral");
                     return;
                 }
-                if (event.error === 'no-speech' || event.error === 'network') transitionTo(State.ERROR);
+                if (event.error === 'no-speech' || event.error === 'network') {
+                    reconnectAttempts++;
+                    transitionTo(State.ERROR);
+                }
             };
 
             document.addEventListener('fullscreenchange', () => {

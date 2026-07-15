@@ -682,7 +682,7 @@ $fullName = getFullName();
 
             recognition.onresult = (event) => {
                 if (currentState !== State.LISTENING) return;
-                
+                reconnectAttempts = 0; // Successful speech recognized! Reset error count.
                 let interimTranscript = '';
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
@@ -715,6 +715,7 @@ $fullName = getFullName();
                 telemetryOnerrorCount++;
                 console.error("Speech Recognition Error:", event.error);
                 if (event.error === 'no-speech' || event.error === 'network') {
+                    reconnectAttempts++;
                     transitionTo(State.ERROR);
                 }
             };
@@ -906,10 +907,16 @@ $fullName = getFullName();
 
         let reconnectAttempts = 0;
         let recoveryInProgress = false;
-        let backoffResetTimer = null;
+        const MAX_RECONNECT_ATTEMPTS = 4;
 
         function recoverRecognition() {
             if (currentState !== State.ERROR || recoveryInProgress) return;
+            if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                console.warn("Too many reconnect attempts. Switching to text-only mode.");
+                updateState("Mic unstable — type your answer", "neutral");
+                transitionTo(State.WAITING);
+                return;
+            }
             
             recoveryInProgress = true;
             const delay = Math.min(Math.pow(2, reconnectAttempts) * 1000, 16000);
@@ -919,13 +926,6 @@ $fullName = getFullName();
                 try {
                     recognition.start();
                     transitionTo(State.LISTENING);
-                    
-                    if (backoffResetTimer) clearTimeout(backoffResetTimer);
-                    backoffResetTimer = setTimeout(() => {
-                        reconnectAttempts = 0;
-                        console.log("Speech recognition connection stabilized. Resetting backoff.");
-                    }, 5000);
-                    
                 } catch (e) {
                     console.warn("Failed to restart recognition:", e);
                     reconnectAttempts++;

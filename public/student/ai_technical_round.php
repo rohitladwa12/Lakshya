@@ -558,10 +558,13 @@ if ($driveId > 0) {
         <div class="code-panel" id="codePanel" style="position: relative;">
             <!-- Locked Overlay -->
             <div id="editorLocked"
-                style="position: absolute; top:0; left:0; width: 100%; height: 100%; z-index: 10; background: rgba(0,0,0,0.7); display: flex; flex-direction: column; justify-content: center; align-items: center; color: #888;">
-                <i class="fas fa-lock" style="font-size: 2rem; margin-bottom: 10px;"></i>
-                <p>Editor Locked</p>
-                <small>Waiting for Coding Challenge...</small>
+                style="position: absolute; top:0; left:0; width: 100%; height: 100%; z-index: 10; background: rgba(0,0,0,0.8); display: flex; flex-direction: column; justify-content: center; align-items: center; color: #888; text-align: center; padding: 20px;">
+                <i class="fas fa-lock" style="font-size: 2rem; margin-bottom: 10px; color: var(--primary);"></i>
+                <p style="margin-bottom: 5px; color: #fff; font-weight: bold;">Editor Locked</p>
+                <small style="margin-bottom: 15px; display: block;">Waiting for Coding Challenge...</small>
+                <button onclick="unlockWorkspaceManually()" class="btn" style="background: var(--accent); color: black; font-size: 0.8rem; padding: 6px 12px; font-weight: bold; border-radius: 4px; cursor: pointer; border: none; display: flex; align-items: center; gap: 5px;">
+                    <i class="fas fa-unlock"></i> Unlock Coding Workspace
+                </button>
             </div>
 
             <div class="code-header">
@@ -904,19 +907,38 @@ if ($driveId > 0) {
             let questionText = isCode ? payload.problem_statement : payload.question;
 
             // Fallback detection: if the AI asked a coding question but marked it as conceptual
-            if (!isCode && questionText && (
-                questionText.toLowerCase().includes('write a function') ||
-                questionText.toLowerCase().includes('write a program') ||
-                questionText.toLowerCase().includes('write code') ||
-                questionText.toLowerCase().includes('implement a function') ||
-                questionText.toLowerCase().includes('write a python') ||
-                questionText.toLowerCase().includes('write a java') ||
-                questionText.toLowerCase().includes('coding question') ||
-                questionText.toLowerCase().includes('coding challenge')
-            )) {
-                isCode = true;
-                payload.type = 'coding';
-                payload.problem_statement = questionText;
+            if (!isCode && questionText) {
+                const textLower = questionText.toLowerCase();
+                if (
+                    textLower.includes('write a function') ||
+                    textLower.includes('write a program') ||
+                    textLower.includes('write code') ||
+                    textLower.includes('implement a function') ||
+                    textLower.includes('write a python') ||
+                    textLower.includes('write a java') ||
+                    textLower.includes('coding question') ||
+                    textLower.includes('coding challenge') ||
+                    textLower.includes('write a script') ||
+                    textLower.includes('implement a method') ||
+                    textLower.includes('write a method') ||
+                    textLower.includes('write a class') ||
+                    textLower.includes('implement a class') ||
+                    textLower.includes('create a function') ||
+                    textLower.includes('write a c++') ||
+                    textLower.includes('write a sql') ||
+                    textLower.includes('write sql') ||
+                    textLower.includes('write javascript') ||
+                    textLower.includes('write code to') ||
+                    textLower.includes('coding task') ||
+                    textLower.includes('program to') ||
+                    textLower.includes('complete the code') ||
+                    textLower.includes('write an algorithm') ||
+                    textLower.includes('implement an algorithm')
+                ) {
+                    isCode = true;
+                    payload.type = 'coding';
+                    payload.problem_statement = questionText;
+                }
             }
 
             const feedbackText = payload.feedback && payload.feedback.trim() !== '' ? `**Evaluation:** ${payload.feedback}\n\n` : '';
@@ -1064,6 +1086,25 @@ if ($driveId > 0) {
             const problemText = data.problem_statement || data.question || '';
             const starter = `# Problem: ${problemText}\n# Constraints: ${data.constraints || 'None'}\n# Write your solution below:\n\n`;
             editor.setValue(starter);
+        }
+
+        function unlockWorkspaceManually() {
+            // Unlocks the workspace manually if classification failed
+            const currentMessageNodes = document.querySelectorAll('.message.ai');
+            let lastAiText = "Custom Coding Task";
+            if (currentMessageNodes.length > 0) {
+                lastAiText = currentMessageNodes[currentMessageNodes.length - 1].innerText;
+            }
+            
+            // Construct a mock coding payload
+            const mockPayload = {
+                type: 'coding',
+                problem_statement: lastAiText,
+                constraints: 'None'
+            };
+            
+            currentProblem = mockPayload;
+            activateCodingMode(mockPayload);
         }
 
         // --- Helpers ---

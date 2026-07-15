@@ -185,9 +185,13 @@ class LeaderboardService {
     }
 
     private static function fetchUnifiedScores($usnList) {
-        $stmt = getDB()->query("SELECT usn, assessment_type, AVG(score) as avg_score 
-                                FROM unified_ai_assessments 
-                                WHERE usn IN ($usnList) 
+        $stmt = getDB()->query("SELECT usn, assessment_type, AVG(max_score) as avg_score 
+                                FROM (
+                                    SELECT usn, company_name, assessment_type, MAX(score) as max_score
+                                    FROM unified_ai_assessments 
+                                    WHERE usn IN ($usnList) AND status = 'completed' 
+                                    GROUP BY usn, company_name, assessment_type
+                                ) as sub
                                 GROUP BY usn, assessment_type");
         $scores = [];
         while ($row = $stmt->fetch()) {
@@ -338,7 +342,7 @@ class LeaderboardService {
         $timestamps = [];
 
         // 1. Unified Assessments
-        $stmt = $db->query("SELECT usn, started_at FROM unified_ai_assessments WHERE usn IN ($usnList) ORDER BY started_at ASC");
+        $stmt = $db->query("SELECT usn, started_at FROM unified_ai_assessments WHERE usn IN ($usnList) AND status = 'completed' ORDER BY started_at ASC");
         while ($row = $stmt->fetch()) {
             $timestamps[strtolower($row['usn'])][] = strtotime($row['started_at']);
         }
