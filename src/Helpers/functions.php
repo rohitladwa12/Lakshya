@@ -683,7 +683,8 @@ function renderFeatureAnnouncement($featureKey) {
         if (empty($message)) return;
         
         $escapedMessage = htmlspecialchars($message, ENT_QUOTES, 'UTF-8');
-        $jsKey = 'seen_announcement_' . $featureKey;
+        $username = function_exists('getUsername') ? getUsername() : '';
+        $jsKey = 'seen_announcement_' . $featureKey . ($username ? '_' . $username : '');
         
         ?>
         <style>
@@ -803,6 +804,9 @@ function renderFeatureAnnouncement($featureKey) {
                 setTimeout(function() {
                     modal.style.display = "none";
                 }, 400);
+                if (typeof window.onAnnouncementDismissed === 'function') {
+                    window.onAnnouncementDismissed();
+                }
             }
         </script>
         <?php

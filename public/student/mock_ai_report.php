@@ -66,6 +66,7 @@ $date = date('d M Y', strtotime($session['started_at']));
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
@@ -99,7 +100,7 @@ $date = date('d M Y', strtotime($session['started_at']));
             margin: 40px auto;
             background: white;
             padding: 50px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
             border-radius: 8px;
             position: relative;
         }
@@ -208,160 +209,201 @@ $date = date('d M Y', strtotime($session['started_at']));
         }
 
         @media print {
-            .btn-container { display: none; }
-            .container { box-shadow: none; margin: 0; width: 100%; border-radius: 0; }
+            .btn-container {
+                display: none;
+            }
+
+            .container {
+                box-shadow: none;
+                margin: 0;
+                width: 100%;
+                border-radius: 0;
+            }
         }
 
         /* Markdown-ish styling */
-        .report-body strong { color: var(--primary-maroon); }
-        .report-body ul { padding-left: 20px; }
-        .report-body li { margin-bottom: 8px; }
-        .report-body p { margin-bottom: 15px; }
+        .report-body strong {
+            color: var(--primary-maroon);
+        }
+
+        .report-body ul {
+            padding-left: 20px;
+        }
+
+        .report-body li {
+            margin-bottom: 8px;
+        }
+
+        .report-body p {
+            margin-bottom: 15px;
+        }
     </style>
 </head>
+
 <body>
 
-<div class="btn-container">
-    <button onclick="exitReport()" class="btn btn-back">
-        <i class="fas fa-arrow-left"></i> Back to Dashboard
-    </button>
-    <button onclick="downloadPDF()" class="btn btn-download">
-        <i class="fas fa-file-pdf"></i> Download Performance Report
-    </button>
-</div>
-
-<div class="container" id="reportContent">
-    <div class="header">
-        <div class="header-left">
-            <h1>GM UNIVERSITY</h1>
-            <p>Training & Placement Cell</p>
-        </div>
-        <div class="header-right">
-            <p>Student: <?php echo htmlspecialchars((string)$studentName); ?></p>
-            <p>Role: <?php echo htmlspecialchars((string)$role); ?></p>
-            <p>Date: <?php echo $date; ?></p>
-        </div>
+    <div class="btn-container">
+        <button onclick="exitReport()" class="btn btn-back">
+            <i class="fas fa-arrow-left"></i> Back to Dashboard
+        </button>
+        <button onclick="downloadPDF()" class="btn btn-download">
+            <i class="fas fa-file-pdf"></i> Download Performance Report
+        </button>
     </div>
 
-    <div class="report-body">
-        <div style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 30px; border-radius: 12px; margin-bottom: 35px; border-left: 5px solid var(--primary-maroon); display: flex; justify-content: space-between; align-items: center;">
-            <div>
-                <h3 style="margin: 0; color: #444; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">Overall Performance Score</h3>
-                <p style="margin: 5px 0 0; color: #666; font-size: 0.85rem;">Based on technical accuracy, communication, and problem-solving.</p>
+    <div class="container" id="reportContent">
+        <div class="header">
+            <div class="header-left">
+                <h1>GM UNIVERSITY</h1>
+                <p>Training & Placement Cell</p>
             </div>
-            <div style="text-align: center;">
-                <div style="font-size: 3rem; font-weight: 900; color: var(--primary-maroon); line-height: 1;"><?php echo (int)($session['overall_score'] ?? 0); ?><span style="font-size: 1.2rem; color: #999;">/100</span></div>
-                <div style="font-size: 0.75rem; font-weight: 800; margin-top: 5px; color: <?php echo ($session['overall_score'] >= 70) ? '#10b981' : (($session['overall_score'] >= 40) ? '#f59e0b' : '#ef4444'); ?>;">
-                    <?php 
-                        if(($session['overall_score'] ?? 0) >= 80) echo 'EXCEPTIONAL';
-                        elseif(($session['overall_score'] ?? 0) >= 60) echo 'READY FOR HIRE';
-                        elseif(($session['overall_score'] ?? 0) >= 40) echo 'NEEDS PRACTICE';
-                        else echo 'BEGINNER';
-                    ?>
+            <div class="header-right">
+                <p>Student: <?php echo htmlspecialchars((string) $studentName); ?></p>
+                <p>Target Concepts: <?php echo htmlspecialchars((string) $role); ?></p>
+                <?php if (!empty($session['difficulty'])): ?>
+                    <p>Difficulty: <?php echo htmlspecialchars((string) $session['difficulty']); ?></p>
+                <?php endif; ?>
+                <p>Date: <?php echo $date; ?></p>
+            </div>
+        </div>
+
+        <div class="report-body">
+            <div
+                style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 30px; border-radius: 12px; margin-bottom: 35px; border-left: 5px solid var(--primary-maroon); display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h3
+                        style="margin: 0; color: #444; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">
+                        Overall Performance Score</h3>
+                    <p style="margin: 5px 0 0; color: #666; font-size: 0.85rem;">Based on technical accuracy,
+                        communication, and problem-solving.</p>
+                </div>
+                <div style="text-align: center;">
+                    <div style="font-size: 3rem; font-weight: 900; color: var(--primary-maroon); line-height: 1;">
+                        <?php echo (int) ($session['overall_score'] ?? 0); ?><span
+                            style="font-size: 1.2rem; color: #999;">/100</span></div>
+                    <div
+                        style="font-size: 0.75rem; font-weight: 800; margin-top: 5px; color: <?php echo ($session['overall_score'] >= 70) ? '#10b981' : (($session['overall_score'] >= 40) ? '#f59e0b' : '#ef4444'); ?>;">
+                        <?php
+                        if (($session['overall_score'] ?? 0) >= 80)
+                            echo 'EXCEPTIONAL';
+                        elseif (($session['overall_score'] ?? 0) >= 60)
+                            echo 'READY FOR HIRE';
+                        elseif (($session['overall_score'] ?? 0) >= 40)
+                            echo 'NEEDS PRACTICE';
+                        else
+                            echo 'BEGINNER';
+                        ?>
+                    </div>
                 </div>
             </div>
+
+            <?php
+            // Convert Markdown-ish to HTML.
+            // Sanitize first: allow only harmless formatting tags so a malicious or
+            // malformed report can never inject <script>/<style>/event handlers.
+            $allowedTags = '<b><strong><br><p><ul><ol><li><em><i><h2><h3><h4><span><table><tr><td><th>';
+            $html = strip_tags((string) $reportContent, $allowedTags);
+            // strip_tags keeps attributes (onclick=, style=, …) — remove them all;
+            // none of the allowed formatting tags need attributes here.
+            $html = preg_replace('/<(\/?\w+)[^>]*>/', '<$1>', $html);
+            // Basic Markdown Conversion
+            $html = preg_replace('/^## (.*$)/m', '<h2>$1</h2>', $html);
+            $html = preg_replace('/^### (.*$)/m', '<h3>$1</h3>', $html);
+            $html = preg_replace('/\*\*(.*?)\*\*/', '<strong>$1</strong>', $html);
+            $html = preg_replace('/^- (.*$)/m', '<li>$1</li>', $html);
+
+            // Wrap lists
+            $html = preg_replace('/(<li>.*<\/li>)/s', '<ul>$1</ul>', $html);
+            // Fix double ul
+            $html = str_replace('</ul><ul>', '', $html);
+
+            // Convert scores to badges
+            $html = preg_replace('/Score: (\d+\/10)/', 'Score: <span class="score-badge">$1</span>', $html);
+
+            echo $html;
+            ?>
         </div>
 
-        <?php
-        // Convert Markdown-ish to HTML
-        $html = $reportContent;
-        // Basic Markdown Conversion
-        $html = preg_replace('/^## (.*$)/m', '<h2>$1</h2>', $html);
-        $html = preg_replace('/^### (.*$)/m', '<h3>$1</h3>', $html);
-        $html = preg_replace('/\*\*(.*?)\*\*/', '<strong>$1</strong>', $html);
-        $html = preg_replace('/^- (.*$)/m', '<li>$1</li>', $html);
-        
-        // Wrap lists
-        $html = preg_replace('/(<li>.*<\/li>)/s', '<ul>$1</ul>', $html);
-        // Fix double ul
-        $html = str_replace('</ul><ul>', '', $html);
-        
-        // Convert scores to badges
-        $html = preg_replace('/Score: (\d+\/10)/', 'Score: <span class="score-badge">$1</span>', $html);
-
-        echo $html;
-        ?>
+        <div
+            style="margin-top: 50px; border-top: 1px solid #eee; padding-top: 20px; font-size: 0.8rem; color: #999; text-align: center;">
+            This is an AI-generated assessment report by GM University Placement Portal.
+            It is intended for student evaluation and preparation purposes only.
+        </div>
     </div>
 
-    <div style="margin-top: 50px; border-top: 1px solid #eee; padding-top: 20px; font-size: 0.8rem; color: #999; text-align: center;">
-        This is an AI-generated assessment report by GM University Placement Portal. 
-        It is intended for student evaluation and preparation purposes only.
-    </div>
-</div>
-
-<script>
-    function exitReport() {
-        // Replace current history entry so browser "Back" doesn't return here
-        window.location.replace('dashboard.php');
-    }
-
-    async function autoSaveReport() {
-        const element = document.getElementById('reportContent');
-        const opt = {
-            margin:       [10, 10, 10, 10],
-            filename:     'temp_report.pdf',
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { scale: 2 },
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
-
-        // Generate PDF as blob
-        const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
-        
-        // Upload to server
-        const formData = new FormData();
-        formData.append('action', 'save_pdf');
-        formData.append('session_id', '<?php echo $sessionId; ?>');
-        formData.append('report_pdf', pdfBlob, 'report.pdf');
-
-        try {
-            const res = await fetch('mock_ai_handler.php', {
-                method: 'POST',
-                body: formData
-            });
-            const data = await res.json();
-            console.log('Auto-save status:', data);
-        } catch(e) {
-            console.error('Failed to auto-save report:', e);
+    <script>
+        function exitReport() {
+            // Replace current history entry so browser "Back" doesn't return here
+            window.location.replace('dashboard.php');
         }
-    }
 
-    function downloadPDF() {
-        const element = document.getElementById('reportContent');
-        const opt = {
-            margin:       [10, 10, 10, 10],
-            filename:     'GMU_Mock_Interview_Report.pdf',
-            image:        { type: 'jpeg', quality: 0.98 },
-            html2canvas:  { scale: 2 },
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
-        };
+        async function autoSaveReport() {
+            const element = document.getElementById('reportContent');
+            const opt = {
+                margin: [10, 10, 10, 10],
+                filename: 'temp_report.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2 },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
 
-        html2pdf().set(opt).from(element).save();
-    }
+            // Generate PDF as blob
+            const pdfBlob = await html2pdf().set(opt).from(element).output('blob');
 
-    function renderMath(element) {
-        if (typeof renderMathInElement === 'function') {
-            renderMathInElement(element, {
-                delimiters: [
-                    {left: "$$", right: "$$", display: true},
-                    {left: "$", right: "$", display: false},
-                    {left: "\\(", right: "\\)", display: false},
-                    {left: "\\[", right: "\\]", display: true}
-                ],
-                throwOnError: false
-            });
-        } else {
-            setTimeout(() => renderMath(element), 100);
+            // Upload to server
+            const formData = new FormData();
+            formData.append('action', 'save_pdf');
+            formData.append('session_id', '<?php echo $sessionId; ?>');
+            formData.append('report_pdf', pdfBlob, 'report.pdf');
+
+            try {
+                const res = await fetch('mock_ai_handler.php', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                console.log('Auto-save status:', data);
+            } catch (e) {
+                console.error('Failed to auto-save report:', e);
+            }
         }
-    }
 
-    // Trigger auto-save after a short delay for rendering
-    window.onload = () => {
-        renderMath(document.getElementById('reportContent'));
-        setTimeout(autoSaveReport, 1500);
-    };
-</script>
+        function downloadPDF() {
+            const element = document.getElementById('reportContent');
+            const opt = {
+                margin: [10, 10, 10, 10],
+                filename: 'GMU_Mock_Interview_Report.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2 },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+
+            html2pdf().set(opt).from(element).save();
+        }
+
+        function renderMath(element) {
+            if (typeof renderMathInElement === 'function') {
+                renderMathInElement(element, {
+                    delimiters: [
+                        { left: "$$", right: "$$", display: true },
+                        { left: "$", right: "$", display: false },
+                        { left: "\\(", right: "\\)", display: false },
+                        { left: "\\[", right: "\\]", display: true }
+                    ],
+                    throwOnError: false
+                });
+            } else {
+                setTimeout(() => renderMath(element), 100);
+            }
+        }
+
+        // Trigger auto-save after a short delay for rendering
+        window.onload = () => {
+            renderMath(document.getElementById('reportContent'));
+            setTimeout(autoSaveReport, 1500);
+        };
+    </script>
 
 </body>
-</html>
 
+</html>

@@ -15,6 +15,7 @@ requireLogin();
 if (isPost() && (isset($_POST['company']) || isset($_POST['task_id']))) {
     SessionFilterHelper::setFilters('ai_aptitude_test', [
         'company' => $_POST['company'] ?? 'General',
+        'concept' => $_POST['concept'] ?? '',
         'task_id' => $_POST['task_id'] ?? 0
     ]);
     header("Location: ai_aptitude_test.php");
@@ -24,10 +25,20 @@ if (isPost() && (isset($_POST['company']) || isset($_POST['task_id']))) {
 $filters = SessionFilterHelper::getFilters('ai_aptitude_test');
 $companyName = $filters['company'] ?? 'General';
 $taskId = $filters['task_id'] ?? 0;
+$concept = $filters['concept'] ?? '';
+if (empty($concept) && $taskId) {
+    try {
+        $db = getDB();
+        $stmt = $db->prepare("SELECT concept FROM coordinator_tasks WHERE id = ?");
+        $stmt->execute([$taskId]);
+        $concept = $stmt->fetchColumn() ?: '';
+    } catch (Exception $e) {}
+}
 $fullName = getFullName();
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
@@ -87,7 +98,7 @@ $fullName = getFullName();
             left: 0;
             width: 100%;
             height: 100%;
-            background: rgba(0,0,0,0.9);
+            background: rgba(0, 0, 0, 0.9);
             z-index: 1000;
             display: flex;
             flex-direction: column;
@@ -104,7 +115,7 @@ $fullName = getFullName();
             padding: 50px;
             border-radius: 24px;
             max-width: 600px;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
         }
 
         .intro-card h1 {
@@ -143,7 +154,7 @@ $fullName = getFullName();
             background: var(--glass);
             backdrop-filter: blur(10px);
             border-radius: 16px;
-            border: 1px solid rgba(255,255,255,0.1);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             flex-shrink: 0;
         }
 
@@ -163,7 +174,7 @@ $fullName = getFullName();
             flex: 1;
             margin: 0 40px;
             height: 10px;
-            background: rgba(255,255,255,0.1);
+            background: rgba(255, 255, 255, 0.1);
             border-radius: 10px;
             overflow: hidden;
             position: relative;
@@ -180,7 +191,8 @@ $fullName = getFullName();
             flex: 1;
             display: flex;
             flex-direction: column;
-            align-items: center; /* Keeps everything centered horizontally */
+            align-items: center;
+            /* Keeps everything centered horizontally */
             overflow-y: auto;
             max-width: 900px;
             margin: 0 auto;
@@ -193,6 +205,7 @@ $fullName = getFullName();
         .question-area::-webkit-scrollbar {
             width: 6px;
         }
+
         .question-area::-webkit-scrollbar-thumb {
             background: var(--glass);
             border-radius: 10px;
@@ -201,12 +214,20 @@ $fullName = getFullName();
         .question-card {
             width: 100%;
             animation: fadeIn 0.5s ease;
-            margin: auto 0; /* Vertically centers content if short, allows top-alignment and scrolling if long */
+            margin: auto 0;
+            /* Vertically centers content if short, allows top-alignment and scrolling if long */
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(20px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .q-number {
@@ -234,7 +255,7 @@ $fullName = getFullName();
 
         .option-btn {
             background: var(--glass);
-            border: 1px solid rgba(255,255,255,0.1);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             padding: 25px;
             border-radius: 16px;
             color: var(--white);
@@ -265,7 +286,7 @@ $fullName = getFullName();
             align-items: center;
             flex-shrink: 0;
             padding-top: 20px;
-            border-top: 1px solid rgba(255,255,255,0.1);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
         }
 
         .btn-nav {
@@ -334,13 +355,23 @@ $fullName = getFullName();
         }
 
         @keyframes spin {
-            to { transform: rotate(360deg); }
+            to {
+                transform: rotate(360deg);
+            }
         }
 
         @media (max-width: 768px) {
-            .options-grid { grid-template-columns: 1fr; }
-            .test-container { padding: 20px; }
-            .q-text { font-size: 1.5rem; }
+            .options-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .test-container {
+                padding: 20px;
+            }
+
+            .q-text {
+                font-size: 1.5rem;
+            }
         }
 
         /* Review Section */
@@ -354,18 +385,19 @@ $fullName = getFullName();
             padding-right: 10px;
             margin-bottom: 20px;
         }
-        
+
         .review-section::-webkit-scrollbar {
             width: 8px;
         }
+
         .review-section::-webkit-scrollbar-thumb {
-            background: rgba(255,255,255,0.2);
+            background: rgba(255, 255, 255, 0.2);
             border-radius: 4px;
         }
 
         .review-card {
-            background: rgba(255,255,255,0.05);
-            border: 1px solid rgba(255,255,255,0.1);
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             padding: 20px;
             border-radius: 12px;
             margin-bottom: 15px;
@@ -383,7 +415,7 @@ $fullName = getFullName();
             border-radius: 8px;
             margin: 5px 0;
             font-size: 0.95rem;
-            background: rgba(0,0,0,0.2);
+            background: rgba(0, 0, 0, 0.2);
             color: #aaa;
             display: flex;
             justify-content: space-between;
@@ -413,6 +445,7 @@ $fullName = getFullName();
         }
     </style>
 </head>
+
 <body>
 
     <!-- Intro Overlay -->
@@ -421,14 +454,18 @@ $fullName = getFullName();
             <p style="color: #666; font-weight: 600;">TRANSITIONING TO EXAM MODE</p>
             <h1>AI Aptitude Assessment</h1>
             <p>Company: <strong><?php echo htmlspecialchars($companyName); ?></strong></p>
+            <?php if (!empty($concept)): ?>
+                <p>Topic / Concept: <strong><?php echo htmlspecialchars($concept); ?></strong></p>
+            <?php endif; ?>
             <div style="text-align: left; margin: 30px 0; background: #f8f9fa; padding: 20px; border-radius: 12px;">
-                <p>• 40 Questions (Database Sourced)</p>
+                <p>• 40 Questions (<?php echo !empty($concept) ? 'AI Sourced' : 'Database Sourced'; ?>)</p>
                 <p>• 40 Minutes Total Time</p>
                 <p>• Full-screen experience recommended</p>
-                <p>• Questions focus on company awareness & technical depth</p>
+                <p>• Questions focus on <?php echo !empty($concept) ? htmlspecialchars($concept) : 'company awareness'; ?> & aptitude</p>
             </div>
             <button class="btn-start" onclick="startTest()">Initialize Test Environment</button>
-            <p style="margin-top: 20px; font-size: 0.9rem; color: #888;">By clicking start, you agree to follow the assessment protocols.</p>
+            <p style="margin-top: 20px; font-size: 0.9rem; color: #888;">By clicking start, you agree to follow the
+                assessment protocols.</p>
         </div>
     </div>
 
@@ -439,7 +476,7 @@ $fullName = getFullName();
                 <h2><?php echo htmlspecialchars($companyName); ?> | Aptitude</h2>
                 <p>Candidate: <?php echo htmlspecialchars($fullName); ?></p>
             </div>
-            
+
             <div class="progress-container">
                 <div class="progress-bar" id="progressBar"></div>
             </div>
@@ -468,7 +505,7 @@ $fullName = getFullName();
         </div>
         <h1>Assessment Completed</h1>
         <p id="resultMsg" style="margin-bottom: 30px; font-size: 1.2rem; color: #ccc;">Checking your performance...</p>
-        
+
         <div id="resultDetails"></div>
 
         <button class="btn-start" onclick="window.location.href='dashboard'">Return to Dashboard</button>
@@ -487,10 +524,10 @@ $fullName = getFullName();
             if (typeof renderMathInElement === 'function') {
                 renderMathInElement(element, {
                     delimiters: [
-                        {left: "$$", right: "$$", display: true},
-                        {left: "$", right: "$", display: false},
-                        {left: "\\(", right: "\\)", display: false},
-                        {left: "\\[", right: "\\]", display: true}
+                        { left: "$$", right: "$$", display: true },
+                        { left: "$", right: "$", display: false },
+                        { left: "\\(", right: "\\)", display: false },
+                        { left: "\\[", right: "\\]", display: true }
                     ],
                     throwOnError: false
                 });
@@ -523,11 +560,46 @@ $fullName = getFullName();
             loadQuestions();
         }
 
+        let loadAttempts = 0;
+        const MAX_AUTO_RETRIES = 2;
+
+        function showLoadError(msg) {
+            const area = document.getElementById('questionArea');
+            area.innerHTML = `
+                <div style="text-align:center; max-width: 500px;">
+                    <i class="fas fa-triangle-exclamation" style="font-size:2.5rem; color:var(--error); margin-bottom:15px;"></i>
+                    <p style="margin-bottom:20px; color:#eee;">${msg}</p>
+                    <button class="btn-start" onclick="retryLoadQuestions()">Retry Loading Questions</button>
+                </div>`;
+        }
+
+        function showLoader(text) {
+            document.getElementById('questionArea').innerHTML =
+                `<div class="loader"></div><p style="text-align: center;">${text}</p>`;
+        }
+
+        function retryLoadQuestions() {
+            showLoader('Loading assessment questions...');
+            loadQuestions();
+        }
+
+        function beginTest(qs) {
+            if (!Array.isArray(qs) || qs.length === 0) {
+                showLoadError('No questions are available for this assessment. Please contact your coordinator.');
+                return;
+            }
+            questions = qs;
+            renderQuestion();
+            startTimer();
+        }
+
         async function loadQuestions() {
+            loadAttempts++;
             try {
                 const formData = new FormData();
                 formData.append('action', 'get_questions');
                 formData.append('company_name', companyName);
+                formData.append('concept', "<?php echo addslashes($concept ?? ''); ?>");
                 formData.append('task_id', "<?php echo $taskId; ?>"); // Fix: coordinator task_id must be sent so manual questions are fetched
                 formData.append('csrf_token', window.CSRF_TOKEN);
 
@@ -536,7 +608,7 @@ $fullName = getFullName();
                     headers: { 'X-CSRF-TOKEN': window.CSRF_TOKEN },
                     body: formData
                 });
-                
+
                 let data;
                 const responseClone = response.clone();
                 try {
@@ -544,13 +616,21 @@ $fullName = getFullName();
                 } catch (jsonErr) {
                     const rawText = await responseClone.text();
                     console.error('JSON parse failed:', jsonErr, 'Raw:', rawText);
-                    alert('Server Error: ' + rawText.substring(0, 300));
+                    showLoadError('Server error: ' + rawText.substring(0, 300));
                     return;
                 }
                 if (data.success && data.job_id) {
                     // Poll for AI questions while we have DB questions ready
                     const dbQuestions = data.db_questions || [];
+                    const pollStartedAt = Date.now();
                     const pollInterval = setInterval(async () => {
+                        // Never poll forever: after 90s fall back to DB questions
+                        if (Date.now() - pollStartedAt > 90000) {
+                            clearInterval(pollInterval);
+                            if (dbQuestions.length > 0) beginTest(dbQuestions);
+                            else showLoadError('The AI question generator timed out. Please retry.');
+                            return;
+                        }
                         try {
                             const statusRes = await fetch(`ai_job_status.php?job_id=${data.job_id}`).then(r => r.json());
                             if (statusRes.status === 'completed') {
@@ -560,38 +640,48 @@ $fullName = getFullName();
                                 if (resultPayload && resultPayload.result && typeof resultPayload.result === 'object') {
                                     resultPayload = resultPayload.result;
                                 } else if (resultPayload && resultPayload.content && typeof resultPayload.content === 'string') {
-                                    try { resultPayload = JSON.parse(resultPayload.content); } catch(e) {}
+                                    try { resultPayload = JSON.parse(resultPayload.content); } catch (e) { }
                                 }
-                                
+
                                 const aiQuestions = Array.isArray(resultPayload) ? resultPayload : (resultPayload?.questions || []);
-                                questions = [...dbQuestions, ...aiQuestions];
-                                // Shuffle final set
-                                shuffleArray(questions);
-                                renderQuestion();
-                                startTimer();
-                            } else if (statusRes.status === 'failed') {
+                                if (aiQuestions.length > 0) {
+                                    shuffleArray(aiQuestions);
+                                    beginTest(aiQuestions);
+                                } else if (dbQuestions.length > 0) {
+                                    shuffleArray(dbQuestions);
+                                    beginTest(dbQuestions);
+                                } else {
+                                    showLoadError('No questions are available.');
+                                }
+                            } else if (statusRes.status === 'failed' || statusRes.success === false) {
                                 clearInterval(pollInterval);
                                 // AI generation failed — fall back to DB questions only
-                                questions = dbQuestions;
-                                shuffleArray(questions);
-                                renderQuestion();
-                                startTimer();
+                                if (dbQuestions.length > 0) {
+                                    shuffleArray(dbQuestions);
+                                    beginTest(dbQuestions);
+                                } else {
+                                    showLoadError('The AI question generator failed. Please retry.');
+                                }
                             }
                         } catch (e) { console.error('Polling error:', e); }
                     }, 2000);
                 } else if (data.success) {
-                    questions = data.questions;
-                    renderQuestion();
-                    startTimer();
+                    beginTest(data.questions);
                 } else {
-                    alert('Error: ' + data.message);
+                    showLoadError('Error: ' + (data.message || 'Failed to load questions.'));
                 }
             } catch (e) {
-                alert('Connection error. Please check your internet.');
+                console.error('loadQuestions network failure:', e);
+                if (loadAttempts <= MAX_AUTO_RETRIES) {
+                    showLoader('Connection hiccup — retrying (' + loadAttempts + '/' + MAX_AUTO_RETRIES + ')...');
+                    setTimeout(loadQuestions, 2500);
+                } else {
+                    showLoadError('Connection error. Please check your internet and retry.');
+                }
             }
         }
 
-        window.reportCurrentQuestion = function() {
+        window.reportCurrentQuestion = function () {
             const q = questions[currentIdx];
             window.openQuestionReportModal({
                 test_type: 'mock_ai',
@@ -605,8 +695,13 @@ $fullName = getFullName();
 
         function renderQuestion() {
             const q = questions[currentIdx];
+            if (!q || !Array.isArray(q.options)) {
+                console.error('Malformed question at index', currentIdx, q);
+                showLoadError('This question could not be displayed. Please retry the test.');
+                return;
+            }
             const area = document.getElementById('questionArea');
-            
+
             let optionsHtml = '';
             q.options.forEach((opt, i) => {
                 const isSelected = userAnswers[currentIdx] === i ? 'selected' : '';
@@ -643,9 +738,9 @@ $fullName = getFullName();
             const progress = ((currentIdx + 1) / questions.length) * 100;
             document.getElementById('progressBar').style.width = `${progress}%`;
             document.getElementById('qCounter').innerText = `Question ${currentIdx + 1} of ${questions.length}`;
-            
+
             document.getElementById('prevBtn').disabled = currentIdx === 0;
-            
+
             if (currentIdx === questions.length - 1) {
                 document.getElementById('nextBtn').style.display = 'none';
                 document.getElementById('submitBtn').style.display = 'block';
@@ -674,9 +769,9 @@ $fullName = getFullName();
                 timeLeft--;
                 const mins = Math.floor(timeLeft / 60);
                 const secs = timeLeft % 60;
-                document.getElementById('timerDisplay').innerText = 
+                document.getElementById('timerDisplay').innerText =
                     `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-                
+
                 if (timeLeft <= 0) {
                     clearInterval(timerInterval);
                     submitTest();
@@ -686,10 +781,10 @@ $fullName = getFullName();
 
         async function submitTest() {
             clearInterval(timerInterval);
-            
+
             document.getElementById('testUI').style.display = 'none';
             document.getElementById('resultsUI').style.display = 'flex';
-            
+
             try {
                 const formData = new FormData();
                 formData.append('action', 'submit_test');
@@ -705,11 +800,11 @@ $fullName = getFullName();
                     headers: { 'X-CSRF-TOKEN': window.CSRF_TOKEN },
                     body: formData
                 });
-                
+
                 const data = await response.json();
                 if (data.success) {
                     document.getElementById('finalScore').innerText = Math.round(data.score) + '%';
-                    document.getElementById('resultMsg').innerText = 
+                    document.getElementById('resultMsg').innerText =
                         `Success! You answered ${data.correct} out of ${data.total} questions correctly.`;
 
                     // Render Review Section
@@ -717,7 +812,7 @@ $fullName = getFullName();
                         // Store finalized questions for review reporting
                         questions = data.results.questions;
                         userAnswers = data.results.user_answers;
-                        window.reportReviewQuestion = function(idx) {
+                        window.reportReviewQuestion = function (idx) {
                             const q = questions[idx];
                             const userAns = userAnswers[idx];
                             window.openQuestionReportModal({
@@ -734,17 +829,17 @@ $fullName = getFullName();
                         data.results.questions.forEach((q, idx) => {
                             const userAns = data.results.user_answers[idx];
                             const correctAns = parseInt(q.answer);
-                            
+
                             html += `<div class="review-card">
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
-                                    <div class="review-q">Q${idx+1}: ${q.question}</div>
+                                    <div class="review-q">Q${idx + 1}: ${q.question}</div>
                                     <button class="btn-control" style="padding: 4px 10px; font-size: 0.8rem; background: transparent; border-color: rgba(255,255,255,0.1); color: var(--secondary); cursor: pointer;" onclick="reportReviewQuestion(${idx})"><i class="fas fa-flag"></i> Report</button>
                                 </div>`;
-                            
+
                             q.options.forEach((opt, optIdx) => {
                                 let cls = 'review-opt';
                                 let icon = '';
-                                
+
                                 if (optIdx === correctAns) {
                                     cls += ' correct';
                                     icon = '✅';
@@ -752,15 +847,15 @@ $fullName = getFullName();
                                     cls += ' wrong';
                                     icon = '❌';
                                 }
-                                
+
                                 html += `<div class="${cls}"><span>${opt}</span> <span>${icon}</span></div>`;
                             });
-                            
+
                             // Add Explanation
                             if (q.explanation) {
                                 html += `<div class="review-explanation"><strong>💡 Reason:</strong> ${q.explanation}</div>`;
                             }
-                            
+
                             html += `</div>`;
                         });
                         html += '</div>';
@@ -776,5 +871,5 @@ $fullName = getFullName();
         }
     </script>
 </body>
-</html>
 
+</html>

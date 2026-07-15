@@ -686,6 +686,10 @@ $pageTitle = "Leaderboard | Lakshya";
                             <span class="text-red-700 font-bold">Inactivity Decay: Lose 1 point for every 24 hours of inactivity between assessments. Consistency is key!</span>
                         </li>
                         <li class="flex items-start gap-3">
+                            <span class="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-[10px] shrink-0 mt-0.5"><i class="fas fa-check"></i></span>
+                            <span><b>Assessment Difficulty Multipliers:</b> Low (0.4x), Medium (0.9x), High (1.0x). Attempts completed before July 14 retain their original scores (1.0x).</span>
+                        </li>
+                        <li class="flex items-start gap-3">
                             <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-[10px] shrink-0 mt-0.5"><i class="fas fa-info"></i></span>
                             <span class="text-slate-500 font-semibold italic">Important: Only verified items contribute to your score.</span>
                         </li>

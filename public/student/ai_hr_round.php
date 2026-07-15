@@ -59,6 +59,14 @@ if ($driveId > 0) {
     $companyName = $filters['company'] ?? 'General';
     $taskId = $filters['task_id'] ?? 0;
     $concept = $filters['concept'] ?? '';
+    if (empty($concept) && $taskId) {
+        try {
+            $db = getDB();
+            $stmt = $db->prepare("SELECT concept FROM coordinator_tasks WHERE id = ?");
+            $stmt->execute([$taskId]);
+            $concept = $stmt->fetchColumn() ?: '';
+        } catch (Exception $e) {}
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -665,16 +673,24 @@ if ($driveId > 0) {
             <button id="endBtn" class="btn-mic btn-end" onclick="endSession()" disabled
                 title="Minimum 20 minutes required for assigned tasks"><i class="fas fa-phone-slash"></i></button>
         </div>
-        
+
         <!-- Text input fallback for mic issues -->
         <div id="textInputArea" style="display:none; margin-top:15px; width:70%; max-width:600px;">
             <div style="display:flex; gap:10px; align-items:center;">
-                <input type="text" id="textInput" placeholder="Type your answer here and press Enter..." 
+                <input type="text" id="textInput" placeholder="Type your answer here and press Enter..."
                     style="flex:1; padding:12px 16px; border-radius:12px; border:1px solid var(--border); background:rgba(255,255,255,0.08); color:white; font-size:1rem; backdrop-filter:blur(5px);"
                     onkeydown="if(event.key==='Enter' && this.value.trim()){submitTextAnswer(); event.preventDefault();}">
-                <button onclick="submitTextAnswer()" style="padding:12px 20px; border-radius:12px; border:none; background:var(--primary); color:white; cursor:pointer; font-weight:600;">Send</button>
+                <button onclick="submitTextAnswer()"
+                    style="padding:12px 20px; border-radius:12px; border:none; background:var(--primary); color:white; cursor:pointer; font-weight:600;">Send</button>
             </div>
-            <div id="micErrorMsg" style="display:none; color:#ff6b6b; font-size:0.85rem; margin-top:8px; text-align:center;"></div>
+            <div id="micErrorMsg"
+                style="display:none; color:#ff6b6b; font-size:0.85rem; margin-top:8px; text-align:center;"></div>
+            <div style="text-align:center; margin-top:10px;">
+                <button id="retryQuestionBtn" onclick="retryQuestion()"
+                    style="display:none; padding:10px 24px; border-radius:12px; border:1px solid var(--accent); background:transparent; color:var(--accent); cursor:pointer; font-weight:600;">
+                    <i class="fas fa-rotate-right"></i> Retry Question
+                </button>
+            </div>
         </div>
     </div>
 
@@ -684,24 +700,25 @@ if ($driveId > 0) {
     <script src="<?php echo APP_URL; ?>/js/security_interceptor.js?v=<?php echo APP_VERSION; ?>"></script>
     <script>
         const SILENCE_MS = 7000;
-        
+
         function showMicError(msg) {
             const area = document.getElementById('textInputArea');
             const errMsg = document.getElementById('micErrorMsg');
             if (area) area.style.display = 'block';
             if (errMsg) { errMsg.style.display = 'block'; errMsg.textContent = msg; }
         }
-        
+
         function submitTextAnswer() {
             const input = document.getElementById('textInput');
             const text = input?.value?.trim();
             if (!text) return;
             input.value = '';
-            if (currentState === State.LISTENING || currentState === State.WAITING) {
+            if (currentState === State.LISTENING || currentState === State.WAITING || currentState === State.ERROR) {
                 finalizeUserTranscriptLine(text);
                 transitionTo(State.PROCESSING);
                 loadNextQuestion(text);
                 accumulatedTranscript = '';
+                currentUtterance = '';
                 resetConfidenceStats();
             }
         }
@@ -716,13 +733,17 @@ if ($driveId > 0) {
             ENDED: 'ENDED'
         };
 
+        // WAITING→PROCESSING is required for the text-input fallback (typing an
+        // answer while the mic is preparing), PROCESSING→WAITING for recovering
+        // after a failed question load / failed report generation, and
+        // ERROR→WAITING/PROCESSING so a mic failure never dead-ends the session.
         const ValidTransitions = {
             [State.IDLE]: [State.AI_SPEAKING, State.ENDED],
-            [State.AI_SPEAKING]: [State.WAITING, State.ERROR, State.ENDED],
-            [State.WAITING]: [State.LISTENING, State.ERROR, State.ENDED],
+            [State.AI_SPEAKING]: [State.WAITING, State.PROCESSING, State.ERROR, State.ENDED],
+            [State.WAITING]: [State.LISTENING, State.PROCESSING, State.AI_SPEAKING, State.ERROR, State.ENDED],
             [State.LISTENING]: [State.PROCESSING, State.ERROR, State.ENDED],
-            [State.PROCESSING]: [State.AI_SPEAKING, State.ERROR, State.ENDED],
-            [State.ERROR]: [State.LISTENING, State.ENDED],
+            [State.PROCESSING]: [State.AI_SPEAKING, State.WAITING, State.ERROR, State.ENDED],
+            [State.ERROR]: [State.LISTENING, State.WAITING, State.PROCESSING, State.AI_SPEAKING, State.ENDED],
             [State.ENDED]: []
         };
 
@@ -843,9 +864,25 @@ if ($driveId > 0) {
         }
 
         let audioCtx = null;
+        let micStream = null;              // Raw getUserMedia stream — must be stopped on session end
+        let micPermanentlyBlocked = false; // Set on not-allowed / audio-capture errors
         let micSource = null;
         let analyser = null;
         let animationFrameId = null;
+
+        function releaseAudioResources() {
+            if (recognition) {
+                try { recognition.abort(); } catch (e) { }
+            }
+            if (micStream) {
+                try { micStream.getTracks().forEach(t => t.stop()); } catch (e) { }
+                micStream = null;
+            }
+            if (audioCtx) {
+                try { audioCtx.close(); } catch (e) { }
+                audioCtx = null;
+            }
+        }
 
         let ambientNoiseFloor = 0.01;
         let dynamicThreshold = 0.02;
@@ -863,6 +900,7 @@ if ($driveId > 0) {
 
             navigator.mediaDevices.getUserMedia({ audio: true })
                 .then((stream) => {
+                    micStream = stream;
                     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                     micSource = audioCtx.createMediaStreamSource(stream);
                     analyser = audioCtx.createAnalyser();
@@ -874,6 +912,9 @@ if ($driveId > 0) {
                 })
                 .catch((err) => {
                     console.error("Audio Context initialization failed:", err);
+                    if (err && (err.name === 'NotAllowedError' || err.name === 'NotFoundError' || err.name === 'NotReadableError')) {
+                        micPermanentlyBlocked = true;
+                    }
                     showMicError('Microphone access denied or unavailable. You can type your answers using the text box below.');
                 });
         }
@@ -970,18 +1011,24 @@ if ($driveId > 0) {
                     break;
 
                 case State.WAITING:
+                    timeStateTransitionToListening = Date.now();
+                    if (micPermanentlyBlocked || !recognition) {
+                        // Mic unusable — stay in WAITING and rely on the text-input
+                        // fallback (submitTextAnswer accepts the WAITING state).
+                        updateState("Type your answer below", "neutral");
+                        showMicError('Microphone is unavailable. Type your answer in the box below and press Enter.');
+                        break;
+                    }
                     updateState("Preparing...", "neutral");
                     document.getElementById('micBtn').classList.add('disabled');
-                    timeStateTransitionToListening = Date.now();
-                    if (recognition) {
-                        try { recognition.start(); } catch (e) {
-                            console.warn('Recognition start failed in WAITING, retrying...', e);
-                            setTimeout(() => {
-                                try { recognition.start(); } catch(e2) {
-                                    showMicError('Microphone could not start. Use the text box to type your answer.');
-                                }
-                            }, 500);
-                        }
+                    try { recognition.start(); } catch (e) {
+                        console.warn('Recognition start failed in WAITING, retrying...', e);
+                        setTimeout(() => {
+                            if (currentState !== State.WAITING || micPermanentlyBlocked) return;
+                            try { recognition.start(); } catch (e2) {
+                                showMicError('Microphone could not start. Use the text box to type your answer.');
+                            }
+                        }, 500);
                     }
                     break;
 
@@ -1014,7 +1061,9 @@ if ($driveId > 0) {
                     document.getElementById('micBtn').classList.add('disabled');
                     stopTimer();
                     stopHealthMonitor();
-                    if (audioCtx) { audioCtx.close(); audioCtx = null; }
+                    clearSpeechWatchdog();
+                    stopSpeaking();
+                    releaseAudioResources();
                     break;
             }
         }
@@ -1038,6 +1087,7 @@ if ($driveId > 0) {
                 logTelemetryEvent("MIC_OPEN");
                 telemetryOnstartCount++;
                 recoveryInProgress = false;
+                reconnectAttempts = 0; // successful start resets recovery backoff
                 timeMicOpened = Date.now();
                 if (currentState === State.WAITING) transitionTo(State.LISTENING);
             };
@@ -1081,6 +1131,15 @@ if ($driveId > 0) {
             recognition.onerror = (event) => {
                 logTelemetryEvent("ERROR_" + event.error);
                 telemetryOnerrorCount++;
+                console.warn('SpeechRecognition error:', event.error);
+                if (event.error === 'not-allowed' || event.error === 'service-not-allowed' || event.error === 'audio-capture') {
+                    // Permission denied or no usable microphone — recovery attempts
+                    // are pointless; surface it and switch to the text fallback.
+                    micPermanentlyBlocked = true;
+                    showMicError('Microphone access is blocked or no microphone was found. Enable it in your browser (lock icon → Site settings → Microphone → Allow) and refresh, or type your answers below.');
+                    updateState("Mic unavailable — type your answer", "neutral");
+                    return;
+                }
                 if (event.error === 'no-speech' || event.error === 'network') transitionTo(State.ERROR);
             };
 
@@ -1092,7 +1151,10 @@ if ($driveId > 0) {
                 } else if (document.fullscreenElement) warning.classList.add('hidden');
             });
 
-            window.addEventListener('beforeunload', () => { if (isSessionActive) transitionTo(State.ENDED); });
+            window.addEventListener('beforeunload', () => {
+                if (isSessionActive) transitionTo(State.ENDED);
+                releaseAudioResources(); // always stop mic tracks, even after ENDED
+            });
         };
 
         function resumeFullscreen() {
@@ -1105,6 +1167,25 @@ if ($driveId > 0) {
             const role = document.getElementById('roleInput').value;
             document.getElementById('introOverlay').classList.add('hidden');
             if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen().catch(e => e);
+
+            // Resume an active session if one exists — a refresh mid-interview
+            // previously orphaned the row and reset the 20-minute lock.
+            const checkRes = await apiCall({ action: 'check_active_session', company: company, drive_id: driveId });
+            if (checkRes.success && checkRes.has_active) {
+                sessionId = checkRes.session_id;
+                isSessionActive = true;
+                startTime = Date.now() - ((checkRes.elapsed_seconds || 0) * 1000);
+                initializeSessionAudio();
+                startTimer();
+                startHealthMonitor();
+                (checkRes.history || []).forEach(m => {
+                    if (m && m.content) appendToTranscript(m.role === 'assistant' ? 'ai' : 'user', m.content, false);
+                });
+                transitionTo(State.AI_SPEAKING);
+                loadNextQuestion('', true); // retry flag: resuming must not record a fake skip
+                return;
+            }
+
             const res = await apiCall({ action: 'start_session', role: role, company: company, task_id: "<?php echo $taskId; ?>", drive_id: driveId, concept: concept });
             if (res.success) {
                 sessionId = res.session_id;
@@ -1115,6 +1196,11 @@ if ($driveId > 0) {
                 startHealthMonitor();
                 transitionTo(State.AI_SPEAKING);
                 loadNextQuestion("");
+            } else {
+                // Previously a failed start left a dead black screen with no feedback
+                alert('Could not start the interview: ' + (res.message || 'Unknown error') + '\nPlease try again.');
+                document.getElementById('introOverlay').classList.remove('hidden');
+                document.getElementById('introOverlay').style.opacity = '1';
             }
         }
 
@@ -1137,22 +1223,101 @@ if ($driveId > 0) {
 
         function stopTimer() { clearInterval(totalDurationTimer); }
 
-        async function loadNextQuestion(userMsg) {
+        const QUESTION_POLL_INTERVAL_MS = 2000;
+        // Must exceed the worker's worst case: AIService retries 3× with a 90s
+        // cURL timeout (~272s) before a job resolves to completed/failed.
+        const QUESTION_POLL_TIMEOUT_MS = 300000;
+
+        async function loadNextQuestion(userMsg, isRetry = false) {
             transitionTo(State.PROCESSING);
-            const res = await apiCall({ action: 'get_question', session_id: sessionId, message: userMsg });
+            hideRetryButton();
+            const payload = { action: 'get_question', session_id: sessionId, message: userMsg };
+            if (isRetry) payload.retry = 1;
+            const res = await apiCall(payload);
             if (res.success && res.job_id) {
-                const pollInterval = setInterval(async () => {
-                    const statusRes = await fetch(`ai_job_status.php?job_id=${res.job_id}`).then(r => r.json());
-                    if (statusRes.success && statusRes.status === 'completed') {
-                        clearInterval(pollInterval);
-                        const data = statusRes.result;
-                        const text = (data.feedback ? data.feedback + ". " : "") + data.question;
-                        appendToTranscript('ai', data.question, false);
-                        speak(text);
-                        apiCall({ action: 'append_ai_history', session_id: sessionId, message: data.question });
-                    }
-                }, 2000);
+                pollForQuestion(res.job_id);
+            } else if (res.success && res.result) {
+                // Synchronous fallback path (queue/worker unavailable server-side)
+                handleQuestionPayload(res.result);
+            } else {
+                handleQuestionFailure(res.message || 'Failed to reach the AI service.');
             }
+        }
+
+        function handleQuestionPayload(data) {
+            if (typeof data === 'string') {
+                try { data = JSON.parse(data); } catch (e) { }
+            }
+            if (!data || data.success === false || !data.question) {
+                handleQuestionFailure((data && data.message) || 'The AI could not generate a question.');
+                return;
+            }
+            const text = (data.feedback ? data.feedback + ". " : "") + data.question;
+            appendToTranscript('ai', data.question, false);
+            speak(text);
+            apiCall({ action: 'append_ai_history', session_id: sessionId, message: data.question });
+        }
+
+        function pollForQuestion(jobId) {
+            const startedAt = Date.now();
+            let consecutiveErrors = 0;
+            const pollInterval = setInterval(async () => {
+                if (currentState === State.ENDED) { clearInterval(pollInterval); return; }
+                if (Date.now() - startedAt > QUESTION_POLL_TIMEOUT_MS) {
+                    clearInterval(pollInterval);
+                    handleQuestionFailure('The AI is taking too long to respond.');
+                    return;
+                }
+                try {
+                    const statusRes = await fetch(`ai_job_status.php?job_id=${jobId}`).then(r => r.json());
+                    consecutiveErrors = 0;
+                    if (statusRes.success === false) {
+                        clearInterval(pollInterval);
+                        handleQuestionFailure(statusRes.message || 'The question request was lost.');
+                    } else if (statusRes.status === 'completed') {
+                        clearInterval(pollInterval);
+                        handleQuestionPayload(statusRes.result);
+                    } else if (statusRes.status === 'failed') {
+                        clearInterval(pollInterval);
+                        handleQuestionFailure(statusRes.error || 'AI question generation failed.');
+                    }
+                } catch (e) {
+                    console.error('Polling error:', e);
+                    consecutiveErrors++;
+                    if (consecutiveErrors >= 5) {
+                        clearInterval(pollInterval);
+                        handleQuestionFailure('Connection lost while waiting for the question.');
+                    }
+                }
+            }, QUESTION_POLL_INTERVAL_MS);
+        }
+
+        function handleQuestionFailure(msg) {
+            console.error('Question load failed:', msg);
+            logTelemetryEvent("QUESTION_LOAD_FAILED");
+            if (currentState === State.ENDED) return;
+            // WAITING re-arms the mic AND makes the text-input fallback accept
+            // submissions (it only fires in WAITING/LISTENING).
+            transitionTo(State.WAITING);
+            updateState("Question failed to load", "neutral");
+            showMicError(msg + ' Click "Retry Question" below to try again.');
+            showRetryButton();
+        }
+
+        function showRetryButton() {
+            const b = document.getElementById('retryQuestionBtn');
+            if (b) b.style.display = 'inline-block';
+            const area = document.getElementById('textInputArea');
+            if (area) area.style.display = 'block';
+        }
+
+        function hideRetryButton() {
+            const b = document.getElementById('retryQuestionBtn');
+            if (b) b.style.display = 'none';
+        }
+
+        function retryQuestion() {
+            loadNextQuestion('', true);
         }
 
         function clearSilenceTimer() { if (silenceTimer) { clearTimeout(silenceTimer); silenceTimer = null; } }
@@ -1169,6 +1334,7 @@ if ($driveId > 0) {
                 transitionTo(State.PROCESSING);
                 loadNextQuestion(text);
                 accumulatedTranscript = '';
+                currentUtterance = '';
                 resetConfidenceStats();
             }
         }
@@ -1181,34 +1347,91 @@ if ($driveId > 0) {
             transitionTo(State.PROCESSING);
             loadNextQuestion(text);
             accumulatedTranscript = '';
+            currentUtterance = '';
             resetConfidenceStats();
         }
 
-        function clearSpeechWatchdog() { if (speechWatchdog) clearTimeout(speechWatchdog); }
+        function clearSpeechWatchdog() { if (speechWatchdog) { clearTimeout(speechWatchdog); speechWatchdog = null; } }
+
+        let cachedVoice = null;
+        function pickVoice() {
+            // `voices` was loaded via onvoiceschanged but never applied — pick a
+            // stable English voice once so pronunciation is consistent across chunks.
+            if (cachedVoice) return cachedVoice;
+            if (!voices || voices.length === 0) voices = synth.getVoices();
+            if (!voices || voices.length === 0) return null;
+            cachedVoice =
+                voices.find(v => v.lang === 'en-US' && /google|microsoft/i.test(v.name)) ||
+                voices.find(v => v.lang === 'en-US') ||
+                voices.find(v => v.lang && v.lang.startsWith('en')) ||
+                null;
+            return cachedVoice;
+        }
 
         function speak(text) {
+            if (!text || !String(text).trim()) {
+                // Nothing to say — go straight to listening instead of hanging in AI_SPEAKING
+                if (isSessionActive && currentState !== State.ENDED) transitionTo(State.WAITING);
+                return;
+            }
             if (synth.speaking) synth.cancel();
-            speechQueue = text.match(/[^.!?]+[.!?]*|[^.!?]+/g) || [text];
+            speechQueue = String(text).match(/[^.!?]+[.!?]*|[^.!?]+/g) || [String(text)];
             transitionTo(State.AI_SPEAKING);
             processSpeechQueue();
         }
 
         function processSpeechQueue() {
+            clearSpeechWatchdog();
+            if (currentState !== State.AI_SPEAKING) { speechQueue = []; return; }
             if (speechQueue.length === 0) {
                 if (isSessionActive) transitionTo(State.WAITING);
                 return;
             }
-            const utterance = new SpeechSynthesisUtterance(speechQueue.shift());
-            utterance.onend = () => setTimeout(processSpeechQueue, 100);
+            const chunk = speechQueue.shift();
+            const utterance = new SpeechSynthesisUtterance(chunk);
+            const voice = pickVoice();
+            if (voice) utterance.voice = voice;
+            let advanced = false;
+            const advance = () => {
+                if (advanced) return;
+                advanced = true;
+                clearSpeechWatchdog();
+                setTimeout(processSpeechQueue, 100);
+            };
+            utterance.onend = advance;
+            // Chrome can silently drop utterances (onend never fires) — without
+            // these two guards the session hangs in AI_SPEAKING and the mic never opens.
+            utterance.onerror = advance;
+            speechWatchdog = setTimeout(() => {
+                console.warn('Speech watchdog fired — utterance stalled, advancing queue.');
+                try { synth.cancel(); } catch (e) { }
+                advance();
+            }, Math.max(8000, chunk.length * 150));
             synth.speak(utterance);
         }
 
         let reconnectAttempts = 0;
         let recoveryInProgress = false;
+        const MAX_RECONNECT_ATTEMPTS = 4;
         function recoverRecognition() {
-            if (recoveryInProgress) return;
+            if (recoveryInProgress || currentState === State.ENDED) return;
+            if (micPermanentlyBlocked) {
+                // Recovery is pointless without mic permission — move to WAITING,
+                // whose blocked-mic branch surfaces the text-input fallback.
+                transitionTo(State.WAITING);
+                return;
+            }
+            if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                // Previously recursed forever; now give up and hand the user the
+                // text-input fallback so the interview can continue.
+                showMicError('The microphone keeps disconnecting. You can type your answers below instead.');
+                updateState("Mic unstable — type your answer", "neutral");
+                transitionTo(State.WAITING);
+                return;
+            }
             recoveryInProgress = true;
             setTimeout(() => {
+                if (currentState === State.ENDED || micPermanentlyBlocked) { recoveryInProgress = false; return; }
                 try {
                     recognition.start();
                     transitionTo(State.LISTENING);
@@ -1222,6 +1445,7 @@ if ($driveId > 0) {
         }
 
         function toggleMic() {
+            if (currentState === State.PROCESSING || currentState === State.ENDED) return; // don't interrupt an in-flight question
             if (currentState === State.LISTENING) processUserAnswer(currentUtterance || document.getElementById('textInput')?.value || '');
             else transitionTo(State.WAITING);
         }
@@ -1270,8 +1494,9 @@ if ($driveId > 0) {
 
         async function endSession() {
             if (!confirm("End Interview?")) return;
-            isSessionActive = false;
-            transitionTo(State.ENDED);
+            // Do NOT enter the terminal ENDED state before the report succeeds —
+            // a failure (e.g. minimum-duration check) must leave the session usable.
+            transitionTo(State.PROCESSING);
             document.getElementById('loadingOverlay').classList.remove('hidden');
             const res = await apiCall({
                 action: 'generate_report_data',
@@ -1280,15 +1505,35 @@ if ($driveId > 0) {
             });
             document.getElementById('loadingOverlay').classList.add('hidden');
             if (res.success) {
+                isSessionActive = false;
+                transitionTo(State.ENDED);
                 document.getElementById('finalScoreNum').innerText = res.score;
                 document.getElementById('scoreModal').classList.remove('hidden');
+            } else {
+                alert(res.message || 'Report generation failed. Please try ending the session again.');
+                transitionTo(State.WAITING); // resume the interview
             }
         }
 
         async function apiCall(data) {
-            const formData = new FormData();
-            for (const k in data) formData.append(k, data[k]);
-            return fetch('ai_hr_handler.php', { method: 'POST', body: formData }).then(r => r.json());
+            try {
+                const formData = new FormData();
+                for (const k in data) formData.append(k, data[k]);
+                const response = await fetch('ai_hr_handler.php', {
+                    method: 'POST',
+                    headers: { 'X-CSRF-TOKEN': window.CSRF_TOKEN },
+                    body: formData
+                });
+                try {
+                    return await response.json();
+                } catch (parseErr) {
+                    console.error('ai_hr_handler returned non-JSON (HTTP ' + response.status + ')');
+                    return { success: false, message: 'The server returned an invalid response (HTTP ' + response.status + ').' };
+                }
+            } catch (netErr) {
+                console.error('ai_hr_handler network error:', netErr);
+                return { success: false, message: 'Network error. Please check your connection.' };
+            }
         }
 
         function closeSession() { window.location.href = 'dashboard.php'; }

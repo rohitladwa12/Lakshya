@@ -198,7 +198,7 @@ class LeaderboardService {
     }
 
     private static function fetchMockData($usnList) {
-        $stmt = getDB()->query("SELECT student_id, role_name, overall_score, report_content 
+        $stmt = getDB()->query("SELECT student_id, role_name, overall_score, report_content, difficulty, difficulty_level, completed_at, started_at 
                                 FROM mock_ai_interview_sessions 
                                 WHERE student_id IN ($usnList) AND status = 'completed'");
         $mocks = [];
@@ -209,7 +209,7 @@ class LeaderboardService {
     }
 
     private static function fetchTaskCompletions($usnList) {
-        $stmt = getDB()->query("SELECT tc.student_id, ct.task_type, tc.score 
+        $stmt = getDB()->query("SELECT tc.student_id, ct.task_type, tc.score, ct.difficulty, tc.completed_at 
                                 FROM task_completions tc
                                 JOIN coordinator_tasks ct ON tc.task_id = ct.id
                                 WHERE tc.student_id IN ($usnList)");
@@ -384,6 +384,27 @@ class LeaderboardService {
         return $penalty;
     }
 
+    private static function applyDifficultyWeight($score, $difficulty, $completedAt) {
+        $completedTimestamp = strtotime($completedAt);
+        $policyStartDate = strtotime('2026-07-14 00:00:00'); // Applied from today onwards
+        
+        if ($completedTimestamp < $policyStartDate) {
+            return (float)$score;
+        }
+        
+        $diff = strtolower(trim((string)$difficulty));
+        if ($diff === 'low') {
+            return (float)$score * 0.4;
+        }
+        if ($diff === 'medium') {
+            return (float)$score * 0.9;
+        }
+        if ($diff === 'high') {
+            return (float)$score * 1.0;
+        }
+        return (float)$score;
+    }
+
     private static function calculatePillars($userScores, $userMocks, $userTasks = []) {
         $tempPillars = ['aptitude' => [], 'technical' => [], 'hr' => []];
 
@@ -399,9 +420,13 @@ class LeaderboardService {
         foreach ($userTasks as $t) {
             $type = strtolower($t['task_type']);
             $score = (float)$t['score'];
-            if ($type === 'aptitude') $tempPillars['aptitude'][] = $score;
-            elseif ($type === 'technical') $tempPillars['technical'][] = $score;
-            elseif ($type === 'hr') $tempPillars['hr'][] = $score;
+            $difficulty = $t['difficulty'] ?? '';
+            $completedAt = $t['completed_at'] ?? '2026-07-13 00:00:00';
+            $weightedScore = self::applyDifficultyWeight($score, $difficulty, $completedAt);
+
+            if ($type === 'aptitude') $tempPillars['aptitude'][] = $weightedScore;
+            elseif ($type === 'technical') $tempPillars['technical'][] = $weightedScore;
+            elseif ($type === 'hr') $tempPillars['hr'][] = $weightedScore;
         }
 
         // Process Mocks (with sniffing)
@@ -409,26 +434,33 @@ class LeaderboardService {
             $report = $m['report_content'] ?? '';
             $role = strtolower($m['role_name'] ?? '');
             $overall = (float)($m['overall_score'] ?? 0);
+            $difficulty = $m['difficulty'] ?? $m['difficulty_level'] ?? '';
+            $completedAt = $m['completed_at'] ?? $m['started_at'] ?? '2026-07-13 00:00:00';
+            
             $foundSection = false;
 
             if (preg_match('/Aptitude:\s*\[?(\d+)\]?\s*\/\s*10/i', $report, $matches)) {
-                $tempPillars['aptitude'][] = (float)$matches[1] * 10;
+                $rawScore = (float)$matches[1] * 10;
+                $tempPillars['aptitude'][] = self::applyDifficultyWeight($rawScore, $difficulty, $completedAt);
                 $foundSection = true;
             }
             if (preg_match('/Technical(?:\s+Proficiency)?:\s*\[?(\d+)\]?\s*\/\s*10/i', $report, $matches)) {
-                $tempPillars['technical'][] = (float)$matches[1] * 10;
+                $rawScore = (float)$matches[1] * 10;
+                $tempPillars['technical'][] = self::applyDifficultyWeight($rawScore, $difficulty, $completedAt);
                 $foundSection = true;
             }
             if (preg_match('/HR:\s*\[?(\d+)\]?\s*\/\s*10/i', $report, $matches)) {
-                $tempPillars['hr'][] = (float)$matches[1] * 10;
+                $rawScore = (float)$matches[1] * 10;
+                $tempPillars['hr'][] = self::applyDifficultyWeight($rawScore, $difficulty, $completedAt);
                 $foundSection = true;
             }
 
             if (!$foundSection) {
                 $context = $role . ' ' . strip_tags($report);
-                if (preg_match('/aptitude|quant|logical|nqt/i', $context)) $tempPillars['aptitude'][] = $overall;
-                elseif (preg_match('/hr|behavioral|culture|managerial/i', $context)) $tempPillars['hr'][] = $overall;
-                else $tempPillars['technical'][] = $overall;
+                $weightedScore = self::applyDifficultyWeight($overall, $difficulty, $completedAt);
+                if (preg_match('/aptitude|quant|logical|nqt/i', $context)) $tempPillars['aptitude'][] = $weightedScore;
+                elseif (preg_match('/hr|behavioral|culture|managerial/i', $context)) $tempPillars['hr'][] = $weightedScore;
+                else $tempPillars['technical'][] = $weightedScore;
             }
         }
 

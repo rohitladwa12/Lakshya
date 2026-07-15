@@ -3,7 +3,8 @@ namespace App\Services;
 
 use App\Helpers\RedisHelper;
 
-class QueueService {
+class QueueService
+{
     private static $queueName = 'ai_job_queue';
     private static $statusPrefix = 'ai_job:';
 
@@ -15,7 +16,8 @@ class QueueService {
      * @param int $userId ID of the student
      * @return string Job ID
      */
-    public static function pushJob($serviceMethod, $args, $userId) {
+    public static function pushJob($serviceMethod, $args, $userId)
+    {
         $redisHelper = RedisHelper::getInstance();
         if (!$redisHelper->isConnected()) {
             throw new \Exception("Redis is not connected. Cannot push job to queue.");
@@ -48,58 +50,92 @@ class QueueService {
      * @param string $jobId
      * @return array|null
      */
-    public static function getJobStatus($jobId) {
+    public static function getJobStatus($jobId)
+    {
         $redisHelper = RedisHelper::getInstance();
-        if (!$redisHelper->isConnected()) return null;
-        
+        if (!$redisHelper->isConnected())
+            return null;
+
         $redis = $redisHelper->getClient();
         $data = $redis->hgetall(self::$statusPrefix . $jobId);
-        
-        if (empty($data)) return null;
+
+        if (empty($data))
+            return null;
 
         // Decode arguments if requested
         if (isset($data['args'])) {
             $data['args'] = json_decode($data['args'], true);
         }
-        
+
         if (isset($data['result'])) {
             $data['result'] = json_decode($data['result'], true);
         }
 
         return $data;
     }
-    
+
     /**
      * Update job status/result
      * (Used by Worker)
      */
-    public static function updateJob($jobId, $updateData) {
+    public static function updateJob($jobId, $updateData)
+    {
         $redisHelper = RedisHelper::getInstance();
-        if (!$redisHelper->isConnected()) return false;
-        
+        if (!$redisHelper->isConnected())
+            return false;
+
         $redis = $redisHelper->getClient();
         $redis->hmset(self::$statusPrefix . $jobId, $updateData);
     }
-    
+
     /**
      * Block while waiting for a job from the queue
      * (Used by Worker)
      */
-    public static function popJob($timeout = 30) {
+    public static function popJob($timeout = 30)
+    {
         $redisHelper = RedisHelper::getInstance();
-        if (!$redisHelper->isConnected()) return null;
-        
+        if (!$redisHelper->isConnected())
+            return null;
+
         $redis = $redisHelper->getClient();
         $result = $redis->brpop(self::$queueName, $timeout);
         return $result ? $result[1] : null;
     }
 
     /**
+     * True when Redis is reachable AND at least one worker has pulsed recently.
+     * Handlers use this to decide between queueing and a synchronous fallback,
+     * so a dead worker doesn't leave jobs pending forever.
+     */
+    public static function isQueueAvailable($maxPulseAge = 120)
+    {
+        try {
+            $redisHelper = RedisHelper::getInstance();
+            if (!$redisHelper->isConnected())
+                return false;
+            $pulses = $redisHelper->getClient()->hgetall('ai_workers_pulse');
+            if (empty($pulses))
+                return false;
+            foreach ($pulses as $ts) {
+                if (time() - (int) $ts <= $maxPulseAge)
+                    return true;
+            }
+            return false;
+        } catch (\Throwable $e) {
+            error_log("QueueService::isQueueAvailable check failed: " . $e->getMessage());
+            return false;
+        }
+    }
+
+    /**
      * Get number of pending jobs
      */
-    public static function getPendingCount() {
+    public static function getPendingCount()
+    {
         $redisHelper = RedisHelper::getInstance();
-        if (!$redisHelper->isConnected()) return 0;
+        if (!$redisHelper->isConnected())
+            return 0;
         $redis = $redisHelper->getClient();
         return $redis->llen(self::$queueName);
     }

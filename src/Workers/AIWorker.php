@@ -11,7 +11,8 @@ require_once __DIR__ . '/../../src/Services/CareerAdvisorAI.php';
 
 use App\Services\QueueService;
 
-function workerLog($message) {
+function workerLog($message)
+{
     echo "[" . date('Y-m-d H:i:s') . "] " . $message . "\n";
 }
 
@@ -27,7 +28,8 @@ $services = [
 $workerId = gethostname() . "_" . getmypid();
 workerLog("Worker Identity: $workerId");
 
-function updatePulse($id, $jobCount = 0) {
+function updatePulse($id, $jobCount = 0)
+{
     global $redisHelper;
     if ($redisHelper && $redisHelper->isConnected()) {
         $redisHelper->getClient()->hset('ai_workers_pulse', $id, time());
@@ -60,7 +62,7 @@ while (true) {
 
     // 1. Pop Job ID
     $jobId = QueueService::popJob(30); // Block for 30s
-    
+
     if (!$jobId) {
         // No job, pulse and loop again
         updatePulse($workerId, $jobCount);
@@ -78,6 +80,9 @@ while (true) {
 
     // 3. Update status to processing
     $jobCount++;
+    // Pulse BEFORE processing: long AI calls (up to minutes) must not make the
+    // worker look dead to QueueService::isQueueAvailable().
+    updatePulse($workerId, $jobCount);
     $currentUserId = $job['user_id'] ?? 0;
     $GLOBALS['AI_WORKER_USER_ID'] = $currentUserId;
 
@@ -96,11 +101,26 @@ while (true) {
         foreach ($services as $svc) {
             if (method_exists($svc, $method)) {
                 $result = call_user_func_array([$svc, $method], $args);
+
+                // A service-level failure (e.g. OpenAI error) must surface as a
+                // FAILED job, not a "completed" job whose payload is an error
+                // object — pollers only ever looked at 'completed'/'failed'.
+                if (is_array($result) && isset($result['success']) && $result['success'] === false) {
+                    QueueService::updateJob($jobId, [
+                        'status' => 'failed',
+                        'error' => $result['message'] ?? 'AI service returned a failure',
+                        'completed_at' => time()
+                    ]);
+                    workerLog("Failed: Job $jobId — AI error: " . ($result['message'] ?? 'unknown'));
+                    $dispatched = true;
+                    break;
+                }
+
                 $finalResult = isset($result['result']) ? $result['result'] : $result;
 
                 QueueService::updateJob($jobId, [
-                    'status'       => 'completed',
-                    'result'       => json_encode($finalResult),
+                    'status' => 'completed',
+                    'result' => json_encode($finalResult),
                     'completed_at' => time()
                 ]);
                 workerLog("Success: Job $jobId finished (" . get_class($svc) . "::$method).");

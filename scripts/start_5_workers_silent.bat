@@ -11,7 +11,7 @@ echo Set WshShell = CreateObject("WScript.Shell") > "%VBS_FILE%"
 echo command = "php src\Workers\AIWorker.php" >> "%VBS_FILE%"
 
 :: Kill any existing workers first
-taskkill /f /im php.exe /fi "WINDOWTITLE eq Lakshya AI Worker*" >nul 2>&1
+powershell -Command "$workers = Get-CimInstance Win32_Process -Filter \"Name='php.exe' AND CommandLine LIKE '%%AIWorker.php%%'\"; if ($workers) { $workers | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }" >nul 2>&1
 
 :: Launch 5 workers with separate log files to prevent Windows write locks, allowing all 5 to run in parallel
 for /L %%i in (1,1,5) do (
@@ -28,4 +28,4 @@ del "%VBS_FILE%"
 echo [ %date% %time% ] 5 Workers are now running in the BACKGROUND.
 echo No windows will be visible. Monitor them via:
 echo -- http://localhost/Lakshya/public/admin/ai_monitor.php
-pause
+timeout /t 5

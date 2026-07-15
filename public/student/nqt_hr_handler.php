@@ -86,21 +86,53 @@ switch ($action) {
 
         if (!empty($userMessage)) {
             $history[] = ['role' => 'user', 'content' => $userMessage];
+        } else if (count($history) > 0) {
+            $history[] = ['role' => 'user', 'content' => '[No response / skipped]'];
         }
 
+        // Fetch previously asked questions for this student to prevent repetition
+        $previousQuestions = [];
+        $extractQuestions = function ($historyArr) {
+            $questions = [];
+            if (!is_array($historyArr))
+                return $questions;
+            foreach ($historyArr as $msg) {
+                if (($msg['role'] ?? '') === 'assistant') {
+                    $content = $msg['content'] ?? '';
+                    $parsed = @json_decode($content, true);
+                    if ($parsed && !empty($parsed['question'])) {
+                        $questions[] = $parsed['question'];
+                    } elseif (!empty(trim($content))) {
+                        $questions[] = trim($content);
+                    }
+                }
+            }
+            return $questions;
+        };
+
+        $previousQuestions = array_merge($previousQuestions, $extractQuestions($history));
+
+        $stmtPrev = $db->prepare("SELECT details FROM unified_ai_assessments WHERE student_id = ? AND assessment_type = 'NQT HR' AND id != ? ORDER BY started_at DESC LIMIT 5");
+        $stmtPrev->execute([$studentIdForDb, $sessionId]);
+        while ($row = $stmtPrev->fetch(PDO::FETCH_ASSOC)) {
+            $det = json_decode($row['details'], true);
+            if (!empty($det['history'])) {
+                $previousQuestions = array_merge($previousQuestions, $extractQuestions($det['history']));
+            }
+        }
+        $previousQuestions = array_values(array_unique($previousQuestions));
+
         session_write_close();
-        $response = $ai->getHRQuestion('TCS NQT Candidate', $history, $projects);
+        $response = $ai->getHRQuestion('TCS NQT Candidate', $history, $projects, null, $previousQuestions);
         
         if ($response['success']) {
-            $aiData = json_decode($response['content'], true);
-            $history[] = ['role' => 'assistant', 'content' => $response['content']];
+            $aiData = $response['result'];
+            $cleanQuestion = $aiData['question'] ?? '';
+            $history[] = ['role' => 'assistant', 'content' => $cleanQuestion];
             
+            $details['history'] = $history;
             $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ?")
-               ->execute([json_encode([
-                   'role' => 'TCS Candidate', 
-                   'history' => $history,
-                   'projects' => $projects
-               ]), $sessionId]);
+               ->execute([json_encode($details), $sessionId]);
 
             echo json_encode(['success' => true, 'data' => $aiData]);
         } else {

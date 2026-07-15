@@ -31,13 +31,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             task_type, 
             company_name, 
             concept, 
+            difficulty,
             question_source, 
             deadline, 
             created_at,
             COUNT(*) as targeted_count
         FROM coordinator_tasks 
         WHERE coordinator_id = ?
-        GROUP BY title, task_type, deadline, company_name, concept, question_source
+        GROUP BY title, task_type, deadline, company_name, concept, difficulty, question_source
         ORDER BY created_at DESC
     ");
     $stmtTasks->execute([$coordId]);
@@ -1062,6 +1063,15 @@ try {
                             if (task.concept) {
                                 if (targetInfo) targetInfo += '<br>';
                                 targetInfo += '<strong>Role/Concept:</strong> ' + escapeHtml(task.concept);
+                            }
+                            if (task.difficulty) {
+                                if (targetInfo) targetInfo += '<br>';
+                                let diffColor = '#64748b';
+                                let diffLabel = task.difficulty.charAt(0).toUpperCase() + task.difficulty.slice(1).toLowerCase();
+                                if (diffLabel === 'Low') diffColor = '#166534';
+                                else if (diffLabel === 'Medium') diffColor = '#b45309';
+                                else if (diffLabel === 'High') diffColor = '#991b1b';
+                                targetInfo += '<strong>Difficulty:</strong> <span style="color:' + diffColor + '; font-weight:600;">' + diffLabel + '</span>';
                             }
                             if (!targetInfo) {
                                 targetInfo = '<span style="color:var(--text-muted); font-style:italic;">General Practice</span>';

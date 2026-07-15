@@ -4,7 +4,7 @@ use App\Helpers\SessionFilterHelper;
 
 requireLogin();
 
-$driveId = isset($_GET['drive_id']) ? (int)$_GET['drive_id'] : 0;
+$driveId = isset($_GET['drive_id']) ? (int) $_GET['drive_id'] : 0;
 $companyName = 'General';
 $taskId = 0;
 $concept = '';
@@ -35,7 +35,7 @@ if ($driveId > 0) {
     if ($stmt->fetchColumn() == 0) {
         die("Access denied. Only applied students can access this recruitment drive round.");
     }
-    
+
     // Check if the round is actually active
     if (!$drive['technical_active']) {
         die("The Technical Round for this recruitment drive is currently disabled.");
@@ -60,17 +60,28 @@ if ($driveId > 0) {
     $companyName = $filters['company'] ?? 'General';
     $taskId = $filters['task_id'] ?? 0;
     $concept = $filters['concept'] ?? '';
+    if (empty($concept) && $taskId) {
+        try {
+            $db = getDB();
+            $stmt = $db->prepare("SELECT concept FROM coordinator_tasks WHERE id = ?");
+            $stmt->execute([$taskId]);
+            $concept = $stmt->fetchColumn() ?: '';
+        } catch (Exception $e) {}
+    }
 }
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Technical Round - <?php echo htmlspecialchars($companyName); ?></title>
     <!-- Fonts & Icons -->
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <link
+        href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;600&display=swap"
+        rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <!-- Code Mirror for Editor -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
@@ -83,19 +94,33 @@ if ($driveId > 0) {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
     <script src="resilience.js?v=<?php echo APP_VERSION; ?>"></script>
 
-    
+
     <style>
         :root {
             --bg-dark: #121212;
             --panel-bg: #1e1e1e;
-            --primary: #800000; /* Maroon */
-            --accent: #e9c66f; /* Gold */
+            --primary: #800000;
+            /* Maroon */
+            --accent: #e9c66f;
+            /* Gold */
             --text: #e0e0e0;
             --code-bg: #282a36;
         }
 
-        * { box-sizing: border-box; }
-        body { margin: 0; padding: 0; background: var(--bg-dark); color: var(--text); font-family: 'Inter', sans-serif; height: 100vh; display: flex; flex-direction: column; }
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            padding: 0;
+            background: var(--bg-dark);
+            color: var(--text);
+            font-family: 'Inter', sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
 
         header {
             background: #181818;
@@ -105,8 +130,16 @@ if ($driveId > 0) {
             justify-content: space-between;
             align-items: center;
         }
-        
-        .role-badge { background: var(--accent); color: #000; padding: 5px 10px; border-radius: 4px; font-weight: bold; font-size: 0.8rem; text-transform: uppercase; }
+
+        .role-badge {
+            background: var(--accent);
+            color: #000;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-weight: bold;
+            font-size: 0.8rem;
+            text-transform: uppercase;
+        }
 
         .main-container {
             flex: 1;
@@ -131,15 +164,34 @@ if ($driveId > 0) {
             scroll-behavior: smooth;
         }
 
-        .message { margin-bottom: 20px; max-width: 90%; line-height: 1.5; font-size: 0.95rem; }
-        .message.ai { align-self: flex-start; }
-        .message.ai .bubble { 
-            background: #2d2d2d; padding: 15px; border-radius: 12px 12px 12px 0; 
+        .message {
+            margin-bottom: 20px;
+            max-width: 90%;
+            line-height: 1.5;
+            font-size: 0.95rem;
+        }
+
+        .message.ai {
+            align-self: flex-start;
+        }
+
+        .message.ai .bubble {
+            background: #2d2d2d;
+            padding: 15px;
+            border-radius: 12px 12px 12px 0;
             border-left: 3px solid var(--accent);
         }
-        .message.user { align-self: flex-end; margin-left: auto; }
-        .message.user .bubble { 
-            background: var(--primary); color: white; padding: 12px 18px; border-radius: 12px 12px 0 12px; 
+
+        .message.user {
+            align-self: flex-end;
+            margin-left: auto;
+        }
+
+        .message.user .bubble {
+            background: var(--primary);
+            color: white;
+            padding: 12px 18px;
+            border-radius: 12px 12px 0 12px;
         }
 
         .input-area {
@@ -150,7 +202,8 @@ if ($driveId > 0) {
             gap: 10px;
         }
 
-        input[type="text"], textarea#userInput {
+        input[type="text"],
+        textarea#userInput {
             flex: 1;
             padding: 12px;
             border: 1px solid #444;
@@ -172,14 +225,21 @@ if ($driveId > 0) {
             transition: all 0.2s;
         }
 
-        .btn-send { background: var(--primary); color: white; }
-        .btn-send:hover { background: #a00000; }
+        .btn-send {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-send:hover {
+            background: #a00000;
+        }
 
         /* Right Split: Coding Environment */
         .code-panel {
             width: 60%;
             background: var(--bg-dark);
-            display: flex; /* Hidden by default if conceptual, but flex here for layout */
+            display: flex;
+            /* Hidden by default if conceptual, but flex here for layout */
             flex-direction: column;
         }
 
@@ -192,8 +252,16 @@ if ($driveId > 0) {
             border-bottom: 1px solid #333;
         }
 
-        .code-wrapper { flex: 1; position: relative; }
-        .CodeMirror { height: 100% !important; font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+        .code-wrapper {
+            flex: 1;
+            position: relative;
+        }
+
+        .CodeMirror {
+            height: 100% !important;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 14px;
+        }
 
         .console-panel {
             height: 150px;
@@ -205,53 +273,140 @@ if ($driveId > 0) {
             font-size: 0.9rem;
         }
 
-        .console-title { font-size: 0.8rem; color: #888; margin-bottom: 5px; text-transform: uppercase; }
-        .output { color: #aaa; }
-        .output.success { color: #50fa7b; }
-        .output.error { color: #ff5555; }
+        .console-title {
+            font-size: 0.8rem;
+            color: #888;
+            margin-bottom: 5px;
+            text-transform: uppercase;
+        }
+
+        .output {
+            color: #aaa;
+        }
+
+        .output.success {
+            color: #50fa7b;
+        }
+
+        .output.error {
+            color: #ff5555;
+        }
 
         .overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9);
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
             z-index: 1000;
-            display: flex; justify-content: center; align-items: center;
+            display: flex;
+            justify-content: center;
+            align-items: center;
             flex-direction: column;
         }
 
-        .hidden { display: none !important; }
+        .hidden {
+            display: none !important;
+        }
 
         /* Score Modal */
         #scoreModal {
-            position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
-            background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px);
-            z-index: 9999; display: flex; align-items: center; justify-content: center;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: rgba(0, 0, 0, 0.85);
+            backdrop-filter: blur(8px);
+            z-index: 9999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
+
         .score-card {
             background: linear-gradient(145deg, #1e1e2f, #11111a);
-            padding: 50px; border-radius: 24px; text-align: center;
-            border: 2px solid #333; box-shadow: 0 20px 50px rgba(0,0,0,0.5);
-            max-width: 500px; width: 90%; color: white;
+            padding: 50px;
+            border-radius: 24px;
+            text-align: center;
+            border: 2px solid #333;
+            box-shadow: 0 20px 50px rgba(0, 0, 0, 0.5);
+            max-width: 500px;
+            width: 90%;
+            color: white;
             animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) forwards;
         }
+
         @keyframes popIn {
-            0% { transform: scale(0.8); opacity: 0; }
-            100% { transform: scale(1); opacity: 1; }
+            0% {
+                transform: scale(0.8);
+                opacity: 0;
+            }
+
+            100% {
+                transform: scale(1);
+                opacity: 1;
+            }
         }
-        .score-title { font-size: 24px; color: #aaa; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 2px; font-weight: 600; }
-        .score-number { font-size: 80px; font-weight: 900; color: #10b981; line-height: 1; text-shadow: 0 0 20px rgba(16, 185, 129, 0.4); margin-bottom: 5px; }
-        .score-percentage { font-size: 30px; font-weight: 700; color: #10b981; }
-        .score-zero { color: #ef4444; text-shadow: 0 0 20px rgba(239, 68, 68, 0.4); }
-        .score-desc { font-size: 16px; color: #bbb; margin-bottom: 40px; }
+
+        .score-title {
+            font-size: 24px;
+            color: #aaa;
+            margin-bottom: 10px;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            font-weight: 600;
+        }
+
+        .score-number {
+            font-size: 80px;
+            font-weight: 900;
+            color: #10b981;
+            line-height: 1;
+            text-shadow: 0 0 20px rgba(16, 185, 129, 0.4);
+            margin-bottom: 5px;
+        }
+
+        .score-percentage {
+            font-size: 30px;
+            font-weight: 700;
+            color: #10b981;
+        }
+
+        .score-zero {
+            color: #ef4444;
+            text-shadow: 0 0 20px rgba(239, 68, 68, 0.4);
+        }
+
+        .score-desc {
+            font-size: 16px;
+            color: #bbb;
+            margin-bottom: 40px;
+        }
+
         .btn-continue {
-            background: #800000; color: white; border: none; padding: 15px 40px;
-            border-radius: 12px; font-size: 18px; font-weight: 700; cursor: pointer;
-            transition: all 0.3s; width: 100%; box-shadow: 0 10px 20px rgba(128,0,0,0.3);
+            background: #800000;
+            color: white;
+            border: none;
+            padding: 15px 40px;
+            border-radius: 12px;
+            font-size: 18px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+            box-shadow: 0 10px 20px rgba(128, 0, 0, 0.3);
         }
-        .btn-continue:hover { background: #a50000; transform: translateY(-3px); }
+
+        .btn-continue:hover {
+            background: #a50000;
+            transform: translateY(-3px);
+        }
 
         /* Timer Styles */
         #sessionTimer {
-            background: rgba(0,0,0,0.3);
+            background: rgba(0, 0, 0, 0.3);
             padding: 8px 15px;
             border-radius: 8px;
             font-family: 'JetBrains Mono', monospace;
@@ -262,61 +417,112 @@ if ($driveId > 0) {
             align-items: center;
             gap: 8px;
         }
-        #sessionTimer.locked { color: #ff5555; border-color: rgba(255, 85, 85, 0.3); }
-        #sessionTimer.unlocked { color: #50fa7b; border-color: rgba(80, 250, 123, 0.3); }
-        
-        .btn-end { background: #333; color: white; margin-left: 15px; opacity: 1; transition: all 0.3s; }
-        .btn-end:disabled { opacity: 0.3; cursor: not-allowed; }
-        .btn-end.unlocked { background: var(--primary); color: white; animation: pulse 2s infinite; }
+
+        #sessionTimer.locked {
+            color: #ff5555;
+            border-color: rgba(255, 85, 85, 0.3);
+        }
+
+        #sessionTimer.unlocked {
+            color: #50fa7b;
+            border-color: rgba(80, 250, 123, 0.3);
+        }
+
+        .btn-end {
+            background: #333;
+            color: white;
+            margin-left: 15px;
+            opacity: 1;
+            transition: all 0.3s;
+        }
+
+        .btn-end:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+
+        .btn-end.unlocked {
+            background: var(--primary);
+            color: white;
+            animation: pulse 2s infinite;
+        }
+
         @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(128, 0, 0, 0.7); }
-            70% { box-shadow: 0 0 0 10px rgba(128, 0, 0, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(128, 0, 0, 0); }
+            0% {
+                box-shadow: 0 0 0 0 rgba(128, 0, 0, 0.7);
+            }
+
+            70% {
+                box-shadow: 0 0 0 10px rgba(128, 0, 0, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(128, 0, 0, 0);
+            }
         }
 
         /* Loading Overlay */
         .loading-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9);
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
             backdrop-filter: blur(8px);
             z-index: 5000;
-            display: flex; flex-direction: column; justify-content: center; align-items: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
             color: white;
             transition: opacity 0.5s;
         }
+
         .loading-spinner {
-            width: 80px; height: 80px;
-            border: 5px solid rgba(255,255,255,0.1);
+            width: 80px;
+            height: 80px;
+            border: 5px solid rgba(255, 255, 255, 0.1);
             border-top-color: var(--accent);
             border-radius: 50%;
             animation: spin 1s linear infinite;
             margin-bottom: 20px;
         }
-        @keyframes spin { to { transform: rotate(360deg); } }
+
+        @keyframes spin {
+            to {
+                transform: rotate(360deg);
+            }
+        }
     </style>
 </head>
+
 <body>
 
     <!-- Intro Overlay -->
     <div id="introOverlay" class="overlay">
-        <div style="text-align: center; max-width: 600px; padding: 40px; background: #1e1e1e; border-radius: 16px; border: 1px solid #333;">
+        <div
+            style="text-align: center; max-width: 600px; padding: 40px; background: #1e1e1e; border-radius: 16px; border: 1px solid #333;">
             <h1 style="color: var(--accent);">Technical Round</h1>
             <p>Role: <strong><?php echo htmlspecialchars($companyName); ?></strong></p>
             <p style="color: #aaa; margin: 20px 0;">
                 Prepare for a rigorous technical assessment.<br>
                 The AI interviewer is strict and expects precise answers.<br>
-                You will face both <strong>Conceptual</strong> questions and <strong>Practical Industry Scenarios</strong>.
+                You will face both <strong>Conceptual</strong> questions and <strong>Practical Industry
+                    Scenarios</strong>.
             </p>
             <div style="margin-bottom: 20px; <?php echo $driveId > 0 ? 'display:none;' : ''; ?>">
-                <input type="text" id="roleInput" placeholder="Enter specific role (e.g. Backend Dev)" value="<?php echo htmlspecialchars($roleName); ?>" 
-                       style="padding: 10px; width: 100%; max-width: 300px; text-align: center;">
+                <input type="text" id="roleInput" placeholder="Enter specific role (e.g. Backend Dev)"
+                    value="<?php echo htmlspecialchars($roleName); ?>"
+                    style="padding: 10px; width: 100%; max-width: 300px; text-align: center;">
             </div>
-            <button onclick="startSession()" class="btn-send" style="padding: 15px 40px; font-size: 1.1rem;">Start Interface</button>
+            <button onclick="startSession()" class="btn-send" style="padding: 15px 40px; font-size: 1.1rem;">Start
+                Interface</button>
         </div>
     </div>
 
     <header>
-    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
+        <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
         <div style="display: flex; align-items: center; gap: 15px;">
             <i class="fas fa-terminal" style="color: var(--accent); font-size: 1.5rem;"></i>
             <div>
@@ -330,7 +536,8 @@ if ($driveId > 0) {
                 <span id="timerText">Initializing...</span>
             </div>
             <span class="role-badge" id="roleBadge">Loading...</span>
-            <button id="endSessionBtn" onclick="endSession()" class="btn-end" disabled title="Minimum 20 minutes required for assigned tasks">End Session</button>
+            <button id="endSessionBtn" onclick="endSession()" class="btn-end" disabled
+                title="Minimum 20 minutes required for assigned tasks">End Session</button>
         </div>
     </header>
 
@@ -341,7 +548,8 @@ if ($driveId > 0) {
                 <!-- Messages go here -->
             </div>
             <div class="input-area">
-                <textarea id="userInput" placeholder="Type your answer... (Enter to send, Shift+Enter for new line)" onkeydown="handleEnter(event)"></textarea>
+                <textarea id="userInput" placeholder="Type your answer... (Enter to send, Shift+Enter for new line)"
+                    onkeydown="handleEnter(event)"></textarea>
                 <button class="btn-send" onclick="sendMessage()"><i class="fas fa-paper-plane"></i></button>
             </div>
         </div>
@@ -349,7 +557,8 @@ if ($driveId > 0) {
         <!-- Code Side -->
         <div class="code-panel" id="codePanel" style="position: relative;">
             <!-- Locked Overlay -->
-            <div id="editorLocked" style="position: absolute; top:0; left:0; width: 100%; height: 100%; z-index: 10; background: rgba(0,0,0,0.7); display: flex; flex-direction: column; justify-content: center; align-items: center; color: #888;">
+            <div id="editorLocked"
+                style="position: absolute; top:0; left:0; width: 100%; height: 100%; z-index: 10; background: rgba(0,0,0,0.7); display: flex; flex-direction: column; justify-content: center; align-items: center; color: #888;">
                 <i class="fas fa-lock" style="font-size: 2rem; margin-bottom: 10px;"></i>
                 <p>Editor Locked</p>
                 <small>Waiting for Coding Challenge...</small>
@@ -364,7 +573,8 @@ if ($driveId > 0) {
                         <option value="java">Java</option>
                         <option value="cpp">C++</option>
                     </select>
-                    <button onclick="runCode()" style="background: var(--accent); color: black;"><i class="fas fa-play"></i> Run & Check</button>
+                    <button onclick="runCode()" style="background: var(--accent); color: black;"><i
+                            class="fas fa-play"></i> Run & Check</button>
                 </div>
             </div>
             <div class="code-wrapper">
@@ -382,7 +592,8 @@ if ($driveId > 0) {
         <div class="score-card">
             <div class="score-title">Assessment Complete</div>
             <div>
-                <span id="finalScoreNum" class="score-number">0</span><span id="finalScorePct" class="score-percentage">%</span>
+                <span id="finalScoreNum" class="score-number">0</span><span id="finalScorePct"
+                    class="score-percentage">%</span>
             </div>
             <div class="score-desc">Your technical performance has been evaluated.</div>
             <button class="btn-continue" onclick="closeSession()">Continue</button>
@@ -399,13 +610,16 @@ if ($driveId > 0) {
     <div id="loadingOverlay" class="loading-overlay hidden">
         <div class="loading-spinner"></div>
         <h2 style="margin: 0; letter-spacing: 2px;">GENERATING REPORT</h2>
-        <p style="color: rgba(255,255,255,0.6); margin-top: 10px;">Please wait while AI evaluates your performance...</p>
+        <p style="color: rgba(255,255,255,0.6); margin-top: 10px;">Please wait while AI evaluates your performance...
+        </p>
     </div>
 
     <!-- Warning Overlay -->
     <div id="warningOverlay" class="overlay hidden" style="background: rgba(0,0,0,0.95); z-index: 2000;">
-        <div style="text-align: center; max-width: 500px; padding: 30px; border: 2px solid var(--primary); background: #000; border-radius: 12px;">
-            <i class="fas fa-exclamation-triangle" style="color: var(--primary); font-size: 3rem; margin-bottom: 20px;"></i>
+        <div
+            style="text-align: center; max-width: 500px; padding: 30px; border: 2px solid var(--primary); background: #000; border-radius: 12px;">
+            <i class="fas fa-exclamation-triangle"
+                style="color: var(--primary); font-size: 3rem; margin-bottom: 20px;"></i>
             <h2 style="color: #fff; margin-bottom: 10px;">Security Violation</h2>
             <p style="color: #ccc; margin-bottom: 25px;">
                 You have exited Full Screen mode. This is a violation of the assessment protocols.<br>
@@ -417,15 +631,15 @@ if ($driveId > 0) {
 
     <script>
         window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
-        
+
         function renderMath(element) {
             if (typeof renderMathInElement === 'function') {
                 renderMathInElement(element, {
                     delimiters: [
-                        {left: "$$", right: "$$", display: true},
-                        {left: "$", right: "$", display: false},
-                        {left: "\\(", right: "\\)", display: false},
-                        {left: "\\[", right: "\\]", display: true}
+                        { left: "$$", right: "$$", display: true },
+                        { left: "$", right: "$", display: false },
+                        { left: "\\(", right: "\\)", display: false },
+                        { left: "\\[", right: "\\]", display: true }
                     ],
                     throwOnError: false
                 });
@@ -438,7 +652,7 @@ if ($driveId > 0) {
         let driveId = <?php echo $driveId; ?>;
         let concept = "<?php echo addslashes($concept); ?>";
         let editor;
-        let currentProblem = null; 
+        let currentProblem = null;
         let isSessionActive = false; // Track session state
         let isProcessing = false;    // Fix: was undefined, caused loadNextQuestion() to return immediately
         let startTime = null;
@@ -446,7 +660,7 @@ if ($driveId > 0) {
         const MIN_REQUIRED_TIME = 20 * 60; // 20 minutes in seconds
 
         // Initialize CodeMirror
-        window.onload = function() {
+        window.onload = function () {
             editor = CodeMirror.fromTextArea(document.getElementById("codeEditor"), {
                 mode: "python",
                 theme: "dracula",
@@ -468,7 +682,7 @@ if ($driveId > 0) {
         document.addEventListener('copy', e => e.preventDefault());
         document.addEventListener('cut', e => e.preventDefault());
         document.addEventListener('paste', e => e.preventDefault());
-        
+
         document.addEventListener('keydown', e => {
             // Disable Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+U, Ctrl+Shift+I (Inspect)
             if (e.ctrlKey && ['c', 'v', 'x', 'u'].includes(e.key.toLowerCase())) {
@@ -493,14 +707,14 @@ if ($driveId > 0) {
 
         async function startSession() {
             const roleInput = document.getElementById('roleInput').value;
-            
+
             // 1. Check for Active Session Resumption
             const checkRes = await apiCall({ action: 'check_active_session', company: company, drive_id: driveId });
-            
+
             if (checkRes.success && checkRes.has_active) {
                 sessionId = checkRes.session_id;
                 isSessionActive = true;
-                
+
                 // Sync start time from server using elapsed_seconds to prevent timezone mismatches
                 if (checkRes.elapsed_seconds !== undefined) {
                     startTime = Date.now() - (checkRes.elapsed_seconds * 1000);
@@ -509,17 +723,17 @@ if ($driveId > 0) {
                 } else {
                     startTime = Date.now();
                 }
-                
+
                 document.getElementById('introOverlay').classList.add('hidden');
                 document.getElementById('roleBadge').innerText = checkRes.role || roleInput;
-                
+
                 if (document.documentElement.requestFullscreen) {
                     await document.documentElement.requestFullscreen().catch((e) => console.log(e));
                 }
-                
+
                 startTimer();
                 updateState("Resuming technical session...", "neutral");
-                
+
                 // Re-render history
                 if (checkRes.history && checkRes.history.length > 0) {
                     let lastPayload = null;
@@ -534,12 +748,12 @@ if ($driveId > 0) {
                                 }
                                 if (parsed.question) text = parsed.question;
                                 else if (parsed.problem_statement) text = parsed.problem_statement;
-                            } catch(e) {}
+                            } catch (e) { }
                             addMessage(m.role === 'assistant' ? 'ai' : 'user', text);
                         }
                     });
                     addMessage('ai', "Continuing interview. Please look at the previous context.");
-                    
+
                     if (lastPayload && lastPayload.type === 'coding') {
                         currentProblem = lastPayload;
                         activateCodingMode(lastPayload);
@@ -556,7 +770,7 @@ if ($driveId > 0) {
             const role = roleInput;
             document.getElementById('roleBadge').innerText = role;
             document.getElementById('introOverlay').classList.add('hidden');
-            
+
             // Fullscreen trigger
             if (document.documentElement.requestFullscreen) {
                 await document.documentElement.requestFullscreen().catch((e) => console.log(e));
@@ -566,7 +780,7 @@ if ($driveId > 0) {
             const res = await apiCall({ action: 'start_session', role: role, company: company, task_id: "<?php echo $taskId; ?>", drive_id: driveId, concept: concept });
             if (res.success) {
                 sessionId = res.session_id;
-                isSessionActive = true; 
+                isSessionActive = true;
                 startTime = Date.now();
                 startTimer();
                 loadNextQuestion();
@@ -582,7 +796,7 @@ if ($driveId > 0) {
                 if (!isSessionActive) return;
 
                 const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                
+
                 if (isTaskId && elapsed < MIN_REQUIRED_TIME) {
                     const remaining = MIN_REQUIRED_TIME - elapsed;
                     const mins = Math.floor(remaining / 60);
@@ -607,10 +821,10 @@ if ($driveId > 0) {
             if (isProcessing) return;
             isProcessing = true;
             showTyping();
-            
+
             try {
                 const res = await apiCall({ action: 'get_question', session_id: sessionId, message: userMsg });
-                
+
                 if (res.success && res.job_id) {
                     pollJobStatus(res.job_id, (data) => {
                         hideTyping();
@@ -619,12 +833,17 @@ if ($driveId > 0) {
                     }, (err) => {
                         hideTyping();
                         isProcessing = false;
-                        alert("AI Error: " + err);
+                        addMessage('ai', "⚠️ " + err + " — please resend your last answer to continue.");
                     });
+                } else if (res.success && res.result) {
+                    // Synchronous fallback path (queue/worker unavailable server-side)
+                    hideTyping();
+                    isProcessing = false;
+                    processAIResponse(res.result);
                 } else {
                     hideTyping();
                     isProcessing = false;
-                    alert(res.message || "Failed to reach AI.");
+                    addMessage('ai', "⚠️ " + (res.message || "Failed to reach AI.") + " — please resend your last answer to continue.");
                 }
             } catch (e) {
                 hideTyping();
@@ -633,11 +852,18 @@ if ($driveId > 0) {
             }
         }
 
-        async function pollJobStatus(jobId, onSuccess, onError) {
+        async function pollJobStatus(jobId, onSuccess, onError, timeoutMs = 180000) {
+            const startedAt = Date.now();
+            let consecutiveErrors = 0;
             const poll = async () => {
+                if (Date.now() - startedAt > timeoutMs) {
+                    onError("The AI took too long to respond (timeout). Please try again.");
+                    return;
+                }
                 try {
                     const res = await fetch(`ai_job_status.php?job_id=${jobId}`);
                     const data = await res.json();
+                    consecutiveErrors = 0;
                     if (data.success === false) {
                         onError(data.message || "Job error");
                         return;
@@ -648,21 +874,30 @@ if ($driveId > 0) {
                         } else {
                             onSuccess(data.result);
                         }
-                    } else if (data.status === 'failed') onError(data.error);
+                    } else if (data.status === 'failed') onError(data.error || "AI job failed.");
 
                     else setTimeout(poll, 1500);
-                } catch (e) { onError("Polling error"); }
+                } catch (e) {
+                    // A single dropped poll must not abort the whole question load
+                    consecutiveErrors++;
+                    if (consecutiveErrors >= 5) onError("Polling error — connection lost.");
+                    else setTimeout(poll, 3000);
+                }
             };
             poll();
         }
 
-                function processAIResponse(data) {
+        function processAIResponse(data) {
+            if (!data) {
+                addMessage('ai', "⚠️ The AI returned an empty response — please resend your last answer to continue.");
+                return;
+            }
             let payload = data;
-            
+
             if (data.result && typeof data.result === 'object') {
                 payload = data.result;
             } else if (data.content && typeof data.content === 'string') {
-                try { payload = JSON.parse(data.content); } catch(e) {}
+                try { payload = JSON.parse(data.content); } catch (e) { }
             }
 
             let isCode = payload.type === 'coding';
@@ -670,10 +905,10 @@ if ($driveId > 0) {
 
             // Fallback detection: if the AI asked a coding question but marked it as conceptual
             if (!isCode && questionText && (
-                questionText.toLowerCase().includes('write a function') || 
-                questionText.toLowerCase().includes('write a program') || 
-                questionText.toLowerCase().includes('write code') || 
-                questionText.toLowerCase().includes('implement a function') || 
+                questionText.toLowerCase().includes('write a function') ||
+                questionText.toLowerCase().includes('write a program') ||
+                questionText.toLowerCase().includes('write code') ||
+                questionText.toLowerCase().includes('implement a function') ||
                 questionText.toLowerCase().includes('write a python') ||
                 questionText.toLowerCase().includes('write a java') ||
                 questionText.toLowerCase().includes('coding question') ||
@@ -685,14 +920,14 @@ if ($driveId > 0) {
             }
 
             const feedbackText = payload.feedback && payload.feedback.trim() !== '' ? `**Evaluation:** ${payload.feedback}\n\n` : '';
-            
+
             let messageText = feedbackText;
             if (questionText) {
                 messageText += questionText;
             } else if (typeof payload === 'string') {
                 messageText += payload;
             }
-            
+
             if (messageText.trim() !== '') {
                 addMessage('ai', messageText.trim());
             }
@@ -744,51 +979,63 @@ if ($driveId > 0) {
                 problem_statement: currentProblem.problem_statement
             });
 
-            // Fix: submit_code returns a job_id (async), not a sync result
+            const renderEvaluation = (resultData) => {
+                let result = resultData;
+                // Unwrap the possible payload shapes: {result: {...}} nesting or a JSON string in .content
+                if (result && result.result && typeof result.result === 'object') {
+                    result = result.result;
+                } else if (result && result.content && typeof result.content === 'string') {
+                    try { result = JSON.parse(result.content); } catch (e) { }
+                }
+                if (!result || typeof result !== 'object') {
+                    outputDiv.innerText = "Evaluation returned an unreadable result. Please run again.";
+                    outputDiv.className = "output error";
+                    return;
+                }
+                outputDiv.innerText = `${result.feedback || 'No feedback'}\n\nPassed: ${result.passed ? 'YES ✓' : 'NO ✗'}\nScore: ${result.score || 0}/10`;
+                outputDiv.className = result.passed ? "output success" : "output error";
+                if (result.passed) {
+                    setTimeout(() => {
+                        alert("Great execution! Moving to next challenge.");
+                        loadNextQuestion("Code submitted successfully. Ready for next.");
+                    }, 2000);
+                }
+            };
+
             if (res.success && res.job_id) {
                 outputDiv.innerText = "Evaluating... (this may take ~10s)";
-                pollJobStatus(res.job_id, (resultData) => {
-                    let result = resultData;
-                    if (resultData.content && typeof resultData.content === 'string') {
-                        try { result = JSON.parse(resultData.content); } catch(e) {}
-                    }
-                    outputDiv.innerText = `${result.feedback || 'No feedback'}\n\nPassed: ${result.passed ? 'YES ✓' : 'NO ✗'}\nScore: ${result.score || 0}/10`;
-                    outputDiv.className = result.passed ? "output success" : "output error";
-                    if (result.passed) {
-                        setTimeout(() => {
-                            alert("Great execution! Moving to next challenge.");
-                            loadNextQuestion("Code submitted successfully. Ready for next.");
-                        }, 2000);
-                    }
-                }, (err) => {
+                pollJobStatus(res.job_id, renderEvaluation, (err) => {
                     outputDiv.innerText = "Evaluation failed: " + err;
                     outputDiv.className = "output error";
                 });
+            } else if (res.success && res.result) {
+                // Synchronous fallback path (queue/worker unavailable server-side)
+                renderEvaluation(res.result);
             } else {
-                outputDiv.innerText = "Failed to submit code.";
+                outputDiv.innerText = "Failed to submit code: " + (res.message || "Unknown error");
                 outputDiv.className = "output error";
             }
         }
 
         async function endSession() {
             if (!confirm("Are you sure? This will end your session and generate your score.")) return;
-            
+
             isSessionActive = false; // Disable enforcement for report generation
             if (document.fullscreenElement) {
                 document.exitFullscreen().catch(e => console.log(e));
             }
 
             document.getElementById('loadingOverlay').classList.remove('hidden');
-            
+
             // 1. Get Report Data
             const res = await apiCall({ action: 'generate_report_data', session_id: sessionId });
-            
+
             document.getElementById('loadingOverlay').classList.add('hidden');
             if (res.success) {
                 const modal = document.getElementById('scoreModal');
                 const scoreNum = document.getElementById('finalScoreNum');
                 const scorePct = document.getElementById('finalScorePct');
-                
+
                 scoreNum.innerText = res.score;
                 if (res.score <= 0) {
                     scoreNum.classList.add('score-zero');
@@ -797,22 +1044,22 @@ if ($driveId > 0) {
                     scoreNum.classList.remove('score-zero');
                     scorePct.classList.remove('score-zero');
                 }
-                
+
                 modal.classList.remove('hidden');
             } else {
                 alert(res.message || "Failed to generate score data.");
             }
         }
-        
+
         function closeSession() {
             window.location.href = driveId > 0 ? `student_drive.php?drive_id=${driveId}` : 'dashboard.php';
         }
 
         function activateCodingMode(data) {
             document.getElementById('editorLocked').style.display = 'none';
-            
+
             document.getElementById('problemTitle').innerText = "CHALLENGE ACTIVE";
-            
+
             // Set starter code or comment
             const problemText = data.problem_statement || data.question || '';
             const starter = `# Problem: ${problemText}\n# Constraints: ${data.constraints || 'None'}\n# Write your solution below:\n\n`;
@@ -825,7 +1072,7 @@ if ($driveId > 0) {
                 const formData = new FormData();
                 for (const k in data) formData.append(k, data[k]);
                 formData.append('csrf_token', window.CSRF_TOKEN);
-                
+
                 const response = await fetch('ai_technical_handler', {
                     method: 'POST',
                     headers: { 'X-CSRF-TOKEN': window.CSRF_TOKEN },
@@ -852,20 +1099,20 @@ if ($driveId > 0) {
         function addMessage(role, text) {
             const div = document.createElement('div');
             div.className = `message ${role}`;
-            
+
             // Simple Markdown parsing
             let html = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
-                           .replace(/\n/g, '<br>');
-            
+                .replace(/\n/g, '<br>');
+
             div.innerHTML = `<div class="bubble">${html}</div>`;
             document.getElementById('chatHistory').appendChild(div);
             renderMath(div);
             document.getElementById('chatHistory').scrollTop = document.getElementById('chatHistory').scrollHeight;
         }
-        
+
         function showTyping() { /* optional loader */ }
         function hideTyping() { /* optional loader */ }
-        
+
         function handleEnter(e) {
             if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
@@ -877,5 +1124,5 @@ if ($driveId > 0) {
         }
     </script>
 </body>
-</html>
 
+</html>

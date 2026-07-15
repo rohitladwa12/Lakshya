@@ -27,11 +27,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
     $taskType = $_POST['task_type'];
     $companyName = $_POST['company_name'] ?? '';
     $concept = $_POST['concept'] ?? '';
+    $difficulty = $_POST['difficulty'] ?? 'Medium';
     $questionSource = $_POST['question_source'] ?? 'ai';
     $deadlineDate = $_POST['deadline_date'] ?? '';
     $hour = (int)($_POST['deadline_hour'] ?? 0);
     $minute = (int)($_POST['deadline_minute'] ?? 0);
     $ampm = $_POST['deadline_ampm'] ?? 'AM';
+
+    // Ensure the difficulty column exists
+    try {
+        $db->exec("ALTER TABLE coordinator_tasks ADD COLUMN IF NOT EXISTS difficulty VARCHAR(20) DEFAULT 'Medium'");
+    } catch (Exception $e) {}
 
     if ($ampm === 'PM' && $hour < 12) $hour += 12;
     if ($ampm === 'AM' && $hour === 12) $hour = 0;
@@ -55,9 +61,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
                                AND deadline > NOW()");
 
     $stmtInsert = $db->prepare("INSERT INTO coordinator_tasks 
-                               (coordinator_id, task_type, title, company_name, concept, question_source, 
+                               (coordinator_id, task_type, title, company_name, concept, question_source, difficulty,
                                 target_type, target_students, target_branches, deadline) 
-                               VALUES (?, ?, ?, ?, ?, ?, 'individual', ?, ?, ?)");
+                               VALUES (?, ?, ?, ?, ?, ?, ?, 'individual', ?, ?, ?)");
 
     // Start transaction for atomicity and speed
     $db->beginTransaction();
@@ -90,7 +96,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
             // Create bulk task
             $title = ucfirst($taskType) . " Assessment" . ($companyName ? " - $companyName" : "");
             $stmtInsert->execute([
-                $coordinatorId, $taskType, $title, $compSearch, $concept, $questionSource, 
+                $coordinatorId, $taskType, $title, $compSearch, $concept, $questionSource, $difficulty,
                 json_encode(array_values(array_unique($validStudents))), json_encode(array_values(array_unique($branches))), $deadline
             ]);
             $assignedCount = count($validStudents);
@@ -574,13 +580,27 @@ function buildUrl($key, $val) {
             background: white; 
             padding: 30px; 
             border-radius: 16px; 
-            width: 90%; 
+            width: 95%; 
             max-width: 500px; 
             max-height: calc(100vh - 40px); 
             overflow-y: auto; 
             position: relative;
             box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); 
             animation: slideUp 0.3s ease; 
+        }
+        #assignModal .modal-content {
+            max-width: 860px;
+        }
+        .modal-form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0 24px;
+        }
+        .modal-form-grid .form-group {
+            margin-bottom: 20px;
+        }
+        .modal-form-grid .col-span-2 {
+            grid-column: 1 / -1;
         }
         @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
         
@@ -934,75 +954,92 @@ function buildUrl($key, $val) {
             <div class="modal-header">Assign Task</div>
             <form method="POST">
                 <input type="hidden" name="student_id" id="modal_student_id">
-                
-                <div class="form-group" style="margin-bottom: 20px;">
+
+                <!-- Student + Bulk selector: full width -->
+                <div class="form-group col-span-2" style="margin-bottom: 20px;">
                     <label style="display:block; margin-bottom: 8px; font-weight: 600;">Student</label>
                     <input type="text" id="modal_student_name" class="form-input" style="width: 100%; padding: 12px; background: #f8fafc;" readonly>
                 </div>
-                
-                <div id="bulkAssignAllContainer" style="display: none; margin-bottom: 20px; padding: 12px; background: #f1f5f9; border-radius: 8px; border: 1px solid #cbd5e1;">
+
+                <div id="bulkAssignAllContainer" style="display: none; margin-bottom: 20px; padding: 12px; background: #f1f5f9; border-radius: 8px; border: 1px solid #cbd5e1; grid-column: 1 / -1;">
                     <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; cursor:pointer; color: #1e293b; margin: 0;">
                         <input type="checkbox" id="assign_all_matching" onchange="toggleAssignAllMatching()" style="width:16px; height:16px; accent-color: var(--primary-maroon);">
                         Select all <?php echo count($allMatchedUsns); ?> students matching current filters (across all pages)
                     </label>
                 </div>
 
-                <div class="form-group" style="margin-bottom: 20px;">
-                    <label style="display:block; margin-bottom: 8px; font-weight: 600;">Task Type *</label>
-                    <select name="task_type" class="form-select" style="width: 100%;" required>
-                        <option value="">Select Type</option>
-                        <option value="aptitude">Aptitude Round</option>
-                        <option value="technical">Technical Round</option>
-                        <option value="hr">HR Round</option>
-                    </select>
-                </div>
+                <!-- 2-column grid for all main fields -->
+                <div class="modal-form-grid">
 
-                <div class="form-group" style="margin-bottom: 20px;">
-                    <label style="display:block; margin-bottom: 8px; font-weight: 600;">Company Name (Optional)</label>
-                    <input type="text" name="company_name" class="form-input" style="width: 100%;" placeholder="e.g., TCS, Infosys">
-                </div>
+                    <!-- Row 1: Task Type | Company -->
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom: 8px; font-weight: 600;">Task Type *</label>
+                        <select name="task_type" class="form-select" style="width: 100%;" required>
+                            <option value="">Select Type</option>
+                            <option value="aptitude">Aptitude Round</option>
+                            <option value="technical">Technical Round</option>
+                            <option value="hr">HR Round</option>
+                        </select>
+                    </div>
 
-                <div class="form-group" style="margin-bottom: 20px;">
-                    <label style="display:block; margin-bottom: 8px; font-weight: 600;">Technical Concept / Job Role (Recommended)</label>
-                    <input type="text" name="concept" class="form-input" style="width: 100%;" placeholder="e.g., Site Engineering, Taxation, HVAC Design">
-                    <small style="color: #666; font-size: 0.85rem; display: block; margin-top: 4px;">This helps the AI tailor Technical and HR questions for non-technical branches.</small>
-                </div>
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom: 8px; font-weight: 600;">Company Name (Optional)</label>
+                        <input type="text" name="company_name" class="form-input" style="width: 100%;" placeholder="e.g., TCS, Infosys">
+                    </div>
 
-                <div class="form-group" style="margin-bottom: 20px;">
-                    <label style="display:block; margin-bottom: 8px; font-weight: 600;">Question Source *</label>
-                    <select name="question_source" class="form-select" style="width: 100%;" required>
-                        <option value="ai">AI-Generated Questions</option>
-                        <option value="manual">Manual Questions (Coming Soon)</option>
-                    </select>
-                </div>
+                    <!-- Row 2: Concepts | Difficulty -->
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom: 8px; font-weight: 600;">Concepts / Topics (Recommended)</label>
+                        <input type="text" name="concept" class="form-input" style="width: 100%;" placeholder="e.g., React, SQL Joins, OOP">
+                        <small style="color: #666; font-size: 0.82rem; display: block; margin-top: 4px;">AI will base ALL questions on these concepts.</small>
+                    </div>
 
-                <div class="form-group" style="margin-bottom: 20px;">
-                    <label style="display:block; margin-bottom: 8px; font-weight: 600;">Deadline *</label>
-                    <div style="display: flex; gap: 10px;">
-                        <input type="date" name="deadline_date" class="form-input" style="flex: 2;" required>
-                        <div style="display: flex; gap: 5px; flex: 3; align-items: center;">
-                            <select name="deadline_hour" class="form-select" style="width: 70px; text-align: center;" required>
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom: 8px; font-weight: 600;">Difficulty Level *</label>
+                        <select name="difficulty" class="form-select" style="width: 100%;" required>
+                            <option value="Low">🟢 Low &mdash; Beginner-friendly</option>
+                            <option value="Medium" selected>🟡 Medium &mdash; Intermediate</option>
+                            <option value="High">🔴 High &mdash; Advanced / System Design</option>
+                        </select>
+                        <small style="color: #666; font-size: 0.82rem; display: block; margin-top: 4px;">Controls how challenging AI questions will be.</small>
+                    </div>
+
+                    <!-- Row 3: Question Source | Deadline (deadline spans full width) -->
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom: 8px; font-weight: 600;">Question Source *</label>
+                        <select name="question_source" class="form-select" style="width: 100%;" required>
+                            <option value="ai">AI-Generated Questions</option>
+                            <option value="manual">Manual Questions (Coming Soon)</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label style="display:block; margin-bottom: 8px; font-weight: 600;">Deadline *</label>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+                            <input type="date" name="deadline_date" class="form-input" style="flex: 2; min-width: 130px;" required>
+                            <select name="deadline_hour" class="form-select" style="width: 60px; text-align: center;" required>
                                 <?php for($i=1; $i<=12; $i++): ?>
                                     <option value="<?php echo $i; ?>"><?php echo str_pad($i, 2, '0', STR_PAD_LEFT); ?></option>
                                 <?php endfor; ?>
                             </select>
-                            <span>:</span>
-                            <select name="deadline_minute" class="form-select" style="width: 70px; text-align: center;" required>
+                            <span style="font-weight:700;">:</span>
+                            <select name="deadline_minute" class="form-select" style="width: 60px; text-align: center;" required>
                                 <?php for($i=0; $i<60; $i+=5): ?>
                                     <option value="<?php echo $i; ?>"><?php echo str_pad($i, 2, '0', STR_PAD_LEFT); ?></option>
                                 <?php endfor; ?>
                             </select>
-                            <select name="deadline_ampm" class="form-select" style="width: 80px;">
+                            <select name="deadline_ampm" class="form-select" style="width: 68px;">
                                 <option value="AM">AM</option>
                                 <option value="PM">PM</option>
                             </select>
                         </div>
                     </div>
-                </div>
+
+                </div><!-- end .modal-form-grid -->
 
                 <div class="modal-actions">
                     <button type="button" class="btn-cancel" onclick="closeAssignModal()">Cancel</button>
-                    <button type="submit" name="assign_task" class="btn-submit">Assign Task</button>
+                    <button type="submit" name="assign_task" class="btn-submit">&#128204; Assign Task</button>
                 </div>
             </form>
         </div>

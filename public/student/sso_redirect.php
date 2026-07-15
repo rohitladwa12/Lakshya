@@ -249,7 +249,8 @@ $redirectUrl = 'https://gmu.ac.in/tutor/login.php?sso_token=' . urlencode($sso_t
                 $msg = $stmt->fetchColumn();
                 echo json_encode($msg ?: ''); 
             ?>;
-            var seen = localStorage.getItem('seen_announcement_feature_ai_tutor');
+            var username = <?php echo json_encode(getUsername()); ?>;
+            var seen = localStorage.getItem('seen_announcement_feature_ai_tutor_' + username);
             if (message && seen !== message) {
                 shouldRedirect = false;
             } else {
@@ -263,21 +264,9 @@ $redirectUrl = 'https://gmu.ac.in/tutor/login.php?sso_token=' . urlencode($sso_t
             }, 1500);
         }
 
-        function dismissAnnouncement() {
-            var message = <?php 
-                $stmt = $db->prepare("SELECT setting_value FROM system_settings WHERE setting_key = 'feature_ai_tutor_message' LIMIT 1");
-                $stmt->execute();
-                $msg = $stmt->fetchColumn();
-                echo json_encode($msg ?: ''); 
-            ?>;
-            localStorage.setItem('seen_announcement_feature_ai_tutor', message);
-            var modal = document.getElementById("announcement-modal");
-            modal.classList.remove("show");
-            setTimeout(function() {
-                modal.style.display = "none";
-            }, 400);
+        window.onAnnouncementDismissed = function() {
             startRedirectTimer();
-        }
+        };
     </script>
 </head>
 

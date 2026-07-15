@@ -102,7 +102,6 @@ if ($db) {
 $success = Session::flash('success') ?: '';
 $error = Session::flash('error') ?: '';
 $viewUndertaking = null;
-
 if (isPost()) {
     $action = post('action');
 
@@ -121,23 +120,18 @@ if (isPost()) {
         $formCourse = trim(post('course')) ?: 'B.Tech./B.Sc., etc';
         $formAcademicYear = trim(post('academic_year'));
 
+        $recipientTitle = trim(post('recipient_title'));
+        $studentSalutation = trim(post('student_salutation')) ?: 'Mr/Mrs.';
+        $hodSalutation = trim(post('hod_salutation')) ?: 'Mr/Mrs.';
+
         if (empty($compName) || empty($compCity) || empty($hodNameInput) || empty($hodEmailInput)) {
             $error = "Please fill in all company and HOD details.";
         } else {
             try {
-                // Global sequential counter — every new letter gets the next number
-                // regardless of branch, academic year, or student.
-                // We derive the next number from MAX(id)+12:
-                //   - first row ever inserted → id=1 → serial = 1+11 = 12
-                //   - second row           → id=2 → serial = 2+11 = 13  … and so on.
-                // Using id (AUTO_INCREMENT) instead of COUNT(*) means concurrent
-                // inserts never collide on the serial before we even INSERT.
                 $stmtMax = $db->query("SELECT COALESCE(MAX(id), 0) FROM student_internship_undertakings");
                 $maxId   = (int) $stmtMax->fetchColumn();
-                $nextSerial = $maxId + 12;   // first letter → 12, next → 13 …
+                $nextSerial = $maxId + 12;
 
-                // Retry loop handles the rare race where two students click at the same
-                // millisecond and both read the same maxId.
                 $inserted = false;
                 $attempts = 0;
                 while (!$inserted && $attempts < 5) {
@@ -146,8 +140,8 @@ if (isPost()) {
 
                     try {
                         $stmtInsert = $db->prepare("INSERT INTO student_internship_undertakings 
-                            (usn, name, year, branch, course, undertaking_type, ref_number, company_name, company_city, academic_year, hod_name, hod_email, undertaking_date)
-                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                            (usn, name, year, branch, course, undertaking_type, ref_number, company_name, company_city, academic_year, hod_name, hod_email, undertaking_date, recipient_title, student_salutation, hod_salutation)
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                         $stmtInsert->execute([
                             $formUsn,
                             $formName,
@@ -161,7 +155,10 @@ if (isPost()) {
                             $formAcademicYear,
                             $hodNameInput,
                             $hodEmailInput,
-                            $uDate
+                            $uDate,
+                            $recipientTitle,
+                            $studentSalutation,
+                            $hodSalutation
                         ]);
                         $inserted = true;
                         $newId = $db->lastInsertId();
@@ -197,9 +194,13 @@ if (isPost()) {
         $formCourse = trim(post('course')) ?: 'B.Tech./B.Sc., etc';
         $formAcademicYear = trim(post('academic_year'));
 
+        $recipientTitle = trim(post('recipient_title'));
+        $studentSalutation = trim(post('student_salutation')) ?: 'Mr/Mrs.';
+        $hodSalutation = trim(post('hod_salutation')) ?: 'Mr/Mrs.';
+
         try {
-            $stmtUpdate = $db->prepare("UPDATE student_internship_undertakings SET year=?, branch=?, course=?, undertaking_type=?, company_name=?, company_city=?, academic_year=?, hod_name=?, hod_email=?, undertaking_date=? WHERE id=? AND usn=?");
-            $stmtUpdate->execute([$formYear, $formBranch, $formCourse, $type, $compName, $compCity, $formAcademicYear, $hodNameInput, $hodEmailInput, $uDate, $editId, $studentUSN]);
+            $stmtUpdate = $db->prepare("UPDATE student_internship_undertakings SET year=?, branch=?, course=?, undertaking_type=?, company_name=?, company_city=?, academic_year=?, hod_name=?, hod_email=?, undertaking_date=?, recipient_title=?, student_salutation=?, hod_salutation=? WHERE id=? AND usn=?");
+            $stmtUpdate->execute([$formYear, $formBranch, $formCourse, $type, $compName, $compCity, $formAcademicYear, $hodNameInput, $hodEmailInput, $uDate, $recipientTitle, $studentSalutation, $hodSalutation, $editId, $studentUSN]);
             Session::flash('success', "Undertaking updated successfully.");
             redirect("internship_undertakings?view_id=" . $editId . "&print=1");
         } catch (Exception $e) {
@@ -937,7 +938,10 @@ if ($viewId > 0) {
                 'year' => $studentYear,
                 'branch' => $studentBranch ?: '[Branch]',
                 'course' => 'B.Tech./B.Sc., etc',
-                'academic_year' => $studentAcademicYear
+                'academic_year' => $studentAcademicYear,
+                'recipient_title' => null,
+                'student_salutation' => 'Mr/Mrs.',
+                'hod_salutation' => 'Mr/Mrs.'
             ];
         }
 
@@ -995,6 +999,9 @@ if ($viewId > 0) {
                     <input type="hidden" name="action" id="hidden_action" value="generate">
                     <input type="hidden" name="edit_id" id="hidden_edit_id" value="">
                     <input type="hidden" name="undertaking_type" id="hidden_type" value="private">
+                    <input type="hidden" name="recipient_title" id="hidden_recipient_title">
+                    <input type="hidden" name="student_salutation" id="hidden_student_salutation">
+                    <input type="hidden" name="hod_salutation" id="hidden_hod_salutation">
                     <input type="hidden" name="company_name" id="hidden_company_name">
                     <input type="hidden" name="company_city" id="hidden_company_city">
                     <input type="hidden" name="undertaking_date" id="hidden_date">
@@ -1042,7 +1049,12 @@ if ($viewId > 0) {
                     <div class="lh-to">
                         <div>To</div>
                         <div id="to_title" style="font-weight: bold;">
-                            <?php echo $isGovt ? 'The Head of the Organization / Director / HR Division' : 'The HR Manager / Concerned authority'; ?>
+                            <?php if ($isReadOnly): ?>
+                                <?php echo htmlspecialchars(($u['recipient_title'] ?? '') ?: ($isGovt ? 'The Head of the Organization / Director / HR Division' : 'The HR Manager / Concerned authority')); ?>
+                            <?php else: ?>
+                                <span id="inline_recipient_title" class="editable-inline" contenteditable="true"
+                                    placeholder="[Recipient Title]"><?php echo htmlspecialchars(($u['recipient_title'] ?? '') ?: ($isGovt ? 'The Head of the Organization / Director / HR Division' : 'The HR Manager / Concerned authority')); ?></span>
+                            <?php endif; ?>
                         </div>
                         <div>
                             <?php if ($isReadOnly): ?>
@@ -1083,7 +1095,7 @@ if ($viewId > 0) {
                             The University Industry Interaction Cell for Student Internships (UIICI) in association with
                             the Department of <?php if ($isReadOnly): ?><span id="body_dept_govt"><?php echo htmlspecialchars($u['branch'] ?: '[Branch]'); ?></span><?php else: ?><span id="body_dept_govt" class="editable-inline" contenteditable="true" placeholder="[Department]" style="min-width: 80px;"><?php echo htmlspecialchars($u['branch'] ?: $studentBranch ?: '[Branch]'); ?></span><?php endif; ?>
                             respectfully requests your esteemed organization to consider providing internship
-                            opportunities for our student Mr/Mrs. <span id="body_name_govt"
+                            opportunities for our student <?php if ($isReadOnly): ?><strong><?php echo htmlspecialchars(($u['student_salutation'] ?? '') ?: 'Mr/Mrs.'); ?></strong><?php else: ?><span id="inline_student_salutation_govt" class="editable-inline" contenteditable="true" placeholder="Mr/Mrs." style="min-width: 40px; font-weight: bold;"><?php echo htmlspecialchars(($u['student_salutation'] ?? '') ?: 'Mr/Mrs.'); ?></span><?php endif; ?> <span id="body_name_govt"
                                 style="font-weight: bold;"><?php echo htmlspecialchars($u['name']); ?></span> USN <span
                                 id="body_usn_govt"
                                 style="font-weight: bold;"><?php echo htmlspecialchars($u['usn']); ?></span>,
@@ -1128,7 +1140,7 @@ if ($viewId > 0) {
                             The University Industry Interaction Cell for Student Internships (UIICI) in association with
                             the Department of <?php if ($isReadOnly): ?><span id="body_dept_private"><?php echo htmlspecialchars($u['branch'] ?: '[Branch]'); ?></span><?php else: ?><span id="body_dept_private" class="editable-inline" contenteditable="true" placeholder="[Department]" style="min-width: 80px;"><?php echo htmlspecialchars($u['branch'] ?: $studentBranch ?: '[Branch]'); ?></span><?php endif; ?>
                             is pleased to request your esteemed organization to provide internship opportunity for our
-                            student Mr/Mrs. <span id="body_name_private"
+                            student <?php if ($isReadOnly): ?><strong><?php echo htmlspecialchars(($u['student_salutation'] ?? '') ?: 'Mr/Mrs.'); ?></strong><?php else: ?><span id="inline_student_salutation_private" class="editable-inline" contenteditable="true" placeholder="Mr/Mrs." style="min-width: 40px; font-weight: bold;"><?php echo htmlspecialchars(($u['student_salutation'] ?? '') ?: 'Mr/Mrs.'); ?></span><?php endif; ?> <span id="body_name_private"
                                 style="font-weight: bold;"><?php echo htmlspecialchars($u['name']); ?></span> USN <span
                                 id="body_usn_private"
                                 style="font-weight: bold;"><?php echo htmlspecialchars($u['usn']); ?></span>,
@@ -1178,9 +1190,11 @@ if ($viewId > 0) {
                         </div>
                         <div class="lh-sig-col" style="text-align: right;">
                             <?php if ($isReadOnly): ?>
-                                <strong>Mr/Mrs. <?php echo htmlspecialchars($u['hod_name']); ?></strong><br>
+                                <strong><?php echo htmlspecialchars(($u['hod_salutation'] ?? '') ?: 'Mr/Mrs.'); ?> <?php echo htmlspecialchars($u['hod_name']); ?></strong><br>
                             <?php else: ?>
-                                Mr/Mrs. <span id="inline_hod_name" class="editable-inline" contenteditable="true"
+                                <span id="inline_hod_salutation" class="editable-inline" contenteditable="true"
+                                    placeholder="Mr/Mrs." style="min-width: 40px; font-weight: bold;"><?php echo htmlspecialchars(($u['hod_salutation'] ?? '') ?: 'Mr/Mrs.'); ?></span>
+                                <span id="inline_hod_name" class="editable-inline" contenteditable="true"
                                     placeholder="[Type HOD Name]"
                                     style="min-width: 150px;"><?php echo htmlspecialchars($u['hod_name']); ?></span><br>
                             <?php endif; ?>
@@ -1280,7 +1294,7 @@ if ($viewId > 0) {
 
             document.getElementById('undertaking_type_val').value = type;
 
-            const toTitle = document.getElementById('to_title');
+            const toTitle = document.getElementById('inline_recipient_title') || document.getElementById('to_title');
             const toCompany = document.getElementById('inline_company_name');
             
             const bodyGovt = document.getElementById('body_govt');
@@ -1318,6 +1332,10 @@ if ($viewId > 0) {
             const hodName  = document.getElementById('inline_hod_name').innerText.trim();
             const hodEmail = document.getElementById('inline_hod_email').innerText.trim();
 
+            const recipientTitle = document.getElementById('inline_recipient_title')?.innerText.trim() || '';
+            const studentSalutation = document.getElementById('inline_student_salutation' + suffix)?.innerText.trim() || 'Mr/Mrs.';
+            const hodSalutation = document.getElementById('inline_hod_salutation')?.innerText.trim() || 'Mr/Mrs.';
+
             // Read editable spans from the active tab body
             const dept         = (document.getElementById('body_dept' + suffix)?.innerText || '').trim();
             const editedYear   = (document.getElementById('inline_year' + suffix)?.innerText || '').trim();
@@ -1354,6 +1372,11 @@ if ($viewId > 0) {
             document.getElementById('hidden_date').value = rawDate;
             document.getElementById('hidden_hod_name').value = hodName;
             document.getElementById('hidden_hod_email').value = hodEmail;
+
+            document.getElementById('hidden_recipient_title').value = recipientTitle;
+            document.getElementById('hidden_student_salutation').value = studentSalutation;
+            document.getElementById('hidden_hod_salutation').value = hodSalutation;
+
             if (dept)         document.getElementById('hidden_branch').value = dept;
             if (editedYear)   document.getElementById('hidden_year').value = editedYear;
             if (editedCourse) document.getElementById('hidden_course').value = editedCourse;
@@ -1410,6 +1433,18 @@ if ($viewId > 0) {
                 document.querySelectorAll('.tab-btn').forEach(btn => {
                     btn.addEventListener('click', () => setTimeout(updateRefNumber, 10));
                 });
+
+                // Sync student salutations between tabs
+                const salutationGovt = document.getElementById('inline_student_salutation_govt');
+                const salutationPrivate = document.getElementById('inline_student_salutation_private');
+                if (salutationGovt && salutationPrivate) {
+                    salutationGovt.addEventListener('input', () => {
+                        salutationPrivate.innerText = salutationGovt.innerText;
+                    });
+                    salutationPrivate.addEventListener('input', () => {
+                        salutationGovt.innerText = salutationPrivate.innerText;
+                    });
+                }
             }
         });
     </script>

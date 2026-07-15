@@ -77,22 +77,28 @@ class AIService
         while ($attempt < $maxRetries) {
             $response = curl_exec($ch);
             $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            $curlErrno = curl_errno($ch);
 
             // Retry on transient failures: server errors (5xx), rate limiting (429)
             // and request timeout (408). 429 is common under load and previously
             // fell straight through to failure ("code does not run at all").
-            $isTransient = $httpCode === 429 || $httpCode === 408 || ($httpCode >= 500 && $httpCode < 600);
+            $isTransientHttp = $httpCode === 429 || $httpCode === 408 || ($httpCode >= 500 && $httpCode < 600);
 
-            if (!curl_errno($ch) && $isTransient) {
+            // Also retry transient cURL-level network errors (previously these
+            // failed on the FIRST attempt while HTTP errors got 3 tries):
+            // 6=DNS, 7=connect failed, 28=timeout, 35=SSL connect,
+            // 52=empty reply, 55=send error, 56=recv error.
+            $isTransientCurl = in_array($curlErrno, [6, 7, 28, 35, 52, 55, 56], true);
+
+            if (($curlErrno === 0 && $isTransientHttp) || $isTransientCurl) {
                 $attempt++;
                 if ($attempt < $maxRetries) {
                     // Exponential backoff: 1s, 2s.
                     sleep($attempt);
                     continue;
                 }
-            } else {
-                break;
             }
+            break;
         }
 
         if (curl_errno($ch)) {
@@ -570,11 +576,17 @@ RULES:
     /**
      * Get a response for the Mock Interview (Student-Choice Question System)
      */
-    public function getTechnicalInterviewResponse($domain, $history, $profile, $userMessage, $type = null, $projects = [], $aptitudeQuestions = [], $concept = null, $company = 'General')
+    public function getTechnicalInterviewResponse($domain, $history, $profile, $userMessage, $type = null, $projects = [], $aptitudeQuestions = [], $concept = null, $company = 'General', $difficulty = 'Medium')
     {
         $conceptContext = $concept ? " The candidate is applying for a role specifically focused on: '**{$concept}**'." : "";
         $sgpa = $profile['sgpa'] ?? 0;
         $randomSeed = substr(md5(microtime()), 0, 8);
+        $difficultyInstruction = "Keep questions at a **Medium** difficulty level. Focus on conceptual understanding, moderate practical/coding scenarios, and basic debugging.";
+        if (strtolower($difficulty) === 'low') {
+            $difficultyInstruction = "Keep questions very **Simple and Beginner-Friendly** (Low difficulty). Focus on core concepts, easy definitions, and basic building blocks (freshman college exam level).";
+        } elseif (strtolower($difficulty) === 'high') {
+            $difficultyInstruction = "Make questions **Challenging and Advanced** (High difficulty). Focus on optimization, complex edge cases, system design, architectural trade-offs, and deep technical reasoning.";
+        }
 
         $portfolioContext = "";
         if (!empty($projects)) {
@@ -624,33 +636,23 @@ RULES:
             $portfolioContext = "\n\n=== NO PORTFOLIO ITEMS REGISTERED ===\nINSTRUCTION: Ask the candidate to describe a technical project or skill they have worked on recently.";
         }
 
-        $aptitudeContext = "";
-        if (!empty($aptitudeQuestions)) {
-            $aptitudeContext = "\n\n=== APTITUDE QUESTION BANK ===\n";
-            foreach ($aptitudeQuestions as $q) {
-                $qText = $q['question'] ?? '';
-                $optA = $q['option_a'] ?? '';
-                $optB = $q['option_b'] ?? '';
-                $optC = $q['option_c'] ?? '';
-                $optD = $q['option_d'] ?? '';
-                $correct = $q['correct_option'] ?? '';
-                $topic = $q['topic'] ?? 'General';
-                $aptitudeContext .= "ID: {$q['id']} | Topic: {$topic} | Question: {$qText}\nA) {$optA}\nB) {$optB}\nC) {$optC}\nD) {$optD}\nCorrect: {$correct}\n\n";
-            }
-            $aptitudeContext .= "\nSTRICT RULE FOR MCQ: You may ONLY provide multiple-choice options (A, B, C, D) if you are currently in the **Aptitude** round. For Technical or HR rounds, you MUST ask open-ended questions based on the candidate's role and NEVER provide options.";
-            $aptitudeContext .= "\nINSTRUCTION: If you switch to the Technical round, ensure you add the tag '[SHOW_WORKSPACE]' to your response once.";
-        }
+        $aptitudeContext = "\n\n=== APTITUDE ROUND INSTRUCTIONS ===
+- You must dynamically generate 10 to 15 multiple-choice questions (MCQs) for the **Aptitude** round.
+- **STRICT REQUIREMENT**: Every aptitude question must be directly based on the candidate's target concepts: '**{$concept}**' and tailored to the selected difficulty level (**{$difficulty}**).
+- For each question, you must generate a clear question body and exactly 4 options (A, B, C, D).
+- You may ONLY provide multiple-choice options (A, B, C, D) if you are currently in the **Aptitude** round. For Technical or HR rounds, you MUST ask open-ended questions based on the candidate's role and concepts, and NEVER provide options.
+- If you switch to the Technical round, ensure you add the tag '[SHOW_WORKSPACE]' to your response once.";
 
         $initialInstruction = "The candidate is currently in the **{$type}** round. Begin asking questions according to the **{$type}** Question Flow below IMMEDIATELY. Do NOT ask them to choose a round unless they explicitly request to switch. **FLEXIBILITY:** If the user explicitly asks to switch rounds or skip to another section (e.g., 'Switch to Technical', 'I want to do HR now') at ANY point, you MUST immediately accommodate their request and begin the new round's flow.";
 
         $flow = [
-            'Aptitude' => "10 to 15 logic/MCQ questions using the bank.",
-            'Technical' => "Open-ended questions (NO MCQs) tailored strictly to the role: **{$domain}**.{$conceptContext}
+            'Aptitude' => "10 to 15 dynamically generated MCQ questions based on the candidate's concepts: **{$concept}**.",
+            'Technical' => "Open-ended questions (NO MCQs) tailored strictly to the candidate's concepts: **{$concept}**.
             INSTRUCTIONS: 
             - **For CS/IT:** 5 conceptual deep-dives followed by 5 coding challenges.
             - **For Circuit Branches (ECE/EEE/Robotics):** 5 conceptual deep-dives followed by 5 practical hardware/low-level logic or circuit design challenges.
             - **For Non-Technical (Civil, BCom, Mechanical):** 5 conceptual deep-dives followed by 5 practical industry scenarios or calculation problems (DO NOT ask for code).",
-            'HR' => "Open-ended behavioral questions (NO MCQs). 5 questions focusing on situational logic and personal projects.{$conceptContext}"
+            'HR' => "Open-ended behavioral questions (NO MCQs). 5 questions focusing on situational logic, personal projects, and candidate's concepts: **{$concept}**."
         ];
 
         $flowItems = "";
@@ -691,13 +693,13 @@ $flowItems
 3. **Check-ins**: After completing the specified number of questions for a category (10 for Aptitude, 5 for Technical, 5 for HR), ask the candidate whether they want to continue or switch types (Aptitude, Technical, or HR).
 
 RULES:
-1. **Difficulty**: Keep questions SIMPLE and BEGINNER-FRIENDLY. Think college exam level, not tricky interview puzzles. Questions should test basic understanding, not trick the student.
-2. **Aptitude Focus**: When presenting an Aptitude question, you MUST ALWAYS display the full text for all 4 options in your response. Use this EXACT format — never omit the text:
+1. **Difficulty**: {$difficultyInstruction}
+2. **Aptitude Focus**: When presenting an Aptitude question, you MUST dynamically generate the question and ALWAYS display the full text for all 4 options in your response. Use this EXACT format — never omit the text:
    ```
-   A) [full text of option A from the bank]
-   B) [full text of option B from the bank]
-   C) [full text of option C from the bank]
-   D) [full text of option D from the bank]
+   A) [full text of option A]
+   B) [full text of option B]
+   C) [full text of option C]
+   D) [full text of option D]
    ```
    Then ask the candidate to reply with the option letter (A, B, C, or D). **NEVER** show just the letters without the option text.
 3. **Coding Challenges**: During coding challenges (Technical round):
@@ -705,7 +707,7 @@ RULES:
    - **Examples**: Provide at least one **Example Input** and **Expected Output** for every coding task.
    - **Be Lenient**: If the code has minor issues but the logic is right, acknowledge the correct approach and gently point out the fix. Don't block progress over small syntax issues.
 4. **Aptitude Response Logic**: 
-   - **Step 1**: Identify the correct answer letter from the question bank.
+   - **Step 1**: Identify the correct answer letter for the question you dynamically generated.
    - **Step 2**: Compare the candidate's response. Treat 'A', 'Option A', 'a', 'option a', or even the text of the option as a match.
    - **Step 3**: 
         - **IF MATCH**: Say 'Correct! ✅' and briefly explain why.
@@ -743,8 +745,81 @@ RULES:
     public function generateTechnicalInterviewReport($domain, $history, $type = 'Mock', $concept = null)
     {
         $conceptContext = $concept ? " The candidate was assessed for a role specifically focused on: '**{$concept}**'." : "";
-        $transcript = "";
+        
+        // Group history by assistant questions to merge and keep the candidate's best/longest response
+        $groupedHistory = [];
+        $seenQuestions = [];
+        $currentQuestionKey = null;
+        $systemEvaluations = [];
+        
         foreach ($history as $msg) {
+            $roleName = $msg['role'] ?? '';
+            if ($roleName === 'system') {
+                $content = $msg['content'] ?? '';
+                if (strpos($content, 'Evaluation:') === 0 || strpos($content, 'Mutated Challenge:') === 0) {
+                    $systemEvaluations[] = $msg;
+                }
+                continue;
+            }
+            
+            if ($roleName === 'assistant') {
+                $content = $msg['content'] ?? '';
+                $parsed = @json_decode($content, true);
+                $qText = ($parsed && !empty($parsed['question'])) ? $parsed['question'] : $content;
+                $cleanQ = preg_replace('/[^a-zA-Z0-9]/', '', strtolower($qText));
+                
+                if (empty($cleanQ)) {
+                    continue;
+                }
+                
+                $currentQuestionKey = $cleanQ;
+                if (!isset($groupedHistory[$currentQuestionKey])) {
+                    $groupedHistory[$currentQuestionKey] = [
+                        'assistant_msg' => $msg,
+                        'user_msgs' => []
+                    ];
+                }
+            } else if ($roleName === 'user' && $currentQuestionKey !== null) {
+                $groupedHistory[$currentQuestionKey]['user_msgs'][] = $msg;
+            }
+        }
+        
+        // Reconstruct pruned history by taking the best user response for each unique question
+        $prunedHistory = [];
+        // Put system evaluations first if any exist
+        foreach ($systemEvaluations as $sysMsg) {
+            $prunedHistory[] = $sysMsg;
+        }
+        
+        foreach ($groupedHistory as $qKey => $group) {
+            $prunedHistory[] = $group['assistant_msg'];
+            
+            $bestUserMsg = null;
+            $maxLength = -1;
+            
+            foreach ($group['user_msgs'] as $uMsg) {
+                $uContent = $uMsg['content'] ?? '';
+                if (strpos($uContent, '[No response') !== false || strtolower(trim($uContent)) === 'skip') {
+                    $len = -1;
+                } else {
+                    $len = strlen($uContent);
+                }
+                
+                if ($len > $maxLength) {
+                    $maxLength = $len;
+                    $bestUserMsg = $uMsg;
+                }
+            }
+            
+            if ($bestUserMsg !== null) {
+                $prunedHistory[] = $bestUserMsg;
+            } else if (!empty($group['user_msgs'])) {
+                $prunedHistory[] = $group['user_msgs'][0];
+            }
+        }
+
+        $transcript = "";
+        foreach ($prunedHistory as $msg) {
             $role = ucfirst($msg['role']);
             $content = $msg['content'];
 
@@ -795,7 +870,8 @@ RULES:
         - In the Technical section, if coding/practical tasks were presented and the candidate failed to write correct code or failed the evaluation, cap their Technical section score to a maximum of 4/10.
         - To prevent score inflation, DO NOT give overall scores above 80 unless the candidate demonstrated senior, industry-ready expertise with exact terminology and logic. Average, mediocre, or theoretical-only answers must receive scores between 40 and 60.
         - DO NOT hallucinate if transcript is empty.
-        - CRITICAL ZERO-EFFORT PENALTY: If the candidate answered fewer than 4 questions, or repeatedly gave invalid/empty/skip answers (e.g., 'I don't know', 'skip', random letters), you MUST cap the 'overall_score' strictly below 20. Do not give them a passing or average score for skipping.
+        - CRITICAL ZERO-EFFORT PENALTY: If the candidate answered fewer than 3 unique questions in total, or if more than 70% of their responses were skips/empty/invalid (e.g., 'skip', 'I don't know', random letters), you MUST cap the 'overall_score' strictly below 20. Otherwise, if they attempted to answer the questions with relevant content, score them fairly based on the content of their answers (e.g., between 45 and 75 depending on quality) and DO NOT apply the zero-effort penalty.
+        - ASR / SPEECH-TO-TEXT TRANSCRIPTION AWARENESS: Note that many user responses in the transcript are captured via automated speech recognition / voice-to-text. These transcripts may contain transcription errors, lack punctuation, lack capitalization, or contain typographical/homophonic errors (e.g. 'for loop' transcribed as 'four loop', 'SQL query' as 'sequel query'). DO NOT penalize the candidate for these speech-to-text conversion artifacts, lack of punctuation, or spelling/homophonic errors. Instead, focus entirely on the core technical concepts, programming logic, and the semantic substance/intent of their answers.
         - The 'content' field should contain the formatted report text.
         - Ensure 'overall_score' is a number between 0 and 100.";
 
@@ -1019,40 +1095,50 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Get a Technical Question (Coding or Conceptual)
      */
-    public function getTechnicalQuestion($role, $history, $concept = null, $portfolio = '', $previousQuestions = [])
+    public function getTechnicalQuestion($role, $history, $concept = null, $portfolio = '', $previousQuestions = [], $difficulty = 'Medium')
     {
-        $conceptContext = $concept ? " Specifically focus on the technical concept or role of: '**{$concept}**'." : "";
+        $conceptsLabel = $concept ?: $role;
+
+        $difficultyGuide = "Focus on intermediate-level scenarios — typical senior-student or entry-level developer problems.";
+        if (strtolower($difficulty) === 'low') {
+            $difficultyGuide = "Keep ALL questions beginner-friendly (freshman / junior-dev level). Focus on core definitions, simple examples, and basic logic — no optimization or system-design.";
+        } elseif (strtolower($difficulty) === 'high') {
+            $difficultyGuide = "Make ALL questions challenging (senior-dev / competitive programming level). Focus on optimization, edge cases, system design trade-offs, and deep architectural reasoning.";
+        }
 
         $exclusionContext = "";
         if (!empty($previousQuestions)) {
             $exclusionContext = "\nCRITICAL: DO NOT ASK ANY OF THE FOLLOWING QUESTIONS (they have already been asked to this candidate):\n" . implode("\n- ", $previousQuestions) . "\n";
         }
 
-        $systemPrompt = "You are a Professional, Strict Technical Interviewer for the role of '{$role}'.{$conceptContext}
-        You MUST ask questions based on the role, the concepts mentioned, AND the student's portfolio skills.
-        You MUST also ask coding questions.
-        
-        LANGUAGE-AGNOSTIC RULE: ALL questions you ask (both 'conceptual' and 'coding' types) MUST be completely language-agnostic. DO NOT ask the student to explain concepts or write code in a specific language (e.g., never say 'Write a Java program', 'Explain pointers in C++', or 'How does Python handle memory'). Simply present the algorithmic or logical problem and let the student choose their own programming language, or ask about the universal concept itself.
-        
-        IMPORTANT RANDOMIZATION RULE: To prevent question leaking between students, you MUST select highly varied, non-standard, or obscure technical scenarios. Do NOT ask common, generic textbook questions. Pick from a vast pool of possibilities.
-        {$exclusionContext}
-        
-        PORTFOLIO SKILLS & PROJECTS:
-        {$portfolio}
-        
-        IMPORTANT: Start asking questions immediately. DO NOT say 'Are you ready?' or 'Initializing' or welcome them. Your very first message MUST be the first actual technical/conceptual or coding question.
-        
-        OUTPUT FORMAT (JSON):
-        {
-            \"type\": \"conceptual\" | \"coding\",
-            \"feedback\": \"Evaluation feedback on previous answer...\",
-            \"question\": \"The conceptual question or discussion prompt...\",
-            \"problem_statement\": \"The coding challenge details (mandatory if type is coding, describe the function to write, inputs, and expected output)...\",
-            \"constraints\": \"Constraints on execution/space...\",
-            \"test_cases\": []
-        }
-        
-        CRITICAL RULE: If your question asks the student to write a function, write a program, implement code, or solve an algorithmic problem, you MUST set the type to \"coding\" and populate \"problem_statement\". Only use \"conceptual\" for discussions and Q&A.";
+        $systemPrompt = "You are a Professional Technical Interviewer.
+
+CANDIDATE'S TARGET CONCEPTS: {$conceptsLabel}
+DIFFICULTY: {$difficulty} — {$difficultyGuide}
+
+STRICT CONCEPT RULE: Every single question — both conceptual AND coding — MUST be directly and specifically tied to the candidate's concepts listed above ({$conceptsLabel}). DO NOT ask about unrelated technologies, data structures, or domains. If the concept is 'React', ask only React-related questions. If the concept is 'SQL Joins', every question must test SQL Join knowledge.
+
+LANGUAGE-AGNOSTIC RULE: Questions MUST be language-agnostic. Never say 'Write a Java program' or 'Explain this in Python'. Present the problem and let the student choose their language.
+
+PORTFOLIO SKILLS & PROJECTS:
+{$portfolio}
+
+RANDOMIZATION: Pick varied, non-generic scenarios each time. Avoid trivial textbook examples.
+{$exclusionContext}
+
+IMPORTANT: Begin immediately with the first question — no greetings, no 'Are you ready?'.
+
+OUTPUT FORMAT (JSON):
+{
+    \"type\": \"conceptual\" | \"coding\",
+    \"feedback\": \"Evaluation feedback on previous answer (empty string for first question)...\",
+    \"question\": \"The conceptual question or discussion prompt...\",
+    \"problem_statement\": \"The coding challenge details (mandatory if type is coding)...\",
+    \"constraints\": \"Constraints on time/space...\",
+    \"test_cases\": []
+}
+
+CRITICAL: If the question asks to write, implement, or code something — set type to \"coding\" and fill \"problem_statement\". Only use \"conceptual\" for open discussions.";
 
         $messages = [['role' => 'system', 'content' => $systemPrompt]];
         foreach ($history as $msg) {
@@ -1112,9 +1198,16 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
     /**
      * Get HR Question (Behavioral)
      */
-    public function getHRQuestion($role, $history, $projects = [], $concept = null, $previousQuestions = [])
+    public function getHRQuestion($role, $history, $projects = [], $concept = null, $previousQuestions = [], $difficulty = 'Medium')
     {
-        $conceptContext = $concept ? " The candidate is applying for a role specifically focused on: '**{$concept}**'." : "";
+        $conceptsLabel = $concept ?: $role;
+
+        $difficultyGuide = "Ask moderately complex situational and behavioral questions — appropriate for campus placement rounds.";
+        if (strtolower($difficulty) === 'low') {
+            $difficultyGuide = "Ask simple, straightforward HR questions suitable for freshers and first-round screenings.";
+        } elseif (strtolower($difficulty) === 'high') {
+            $difficultyGuide = "Ask challenging HR questions involving leadership dilemmas, cross-functional conflict resolution, strategic thinking, and culture-fit deep dives.";
+        }
 
         $portfolioContext = "";
         if (!empty($projects)) {
@@ -1130,33 +1223,134 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
             $exclusionContext = "\nCRITICAL: DO NOT ASK ANY OF THE FOLLOWING QUESTIONS (they have already been asked to this candidate):\n" . implode("\n- ", $previousQuestions) . "\n";
         }
 
-        $systemPrompt = "You are an Expert HR Manager conducting a behavioral interview for the role of '{$role}'.{$conceptContext}
-        You MUST ask questions which were mentioned by the officer (concepts), basic HR questions, and also ask about the candidate's portfolio skills/projects.
-        {$portfolioContext}
-        
-        IMPORTANT RANDOMIZATION RULE: To prevent question leaking between students, you MUST select highly varied, situational HR scenarios. Do NOT ask common, generic HR questions like 'tell me about yourself' or 'strengths and weaknesses' unless specifically instructed.
-        {$exclusionContext}
-        
-        IMPORTANT: Start asking questions immediately. DO NOT say 'Welcome to the HR round' or 'Are you ready?'. Your very first message MUST be an actual HR question.
-        
-        OUTPUT FORMAT (JSON):
-        {
-            'question': '...',
-            'feedback': '...'
-        }";
+        $randomSeed = substr(md5(microtime()), 0, 8);
 
-        $messages = [['role' => 'system', 'content' => $systemPrompt]];
+        $systemPrompt = "You are an Expert HR Manager.
+
+CANDIDATE'S TARGET CONCEPTS / TOPICS: {$conceptsLabel}
+DIFFICULTY: {$difficulty} — {$difficultyGuide}
+
+STRICT CONCEPT RULE: All behavioral questions MUST be rooted in the candidate's target concepts ({$conceptsLabel}). For example, if the concept is 'React', frame HR questions around working in React teams, React deadlines, debugging under pressure in a React project, etc. Do NOT ask purely generic HR questions disconnected from the concepts.
+{$portfolioContext}
+
+BEHAVIORAL VARIETY RULE:
+Each question you ask must focus on a DIFFERENT behavioral/situational facet. Ensure you do not repeat the same theme (e.g., if a previous question was about deadlines, the next must focus on something else like conflict resolution, mentorship, adapting to new requirements, handling technical debt, receiving criticism, or communication failure).
+
+RANDOMIZATION: Highly varied situational scenarios. Use random seed: {$randomSeed}.
+{$exclusionContext}
+CRITICAL: Do NOT ask the same question or a semantically/situationally similar question to any of the previously asked questions listed above. Make the new scenario structurally and situationally distinct.
+
+IMPORTANT: Begin immediately with the first question — no 'Welcome to the HR round' or 'Are you ready?'.
+
+OUTPUT FORMAT (JSON):
+{
+    \"question\": \"...\",
+    \"feedback\": \"...\"
+}";
+
+        // Prune repetitive assistant messages from history to prevent pattern reinforcement loops
+        $prunedHistory = [];
+        $seenAssistantQuestions = [];
         foreach ($history as $msg) {
-            if ($msg['role'] !== 'system')
-                $messages[] = $msg;
+            if ($msg['role'] === 'system') {
+                continue;
+            }
+            if ($msg['role'] === 'assistant') {
+                $content = $msg['content'] ?? '';
+                $parsed = @json_decode($content, true);
+                $qText = ($parsed && !empty($parsed['question'])) ? $parsed['question'] : $content;
+                $cleanQ = preg_replace('/[^a-zA-Z0-9]/', '', strtolower($qText));
+                if ($cleanQ && in_array($cleanQ, $seenAssistantQuestions)) {
+                    // Skip duplicate assistant message
+                    continue;
+                }
+                $seenAssistantQuestions[] = $cleanQ;
+            }
+            $prunedHistory[] = $msg;
         }
 
-        $response = $this->callAPI($messages, [
-            'audit_method' => __FUNCTION__,
-            'response_format' => ['type' => 'json_object']
-        ]);
+        $messages = [['role' => 'system', 'content' => $systemPrompt]];
+        foreach ($prunedHistory as $msg) {
+            $messages[] = $msg;
+        }
 
-        if ($response['success']) {
+        $cleanPrevious = array_map(function($q) {
+            return preg_replace('/[^a-zA-Z0-9]/', '', strtolower($q));
+        }, $previousQuestions);
+
+        $maxAttempts = 3;
+        $attempt = 0;
+        $response = null;
+
+        $stopWords = ['describe', 'time', 'faced', 'a', 'an', 'the', 'you', 'your', 'to', 'in', 'with', 'project', 'situation', 'where', 'tell', 'me', 'about', 'how', 'do', 'handle', 'had', 'was', 'were', 'have', 'has', 'been', 'is', 'are', 'of', 'for', 'on', 'at', 'by', 'this', 'that', 'these', 'those'];
+        $cleanWords = function($str) use ($stopWords) {
+            $str = preg_replace('/[^a-z0-9\s]/', '', strtolower($str));
+            $words = preg_split('/\s+/', $str, -1, PREG_SPLIT_NO_EMPTY);
+            return array_filter($words, function($w) use ($stopWords) {
+                return !in_array($w, $stopWords);
+            });
+        };
+
+        $isDuplicate = function($newQ) use ($previousQuestions, $cleanPrevious, $cleanWords) {
+            $newQClean = preg_replace('/[^a-zA-Z0-9]/', '', strtolower($newQ));
+            if (empty($newQClean)) return true;
+            
+            if (in_array($newQClean, $cleanPrevious)) {
+                return true;
+            }
+            
+            $wNew = array_unique($cleanWords($newQ));
+            if (empty($wNew)) return false;
+            
+            foreach ($previousQuestions as $prevQ) {
+                similar_text(strtolower($newQ), strtolower($prevQ), $charPercent);
+                if ($charPercent >= 75.0) {
+                    return true;
+                }
+                
+                $wPrev = array_unique($cleanWords($prevQ));
+                if (empty($wPrev)) continue;
+                
+                $intersection = array_intersect($wNew, $wPrev);
+                $union = array_unique(array_merge($wNew, $wPrev));
+                $keywordPercent = (count($intersection) / count($union)) * 100.0;
+                
+                if ($keywordPercent >= 65.0) {
+                    return true;
+                }
+            }
+            return false;
+        };
+
+        while ($attempt < $maxAttempts) {
+            $response = $this->callAPI($messages, [
+                'audit_method' => __FUNCTION__,
+                'response_format' => ['type' => 'json_object']
+            ]);
+
+            if ($response['success']) {
+                $parsed = $response['parsed'] ?? json_decode($response['content'], true);
+                $question = $parsed['question'] ?? '';
+                
+                if (!$isDuplicate($question)) {
+                    // Unique question, return it
+                    return [
+                        'success' => true,
+                        'result' => $parsed
+                    ];
+                }
+                
+                // Duplicate question generated, try again
+                $messages[] = ['role' => 'assistant', 'content' => json_encode($parsed)];
+                $messages[] = ['role' => 'user', 'content' => "You generated a duplicate or very similar question: '{$question}'. Please ask a completely different HR question testing a different behavioral scenario."];
+                $attempt++;
+            } else {
+                break;
+            }
+        }
+
+        // Return whatever response we got
+        if ($response && $response['success']) {
             return [
                 'success' => true,
                 'result' => $response['parsed'] ?? json_decode($response['content'], true)
@@ -1174,11 +1368,12 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
         $systemPrompt = "You are a Senior Human Resources Director. Generate an assessment report for '{$role}'. {$conceptContext}
         
         STRICT RULES:
-        - Be brutally honest and highly critical about communication, situational awareness, and cultural fit.
-        - If the candidate gives generic, one-sentence answers without using the STAR method, penalize them heavily.
-        - To prevent score inflation, DO NOT give overall scores above 80 unless the candidate demonstrated exceptional maturity, leadership, and clear communication. Average or brief answers must receive scores between 40 and 60.
+        - Be fair, objective, and constructive in your evaluation of communication, situational awareness, and cultural fit.
+        - If the candidate gives short or simple answers, you may reduce their score, but do not fail them if they demonstrated relevant knowledge or experience. Highlight both key strengths and areas for improvement.
+        - To prevent score inflation, reserve scores above 80 for outstanding, highly detailed responses. Average or standard student responses should receive realistic and fair scores between 45 and 75. Do not artificially fail students who put in a genuine attempt.
         - DO NOT hallucinate if transcript is empty.
-        - CRITICAL ZERO-EFFORT PENALTY: If the candidate answered fewer than 4 questions, or repeatedly gave invalid/empty/skip answers (e.g., 'I don't know', 'skip', random letters), you MUST cap the 'overall_score' strictly below 20. Do not give them a passing or average score for skipping.
+        - CRITICAL ZERO-EFFORT PENALTY: If the candidate answered fewer than 3 unique questions in total, or if more than 70% of their responses were skips/empty/invalid (e.g., 'skip', 'I don't know', random letters), you MUST cap the 'overall_score' strictly below 20. Otherwise, if they attempted to answer the questions with relevant content, score them fairly based on the content of their answers (e.g., between 45 and 75 depending on quality) and DO NOT apply the zero-effort penalty.
+        - ASR / SPEECH-TO-TEXT TRANSCRIPTION AWARENESS: Note that many user responses in the transcript are captured via automated speech recognition / voice-to-text. These transcripts may contain transcription errors, lack punctuation, lack capitalization, or contain typographical/homophonic errors (e.g. 'employees as a prediction' instead of 'employee salary prediction', 'preprosing' instead of 'preprocessing', 'court' instead of 'code'). DO NOT penalize the candidate for these speech-to-text conversion artifacts, lack of punctuation, or spelling errors. Instead, focus entirely on the core content, logical structure (like the STAR method: Situation, Task, Action, Result), and the semantic substance/intent of their answers.
         
         OUTPUT FORMAT (JSON):
         {
@@ -1186,10 +1381,71 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
             'content': 'HTML report...'
         }";
 
-        $messages = [['role' => 'system', 'content' => $systemPrompt]];
+        // Group history by assistant questions to merge and keep the candidate's best/longest response
+        $groupedHistory = [];
+        $seenQuestions = [];
+        $currentQuestionKey = null;
+        
         foreach ($history as $msg) {
-            if ($msg['role'] !== 'system')
-                $messages[] = $msg;
+            $roleName = $msg['role'] ?? '';
+            if ($roleName === 'system') {
+                continue;
+            }
+            
+            if ($roleName === 'assistant') {
+                $content = $msg['content'] ?? '';
+                $parsed = @json_decode($content, true);
+                $qText = ($parsed && !empty($parsed['question'])) ? $parsed['question'] : $content;
+                $cleanQ = preg_replace('/[^a-zA-Z0-9]/', '', strtolower($qText));
+                
+                if (empty($cleanQ)) {
+                    continue;
+                }
+                
+                $currentQuestionKey = $cleanQ;
+                if (!isset($groupedHistory[$currentQuestionKey])) {
+                    $groupedHistory[$currentQuestionKey] = [
+                        'assistant_msg' => $msg,
+                        'user_msgs' => []
+                    ];
+                }
+            } else if ($roleName === 'user' && $currentQuestionKey !== null) {
+                $groupedHistory[$currentQuestionKey]['user_msgs'][] = $msg;
+            }
+        }
+        
+        // Reconstruct pruned history by taking the best user response for each unique question
+        $prunedHistory = [];
+        foreach ($groupedHistory as $qKey => $group) {
+            $prunedHistory[] = $group['assistant_msg'];
+            
+            $bestUserMsg = null;
+            $maxLength = -1;
+            
+            foreach ($group['user_msgs'] as $uMsg) {
+                $uContent = $uMsg['content'] ?? '';
+                if (strpos($uContent, '[No response') !== false || strtolower(trim($uContent)) === 'skip') {
+                    $len = -1;
+                } else {
+                    $len = strlen($uContent);
+                }
+                
+                if ($len > $maxLength) {
+                    $maxLength = $len;
+                    $bestUserMsg = $uMsg;
+                }
+            }
+            
+            if ($bestUserMsg !== null) {
+                $prunedHistory[] = $bestUserMsg;
+            } else if (!empty($group['user_msgs'])) {
+                $prunedHistory[] = $group['user_msgs'][0];
+            }
+        }
+
+        $messages = [['role' => 'system', 'content' => $systemPrompt]];
+        foreach ($prunedHistory as $msg) {
+            $messages[] = $msg;
         }
 
         $response = $this->callAPI($messages, [
@@ -1208,12 +1464,12 @@ Format: Return a JSON object with 'score' (0-100) and 'feedback' (string).";
                 $scoreVal = (int) ($aiData['overall_score'] ?? 0);
             } else {
                 $rawContent = $response['content'] ?? '';
-                
+
                 // Extract score via regex
                 if (preg_match('/["\']overall_score["\']\s*:\s*"?(\d+)"?/i', $rawContent, $m)) {
-                    $scoreVal = (int)$m[1];
+                    $scoreVal = (int) $m[1];
                 }
-                
+
                 // Extract content block or fallback to raw content
                 if (preg_match('/["\']content["\']\s*:\s*"(.*)"\s*\}\s*$/s', $rawContent, $m)) {
                     $contentVal = $m[1];
