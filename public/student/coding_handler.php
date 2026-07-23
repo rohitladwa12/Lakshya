@@ -61,7 +61,7 @@ switch ($action) {
         $institution = $studentProfile['institution'] ?? INSTITUTION_GMU;
         $studentId = getStudentIdForCoding($studentProfile, $institution, $userId);
 
-        $sql = "SELECT cp.id, cp.title, cp.category, cp.difficulty, IFNULL(scp.status, 'not_attempted') as status
+        $sql = "SELECT cp.id, cp.title, cp.category, cp.difficulty, cp.companies, IFNULL(scp.status, 'not_attempted') as status
                 FROM coding_problems cp
                 LEFT JOIN student_coding_progress scp ON cp.id = scp.problem_id 
                     AND scp.student_id = ? AND scp.institution = ?

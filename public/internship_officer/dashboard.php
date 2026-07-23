@@ -378,6 +378,7 @@ unset($i);
         .btn-view:hover { color: var(--info); border-color: var(--info); background: #eff6ff; }
         .btn-edit:hover { color: var(--warning); border-color: var(--warning); background: #fffbeb; }
         .btn-delete:hover { color: var(--danger); border-color: var(--danger); background: #fef2f2; }
+        .btn-wa:hover { color: #25d366; border-color: #25d366; background: #e8f9ed; }
         
         .empty-state {
             padding: 6rem 2rem;
@@ -473,7 +474,20 @@ else: ?>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($internships as $i): ?>
+                                <?php foreach ($internships as $i): 
+                                    $shareUrl = APP_URL . '/student/internship_details.php?code=' . encryptInternshipId($i['id']);
+                                    $waMessage = "*📢 New Internship Opportunity!*\n\n"
+                                               . "*Company:* " . $i['company_name'] . "\n"
+                                               . "*Role:* " . $i['internship_title'] . "\n"
+                                               . "*Location:* " . $i['location'] . "\n"
+                                               . "*Stipend:* " . $i['stipend'] . "\n"
+                                               . "*Mode:* " . $i['mode'] . "\n"
+                                               . "*Duration:* " . $i['duration'] . "\n"
+                                               . "*Deadline:* " . date('M d, Y', strtotime($i['application_deadline'])) . "\n\n"
+                                               . "*Apply here:* " . $shareUrl . "\n\n"
+                                               . "_Lakshya Placement Portal_";
+                                    $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
+                                ?>
                                     <tr>
                                         <td>
                                             <div class="company-info">
@@ -515,6 +529,9 @@ else: ?>
                                         </td>
                                         <td style="text-align: right;">
                                             <div class="action-group">
+                                                <a href="<?php echo $waUrl; ?>" target="_blank" class="btn-icon btn-wa" title="Share on WhatsApp">
+                                                    <i class="fab fa-whatsapp"></i>
+                                                </a>
                                                 <a href="applications.php?id=<?php echo $i['id']; ?>" class="btn-icon btn-view" title="View Applicants">
                                                     <i class="fas fa-users-viewfinder"></i>
                                                 </a>

@@ -242,6 +242,7 @@ if ($driveId > 0) {
             margin-top: 40px;
             display: flex;
             gap: 20px;
+            align-items: center;
         }
 
         .btn-mic {
@@ -281,6 +282,58 @@ if ($driveId > 0) {
             transform: none;
         }
 
+        .btn-submit-answer {
+            height: 56px;
+            padding: 0 32px;
+            border-radius: 28px;
+            border: none;
+            background: linear-gradient(135deg, #4CAF50, #2E7D32);
+            color: white;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            display: none;
+            align-items: center;
+            gap: 10px;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3);
+        }
+
+        .btn-submit-answer:hover {
+            transform: scale(1.05);
+            box-shadow: 0 6px 25px rgba(76, 175, 80, 0.5);
+            background: linear-gradient(135deg, #66BB6A, #388E3C);
+        }
+
+        .btn-submit-answer:active {
+            transform: scale(0.97);
+        }
+
+        .btn-submit-answer.disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .btn-submit-answer .submit-hint {
+            font-size: 0.7rem;
+            opacity: 0.8;
+            font-weight: 400;
+            text-transform: none;
+            letter-spacing: 0;
+        }
+
+        @keyframes submitPulse {
+            0%, 100% { box-shadow: 0 4px 15px rgba(76, 175, 80, 0.3); }
+            50% { box-shadow: 0 4px 25px rgba(76, 175, 80, 0.6); }
+        }
+
+        .btn-submit-answer.has-content {
+            animation: submitPulse 2s ease-in-out infinite;
+        }
+
         .btn-end {
             background: rgba(193, 5, 5, 0.8);
         }
@@ -301,23 +354,9 @@ if ($driveId > 0) {
             font-weight: 600;
         }
 
-        /* Captions */
+        /* Captions — removed, using right-side transcript panel only */
         .caption-box {
-            position: absolute;
-            bottom: 15vh;
-            width: 70%;
-            text-align: center;
-            background: rgba(0, 0, 0, 0.4);
-            backdrop-filter: blur(15px);
-            padding: 20px 30px;
-            border-radius: 16px;
-            color: #fff;
-            font-size: 1.3rem;
-            min-height: 80px;
-            display: none;
-            border: 1px solid rgba(255, 255, 255, 0.05);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            transition: opacity 0.3s;
+            display: none !important;
         }
 
         /* Timer Styles */
@@ -659,7 +698,7 @@ if ($driveId > 0) {
 
         <div id="statusText" class="status-text">Initializing...</div>
 
-        <div id="captions" class="caption-box"></div>
+
 
         <!-- Real-time transcript -->
         <div id="transcriptPanel" class="transcript-panel">
@@ -670,6 +709,10 @@ if ($driveId > 0) {
         <div class="controls">
             <button id="micBtn" class="btn-mic disabled" onclick="toggleMic()"><i
                     class="fas fa-microphone-slash"></i></button>
+            <button id="submitAnswerBtn" class="btn-submit-answer disabled" onclick="submitVoiceAnswer()">
+                <i class="fas fa-paper-plane"></i>
+                <span>Submit Answer</span>
+            </button>
             <button id="endBtn" class="btn-mic btn-end" onclick="endSession()" disabled
                 title="Minimum 20 minutes required for assigned tasks"><i class="fas fa-phone-slash"></i></button>
         </div>
@@ -699,7 +742,7 @@ if ($driveId > 0) {
     </script>
     <script src="<?php echo APP_URL; ?>/js/security_interceptor.js?v=<?php echo APP_VERSION; ?>"></script>
     <script>
-        const SILENCE_MS = 7000;
+        const SILENCE_MS = 45000; // 45s — only used for a gentle reminder, NOT auto-submit
 
         function showMicError(msg) {
             const area = document.getElementById('textInputArea');
@@ -1034,10 +1077,13 @@ if ($driveId > 0) {
 
                 case State.LISTENING:
                     isListening = true;
-                    updateState("Listening... (stops after 7 sec silence)", "listening");
+                    updateState("Listening... Click Submit Answer when done", "listening");
                     document.getElementById('micBtn').innerHTML = '<i class="fas fa-microphone"></i>';
                     document.getElementById('micBtn').classList.add('active');
                     document.getElementById('micBtn').classList.remove('disabled');
+                    // Show and enable the submit button
+                    const submitBtn = document.getElementById('submitAnswerBtn');
+                    if (submitBtn) { submitBtn.style.display = 'flex'; submitBtn.classList.remove('disabled'); }
                     lastSpeechTimestamp = Date.now();
                     if (analyser) animationFrameId = requestAnimationFrame(trackEnergyLoop);
                     if (!userInterimEl) addUserInterimLine("");
@@ -1046,6 +1092,7 @@ if ($driveId > 0) {
                 case State.PROCESSING:
                     updateState("Processing...", "neutral");
                     document.getElementById('micBtn').classList.add('disabled');
+                    { const sb = document.getElementById('submitAnswerBtn'); if (sb) { sb.style.display = 'none'; sb.classList.add('disabled'); sb.classList.remove('has-content'); } }
                     break;
 
                 case State.ERROR:
@@ -1122,6 +1169,9 @@ if ($driveId > 0) {
                 if (accumulatedTranscript || interimTranscript) {
                     clearSilenceTimer();
                     silenceTimer = setTimeout(() => onSilenceComplete(), SILENCE_MS);
+                    // Enable and highlight the submit button when there is content
+                    const sb = document.getElementById('submitAnswerBtn');
+                    if (sb) { sb.classList.remove('disabled'); sb.classList.add('has-content'); }
                 }
                 currentUtterance = (accumulatedTranscript + interimTranscript).trim();
                 updateUserInterimLine(currentUtterance);
@@ -1181,6 +1231,11 @@ if ($driveId > 0) {
                 initializeSessionAudio();
                 startTimer();
                 startHealthMonitor();
+                // Always show text input as an alternative to voice
+                const tArea = document.getElementById('textInputArea');
+                if (tArea) tArea.style.display = 'block';
+                const tInput = document.getElementById('textInput');
+                if (tInput) tInput.placeholder = 'Or type your answer here and press Enter...';
                 (checkRes.history || []).forEach(m => {
                     if (m && m.content) appendToTranscript(m.role === 'assistant' ? 'ai' : 'user', m.content, false);
                 });
@@ -1197,6 +1252,11 @@ if ($driveId > 0) {
                 initializeSessionAudio();
                 startTimer();
                 startHealthMonitor();
+                // Always show text input as an alternative to voice
+                const tArea = document.getElementById('textInputArea');
+                if (tArea) tArea.style.display = 'block';
+                const tInput = document.getElementById('textInput');
+                if (tInput) tInput.placeholder = 'Or type your answer here and press Enter...';
                 transitionTo(State.AI_SPEAKING);
                 loadNextQuestion("");
             } else {
@@ -1330,16 +1390,38 @@ if ($driveId > 0) {
             if (currentState !== State.LISTENING) return;
             const text = currentUtterance.trim();
             if (text) {
-                logTelemetryEvent("SILENCE_TIMEOUT");
+                // Gentle reminder instead of auto-submit
+                logTelemetryEvent("SILENCE_REMINDER");
                 telemetrySilenceTimeoutCount++;
-                telemetrySubmissionReasons.push("silence");
-                finalizeUserTranscriptLine(text);
-                transitionTo(State.PROCESSING);
-                loadNextQuestion(text);
-                accumulatedTranscript = '';
-                currentUtterance = '';
-                resetConfidenceStats();
+                updateState("Paused — Click Submit Answer when you're done", "listening");
+                // Pulse the submit button to draw attention
+                const sb = document.getElementById('submitAnswerBtn');
+                if (sb) sb.classList.add('has-content');
             }
+        }
+
+        function submitVoiceAnswer() {
+            if (currentState !== State.LISTENING && currentState !== State.WAITING) return;
+            const text = (currentUtterance || accumulatedTranscript || '').trim();
+            if (!text) {
+                // Also check the text input fallback
+                const textInput = document.getElementById('textInput');
+                if (textInput && textInput.value.trim()) {
+                    submitTextAnswer();
+                    return;
+                }
+                updateState("Nothing to submit — speak or type your answer first", "listening");
+                return;
+            }
+            logTelemetryEvent("MANUAL_SUBMIT_VOICE");
+            telemetrySubmissionReasons.push("manual_voice");
+            clearSilenceTimer();
+            finalizeUserTranscriptLine(text);
+            transitionTo(State.PROCESSING);
+            loadNextQuestion(text);
+            accumulatedTranscript = '';
+            currentUtterance = '';
+            resetConfidenceStats();
         }
 
         function processUserAnswer(text) {
@@ -1364,6 +1446,7 @@ if ($driveId > 0) {
             if (!voices || voices.length === 0) voices = synth.getVoices();
             if (!voices || voices.length === 0) return null;
             cachedVoice =
+                voices.find(v => v.name.includes("Microsoft Jenny")) ||
                 voices.find(v => v.lang === 'en-US' && /google|microsoft/i.test(v.name)) ||
                 voices.find(v => v.lang === 'en-US') ||
                 voices.find(v => v.lang && v.lang.startsWith('en')) ||
@@ -1460,7 +1543,7 @@ if ($driveId > 0) {
 
         function stopSpeaking() { if (synth.speaking) synth.cancel(); }
 
-        function showCaption(text) { const cap = document.getElementById('captions'); cap.innerText = text; cap.style.display = text ? 'block' : 'none'; }
+        function showCaption(text) { /* removed — right-side transcript panel handles real-time display */ }
 
         function appendToTranscript(who, text, isInterim) {
             const scroll = document.getElementById('transcriptScroll');

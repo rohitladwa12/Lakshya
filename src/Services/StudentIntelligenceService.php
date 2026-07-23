@@ -141,19 +141,19 @@ class StudentIntelligenceService {
     /**
      * Retrieve the student's AI Profile or trigger sync if missing
      */
-    public function getStudentAIProfile($studentId, $institution, $studentName = '') {
+    public function getStudentAIProfile($studentId, $institution, $studentName = '', $autoCreate = true) {
         $stmt = $this->db->prepare("SELECT * FROM student_ai_profiles WHERE student_id = ? AND institution = ? LIMIT 1");
         $stmt->execute([$studentId, $institution]);
         $profile = $stmt->fetch(PDO::FETCH_ASSOC);
 
-        if (!$profile) {
+        if (!$profile && $autoCreate) {
             $syncRes = $this->syncStudentAIProfile($studentId, $institution, $studentName);
             if ($syncRes['success']) {
                 $stmt->execute([$studentId, $institution]);
                 $profile = $stmt->fetch(PDO::FETCH_ASSOC);
             }
         }
-        return $profile;
+        return $profile ?: null;
     }
 
     /**
@@ -307,7 +307,7 @@ class StudentIntelligenceService {
     /**
      * Get or create today's daily micro-challenge for the student
      */
-    public function getOrCreateDailyChallenge($studentId, $institution, $studentName = '') {
+    public function getOrCreateDailyChallenge($studentId, $institution, $studentName = '', $autoCreate = true) {
         try {
             // 1. Check if there is an active challenge created in the last 18 hours (pending or completed)
             $stmt = $this->db->prepare("
@@ -320,8 +320,13 @@ class StudentIntelligenceService {
             $activeChallenge = $stmt->fetch(PDO::FETCH_ASSOC);
 
             if ($activeChallenge) {
-                $activeChallenge['question_json'] = json_decode($activeChallenge['question_json'], true);
+                $raw = json_decode($activeChallenge['question_json'], true);
+                $activeChallenge['question_json'] = self::normalizeQuestionArray($raw);
                 return $activeChallenge;
+            }
+
+            if (!$autoCreate) {
+                return null;
             }
 
             // 2. Select a target topic based on student's weaknesses (lowest mastery level)
@@ -347,14 +352,6 @@ class StudentIntelligenceService {
                     $userModel = new \User();
                     $user = $userModel->findByUsername($studentId);
                     if ($user) {
-
-
-
-
-
-
-
-                        
                         $profile = $studentModel->getByUserId($user['id'], $institution) ?: [];
                     }
                 }
@@ -412,19 +409,27 @@ class StudentIntelligenceService {
 
             $questionData = $aiResponse['parsed'];
 
+            // Normalize: AI may wrap the array under a key (e.g. {"questions":[...]})
+            // because json_object mode requires a root object, not an array.
+            $questionData = self::normalizeQuestionArray($questionData);
+
+            if (empty($questionData)) {
+                throw new Exception("AI returned no valid MCQ questions for topic: $topic");
+            }
+
             // 4. Save to daily_micro_challenges
             $stmt = $this->db->prepare("
                 INSERT INTO daily_micro_challenges 
                 (student_name, student_id, institution, topic_name, question_json, status, expires_at)
                 VALUES (?, ?, ?, ?, ?, 'pending', DATE_ADD(NOW(), INTERVAL 24 HOUR))
             ");
-            
+
             $stmt->execute([
                 $studentName ?: $studentId,
                 $studentId,
                 $institution,
                 $topic,
-                json_encode($questionData)
+                json_encode(array_values($questionData))
             ]);
 
             $challengeId = $this->db->lastInsertId();
@@ -606,7 +611,7 @@ class StudentIntelligenceService {
     /**
      * Fetch unread AI Insights, or generate them dynamically if none exist
      */
-    public function getStudentInsights($studentId, $institution, $studentName = '') {
+    public function getStudentInsights($studentId, $institution, $studentName = '', $autoCreate = true) {
         try {
             // Retrieve recent insights
             $stmt = $this->db->prepare("SELECT * FROM student_ai_insights WHERE student_id = ? AND institution = ? ORDER BY priority DESC, created_at DESC LIMIT 5");
@@ -621,7 +626,7 @@ class StudentIntelligenceService {
                 }
             }
 
-            if ($needsRegen) {
+            if ($needsRegen && $autoCreate) {
                 $this->generateStudentInsights($studentId, $institution, $studentName);
                 $stmt->execute([$studentId, $institution]);
                 $insights = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
@@ -814,5 +819,52 @@ class StudentIntelligenceService {
         } catch (Exception $e) {
             error_log("generateStudentInsights Error: " . $e->getMessage());
         }
+    }
+
+    /**
+     * Normalize AI response into a flat array of valid MCQ question objects.
+     * Handles cases where the AI wraps the array under a key due to json_object mode.
+     * e.g. {"questions":[...]}, {"mcqs":[...]}, {"data":[...]}, or a bare array.
+     */
+    private static function normalizeQuestionArray($data): array {
+        if (!is_array($data)) {
+            return [];
+        }
+
+        // Already a flat array of questions?
+        if (isset($data[0]) && is_array($data[0]) && isset($data[0]['question'])) {
+            return self::filterValidQuestions($data);
+        }
+
+        // Single question object (not wrapped in array)?
+        if (isset($data['question']) && isset($data['options'])) {
+            return self::filterValidQuestions([$data]);
+        }
+
+        // Wrapped object — search for any array value that looks like questions
+        foreach ($data as $key => $val) {
+            if (is_array($val)) {
+                // Direct array of question objects
+                if (isset($val[0]) && is_array($val[0]) && isset($val[0]['question'])) {
+                    return self::filterValidQuestions($val);
+                }
+                // Single question wrapped under a key
+                if (isset($val['question']) && isset($val['options'])) {
+                    return self::filterValidQuestions([$val]);
+                }
+            }
+        }
+
+        return [];
+    }
+
+    private static function filterValidQuestions(array $questions): array {
+        $valid = [];
+        foreach ($questions as $q) {
+            if (is_array($q) && isset($q['question']) && isset($q['options']) && is_array($q['options']) && count($q['options']) >= 2) {
+                $valid[] = $q;
+            }
+        }
+        return $valid;
     }
 }

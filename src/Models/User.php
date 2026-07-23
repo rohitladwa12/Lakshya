@@ -271,7 +271,7 @@ class User extends Model {
         $stmt = $this->remoteDB->prepare($sql);
         $res = $stmt->execute([
             $data['username'],
-            password_hash($data['password'], PASSWORD_BCRYPT), 
+            password_hash($data['password'], PASSWORD_BCRYPT, ['cost' => 8]), 
             $legacyRole,
             $data['full_name'],
             $data['email'] ?? null 
@@ -403,7 +403,7 @@ class User extends Model {
                     } elseif ($password === $user['PASSWORD']) {
                         $authenticated = true;
                         // MIGRATION: Update to bcrypt
-                        $newHash = password_hash($password, PASSWORD_BCRYPT);
+                        $newHash = password_hash($password, PASSWORD_BCRYPT, ['cost' => 8]);
                         $this->remoteDB->prepare("UPDATE {$table} SET PASSWORD = ? WHERE SL_NO = ?")
                                        ->execute([$newHash, $user['SL_NO']]);
                     }
@@ -609,27 +609,27 @@ class User extends Model {
         $actualUserName = $row['USER_NAME'];
         
         if ($institution === INSTITUTION_GMIT) {
-             if (!$stored || !password_verify($currentPassword, $stored)) {
-                 return ['success' => false, 'message' => 'Current password is incorrect'];
-             }
-             $newPassword = password_hash($newPassword, PASSWORD_BCRYPT);
+            if (!$stored || !password_verify($currentPassword, $stored)) {
+                return ['success' => false, 'message' => 'Current password is incorrect'];
+            }
+            $newPassword = password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 8]);
         } else {
-             // GMU - Check hash first, then plain text (handling migration if they change pw)
-             $verified = false;
-             if ($stored) {
-                 if (password_verify($currentPassword, $stored)) {
-                     $verified = true;
-                 } elseif ($currentPassword === $stored) {
-                     $verified = true;
-                 }
-             }
-             
-             if (!$verified) {
-                  return ['success' => false, 'message' => 'Current password is incorrect'];
-             }
-             
-             // Always hash the new password
-             $newPassword = password_hash($newPassword, PASSWORD_BCRYPT);
+            // GMU - Check hash first, then plain text (handling migration if they change pw)
+            $verified = false;
+            if ($stored) {
+                if (password_verify($currentPassword, $stored)) {
+                    $verified = true;
+                } elseif ($currentPassword === $stored) {
+                    $verified = true;
+                }
+            }
+            
+            if (!$verified) {
+                return ['success' => false, 'message' => 'Current password is incorrect'];
+            }
+            
+            // Always hash the new password
+            $newPassword = password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 8]);
         }
         
         $updateSql = "UPDATE {$table} SET PASSWORD = ? WHERE USER_NAME = ?";
@@ -690,5 +690,3 @@ class User extends Model {
     }
 
 }
-
-

@@ -2101,9 +2101,8 @@ if (strpos($compLower, 'google') !== false) {
                     const btnSpeak = document.getElementById('btnSpeak');
                     if (btnSpeak) btnSpeak.classList.remove('active');
                     stateStore.update('voiceEnabled', false);
-                    if (userInput.value.trim().length > 0) {
-                        sendMessage();
-                    }
+                    // Do NOT auto-submit — let the student review and submit manually
+                    // The transcribed text stays in userInput for them to edit/send
                 };
                 this.recognition.onresult = (e) => {
                     let interimTranscript = '';

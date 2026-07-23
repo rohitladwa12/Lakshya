@@ -290,6 +290,7 @@ $fullName = getFullName();
             <div class="bottom-controls">
                 <input type="text" id="userInput" placeholder="Type or speak your answer..." onkeypress="if(event.key==='Enter') sendAnswer()">
                 <button id="micBtn" class="btn-round btn-mic" onclick="toggleMic()" title="Voice Input"><i class="fas fa-microphone"></i></button>
+                <button id="submitAnswerBtn" class="btn-round" onclick="sendAnswer()" title="Submit Answer" style="background:linear-gradient(135deg,#4CAF50,#2E7D32);color:white;font-weight:700;font-size:0.85rem;padding:0 16px;border:none;border-radius:25px;cursor:pointer;display:none;"><i class="fas fa-paper-plane"></i> Submit</button>
                 <button class="btn-finish" onclick="finishInterview()" title="End Session">Finish</button>
             </div>
         </div>
@@ -574,12 +575,14 @@ $fullName = getFullName();
                     
                 case State.LISTENING:
                     isListening = true;
-                    updateState("Listening", "listening");
+                    updateState("Listening... Click Submit when done", "listening");
                     document.getElementById('micBtn').innerHTML = '<i class="fas fa-microphone"></i>';
                     document.getElementById('micBtn').classList.add('active');
                     document.getElementById('micBtn').classList.remove('disabled');
                     
                     lastSpeechTimestamp = Date.now();
+                    // Show submit button while listening
+                    { const sb = document.getElementById('submitAnswerBtn'); if (sb) sb.style.display = 'inline-block'; }
                     
                     if (analyser) {
                         animationFrameId = requestAnimationFrame(trackEnergyLoop);
@@ -704,7 +707,7 @@ $fullName = getFullName();
                 
                 if (accumulatedTranscript || interimTranscript) {
                     clearSilenceTimer();
-                    silenceTimer = setTimeout(() => onSilenceComplete(), 7000);
+                    silenceTimer = setTimeout(() => onSilenceComplete(), 45000); // 45s gentle reminder only
                 }
                 currentUtterance = (accumulatedTranscript + interimTranscript).trim();
                 showCaption(currentUtterance);
@@ -803,18 +806,13 @@ $fullName = getFullName();
             silenceTimer = null;
             if (currentState !== State.LISTENING) return;
             
-            const now = Date.now();
-            const timeSinceLastSpeech = now - lastSpeechTimestamp;
-            if (timeSinceLastSpeech < 7000) {
-                const remaining = 7000 - timeSinceLastSpeech;
-                silenceTimer = setTimeout(() => onSilenceComplete(), remaining);
-                return;
-            }
-            
             const text = currentUtterance.trim();
             if (text) {
+                // Gentle reminder instead of auto-submit
                 telemetrySilenceTimeoutCount++;
-                sendAnswer(text, false);
+                updateState("Paused — Click Submit when you're done", "listening");
+                const sb = document.getElementById('submitAnswerBtn');
+                if (sb) sb.style.display = 'inline-block';
             }
         }
 
@@ -869,7 +867,9 @@ $fullName = getFullName();
             const utterance = new SpeechSynthesisUtterance(text);
             window.currentUtteranceObj = utterance;
             
-            const preferredVoice = voices.find(v => v.name.includes("Google US English") || v.name.includes("Female"));
+            const preferredVoice = 
+                voices.find(v => v.name.includes("Microsoft Jenny")) ||
+                voices.find(v => v.name.includes("Google US English") || v.name.includes("Female"));
             if (preferredVoice) utterance.voice = preferredVoice;
 
             utterance.rate = 1.0;

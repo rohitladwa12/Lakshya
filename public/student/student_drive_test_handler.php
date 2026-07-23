@@ -342,7 +342,20 @@ try {
 
             foreach ($questions as $idx => $q) {
                 $submittedAnswer = isset($userAnswers[$idx]) ? (int)$userAnswers[$idx] : null;
-                $correctAnswer = isset($q['answer']) ? (int)$q['answer'] : null;
+                
+                $rawAns = $q['answer'] ?? null;
+                if (is_numeric($rawAns)) {
+                    $correctAnswer = (int)$rawAns;
+                } elseif (is_string($rawAns)) {
+                    $ansLetter = strtoupper(trim($rawAns));
+                    if (in_array($ansLetter, ['A', 'B', 'C', 'D'])) {
+                        $correctAnswer = match ($ansLetter) { 'A' => 0, 'B' => 1, 'C' => 2, 'D' => 3 };
+                    } else {
+                        $correctAnswer = (int)$rawAns;
+                    }
+                } else {
+                    $correctAnswer = null;
+                }
 
                 if ($submittedAnswer !== null && $correctAnswer !== null && $submittedAnswer === $correctAnswer) {
                     $correctCount++;

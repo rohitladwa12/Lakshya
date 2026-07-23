@@ -404,7 +404,7 @@ usort($announcements, function($a, $b) {
                             <?php 
                             $link = 'jobs.php';
                             if ($announcement['type'] === 'internship') {
-                                $link = 'internship_details.php?id=' . $announcement['id'];
+                                $link = 'internship_details.php?code=' . encryptInternshipId($announcement['id']);
                             } elseif ($announcement['type'] === 'announcement' && !($announcement['is_job_redirect'] ?? false)) {
                                 $link = '#'; // Or a modal/detail page if implemented
                             }

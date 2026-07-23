@@ -365,9 +365,9 @@ if (count($feedItems) < 2) {
 require_once __DIR__ . '/../../src/Services/StudentIntelligenceService.php';
 require_once __DIR__ . '/../../src/Services/AIService.php';
 $intelService = new \App\Services\StudentIntelligenceService();
-$aiProfile = $intelService->getStudentAIProfile($username, $institution, $fullName);
-$aiInsights = $intelService->getStudentInsights($username, $institution, $fullName);
-$dailyChallenge = $intelService->getOrCreateDailyChallenge($username, $institution, $fullName);
+$aiProfile = $intelService->getStudentAIProfile($username, $institution, $fullName, false);
+$aiInsights = $intelService->getStudentInsights($username, $institution, $fullName, false);
+$dailyChallenge = $intelService->getOrCreateDailyChallenge($username, $institution, $fullName, false);
 
 // --- DAILY GRIND MOTIVATION ---
 $grindQuotes = [
@@ -5048,6 +5048,53 @@ $dailyQuote = $_SESSION['grind_quote'];
                 </a>
             </div>
         </div>
+    <?php endif; ?>
+
+    <?php if (empty($aiProfile) || empty($aiInsights) || empty($dailyChallenge)): ?>
+    <script>
+        // Auto-initialize student's AI personalized modules asynchronously
+        (async function autoInitAI() {
+            console.log("AI Coach initialization triggered...");
+            const elementsToOverlay = [
+                document.querySelector('.ai-coach-card'),
+                document.querySelector('.insights-card'),
+                document.getElementById('challenge-card-container')
+            ];
+            
+            elementsToOverlay.forEach(el => {
+                if (el) {
+                    el.style.position = 'relative';
+                    const loader = document.createElement('div');
+                    loader.className = 'ai-card-loading-shimmer';
+                    loader.style.cssText = 'position: absolute; top:0; left:0; width:100%; height:100%; background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(8px); display:flex; flex-direction:column; align-items:center; justify-content:center; border-radius:inherit; z-index:99; font-size:13px; font-weight:600; color:#1e293b; box-shadow: inset 0 0 20px rgba(255,255,255,0.5);';
+                    loader.innerHTML = '<i class="fas fa-robot fa-spin" style="font-size:28px; color:#800000; margin-bottom:12px;"></i> Preparing AI personalization...';
+                    el.appendChild(loader);
+                }
+            });
+
+            try {
+                const response = await fetch('intelligence_handler.php', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded',
+                        'X-CSRF-TOKEN': window.CSRF_TOKEN || ''
+                    },
+                    body: new URLSearchParams({
+                        action: 'initialize_ai',
+                        csrf_token: window.CSRF_TOKEN || ''
+                    })
+                });
+                const result = await response.json();
+                if (result.success) {
+                    location.reload();
+                } else {
+                    console.error("AI Auto-Init failed:", result.message);
+                }
+            } catch (e) {
+                console.error("AI Auto-Init connection error:", e);
+            }
+        })();
+    </script>
     <?php endif; ?>
 </body>
 

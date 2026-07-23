@@ -707,12 +707,12 @@ RULES:
    - **Examples**: Provide at least one **Example Input** and **Expected Output** for every coding task.
    - **Be Lenient**: If the code has minor issues but the logic is right, acknowledge the correct approach and gently point out the fix. Don't block progress over small syntax issues.
 4. **Aptitude Response Logic**: 
-   - **Step 1**: Identify the correct answer letter for the question you dynamically generated.
-   - **Step 2**: Compare the candidate's response. Treat 'A', 'Option A', 'a', 'option a', or even the text of the option as a match.
+   - **Step 1**: Look at the last question you asked in the chat and identify which option letter (A, B, C, or D) is the correct answer.
+   - **Step 2**: Compare the candidate's response. Treat 'A', 'Option A', 'a', 'option a', or the literal text of that option as a match.
    - **Step 3**: 
-        - **IF MATCH**: Say 'Correct! ✅' and briefly explain why.
-        - **IF NO MATCH**: Say 'Not quite! ❌'. State the correct letter and explain simply.
-   - **Step 4**: Your label must match your explanation. No contradictions.
+        - **IF MATCH**: You MUST say 'Correct! ✅' and briefly explain why.
+        - **IF NO MATCH**: Say 'Not quite! ❌. The correct answer is [Correct Option Letter].' and explain simply.
+   - **Step 4**: **PREVENT CONTRADICTIONS**: Under no circumstances should you mark a candidate's answer as incorrect if they chose the correct letter. If they chose B, and the correct option is B, it is Correct! ✅. Double-check your own label before outputting.
 5. **Formatting**: Keep it clean — use **bold** for key terms. Keep questions short and clear. One question at a time.
 6. **Domain Rotation**: Rotate through different topics (OS, Networking, DBMS, DSA, OOP, Web, etc.). Don't repeat the same topic.
 7. **Skill Priority**: Ask questions related to the candidate's registered skills when possible.
@@ -957,6 +957,7 @@ STRICT RULES FOR ACCURACY:
             if (!empty($corrected) && is_array($corrected)) {
                 $validQuestions = $corrected;
             }
+            $validQuestions = $this->normalizeMCQAnswers($validQuestions);
 
             return [
                 'success' => count($validQuestions) > 0,
@@ -1018,6 +1019,7 @@ Each question object MUST follow this EXACT structure:
             if (!empty($corrected) && is_array($corrected)) {
                 $rawQuestions = $corrected;
             }
+            $rawQuestions = $this->normalizeMCQAnswers($rawQuestions);
 
             return [
                 'success' => count($rawQuestions) > 0,
@@ -1924,9 +1926,10 @@ OUTPUT FORMAT (JSON):
         if ($response['success']) {
             $data = $response['parsed'];
             if (isset($data['questions']) && is_array($data['questions'])) {
+                $normalizedQs = $this->normalizeMCQAnswers($data['questions']);
                 return [
                     'success' => true,
-                    'questions' => array_slice($data['questions'], 0, $questionCount)
+                    'questions' => array_slice($normalizedQs, 0, $questionCount)
                 ];
             }
         }
@@ -2224,5 +2227,57 @@ Format: Return a JSON object with this structure:
             - Maintain high standards for clarity, depth, and correctness.
             - Avoid friendly chatter; focus purely on evaluating competence.";
         }
+    }
+
+    private function normalizeMCQAnswers($questions)
+    {
+        if (!is_array($questions)) {
+            return [];
+        }
+        foreach ($questions as &$q) {
+            if (isset($q['answer'])) {
+                $val = $q['answer'];
+                if (is_numeric($val)) {
+                    $q['answer'] = (int)$val;
+                } elseif (is_string($val)) {
+                    $valClean = strtoupper(trim($val));
+                    if (preg_match('/^OPTION\s*([A-D])$/i', $valClean, $m)) {
+                        $valClean = $m[1];
+                    }
+                    if (in_array($valClean, ['A', 'B', 'C', 'D'], true)) {
+                        $q['answer'] = match ($valClean) {
+                            'A' => 0,
+                            'B' => 1,
+                            'C' => 2,
+                            'D' => 3
+                        };
+                    } else {
+                        $found = false;
+                        if (isset($q['options']) && is_array($q['options'])) {
+                            foreach ($q['options'] as $idx => $opt) {
+                                if (strtolower(trim($opt)) === strtolower(trim($val))) {
+                                    $q['answer'] = $idx;
+                                    $found = true;
+                                    break;
+                                }
+                            }
+                        }
+                        if (!$found) {
+                            $q['answer'] = 0;
+                        }
+                    }
+                } else {
+                    $q['answer'] = 0;
+                }
+            } else {
+                $q['answer'] = 0;
+            }
+            
+            $optCount = isset($q['options']) && is_array($q['options']) ? count($q['options']) : 4;
+            if ($q['answer'] < 0 || $q['answer'] >= $optCount) {
+                $q['answer'] = 0;
+            }
+        }
+        return $questions;
     }
 }

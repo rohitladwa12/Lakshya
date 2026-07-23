@@ -267,7 +267,7 @@ function getStatusBadgeClass($status) {
                             <i class="far fa-calendar-alt"></i> Applied on <?php echo date('d M Y', strtotime($app['applied_at'])); ?>
                         </div>
 
-                        <a href="internship_details.php?id=<?php echo $app['internship_id']; ?>" class="btn-view">View Details</a>
+                        <a href="internship_details.php?code=<?php echo encryptInternshipId($app['internship_id']); ?>" class="btn-view">View Details</a>
                     </div>
                     <?php endforeach; ?>
                 </div>

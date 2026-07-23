@@ -207,6 +207,70 @@ $studentModel->getProfile($userId);
             margin-top: 10px;
         }
 
+        /* Company Tags CSS */
+        .company-tags-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 15px;
+            padding-top: 12px;
+            border-top: 1px dashed #e2e8f0;
+        }
+
+        .company-logo-tile {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 32px;
+            height: 32px;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+            transition: all 0.2s ease;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .company-logo-tile:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.08);
+            border-color: #cbd5e1;
+        }
+
+        .company-logo-img {
+            width: 18px;
+            height: 18px;
+            object-fit: contain;
+        }
+
+        /* Tooltip style for company name on hover */
+        .company-logo-tile::after {
+            content: attr(data-company);
+            position: absolute;
+            bottom: 100%;
+            left: 50%;
+            transform: translateX(-50%) translateY(-4px);
+            background: #1e293b;
+            color: #ffffff;
+            font-size: 0.65rem;
+            padding: 4px 8px;
+            border-radius: 4px;
+            white-space: nowrap;
+            opacity: 0;
+            visibility: hidden;
+            transition: all 0.2s ease;
+            z-index: 10;
+            font-weight: 600;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .company-logo-tile:hover::after {
+            opacity: 1;
+            visibility: visible;
+            transform: translateX(-50%) translateY(-8px);
+        }
+
         .status-badge {
             position: absolute;
             top: 15px;
@@ -244,6 +308,58 @@ $studentModel->getProfile($userId);
             padding: 40px;
             color: #999;
         }
+
+        /* DSA Tabs Styling */
+        .dsa-tabs-container {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 25px;
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 5px;
+        }
+
+        .dsa-tab {
+            background: none;
+            border: none;
+            padding: 12px 24px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            cursor: pointer;
+            color: #64748b;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s ease;
+            font-family: 'Outfit', sans-serif;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            outline: none;
+        }
+
+        .dsa-tab:hover {
+            color: var(--primary-maroon);
+        }
+
+        .dsa-tab.active {
+            color: var(--primary-maroon);
+            border-bottom-color: var(--primary-maroon);
+        }
+
+        .hot-badge {
+            background: linear-gradient(135deg, #ff4500 0%, #ff8c00 100%);
+            color: white;
+            font-size: 0.7rem;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 800;
+            letter-spacing: 0.5px;
+            animation: dsaPulse 1.5s infinite;
+        }
+
+        @keyframes dsaPulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
     </style>
 </head>
 <body>
@@ -269,6 +385,17 @@ $studentModel->getProfile($userId);
                 <div class="stat-number" id="totalProblems">0</div>
                 <div class="stat-label">Total Problems</div>
             </div>
+        </div>
+
+        <!-- DSA Tabs Switcher -->
+        <div class="dsa-tabs-container">
+            <button class="dsa-tab active" data-tab="basic" onclick="switchDsaTab('basic')">
+                <i class="fas fa-graduation-cap"></i> Basic DSA
+            </button>
+            <button class="dsa-tab" data-tab="interview" onclick="switchDsaTab('interview')">
+                <i class="fas fa-fire" style="color: #ff4500;"></i> Interview DSA
+                <span class="hot-badge">HOT</span>
+            </button>
         </div>
 
         <!-- Filters -->
@@ -311,6 +438,58 @@ $studentModel->getProfile($userId);
     <script>
         let allProblems = [];
         let progressStats = {};
+        let allCategories = [];
+        let activeTab = 'basic';
+        const basicCategories = ['Loops', 'Sorting', 'Searching', 'Math', 'Recursion'];
+
+        function getCompanyLogoUrl(name) {
+            const slugMap = {
+                'google': 'google',
+                'amazon': 'amazon',
+                'microsoft': 'microsoft',
+                'meta': 'meta',
+                'apple': 'apple',
+                'netflix': 'netflix',
+                'uber': 'uber',
+                'lyft': 'lyft',
+                'stripe': 'stripe',
+                'adobe': 'adobe',
+                'bloomberg': 'bloomberg',
+                'salesforce': 'salesforce',
+                'oracle': 'oracle',
+                'walmart': 'walmart',
+                'goldman sachs': 'goldmansachs',
+                'jpmorgan': 'jpmorganchase',
+                'nvidia': 'nvidia',
+                'cisco': 'cisco',
+                'tcs': 'tataconsultancyservices',
+                'infosys': 'infosys',
+                'wipro': 'wipro',
+                'capgemini': 'capgemini',
+                'accenture': 'accenture',
+                'cognizant': 'cognizant',
+                'hcltech': 'hcl',
+                'ltimindtree': 'ltimindtree'
+            };
+            const cleanName = name.toLowerCase().trim();
+            const slug = slugMap[cleanName] || cleanName;
+            return `https://cdn.simpleicons.org/${slug}`;
+        }
+
+        function handleLogoError(img, name) {
+            const parent = img.parentNode;
+            img.remove();
+            // Show initials
+            let initials = name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase();
+            if (initials.length === 1 && name.length > 1) {
+                initials = name.substring(0, 2).toUpperCase();
+            }
+            parent.innerText = initials;
+            parent.style.fontSize = '9px';
+            parent.style.fontWeight = '800';
+            parent.style.color = '#475569';
+            parent.style.backgroundColor = '#f1f5f9';
+        }
 
         // Load problems and stats on page load
         document.addEventListener('DOMContentLoaded', () => {
@@ -346,21 +525,31 @@ $studentModel->getProfile($userId);
                 }
 
                 if (data.success) {
-                    const select = document.getElementById('categoryFilter');
-                    // Keep the "All Categories" option
-                    select.innerHTML = '<option value="">All Categories</option>';
-                    data.categories.forEach(category => {
-                        const option = document.createElement('option');
-                        option.value = category;
-                        option.textContent = category;
-                        select.appendChild(option);
-                    });
+                    allCategories = data.categories;
+                    updateCategoryDropdown();
                 } else {
                     throw new Error(data.message || 'Failed to load categories');
                 }
             } catch (error) {
                 console.error('Failed to load categories:', error);
             }
+        }
+
+        function updateCategoryDropdown() {
+            const select = document.getElementById('categoryFilter');
+            select.innerHTML = '<option value="">All Categories</option>';
+            
+            const filteredCats = allCategories.filter(cat => {
+                const isBasic = basicCategories.includes(cat);
+                return activeTab === 'basic' ? isBasic : !isBasic;
+            });
+
+            filteredCats.forEach(category => {
+                const option = document.createElement('option');
+                option.value = category;
+                option.textContent = category;
+                select.appendChild(option);
+            });
         }
 
         async function loadProgressStats() {
@@ -420,7 +609,7 @@ $studentModel->getProfile($userId);
                 if (data.success) {
                     allProblems = data.problems;
                     document.getElementById('totalProblems').textContent = allProblems.length;
-                    displayProblems(allProblems);
+                    filterProblems();
                 } else {
                     throw new Error(data.message || 'Failed to load problems');
                 }
@@ -435,16 +624,38 @@ $studentModel->getProfile($userId);
             }
         }
 
+        function switchDsaTab(tab) {
+            activeTab = tab;
+            
+            // Toggle active class on tab buttons
+            document.querySelectorAll('.dsa-tab').forEach(btn => {
+                btn.classList.toggle('active', btn.getAttribute('data-tab') === tab);
+            });
+
+            // Reset category filter value
+            document.getElementById('categoryFilter').value = '';
+
+            // Update category dropdown list options for new tab
+            updateCategoryDropdown();
+
+            // Re-filter problems
+            filterProblems();
+        }
+
         function filterProblems() {
             const category = document.getElementById('categoryFilter').value;
             const difficulty = document.getElementById('difficultyFilter').value;
             const search = document.getElementById('searchBox').value.toLowerCase();
 
             const filtered = allProblems.filter(problem => {
+                // Tab filter
+                const isBasicCategory = basicCategories.includes(problem.category);
+                const matchTab = activeTab === 'basic' ? isBasicCategory : !isBasicCategory;
+
                 const matchCategory = !category || problem.category === category;
                 const matchDifficulty = !difficulty || problem.difficulty === difficulty;
                 const matchSearch = !search || problem.title.toLowerCase().includes(search);
-                return matchCategory && matchDifficulty && matchSearch;
+                return matchTab && matchCategory && matchDifficulty && matchSearch;
             });
 
             displayProblems(filtered);
@@ -479,6 +690,18 @@ $studentModel->getProfile($userId);
                             <span class="category-tag">
                                 <i class="fas fa-tag"></i> ${problem.category}
                             </span>
+                            ${problem.companies ? `
+                            <div class="company-tags-list">
+                                ${problem.companies.split(',').map(company => {
+                                    const cleaned = company.trim();
+                                    return `
+                                    <span class="company-logo-tile" data-company="${cleaned}">
+                                        <img src="${getCompanyLogoUrl(cleaned)}" alt="" class="company-logo-img" onerror="handleLogoError(this, '${cleaned}')">
+                                    </span>
+                                    `;
+                                }).join('')}
+                            </div>
+                            ` : ''}
                         </div>
                     `).join('')}
                 </div>

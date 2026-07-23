@@ -2,19 +2,22 @@
 
 namespace App\Services;
 
-class LeaderboardService {
-    
+class LeaderboardService
+{
+
     /**
      * Get all rankings based on filters
      * @param array $filters ['institution', 'discipline', 'semesters']
      * @return array
      */
-    public static function getRankings($filters = []) {
+    public static function getRankings($filters = [])
+    {
         $db = getDB();
-        
+
         // 1. Fetch Students
         $students = self::fetchStudents($filters);
-        if (empty($students)) return [];
+        if (empty($students))
+            return [];
 
         $usns = array_column($students, 'usn');
         $usnList = "'" . implode("','", array_map('addslashes', $usns)) . "'";
@@ -35,10 +38,12 @@ class LeaderboardService {
         $gmitUsns = [];
         $gmitAadharMap = []; // usn => aadhar for GMIT
         foreach ($students as $s) {
-            if ($s['institution'] === INSTITUTION_GMU) $gmuUsns[] = $s['usn'];
+            if ($s['institution'] === INSTITUTION_GMU)
+                $gmuUsns[] = $s['usn'];
             else {
                 $gmitUsns[] = $s['usn'];
-                if (!empty($s['aadhar'])) $gmitAadharMap[$s['usn']] = $s['aadhar'];
+                if (!empty($s['aadhar']))
+                    $gmitAadharMap[$s['usn']] = $s['aadhar'];
             }
         }
 
@@ -62,25 +67,28 @@ class LeaderboardService {
         foreach ($students as $s) {
             $usn = $s['usn'];
             $lowUsn = strtolower($usn);
-            
+
             // For GMIT: merge scores stored under Aadhar into the USN key
             $aadhar = $s['aadhar'] ?? '';
             $lowAadhar = strtolower($aadhar);
             $scores = $scoresByUsn[$lowUsn] ?? ($scoresByUsn[$lowAadhar] ?? []);
-            $mocks  = $mockDataByUsn[$lowUsn] ?? ($mockDataByUsn[$lowAadhar] ?? []);
-            $tasks  = $taskDataByUsn[$lowUsn] ?? ($taskDataByUsn[$lowAadhar] ?? []);
-            $port   = $portfolioData[$lowUsn] ?? ($portfolioData[$lowAadhar] ?? []);
+            $mocks = $mockDataByUsn[$lowUsn] ?? ($mockDataByUsn[$lowAadhar] ?? []);
+            $tasks = $taskDataByUsn[$lowUsn] ?? ($taskDataByUsn[$lowAadhar] ?? []);
+            $port = $portfolioData[$lowUsn] ?? ($portfolioData[$lowAadhar] ?? []);
             $skills = $skillData[$lowUsn] ?? ($skillData[$lowAadhar] ?? []);
             $tStamps = $assessmentTimestamps[$lowUsn] ?? ($assessmentTimestamps[$lowAadhar] ?? []);
-            
+
             // Pillar Processing
             $pillars = self::calculatePillars($scores, $mocks, $tasks);
-            
+
             // AI Score with Strict Hybrid Model (Weighted + Square-Count Penalty)
             $attemptedCount = 0;
-            if ($pillars['aptitude'] > 0) $attemptedCount++;
-            if ($pillars['technical'] > 0) $attemptedCount++;
-            if ($pillars['hr'] > 0) $attemptedCount++;
+            if ($pillars['aptitude'] > 0)
+                $attemptedCount++;
+            if ($pillars['technical'] > 0)
+                $attemptedCount++;
+            if ($pillars['hr'] > 0)
+                $attemptedCount++;
 
             $weightedScore = ($pillars['technical'] * 0.5) + ($pillars['aptitude'] * 0.25) + ($pillars['hr'] * 0.25);
             $squarePenalty = pow($attemptedCount / 3.0, 3);
@@ -105,7 +113,7 @@ class LeaderboardService {
                 'aadhar' => $s['aadhar'] ?? '',
                 'institution' => $s['institution'],
                 'discipline' => $s['department'],
-                'sgpa' => (float)($s['sgpa'] ?? 0),
+                'sgpa' => (float) ($s['sgpa'] ?? 0),
                 'academic_history' => $history,
                 'skills' => $skills,
                 'aptitude' => $pillars['aptitude'],
@@ -114,7 +122,7 @@ class LeaderboardService {
                 'ai_avg' => round($assessmentScore, 1),
                 'ai_count' => $attemptedCount,
                 'portfolio' => $portfolioScore,
-                'total' => round((float)$totalScore, 1)
+                'total' => round((float) $totalScore, 1)
             ];
         }
 
@@ -124,7 +132,7 @@ class LeaderboardService {
         }
 
         // Sort by Total Score Descending
-        usort($rankings, function($a, $b) {
+        usort($rankings, function ($a, $b) {
             return $b['total'] <=> $a['total'];
         });
 
@@ -139,9 +147,11 @@ class LeaderboardService {
     /**
      * Get rankings with daily historical comparison
      */
-    public static function getRankingsWithHistory($filters = []) {
+    public static function getRankingsWithHistory($filters = [])
+    {
         $rankings = self::getRankings($filters);
-        if (empty($rankings)) return [];
+        if (empty($rankings))
+            return [];
 
         $cacheDir = __DIR__ . '/../../storage/cache';
         if (!is_dir($cacheDir)) {
@@ -179,12 +189,14 @@ class LeaderboardService {
         return $rankings;
     }
 
-    private static function fetchStudents($filters) {
+    private static function fetchStudents($filters)
+    {
         $studentModel = new \StudentProfile();
         return $studentModel->getAllWithUsers($filters);
     }
 
-    private static function fetchUnifiedScores($usnList) {
+    private static function fetchUnifiedScores($usnList)
+    {
         $stmt = getDB()->query("SELECT usn, assessment_type, AVG(max_score) as avg_score 
                                 FROM (
                                     SELECT usn, company_name, assessment_type, MAX(score) as max_score
@@ -196,12 +208,13 @@ class LeaderboardService {
         $scores = [];
         while ($row = $stmt->fetch()) {
             $type = trim($row['assessment_type']);
-            $scores[strtolower($row['usn'])][$type] = (float)$row['avg_score'];
+            $scores[strtolower($row['usn'])][$type] = (float) $row['avg_score'];
         }
         return $scores;
     }
 
-    private static function fetchMockData($usnList) {
+    private static function fetchMockData($usnList)
+    {
         $stmt = getDB()->query("SELECT student_id, role_name, overall_score, report_content, difficulty, difficulty_level, completed_at, started_at 
                                 FROM mock_ai_interview_sessions 
                                 WHERE student_id IN ($usnList) AND status = 'completed'");
@@ -212,7 +225,8 @@ class LeaderboardService {
         return $mocks;
     }
 
-    private static function fetchTaskCompletions($usnList) {
+    private static function fetchTaskCompletions($usnList)
+    {
         $stmt = getDB()->query("SELECT tc.student_id, ct.task_type, tc.score, ct.difficulty, tc.completed_at 
                                 FROM task_completions tc
                                 JOIN coordinator_tasks ct ON tc.task_id = ct.id
@@ -224,7 +238,8 @@ class LeaderboardService {
         return $data;
     }
 
-    private static function fetchPortfolioData($usnList) {
+    private static function fetchPortfolioData($usnList)
+    {
         $stmt = getDB()->query("SELECT student_id, category, COUNT(*) as count 
                                 FROM student_portfolio 
                                 WHERE is_verified = 1 AND category IN ('Skill', 'Project')
@@ -232,12 +247,13 @@ class LeaderboardService {
                                 GROUP BY student_id, category");
         $data = [];
         while ($row = $stmt->fetch()) {
-            $data[strtolower($row['student_id'])][$row['category']] = (int)$row['count'];
+            $data[strtolower($row['student_id'])][$row['category']] = (int) $row['count'];
         }
         return $data;
     }
 
-    private static function fetchAcademicHistory($gmuUsns, $gmitUsns, $gmitAadharMap = []) {
+    private static function fetchAcademicHistory($gmuUsns, $gmitUsns, $gmitAadharMap = [])
+    {
         $history = [];
 
         // GMIT (LOCAL) — search by student_id (USN/enrollment) AND Aadhar
@@ -250,7 +266,7 @@ class LeaderboardService {
                                     ORDER BY semester ASC");
             while ($row = $stmt->fetch()) {
                 $sid = strtolower($row['student_id']);
-                $histRow = ['sgpa' => (float)$row['sgpa'], 'year' => $row['academic_year']];
+                $histRow = ['sgpa' => (float) $row['sgpa'], 'year' => $row['academic_year']];
                 $history[$sid][$row['semester']] = $histRow;
                 // Also index by USN if this was stored under Aadhar
                 foreach ($gmitAadharMap as $usn => $aadhar) {
@@ -271,7 +287,7 @@ class LeaderboardService {
                                          ORDER BY sem ASC");
             while ($row = $stmt->fetch()) {
                 $history[strtolower($row['student_id'])][$row['semester']] = [
-                    'sgpa' => (float)$row['sgpa'],
+                    'sgpa' => (float) $row['sgpa'],
                     'year' => $row['academic_year']
                 ];
             }
@@ -280,7 +296,8 @@ class LeaderboardService {
         return $history;
     }
 
-    private static function fetchStudentSkills($usnList) {
+    private static function fetchStudentSkills($usnList)
+    {
         $stmt = getDB()->query("SELECT student_id, title 
                                 FROM student_portfolio 
                                 WHERE category = 'Skill' AND is_verified = 1 
@@ -292,7 +309,8 @@ class LeaderboardService {
         return $skills;
     }
 
-    public static function getAllAvailableSkills() {
+    public static function getAllAvailableSkills()
+    {
         $stmt = getDB()->query("SELECT DISTINCT title 
                                 FROM student_portfolio 
                                 WHERE category = 'Skill' AND is_verified = 1 
@@ -300,26 +318,33 @@ class LeaderboardService {
         return $stmt->fetchAll(\PDO::FETCH_COLUMN);
     }
 
-    private static function applyAdvancedFilters($rankings, $filters) {
-        return array_filter($rankings, function($r) use ($filters) {
+    private static function applyAdvancedFilters($rankings, $filters)
+    {
+        return array_filter($rankings, function ($r) use ($filters) {
             // 1. Basic Thresholds
-            if (isset($filters['min_total']) && $r['total'] < $filters['min_total']) return false;
-            if (isset($filters['min_aptitude']) && $r['aptitude'] < $filters['min_aptitude']) return false;
-            if (isset($filters['min_technical']) && $r['technical'] < $filters['min_technical']) return false;
-            if (isset($filters['min_hr']) && $r['hr'] < $filters['min_hr']) return false;
+            if (isset($filters['min_total']) && $r['total'] < $filters['min_total'])
+                return false;
+            if (isset($filters['min_aptitude']) && $r['aptitude'] < $filters['min_aptitude'])
+                return false;
+            if (isset($filters['min_technical']) && $r['technical'] < $filters['min_technical'])
+                return false;
+            if (isset($filters['min_hr']) && $r['hr'] < $filters['min_hr'])
+                return false;
 
             // 2. SGPA in All Semesters
             if (isset($filters['min_sgpa_all'])) {
-                $minRequired = (float)$filters['min_sgpa_all'];
-                if (empty($r['academic_history'])) return false; // Fail if no history found
+                $minRequired = (float) $filters['min_sgpa_all'];
+                if (empty($r['academic_history']))
+                    return false; // Fail if no history found
                 foreach ($r['academic_history'] as $sem) {
-                    if ($sem['sgpa'] > 0 && $sem['sgpa'] < $minRequired) return false;
+                    if ($sem['sgpa'] > 0 && $sem['sgpa'] < $minRequired)
+                        return false;
                 }
             }
 
             // 3. Required Skills
             if (!empty($filters['required_skills'])) {
-                $required = array_map('strtolower', (array)$filters['required_skills']);
+                $required = array_map('strtolower', (array) $filters['required_skills']);
                 $hasSkills = array_map('strtolower', $r['skills']);
                 foreach ($required as $req) {
                     $found = false;
@@ -329,7 +354,8 @@ class LeaderboardService {
                             break;
                         }
                     }
-                    if (!$found) return false;
+                    if (!$found)
+                        return false;
                 }
             }
 
@@ -337,7 +363,8 @@ class LeaderboardService {
         });
     }
 
-    private static function fetchAssessmentTimestamps($usnList) {
+    private static function fetchAssessmentTimestamps($usnList)
+    {
         $db = getDB();
         $timestamps = [];
 
@@ -356,9 +383,11 @@ class LeaderboardService {
         return $timestamps;
     }
 
-    private static function calculateInactivityPenalty($userTimestamps) {
-        if (empty($userTimestamps)) return 0;
-        
+    private static function calculateInactivityPenalty($userTimestamps)
+    {
+        if (empty($userTimestamps))
+            return 0;
+
         sort($userTimestamps);
         $penalty = 0;
         $oneDay = 86400;
@@ -367,8 +396,8 @@ class LeaderboardService {
         // Calculate historical gaps, but only those occurring after the policy start date
         for ($i = 0; $i < count($userTimestamps) - 1; $i++) {
             $gapStart = max($policyStartDate, $userTimestamps[$i]);
-            $gapEnd = $userTimestamps[$i+1];
-            
+            $gapEnd = $userTimestamps[$i + 1];
+
             if ($gapEnd > $gapStart) {
                 $gap = $gapEnd - $gapStart;
                 if ($gap > $oneDay) {
@@ -380,7 +409,7 @@ class LeaderboardService {
         // Calculate current gap since last activity, relative to policy start
         $lastActivity = max($policyStartDate, end($userTimestamps));
         $currentGap = time() - $lastActivity;
-        
+
         if ($currentGap > $oneDay) {
             $penalty += floor($currentGap / $oneDay);
         }
@@ -388,73 +417,81 @@ class LeaderboardService {
         return $penalty;
     }
 
-    private static function applyDifficultyWeight($score, $difficulty, $completedAt) {
+    private static function applyDifficultyWeight($score, $difficulty, $completedAt)
+    {
         $completedTimestamp = strtotime($completedAt);
         $policyStartDate = strtotime('2026-07-14 00:00:00'); // Applied from today onwards
-        
+
         if ($completedTimestamp < $policyStartDate) {
-            return (float)$score;
+            return (float) $score;
         }
-        
-        $diff = strtolower(trim((string)$difficulty));
+
+        $diff = strtolower(trim((string) $difficulty));
         if ($diff === 'low') {
-            return (float)$score * 0.4;
+            return (float) $score * 0.4;
         }
         if ($diff === 'medium') {
-            return (float)$score * 0.9;
+            return (float) $score * 0.9;
         }
         if ($diff === 'high') {
-            return (float)$score * 1.0;
+            return (float) $score * 1.0;
         }
-        return (float)$score;
+        return (float) $score;
     }
 
-    private static function calculatePillars($userScores, $userMocks, $userTasks = []) {
+    private static function calculatePillars($userScores, $userMocks, $userTasks = [])
+    {
         $tempPillars = ['aptitude' => [], 'technical' => [], 'hr' => []];
 
         // Process Unified
         foreach ($userScores as $type => $score) {
             $lType = strtolower($type);
-            if (in_array($lType, ['aptitude', 'cognitive', 'nqt foundation'])) $tempPillars['aptitude'][] = $score;
-            elseif (in_array($lType, ['hr', 'behavioral', 'mock hr'])) $tempPillars['hr'][] = $score;
-            else $tempPillars['technical'][] = $score;
+            if (in_array($lType, ['aptitude', 'cognitive', 'nqt foundation']))
+                $tempPillars['aptitude'][] = $score;
+            elseif (in_array($lType, ['hr', 'behavioral', 'mock hr']))
+                $tempPillars['hr'][] = $score;
+            else
+                $tempPillars['technical'][] = $score;
         }
 
         // Process Assigned Tasks
         foreach ($userTasks as $t) {
             $type = strtolower($t['task_type']);
-            $score = (float)$t['score'];
+            $score = (float) $t['score'];
             $difficulty = $t['difficulty'] ?? '';
             $completedAt = $t['completed_at'] ?? '2026-07-13 00:00:00';
             $weightedScore = self::applyDifficultyWeight($score, $difficulty, $completedAt);
 
-            if ($type === 'aptitude') $tempPillars['aptitude'][] = $weightedScore;
-            elseif ($type === 'technical') $tempPillars['technical'][] = $weightedScore;
-            elseif ($type === 'hr') $tempPillars['hr'][] = $weightedScore;
+            if ($type === 'aptitude')
+                $tempPillars['aptitude'][] = $weightedScore;
+            elseif ($type === 'technical')
+                $tempPillars['technical'][] = $weightedScore;
+            elseif ($type === 'hr')
+                $tempPillars['hr'][] = $weightedScore;
         }
 
         // Process Mocks (with sniffing)
         foreach ($userMocks as $m) {
             $report = $m['report_content'] ?? '';
             $role = strtolower($m['role_name'] ?? '');
-            $overall = (float)($m['overall_score'] ?? 0);
+            $overall = (float) ($m['overall_score'] ?? 0);
             $difficulty = $m['difficulty'] ?? $m['difficulty_level'] ?? '';
             $completedAt = $m['completed_at'] ?? $m['started_at'] ?? '2026-07-13 00:00:00';
-            
+
             $foundSection = false;
 
             if (preg_match('/Aptitude:\s*\[?(\d+)\]?\s*\/\s*10/i', $report, $matches)) {
-                $rawScore = (float)$matches[1] * 10;
+                $rawScore = (float) $matches[1] * 10;
                 $tempPillars['aptitude'][] = self::applyDifficultyWeight($rawScore, $difficulty, $completedAt);
                 $foundSection = true;
             }
             if (preg_match('/Technical(?:\s+Proficiency)?:\s*\[?(\d+)\]?\s*\/\s*10/i', $report, $matches)) {
-                $rawScore = (float)$matches[1] * 10;
+                $rawScore = (float) $matches[1] * 10;
                 $tempPillars['technical'][] = self::applyDifficultyWeight($rawScore, $difficulty, $completedAt);
                 $foundSection = true;
             }
             if (preg_match('/HR:\s*\[?(\d+)\]?\s*\/\s*10/i', $report, $matches)) {
-                $rawScore = (float)$matches[1] * 10;
+                $rawScore = (float) $matches[1] * 10;
                 $tempPillars['hr'][] = self::applyDifficultyWeight($rawScore, $difficulty, $completedAt);
                 $foundSection = true;
             }
@@ -462,9 +499,12 @@ class LeaderboardService {
             if (!$foundSection) {
                 $context = $role . ' ' . strip_tags($report);
                 $weightedScore = self::applyDifficultyWeight($overall, $difficulty, $completedAt);
-                if (preg_match('/aptitude|quant|logical|nqt/i', $context)) $tempPillars['aptitude'][] = $weightedScore;
-                elseif (preg_match('/hr|behavioral|culture|managerial/i', $context)) $tempPillars['hr'][] = $weightedScore;
-                else $tempPillars['technical'][] = $weightedScore;
+                if (preg_match('/aptitude|quant|logical|nqt/i', $context))
+                    $tempPillars['aptitude'][] = $weightedScore;
+                elseif (preg_match('/hr|behavioral|culture|managerial/i', $context))
+                    $tempPillars['hr'][] = $weightedScore;
+                else
+                    $tempPillars['technical'][] = $weightedScore;
             }
         }
 

@@ -446,7 +446,7 @@ function getStatusBadge($deadline) {
                         </div>
                         
                         <div class="action-footer">
-                            <a href="internship_details.php?id=<?php echo $i['id']; ?>" class="btn-view">
+                            <a href="internship_details.php?code=<?php echo encryptInternshipId($i['id']); ?>" class="btn-view">
                                 View Details <i class="fas fa-arrow-right"></i>
                             </a>
                         </div>

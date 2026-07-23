@@ -140,13 +140,28 @@ try {
 
             foreach ($questions as $idx => $q) {
                 $userAns = isset($answers[$idx]) ? (int)$answers[$idx] : -1;
-                $isCorrect = ($userAns === (int)$q['answer']);
+                
+                $rawAns = $q['answer'] ?? null;
+                if (is_numeric($rawAns)) {
+                    $correctAns = (int)$rawAns;
+                } elseif (is_string($rawAns)) {
+                    $ansLetter = strtoupper(trim($rawAns));
+                    if (in_array($ansLetter, ['A', 'B', 'C', 'D'])) {
+                        $correctAns = match ($ansLetter) { 'A' => 0, 'B' => 1, 'C' => 2, 'D' => 3 };
+                    } else {
+                        $correctAns = (int)$rawAns;
+                    }
+                } else {
+                    $correctAns = 0;
+                }
+
+                $isCorrect = ($userAns === $correctAns);
                 if ($isCorrect) $correctCount++;
 
                 $results[] = [
                     'question' => $q['question'],
                     'user_answer' => $userAns,
-                    'correct_answer' => (int)$q['answer'],
+                    'correct_answer' => $correctAns,
                     'explanation' => $q['explanation'],
                     'is_correct' => $isCorrect
                 ];

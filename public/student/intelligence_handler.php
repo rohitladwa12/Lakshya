@@ -45,6 +45,31 @@ try {
         exit;
     } 
     
+    elseif ($action === 'initialize_ai') {
+        $fullName = getFullName();
+        
+        // 1. Sync AI Profile if it doesn't exist
+        $profile = $service->getStudentAIProfile($username, $institution, $fullName, false);
+        if (!$profile) {
+            $service->syncStudentAIProfile($username, $institution, $fullName);
+        }
+        
+        // 2. Generate AI Insights if empty
+        $insights = $service->getStudentInsights($username, $institution, $fullName, false);
+        if (empty($insights)) {
+            $service->generateStudentInsights($username, $institution, $fullName);
+        }
+        
+        // 3. Generate Daily Challenge if empty
+        $challenge = $service->getOrCreateDailyChallenge($username, $institution, $fullName, false);
+        if (!$challenge) {
+            $service->getOrCreateDailyChallenge($username, $institution, $fullName, true);
+        }
+        
+        echo json_encode(['success' => true]);
+        exit;
+    } 
+    
     else {
         echo json_encode(['success' => false, 'message' => 'Invalid action.']);
         exit;

@@ -668,6 +668,44 @@ function decryptJobId($code) {
 }
 
 /**
+ * Encrypt/Obfuscate Internship ID for URLs
+ */
+function encryptInternshipId($id) {
+    $key = "LakshyaInternshipKey";
+    $str = (string)$id;
+    $result = '';
+    for ($i = 0; $i < strlen($str); $i++) {
+        $char = $str[$i];
+        $keychar = $key[($i % strlen($key))];
+        $result .= chr(ord($char) ^ ord($keychar));
+    }
+    return str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($result));
+}
+
+/**
+ * Decrypt/De-obfuscate Internship ID from URLs
+ */
+function decryptInternshipId($code) {
+    if (empty($code)) return 0;
+    $key = "LakshyaInternshipKey";
+    $data = str_replace(['-', '_'], ['+', '/'], $code);
+    $mod = strlen($data) % 4;
+    if ($mod) {
+        $data .= str_repeat('=', 4 - $mod);
+    }
+    $str = base64_decode($data);
+    if ($str === false) return 0;
+    
+    $result = '';
+    for ($i = 0; $i < strlen($str); $i++) {
+        $char = $str[$i];
+        $keychar = $key[($i % strlen($key))];
+        $result .= chr(ord($char) ^ ord($keychar));
+    }
+    return is_numeric($result) ? (int)$result : 0;
+}
+
+/**
  * Render an announcement popup for a feature if set by admin
  * @param string $featureKey
  */

@@ -6,7 +6,8 @@
 require_once __DIR__ . '/../../config/bootstrap.php';
 requireRole(ROLE_STUDENT);
 
-$id = get('id');
+$code = get('code');
+$id = $code ? decryptInternshipId($code) : get('id');
 if (!$id) redirect('internships.php');
 
 $internshipModel = new Internship();
