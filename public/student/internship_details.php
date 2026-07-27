@@ -24,6 +24,10 @@ $usn = ($user && isset($user['username'])) ? $user['username'] : getUsername();
 $appModel = new InternshipApplication();
 $hasApplied = $appModel->hasApplied($id, $usn);
 
+$deadline = $internship['application_deadline'];
+$today = date('Y-m-d');
+$isEnded = ($internship['status'] === 'Closed' || ($deadline && $deadline < $today));
+
 $message = '';
 $error = '';
 
@@ -34,7 +38,9 @@ $hasResumeFile = file_exists($fullResumePath);
 
 // Handle Application
 if (isPost() && isset($_POST['apply'])) {
-    if ($hasApplied) {
+    if ($isEnded) {
+        $error = "This internship is no longer accepting applications (Deadline Passed).";
+    } elseif ($hasApplied) {
         $error = "You have already applied.";
     } elseif (!$hasResumeFile) {
         $error = "Please build your resume in the Resume Builder before applying.";
@@ -673,43 +679,50 @@ if (isPost() && isset($_POST['apply'])) {
                     <h2>Join the Team</h2>
                 </div>
                 
-                <?php if (!$hasApplied): ?>
-                    <?php if ($hasResumeFile): ?>
-                        <form method="POST">
-                            <div style="background: rgba(233, 198, 111, 0.1); padding: 1.2rem; border-radius: 16px; border: 1px solid var(--accent-gold); margin-bottom: 1.5rem;">
-                                <div style="display:flex; align-items:center; gap:0.5rem; color:var(--primary); font-weight:700; font-size:0.9rem; margin-bottom:0.5rem;">
-                                    <i class="fas fa-sparkles"></i> RESUME READY
-                                </div>
-                                <div style="font-size: 0.85rem; color: #4a5568;">
-                                    Your Lakshya-built resume is linked and will be automatically submitted with your application.
-                                </div>
-                                <a href="view_resume.php?usn=<?php echo urlencode($usn); ?>" target="_blank" style="display:inline-block; margin-top:0.75rem; font-weight:700; font-size:0.8rem; color:var(--primary); text-transform:uppercase;">View Resume <i class="fas fa-arrow-right"></i></a>
-                            </div>
-
-                            <button type="submit" name="apply" class="apply-btn" style="margin-top:1.5rem;">
-                                Submit Application <i class="fas fa-paper-plane"></i>
-                            </button>
-                        </form>
-                    <?php else: ?>
-                        <div style="background: #fee2e2; padding: 1.2rem; border-radius: 16px; border: 1px solid #fecaca; margin-bottom: 1.5rem;">
-                            <div style="display:flex; align-items:center; gap:0.5rem; color:#991b1b; font-weight:700; font-size:0.95rem; margin-bottom:0.5rem;">
-                                <i class="fas fa-exclamation-triangle"></i> Resume Required
-                            </div>
-                            <div style="font-size: 0.85rem; color: #7f1d1d; margin-bottom: 1rem;">
-                                Before you can apply to opportunities, you must build and save your central resume in Lakshya.
-                            </div>
-                            <a href="resume_builder.php" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; background: #991b1b; color: white; border-radius: 8px; padding: 0.75rem; text-decoration: none; font-weight: 600; font-size: 0.9rem;">
-                                <i class="fas fa-magic"></i> Go to Resume Builder
-                            </a>
-                        </div>
-                    <?php endif; ?>
-                <?php else: ?>
+                <?php if ($hasApplied): ?>
                     <div class="applied-badge">
                         <i class="fas fa-check-circle"></i> Application Active
                     </div>
                     <p style="text-align: center; font-size: 0.85rem; color: var(--text-muted); margin-top: 1rem;">
-                        Successfully applied on <?php echo date('d M Y'); ?>. Check your status in the dashboard.
+                        Successfully applied. Check your status in the dashboard.
                     </p>
+                <?php elseif ($isEnded): ?>
+                    <div style="background: #fef2f2; padding: 1.2rem; border-radius: 16px; border: 1px solid #fecaca; text-align: center; margin-bottom: 1rem;">
+                        <div style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; color: #991b1b; font-weight: 700; font-size: 1rem; margin-bottom: 0.5rem;">
+                            <i class="fas fa-hourglass-end"></i> Deadline Passed
+                        </div>
+                        <div style="font-size: 0.85rem; color: #7f1d1d;">
+                            This internship posting is no longer accepting applications.
+                        </div>
+                    </div>
+                <?php elseif ($hasResumeFile): ?>
+                    <form method="POST">
+                        <div style="background: rgba(233, 198, 111, 0.1); padding: 1.2rem; border-radius: 16px; border: 1px solid var(--accent-gold); margin-bottom: 1.5rem;">
+                            <div style="display:flex; align-items:center; gap:0.5rem; color:var(--primary); font-weight:700; font-size:0.9rem; margin-bottom:0.5rem;">
+                                <i class="fas fa-sparkles"></i> RESUME READY
+                            </div>
+                            <div style="font-size: 0.85rem; color: #4a5568;">
+                                Your Lakshya-built resume is linked and will be automatically submitted with your application.
+                            </div>
+                            <a href="view_resume.php?usn=<?php echo urlencode($usn); ?>" target="_blank" style="display:inline-block; margin-top:0.75rem; font-weight:700; font-size:0.8rem; color:var(--primary); text-transform:uppercase;">View Resume <i class="fas fa-arrow-right"></i></a>
+                        </div>
+
+                        <button type="submit" name="apply" class="apply-btn" style="margin-top:1.5rem;">
+                            Submit Application <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </form>
+                <?php else: ?>
+                    <div style="background: #fee2e2; padding: 1.2rem; border-radius: 16px; border: 1px solid #fecaca; margin-bottom: 1.5rem;">
+                        <div style="display:flex; align-items:center; gap:0.5rem; color:#991b1b; font-weight:700; font-size:0.95rem; margin-bottom:0.5rem;">
+                            <i class="fas fa-exclamation-triangle"></i> Resume Required
+                        </div>
+                        <div style="font-size: 0.85rem; color: #7f1d1d; margin-bottom: 1rem;">
+                            Before you can apply to opportunities, you must build and save your central resume in Lakshya.
+                        </div>
+                        <a href="resume_builder.php" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; background: #991b1b; color: white; border-radius: 8px; padding: 0.75rem; text-decoration: none; font-weight: 600; font-size: 0.9rem;">
+                            <i class="fas fa-magic"></i> Go to Resume Builder
+                        </a>
+                    </div>
                 <?php endif; ?>
             </div>
 

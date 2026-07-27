@@ -6,36 +6,45 @@
 
 require_once __DIR__ . '/../../config/bootstrap.php';
 
-// 1. Basic Auth Check
-if (!isLoggedIn()) {
-    http_response_code(403);
-    die("Access Denied: Please log in.");
-}
-
-$currentUser = getUsername();
-$currentRole = getRole();
-
-// 2. Get requested USN from URL
+// 1. Get requested USN and token from URL
 $requestedUsn = isset($_GET['usn']) ? preg_replace('/[^a-zA-Z0-9_-]/', '', $_GET['usn']) : '';
+$token = isset($_GET['token']) ? trim($_GET['token']) : '';
 
 if (empty($requestedUsn)) {
     http_response_code(400);
     die("Bad Request: USN is required.");
 }
 
-// 3. Authorization Logic
-// Students can only see their OWN resume.
-// Admins, Officers, and Coordinators can see any resume.
+$currentUser = isLoggedIn() ? getUsername() : '';
+$currentRole = isLoggedIn() ? getRole() : '';
 $canAccess = false;
 
-$privilegedRoles = [ROLE_ADMIN, ROLE_PLACEMENT_OFFICER, ROLE_INTERNSHIP_OFFICER, ROLE_DEPT_COORDINATOR, ROLE_VC];
+// 2. Token-Based Authentication (for links opened from external apps like Excel)
+if (!empty($token) && function_exists('verifyResumeToken') && verifyResumeToken($requestedUsn, $token)) {
+    $canAccess = true;
+}
 
-if ($currentRole === ROLE_STUDENT) {
-    if (strtoupper($currentUser) === strtoupper($requestedUsn)) {
+// 3. Session-Based Authorization (for logged-in browser sessions)
+if (!$canAccess && isLoggedIn()) {
+    $privilegedRoles = [
+        ROLE_ADMIN, 
+        ROLE_PLACEMENT_OFFICER, 
+        ROLE_INTERNSHIP_OFFICER, 
+        ROLE_DEPT_COORDINATOR, 
+        ROLE_HOD, 
+        ROLE_VC, 
+        ROLE_DEMO
+    ];
+
+    if ($currentRole === ROLE_STUDENT) {
+        $studentUsn = function_exists('getStudentIdForAssessment') ? getStudentIdForAssessment() : $currentUser;
+        if (strtoupper(trim($currentUser)) === strtoupper(trim($requestedUsn)) || 
+            strtoupper(trim($studentUsn)) === strtoupper(trim($requestedUsn))) {
+            $canAccess = true;
+        }
+    } else if (in_array($currentRole, $privilegedRoles) || $currentRole !== ROLE_STUDENT) {
         $canAccess = true;
     }
-} else if (in_array($currentRole, $privilegedRoles)) {
-    $canAccess = true;
 }
 
 if (!$canAccess) {
@@ -79,42 +88,59 @@ if (!$canAccess) {
 // 4. Locate the file
 $requestedPath = isset($_GET['path']) ? $_GET['path'] : '';
 $requestedType = isset($_GET['type']) ? $_GET['type'] : 'Resume';
+$filePath = '';
+$fileName = '';
 
 if (!empty($requestedPath)) {
-    // Security: Only allow paths within uploads/reports or uploads/resumes
-    $normalizedPath = str_replace('\\', '/', $requestedPath);
-    $isAllowedDir = (strpos($normalizedPath, 'uploads/reports/') === 0 || strpos($normalizedPath, 'uploads/resumes/') === 0);
+    // Security: Only allow paths within uploads directory
+    $normalizedPath = ltrim(str_replace('\\', '/', $requestedPath), '/');
+    if (strpos($normalizedPath, 'public/') === 0) {
+        $normalizedPath = substr($normalizedPath, 7);
+    }
+    
+    $isAllowedDir = (strpos($normalizedPath, 'uploads/') === 0);
     $isPdf = (strtolower(pathinfo($normalizedPath, PATHINFO_EXTENSION)) === 'pdf');
     
-    if (!$isAllowedDir || !$isPdf || strpos($normalizedPath, '..') !== false) {
-        http_response_code(403);
-        die("Access Denied: Invalid file path.");
-    }
-    
-    $filePath = ROOT_PATH . '/public/' . $normalizedPath;
-    $fileName = basename($filePath);
-} else {
-    // Default to Resume if no path provided
-    $uploadDir = UPLOADS_PATH . '/resumes/Student_Resumes';
-    $variants = [
-        strtoupper($requestedUsn) . '_Resume.pdf',
-        strtolower($requestedUsn) . '_Resume.pdf',
-        $requestedUsn . '_Resume.pdf'
-    ];
-    $filePath = '';
-    $fileName = '';
-    foreach ($variants as $v) {
-        $checkPath = $uploadDir . '/' . $v;
+    if ($isAllowedDir && $isPdf && strpos($normalizedPath, '..') === false) {
+        $checkPath = ROOT_PATH . '/public/' . $normalizedPath;
         if (file_exists($checkPath)) {
             $filePath = $checkPath;
-            $fileName = $v;
-            break;
+            $fileName = basename($filePath);
         }
     }
+}
+
+if (empty($filePath)) {
+    // Search across standard resume storage directories and variants
+    $searchDirs = [
+        UPLOADS_PATH . '/resumes/Student_Resumes',
+        UPLOADS_PATH . '/resumes',
+        UPLOADS_PATH
+    ];
+    
+    $variants = [
+        strtoupper($requestedUsn) . '_Resume.pdf',
+        $requestedUsn . '_Resume.pdf',
+        strtolower($requestedUsn) . '_Resume.pdf',
+        strtoupper($requestedUsn) . '.pdf',
+        $requestedUsn . '.pdf',
+        strtolower($requestedUsn) . '.pdf'
+    ];
+    
+    foreach ($searchDirs as $dir) {
+        foreach ($variants as $v) {
+            $checkPath = $dir . '/' . $v;
+            if (file_exists($checkPath)) {
+                $filePath = $checkPath;
+                $fileName = $v;
+                break 2;
+            }
+        }
+    }
+    
     if (empty($filePath)) {
-        // Fallback default
         $fileName = strtoupper($requestedUsn) . '_Resume.pdf';
-        $filePath = $uploadDir . '/' . $fileName;
+        $filePath = UPLOADS_PATH . '/resumes/Student_Resumes/' . $fileName;
     }
 }
 

@@ -852,3 +852,20 @@ function renderFeatureAnnouncement($featureKey) {
         // Fail silently
     }
 }
+
+/**
+ * Generate a secure signed token for resume viewing (e.g. for Excel links)
+ */
+function generateResumeToken($usn) {
+    $secret = defined('APP_KEY') ? APP_KEY : 'Lakshya_Secure_Resume_Key_2026';
+    return substr(hash_hmac('sha256', strtoupper(trim($usn)), $secret), 0, 16);
+}
+
+/**
+ * Verify a signed resume viewing token
+ */
+function verifyResumeToken($usn, $token) {
+    if (empty($token) || empty($usn)) return false;
+    $expected = generateResumeToken($usn);
+    return hash_equals($expected, trim($token));
+}

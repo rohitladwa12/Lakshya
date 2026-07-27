@@ -88,7 +88,13 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
             }
         }
         
-        $resumeLink = !empty($app['resume_path']) ? '=HYPERLINK("' . (APP_URL . '/student/view_resume.php?usn=' . urlencode($app['student_id'] ?? '')) . '", "View Resume")' : 'No Resume';
+        $studentUsn = $app['student_id'] ?? ($app['usn'] ?? '');
+        $resumeFile = UPLOADS_PATH . '/resumes/Student_Resumes/' . strtoupper($studentUsn) . '_Resume.pdf';
+        $hasResume = !empty($app['resume_path']) || file_exists($resumeFile);
+        
+        $token = function_exists('generateResumeToken') ? generateResumeToken($studentUsn) : '';
+        $resumeUrl = APP_URL . '/student/view_resume.php?usn=' . urlencode($studentUsn) . ($token ? '&token=' . $token : '');
+        $resumeLink = $hasResume ? '=HYPERLINK("' . $resumeUrl . '", "View Resume")' : 'No Resume';
         $row = array_merge($row, [
             $internship['company_name'],
             $internship['internship_title'],
@@ -586,8 +592,13 @@ if (isPost() && isset($_POST['update_status'])) {
                                         <span class="time-text"><?php echo date('h:i A', strtotime($app['applied_at'])); ?></span>
                                     </td>
                                     <td class="action-cell">
-                                        <?php if (!empty($app['resume_path'])): ?>
-                                            <a href="../<?php echo $app['resume_path']; ?>" target="_blank" class="btn-view-resume">
+                                        <?php 
+                                        $studentUsn = $app['student_id'] ?? ($app['usn'] ?? '');
+                                        $resumeFile = UPLOADS_PATH . '/resumes/Student_Resumes/' . strtoupper($studentUsn) . '_Resume.pdf';
+                                        $hasResume = !empty($app['resume_path']) || file_exists($resumeFile);
+                                        ?>
+                                        <?php if ($hasResume): ?>
+                                            <a href="../student/view_resume.php?usn=<?php echo urlencode($studentUsn); ?>" target="_blank" class="btn-view-resume">
                                                 <i class="fas fa-file-pdf"></i> View
                                             </a>
                                         <?php else: ?>

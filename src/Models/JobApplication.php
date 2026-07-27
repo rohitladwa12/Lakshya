@@ -212,52 +212,48 @@ class JobApplication extends Model {
                      // (u.USER_NAME = sp.student_id AND u.institution = 'GMIT') OR (u.USER_NAME = sp.usn AND u.institution = 'GMU')
                      // I aliased USER_NAME as email in step 1, but inside subquery it is USER_NAME.
         
-        // Simplified Query: Fetch by USER_NAME because job_applications.student_id now stores USN
-        $sqlUsers = "SELECT u.SL_NO, u.NAME as full_name, u.USER_NAME as email, u.USER_NAME as usn, u.MOBILE_NO as phone, u.institution,
-                            sp.course, sp.sgpa as cgpa, sp.puc_percentage, sp.sslc_percentage
-                     FROM (
-                        SELECT SL_NO, NAME, USER_NAME, MOBILE_NO, '" . INSTITUTION_GMU . "' as institution 
-                        FROM {$gmuPrefix}users 
-                        WHERE USER_NAME IN ($placeholders)
-                        
-                        UNION ALL
-                        
-                        SELECT u.ENQUIRY_NO as SL_NO, COALESCE(d.name, u.NAME) as NAME, u.USER_NAME, u.MOBILE_NO, '" . INSTITUTION_GMIT . "' as institution 
-                        FROM {$gmitPrefix}users u
-                        LEFT JOIN {$gmitPrefix}ad_student_details d ON u.USER_NAME = d.student_id
-                        WHERE u.USER_NAME IN ($placeholders)
-                     ) u
-                     LEFT JOIN (
-                        SELECT a.usn, a.course, a.sgpa, d.puc_percentage, d.sslc_percentage, a.usn as student_id 
-                        FROM {$gmuPrefix}ad_student_approved a
-                        LEFT JOIN {$gmuPrefix}ad_student_details d ON a.usn = d.student_id
-                        
-                        UNION ALL
-                        
-                        SELECT usn, course, 0.0 as sgpa, puc_percentage, sslc_percentage, student_id 
-                        FROM {$gmitPrefix}ad_student_details
-                     ) sp ON u.USER_NAME = sp.student_id";
+        // Comprehensive multi-institution query:
+        // Derives student keys from ad_student_details, ad_student_approved, and users
+        $sqlUsers = "SELECT 
+                        k.student_key as usn,
+                        COALESCE(d.name, ap.name, u.NAME, k.student_key) as full_name,
+                        COALESCE(u.USER_NAME, d.email_id, k.student_key) as email,
+                        COALESCE(u.MOBILE_NO, d.student_mobile, '-') as phone,
+                        COALESCE(ap.course, d.course, 'BTECH') as course,
+                        COALESCE(ap.sgpa, 0.00) as cgpa,
+                        d.puc_percentage, d.sslc_percentage,
+                        '" . INSTITUTION_GMU . "' as institution
+                    FROM (
+                        SELECT usn as student_key FROM {$gmuPrefix}ad_student_details WHERE usn IN ($placeholders) OR student_id IN ($placeholders)
+                        UNION
+                        SELECT usn as student_key FROM {$gmuPrefix}ad_student_approved WHERE usn IN ($placeholders)
+                        UNION
+                        SELECT USER_NAME as student_key FROM {$gmuPrefix}users WHERE USER_NAME IN ($placeholders)
+                    ) k
+                    LEFT JOIN {$gmuPrefix}ad_student_details d ON (k.student_key = d.usn OR k.student_key = d.student_id)
+                    LEFT JOIN (
+                        SELECT a.* FROM {$gmuPrefix}ad_student_approved a
+                        JOIN (SELECT usn, MAX(sem) as max_sem FROM {$gmuPrefix}ad_student_approved GROUP BY usn) b 
+                        ON a.usn = b.usn AND a.sem = b.max_sem
+                    ) ap ON (k.student_key = ap.usn)
+                    LEFT JOIN {$gmuPrefix}users u ON (k.student_key = u.USER_NAME)
+                    
+                    UNION ALL
+                    
+                    SELECT u.USER_NAME as usn, 
+                           COALESCE(gmit_d.name, u.NAME) as full_name, 
+                           u.USER_NAME as email, 
+                           u.MOBILE_NO as phone,
+                           gmit_d.course as course, 
+                           0.00 as cgpa, 
+                           gmit_d.puc_percentage, gmit_d.sslc_percentage,
+                           '" . INSTITUTION_GMIT . "' as institution
+                    FROM {$gmitPrefix}users u
+                    LEFT JOIN {$gmitPrefix}ad_student_details gmit_d 
+                         ON (u.USER_NAME = gmit_d.student_id OR u.ENQUIRY_NO = gmit_d.enquiry_no)
+                    WHERE u.USER_NAME IN ($placeholders)";
         
-        // Optimization: We are querying ALL users in placeholders. 
-        // IDs are unique across SL_NO?
-        // Wait, SL_NO in GMU and ENQUIRY_NO in GMIT might collide?
-        // User model `find` handles this using Institution context.
-        // `job_applications.student_id` stores the User ID.
-        // If IDs collide, we have a problem.
-        // `User.php` mapToAppUser uses SL_NO or ENQUIRY_NO.
-        // Ideally, `job_applications` should store `institution` too, or use a Globally Unique ID (UUID).
-        // If `student_id` is just an integer, and GMU User 1 and GMIT User 1 both exist, who applied?
-        // Current system likely assumes unique IDs or relies on Context.
-        // BUT `job_applications` table structure (seen in `JobApplication.php`) has `student_id`.
-        // If we assume IDs are unique enough or handled.
-        // For this refactor, I will fetch ALL matching IDs from both tables.
-        
-        // NOTE: The placeholders array needs to be duplicated for the two SELECTs in UNION if strict.
-        // But simpler: just run query for each and merge?
-        // Or construct IN clause.
-        
-        // Let's use the provided params twice because of UNION.
-        $params = array_merge($studentIds, $studentIds);
+        $params = array_merge($studentIds, $studentIds, $studentIds, $studentIds, $studentIds);
         
         $stmtRemote = $remoteDB->prepare($sqlUsers);
         $stmtRemote->execute($params);
@@ -267,35 +263,37 @@ class JobApplication extends Model {
         $userMap = [];
         foreach ($userDetails as $user) {
             $userMap[$user['usn']] = $user;
+            $userMap[strtoupper($user['usn'])] = $user;
+            $userMap[strtolower($user['usn'])] = $user;
         }
         
         foreach ($applications as &$app) {
             $sid = $app['student_id'];
-            if (isset($userMap[$sid])) {
-                $u = $userMap[$sid];
-                $app['student_name'] = $u['full_name'];
-                $app['full_name'] = $u['full_name']; // For consistency
+            $u = $userMap[$sid] ?? ($userMap[strtoupper($sid)] ?? ($userMap[strtolower($sid)] ?? null));
+            if ($u) {
+                $app['student_name'] = !empty($u['full_name']) ? $u['full_name'] : $sid;
+                $app['full_name'] = $app['student_name'];
                 $app['email'] = $u['email'];
                 $app['phone'] = $u['phone'];
                 $app['usn'] = $u['usn'];
-                $app['course'] = $u['course'];
+                $app['course'] = !empty($u['course']) ? $u['course'] : 'N/A';
                 $app['sgpa'] = $u['cgpa'];
-                $app['cgpa'] = $u['cgpa']; // Backward compatibility
+                $app['cgpa'] = $u['cgpa'];
                 $app['puc_percentage'] = $u['puc_percentage'] ?? 'N/A';
                 $app['sslc_percentage'] = $u['sslc_percentage'] ?? 'N/A';
                 $app['institution'] = $u['institution'];
             } else {
-                $app['student_name'] = 'Unknown';
-                $app['full_name'] = 'Unknown';
-                $app['email'] = 'Unknown';
+                $app['student_name'] = $sid;
+                $app['full_name'] = $sid;
+                $app['email'] = $sid;
                 $app['phone'] = '-';
-                $app['usn'] = '-';
+                $app['usn'] = $sid;
                 $app['course'] = '-';
                 $app['sgpa'] = '-';
                 $app['cgpa'] = '-';
                 $app['puc_percentage'] = '-';
                 $app['sslc_percentage'] = '-';
-                $app['institution'] = '-';
+                $app['institution'] = (strpos(strtoupper($sid), '4GM') === 0 || strpos(strtoupper($sid), 'GMIT') === 0) ? INSTITUTION_GMIT : INSTITUTION_GMU;
             }
         }
         

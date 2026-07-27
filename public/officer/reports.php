@@ -72,8 +72,9 @@ try {
             echo '<tr><th>Name</th><th>Institution</th><th>USN</th><th>Sem</th><th>SGPA</th><th>10th %</th><th>12th %</th><th>Father Name</th><th>Mother Name</th><th>Address</th><th>Status</th><th>Resume Link</th></tr>';
             foreach ($allData['data'] as $s) {
                 $resumeFile = strtoupper($s['usn']) . '_Resume.pdf';
-                $resumePath = UPLOADS_PATH . '/resumes/Student_Resumes/' . $resumeFile;
-                $resumeLink = file_exists($resumePath) ? (APP_URL . '/student/view_resume.php?usn=' . urlencode($s['usn'])) : 'No Resume';
+                $token = function_exists('generateResumeToken') ? generateResumeToken($s['usn']) : '';
+                $resumeUrl = APP_URL . '/student/view_resume.php?usn=' . urlencode($s['usn']) . ($token ? '&token=' . $token : '');
+                $resumeLink = file_exists($resumePath) ? '=HYPERLINK("' . $resumeUrl . '", "View Resume")' : 'No Resume';
 
                 echo "<tr>
                         <td>".htmlspecialchars((string)$s['name'])."</td>
