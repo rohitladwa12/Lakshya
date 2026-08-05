@@ -520,6 +520,9 @@ $fullName = getFullName();
         let timerInterval;
         const companyName = "<?php echo addslashes($companyName); ?>";
 
+        let testStarted = false;
+        let isSubmitting = false;
+
         function renderMath(element) {
             if (typeof renderMathInElement === 'function') {
                 renderMathInElement(element, {
@@ -584,10 +587,12 @@ $fullName = getFullName();
         }
 
         function beginTest(qs) {
+            if (testStarted) return;
             if (!Array.isArray(qs) || qs.length === 0) {
                 showLoadError('No questions are available for this assessment. Please contact your coordinator.');
                 return;
             }
+            testStarted = true;
             questions = qs;
             renderQuestion();
             startTimer();
@@ -765,6 +770,7 @@ $fullName = getFullName();
         }
 
         function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
             timerInterval = setInterval(() => {
                 timeLeft--;
                 const mins = Math.floor(timeLeft / 60);
@@ -780,7 +786,15 @@ $fullName = getFullName();
         }
 
         async function submitTest() {
-            clearInterval(timerInterval);
+            if (isSubmitting) return;
+            isSubmitting = true;
+            if (timerInterval) clearInterval(timerInterval);
+
+            const submitBtn = document.getElementById('submitBtn');
+            if (submitBtn) {
+                submitBtn.disabled = true;
+                submitBtn.innerText = 'Submitting...';
+            }
 
             document.getElementById('testUI').style.display = 'none';
             document.getElementById('resultsUI').style.display = 'flex';

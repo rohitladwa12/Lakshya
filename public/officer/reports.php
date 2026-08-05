@@ -69,16 +69,19 @@ try {
             
             $allData = $officerModel->getStudentsPaged($filters, 1, 10000);
             echo '<table border="1">';
-            echo '<tr><th>Name</th><th>Institution</th><th>USN</th><th>Sem</th><th>SGPA</th><th>10th %</th><th>12th %</th><th>Father Name</th><th>Mother Name</th><th>Address</th><th>Status</th><th>Resume Link</th></tr>';
+            echo '<tr><th>Name</th><th>Institution</th><th>Contact No</th><th>Email ID</th><th>USN</th><th>Sem</th><th>SGPA</th><th>10th %</th><th>12th %</th><th>Father Name</th><th>Mother Name</th><th>Address</th><th>Status</th><th>Resume Link</th></tr>';
             foreach ($allData['data'] as $s) {
                 $resumeFile = strtoupper($s['usn']) . '_Resume.pdf';
                 $token = function_exists('generateResumeToken') ? generateResumeToken($s['usn']) : '';
                 $resumeUrl = APP_URL . '/student/view_resume.php?usn=' . urlencode($s['usn']) . ($token ? '&token=' . $token : '');
+                $resumePath = UPLOADS_PATH . '/resumes/Student_Resumes/' . $resumeFile;
                 $resumeLink = file_exists($resumePath) ? '=HYPERLINK("' . $resumeUrl . '", "View Resume")' : 'No Resume';
 
                 echo "<tr>
                         <td>".htmlspecialchars((string)$s['name'])."</td>
                         <td>".htmlspecialchars((string)$s['institution'])."</td>
+                        <td>".htmlspecialchars((string)($s['mobile'] ?? ($s['phone'] ?? '-')))."</td>
+                        <td>".htmlspecialchars((string)($s['email'] ?? '-'))."</td>
                         <td>".htmlspecialchars((string)$s['usn'])."</td>
                         <td>{$s['sem']}</td>
                         <td>{$s['sgpa']}</td>
@@ -88,7 +91,7 @@ try {
                         <td>".htmlspecialchars((string)$s['mother_name'])."</td>
                         <td>".htmlspecialchars((string)$s['address'])."</td>
                         <td>" . ($s['registered'] ? 'Active' : 'Pending') . "</td>
-                        <td>" . ($resumeLink !== 'No Resume' ? "<a href=\"" . htmlspecialchars($resumeLink) . "\">" . htmlspecialchars($resumeLink) . "</a>" : "No Resume") . "</td>
+                        <td>{$resumeLink}</td>
                       </tr>";
             }
             echo '</table>';
@@ -472,13 +475,15 @@ $fullName = getFullName();
         <?php if ($section === 'details'): ?>
 
             <div style="overflow-x: auto; background: #fff; border-radius: 12px; border: 1px solid var(--border);">
-                <table class="data-table" style="min-width: 1400px; margin: 0;">
+                <table class="data-table" style="min-width: 1550px; margin: 0;">
                     <thead>
                         <tr>
                             <th>Student Name</th>
                             <th>Branch</th>
                             <th style="width: 50px;">Sem</th>
-                            <th style="width: 80px;">Inst</th>
+                            <th style="width: 70px;">Inst</th>
+                            <th>Contact No</th>
+                            <th>Email ID</th>
                             <th>USN / ID</th>
                             <th>10th %</th>
                             <th>12th %</th>
@@ -495,6 +500,8 @@ $fullName = getFullName();
                             <td style="font-size: 11px;"><?php echo htmlspecialchars((string)($s['discipline'] ?? '-')); ?></td>
                             <td style="font-weight: 700;"><?php echo (string)($s['sem'] ?? '-'); ?></td>
                             <td><span class="tag"><?php echo htmlspecialchars((string)($s['institution'] ?? '-')); ?></span></td>
+                            <td style="font-weight: 600; font-size: 12px; color: #1e293b;"><?php echo htmlspecialchars((string)($s['mobile'] ?? ($s['phone'] ?? '-'))); ?></td>
+                            <td style="font-size: 12px; color: #2563eb; font-weight: 500;"><?php echo htmlspecialchars((string)($s['email'] ?? '-')); ?></td>
                             <td style="font-family: 'Courier New', monospace; font-weight: 700; font-size: 12px;"><?php echo htmlspecialchars((string)($s['usn'] ?? 'N/A')); ?></td>
                             <td style="font-weight: 700; color: #000000ff;"><?php echo !empty($s['sslc_percentage']) ? round($s['sslc_percentage'], 1) . '%' : '-'; ?></td>
                             <td style="font-weight: 700; color: #000000ff;"><?php echo !empty($s['puc_percentage']) ? round($s['puc_percentage'], 1) . '%' : '-'; ?></td>
@@ -506,12 +513,15 @@ $fullName = getFullName();
                                 </div>
                             </td>
                             <td style="text-align: right; white-space: nowrap;">
+                                <a href="../student/view_resume.php?usn=<?php echo urlencode($s['usn'] ?? ''); ?>" target="_blank" class="btn-black btn-outline" style="padding: 6px 10px; font-size: 10px; text-decoration: none; display: inline-flex; align-items: center; gap: 3px;">
+                                    <i class="fas fa-file-pdf"></i> Resume
+                                </a>
                                 <button onclick="viewSgpa('<?php echo htmlspecialchars((string)($s['usn'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($s['institution'] ?? '')); ?>')" class="btn-black btn-outline" style="padding: 6px 10px; font-size: 10px;">SGPA</button>
                                 <button onclick="viewPortfolio('<?php echo htmlspecialchars((string)($s['usn'] ?? '')); ?>', '<?php echo htmlspecialchars((string)($s['institution'] ?? '')); ?>')" class="btn-black btn-outline" style="padding: 6px 10px; font-size: 10px;">Portfolio</button>
                             </td>
                         </tr>
                         <?php endforeach; else: ?>
-                        <tr><td colspan="11" style="text-align: center; padding: 40px;">No records found matching filters.</td></tr>
+                        <tr><td colspan="13" style="text-align: center; padding: 40px;">No records found matching filters.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>

@@ -827,18 +827,51 @@ class PlacementOfficer extends Model {
         $stmtData->execute($params);
         $students = $stmtData->fetchAll();
 
-        // 3. Enrich with local data (GMIT SGPA/Sem)
-        foreach ($students as &$s) {
-            if ($s['institution'] === INSTITUTION_GMIT) {
+        // 3. Enrich with local data (GMIT SGPA/Sem & student_resumes email/phone)
+        if (!empty($students)) {
+            $studentIds = array_unique(array_column($students, 'usn'));
+            $resMap = [];
+            if (!empty($studentIds)) {
+                $ph = implode(',', array_fill(0, count($studentIds), '?'));
                 try {
-                    $stmtSgpa = $this->db->prepare("SELECT semester, sgpa FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
-                    $stmtSgpa->execute([$s['usn'], INSTITUTION_GMIT]);
-                    $row = $stmtSgpa->fetch();
-                    if ($row) {
-                        $s['sem'] = $row['semester'];
-                        $s['sgpa'] = $row['sgpa'];
+                    $stmtRes = $this->db->prepare("SELECT student_id, email, phone FROM student_resumes WHERE student_id IN ($ph)");
+                    $stmtRes->execute($studentIds);
+                    while ($rRow = $stmtRes->fetch(PDO::FETCH_ASSOC)) {
+                        $resMap[$rRow['student_id']] = $rRow;
+                        $resMap[strtoupper($rRow['student_id'])] = $rRow;
                     }
                 } catch (Exception $e) {}
+            }
+
+            foreach ($students as &$s) {
+                $sid = $s['usn'];
+                $res = $resMap[$sid] ?? ($resMap[strtoupper($sid)] ?? null);
+                
+                if (!empty($res['email']) && strpos($res['email'], '@') !== false) {
+                    $s['email'] = $res['email'];
+                } else {
+                    $s['email'] = 'N/A';
+                }
+
+                if (!empty($res['phone']) && $res['phone'] !== '-') {
+                    $s['mobile'] = $res['phone'];
+                    $s['phone'] = $res['phone'];
+                } else {
+                    $s['mobile'] = 'N/A';
+                    $s['phone'] = 'N/A';
+                }
+
+                if ($s['institution'] === INSTITUTION_GMIT) {
+                    try {
+                        $stmtSgpa = $this->db->prepare("SELECT semester, sgpa FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
+                        $stmtSgpa->execute([$s['usn'], INSTITUTION_GMIT]);
+                        $row = $stmtSgpa->fetch();
+                        if ($row) {
+                            $s['sem'] = $row['semester'];
+                            $s['sgpa'] = $row['sgpa'];
+                        }
+                    } catch (Exception $e) {}
+                }
             }
         }
 

@@ -267,14 +267,47 @@ class JobApplication extends Model {
             $userMap[strtolower($user['usn'])] = $user;
         }
         
+        // Fetch email & phone from student_resumes table
+        $localDB = getDB();
+        $resumeMap = [];
+        if (!empty($studentIds)) {
+            $resPlaceholders = implode(',', array_fill(0, count($studentIds), '?'));
+            $sqlResume = "SELECT student_id, email, phone FROM student_resumes WHERE student_id IN ($resPlaceholders)";
+            $stmtRes = $localDB->prepare($sqlResume);
+            $stmtRes->execute($studentIds);
+            while ($resRow = $stmtRes->fetch(PDO::FETCH_ASSOC)) {
+                $rSid = $resRow['student_id'];
+                $resumeMap[$rSid] = $resRow;
+                $resumeMap[strtoupper($rSid)] = $resRow;
+                $resumeMap[strtolower($rSid)] = $resRow;
+            }
+        }
+        
         foreach ($applications as &$app) {
             $sid = $app['student_id'];
             $u = $userMap[$sid] ?? ($userMap[strtoupper($sid)] ?? ($userMap[strtolower($sid)] ?? null));
+            $res = $resumeMap[$sid] ?? ($resumeMap[strtoupper($sid)] ?? ($resumeMap[strtolower($sid)] ?? null));
+            
             if ($u) {
                 $app['student_name'] = !empty($u['full_name']) ? $u['full_name'] : $sid;
                 $app['full_name'] = $app['student_name'];
-                $app['email'] = $u['email'];
-                $app['phone'] = $u['phone'];
+                
+                // Prioritize email from student_resumes table, then ERP, fallback to N/A
+                if (!empty($res['email']) && strpos($res['email'], '@') !== false) {
+                    $app['email'] = $res['email'];
+                } elseif (!empty($u['email']) && strpos($u['email'], '@') !== false) {
+                    $app['email'] = $u['email'];
+                } else {
+                    $app['email'] = 'N/A';
+                }
+
+                // Prioritize phone from student_resumes table
+                if (!empty($res['phone']) && $res['phone'] !== '-') {
+                    $app['phone'] = $res['phone'];
+                } else {
+                    $app['phone'] = !empty($u['phone']) ? $u['phone'] : '-';
+                }
+                
                 $app['usn'] = $u['usn'];
                 $app['course'] = !empty($u['course']) ? $u['course'] : 'N/A';
                 $app['sgpa'] = $u['cgpa'];
@@ -285,8 +318,19 @@ class JobApplication extends Model {
             } else {
                 $app['student_name'] = $sid;
                 $app['full_name'] = $sid;
-                $app['email'] = $sid;
-                $app['phone'] = '-';
+                
+                if (!empty($res['email']) && strpos($res['email'], '@') !== false) {
+                    $app['email'] = $res['email'];
+                } else {
+                    $app['email'] = 'N/A';
+                }
+
+                if (!empty($res['phone']) && $res['phone'] !== '-') {
+                    $app['phone'] = $res['phone'];
+                } else {
+                    $app['phone'] = '-';
+                }
+
                 $app['usn'] = $sid;
                 $app['course'] = '-';
                 $app['sgpa'] = '-';

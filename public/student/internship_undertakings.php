@@ -187,8 +187,7 @@ if (isPost()) {
         $compCity = trim(post('company_city'));
         $hodNameInput = trim(post('hod_name'));
         $hodEmailInput = trim(post('hod_email'));
-        $uDate = post('undertaking_date') ?: date('Y-m-d');
-        
+        $formUsn = trim(post('usn'));
         $formYear = trim(post('year'));
         $formBranch = trim(post('branch'));
         $formCourse = trim(post('course')) ?: 'B.Tech./B.Sc., etc';
@@ -199,8 +198,8 @@ if (isPost()) {
         $hodSalutation = trim(post('hod_salutation')) ?: 'Mr/Mrs.';
 
         try {
-            $stmtUpdate = $db->prepare("UPDATE student_internship_undertakings SET year=?, branch=?, course=?, undertaking_type=?, company_name=?, company_city=?, academic_year=?, hod_name=?, hod_email=?, undertaking_date=?, recipient_title=?, student_salutation=?, hod_salutation=? WHERE id=? AND usn=?");
-            $stmtUpdate->execute([$formYear, $formBranch, $formCourse, $type, $compName, $compCity, $formAcademicYear, $hodNameInput, $hodEmailInput, $uDate, $recipientTitle, $studentSalutation, $hodSalutation, $editId, $studentUSN]);
+            $stmtUpdate = $db->prepare("UPDATE student_internship_undertakings SET usn=?, year=?, branch=?, course=?, undertaking_type=?, company_name=?, company_city=?, academic_year=?, hod_name=?, hod_email=?, undertaking_date=?, recipient_title=?, student_salutation=?, hod_salutation=? WHERE id=?");
+            $stmtUpdate->execute([$formUsn ?: $studentUSN, $formYear, $formBranch, $formCourse, $type, $compName, $compCity, $formAcademicYear, $hodNameInput, $hodEmailInput, $uDate, $recipientTitle, $studentSalutation, $hodSalutation, $editId]);
             Session::flash('success', "Undertaking updated successfully.");
             redirect("internship_undertakings?view_id=" . $editId . "&print=1");
         } catch (Exception $e) {
@@ -1007,7 +1006,7 @@ if ($viewId > 0) {
                     <input type="hidden" name="undertaking_date" id="hidden_date">
                     <input type="hidden" name="hod_name" id="hidden_hod_name">
                     <input type="hidden" name="hod_email" id="hidden_hod_email">
-                    <input type="hidden" name="usn" value="<?php echo htmlspecialchars($studentUSN); ?>">
+                    <input type="hidden" name="usn" id="hidden_usn" value="<?php echo htmlspecialchars($studentUSN); ?>">
                     <input type="hidden" name="name" value="<?php echo htmlspecialchars($studentName); ?>">
                     <input type="hidden" name="year" id="hidden_year" value="<?php echo htmlspecialchars($studentYear); ?>">
                     <input type="hidden" name="course" id="hidden_course" value="B.Tech./B.Sc., etc">
@@ -1096,9 +1095,11 @@ if ($viewId > 0) {
                             the Department of <?php if ($isReadOnly): ?><span id="body_dept_govt"><?php echo htmlspecialchars($u['branch'] ?: '[Branch]'); ?></span><?php else: ?><span id="body_dept_govt" class="editable-inline" contenteditable="true" placeholder="[Department]" style="min-width: 80px;"><?php echo htmlspecialchars($u['branch'] ?: $studentBranch ?: '[Branch]'); ?></span><?php endif; ?>
                             respectfully requests your esteemed organization to consider providing internship
                             opportunities for our student <?php if ($isReadOnly): ?><strong><?php echo htmlspecialchars(($u['student_salutation'] ?? '') ?: 'Mr/Mrs.'); ?></strong><?php else: ?><span id="inline_student_salutation_govt" class="editable-inline" contenteditable="true" placeholder="Mr/Mrs." style="min-width: 40px; font-weight: bold;"><?php echo htmlspecialchars(($u['student_salutation'] ?? '') ?: 'Mr/Mrs.'); ?></span><?php endif; ?> <span id="body_name_govt"
-                                style="font-weight: bold;"><?php echo htmlspecialchars($u['name']); ?></span> USN <span
+                                style="font-weight: bold;"><?php echo htmlspecialchars($u['name']); ?></span> USN <?php if ($isReadOnly): ?><span
                                 id="body_usn_govt"
-                                style="font-weight: bold;"><?php echo htmlspecialchars($u['usn']); ?></span>,
+                                style="font-weight: bold;"><?php echo htmlspecialchars($u['usn']); ?></span><?php else: ?><span
+                                id="body_usn_govt" class="editable-inline" contenteditable="true" placeholder="[USN]"
+                                style="font-weight: bold; min-width: 90px;"><?php echo htmlspecialchars($u['usn']); ?></span><?php endif; ?>,
                             <?php if ($isReadOnly): ?>
                                 <strong><?php echo htmlspecialchars($u['year']); ?></strong> Year,
                                 <strong><?php echo htmlspecialchars($u['course']); ?></strong> during the
@@ -1141,9 +1142,11 @@ if ($viewId > 0) {
                             the Department of <?php if ($isReadOnly): ?><span id="body_dept_private"><?php echo htmlspecialchars($u['branch'] ?: '[Branch]'); ?></span><?php else: ?><span id="body_dept_private" class="editable-inline" contenteditable="true" placeholder="[Department]" style="min-width: 80px;"><?php echo htmlspecialchars($u['branch'] ?: $studentBranch ?: '[Branch]'); ?></span><?php endif; ?>
                             is pleased to request your esteemed organization to provide internship opportunity for our
                             student <?php if ($isReadOnly): ?><strong><?php echo htmlspecialchars(($u['student_salutation'] ?? '') ?: 'Mr/Mrs.'); ?></strong><?php else: ?><span id="inline_student_salutation_private" class="editable-inline" contenteditable="true" placeholder="Mr/Mrs." style="min-width: 40px; font-weight: bold;"><?php echo htmlspecialchars(($u['student_salutation'] ?? '') ?: 'Mr/Mrs.'); ?></span><?php endif; ?> <span id="body_name_private"
-                                style="font-weight: bold;"><?php echo htmlspecialchars($u['name']); ?></span> USN <span
+                                style="font-weight: bold;"><?php echo htmlspecialchars($u['name']); ?></span> USN <?php if ($isReadOnly): ?><span
                                 id="body_usn_private"
-                                style="font-weight: bold;"><?php echo htmlspecialchars($u['usn']); ?></span>,
+                                style="font-weight: bold;"><?php echo htmlspecialchars($u['usn']); ?></span><?php else: ?><span
+                                id="body_usn_private" class="editable-inline" contenteditable="true" placeholder="[USN]"
+                                style="font-weight: bold; min-width: 90px;"><?php echo htmlspecialchars($u['usn']); ?></span><?php endif; ?>,
                             <?php if ($isReadOnly): ?>
                                 <strong><?php echo htmlspecialchars($u['year']); ?></strong> Year,
                                 <strong><?php echo htmlspecialchars($u['course']); ?></strong> during the
@@ -1337,6 +1340,7 @@ if ($viewId > 0) {
             const hodSalutation = document.getElementById('inline_hod_salutation')?.innerText.trim() || 'Mr/Mrs.';
 
             // Read editable spans from the active tab body
+            const editedUsn    = (document.getElementById('body_usn' + suffix)?.innerText || '').trim();
             const dept         = (document.getElementById('body_dept' + suffix)?.innerText || '').trim();
             const editedYear   = (document.getElementById('inline_year' + suffix)?.innerText || '').trim();
             const editedCourse = (document.getElementById('inline_course' + suffix)?.innerText || '').trim();
@@ -1377,6 +1381,7 @@ if ($viewId > 0) {
             document.getElementById('hidden_student_salutation').value = studentSalutation;
             document.getElementById('hidden_hod_salutation').value = hodSalutation;
 
+            if (editedUsn)    document.getElementById('hidden_usn').value = editedUsn;
             if (dept)         document.getElementById('hidden_branch').value = dept;
             if (editedYear)   document.getElementById('hidden_year').value = editedYear;
             if (editedCourse) document.getElementById('hidden_course').value = editedCourse;
@@ -1443,6 +1448,18 @@ if ($viewId > 0) {
                     });
                     salutationPrivate.addEventListener('input', () => {
                         salutationGovt.innerText = salutationPrivate.innerText;
+                    });
+                }
+
+                // Sync student USN between tabs
+                const usnGovt = document.getElementById('body_usn_govt');
+                const usnPrivate = document.getElementById('body_usn_private');
+                if (usnGovt && usnPrivate) {
+                    usnGovt.addEventListener('input', () => {
+                        usnPrivate.innerText = usnGovt.innerText;
+                    });
+                    usnPrivate.addEventListener('input', () => {
+                        usnGovt.innerText = usnGovt.innerText;
                     });
                 }
             }
