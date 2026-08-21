@@ -42,8 +42,8 @@ class StudentIntelligenceService {
             }
 
             // 2. Fetch portfolio items
-            $stmt = $this->db->prepare("SELECT * FROM student_portfolio WHERE student_id = ? AND institution = ?");
-            $stmt->execute([$studentId, $institution]);
+            $stmt = $this->db->prepare("SELECT * FROM student_portfolio WHERE (student_id = ? OR UPPER(student_id) = UPPER(?)) AND (institution = ? OR institution IS NULL OR institution = '' OR ? IS NULL)");
+            $stmt->execute([$studentId, $studentId, $institution, $institution]);
             $portfolio = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
             if (empty($profile) && empty($portfolio)) {
@@ -658,21 +658,24 @@ class StudentIntelligenceService {
                 }
             }
 
-            $stmt = $this->db->prepare("SELECT * FROM student_portfolio WHERE student_id = ? AND institution = ?");
-            $stmt->execute([$studentId, $institution]);
+            $stmt = $this->db->prepare("SELECT * FROM student_portfolio WHERE (student_id = ? OR UPPER(student_id) = UPPER(?)) AND (institution = ? OR institution IS NULL OR institution = '' OR ? IS NULL)");
+            $stmt->execute([$studentId, $studentId, $institution, $institution]);
             $portfolio = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
-            // Check resume status
-            $resumeFilePath = UPLOADS_PATH . '/resumes/Student_Resumes/' . strtoupper($studentId) . '_Resume.pdf';
-            $hasResumeFile = file_exists($resumeFilePath);
+            // Check resume status (Check DB + disk files)
+            $resumeModel = new \Resume();
+            $dbResume = $resumeModel->getByStudentId($studentId);
+            $resumeFilePath1 = UPLOADS_PATH . '/resumes/Student_Resumes/' . strtoupper($studentId) . '_Resume.pdf';
+            $resumeFilePath2 = UPLOADS_PATH . '/resumes/' . strtoupper($studentId) . '_Resume.pdf';
+            $hasResume = (!empty($dbResume) && !empty($dbResume['full_name'])) || file_exists($resumeFilePath1) || file_exists($resumeFilePath2);
 
             $insights = [];
 
             // Rule 1: Resume Verification Warning
-            if (!$hasResumeFile) {
+            if (!$hasResume) {
                 $insights[] = [
                     'insight_type' => 'Warning',
-                    'message' => 'No active PDF resume detected. Upload a resume in the Resume Builder to enable AI Resume Analytics.',
+                    'message' => 'No active resume detected. Create or upload your resume in the Resume Builder to enable AI Resume Analytics.',
                     'action_link' => 'resume_builder.php',
                     'priority' => 5
                 ];
@@ -794,9 +797,9 @@ class StudentIntelligenceService {
 
             // Save generated insights
             if (!empty($insights)) {
-                // Clear old unread insights to prevent duplicates
-                $stmt = $this->db->prepare("DELETE FROM student_ai_insights WHERE student_id = ? AND institution = ? AND is_read = 0");
-                $stmt->execute([$studentId, $institution]);
+                // Clear old insights to prevent duplicate or stale warning cards
+                $stmt = $this->db->prepare("DELETE FROM student_ai_insights WHERE (student_id = ? OR UPPER(student_id) = UPPER(?)) AND (institution = ? OR institution IS NULL OR institution = '' OR ? IS NULL)");
+                $stmt->execute([$studentId, $studentId, $institution, $institution]);
 
                 $stmt = $this->db->prepare("
                     INSERT INTO student_ai_insights 

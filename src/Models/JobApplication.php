@@ -337,7 +337,7 @@ class JobApplication extends Model {
                 $app['cgpa'] = '-';
                 $app['puc_percentage'] = '-';
                 $app['sslc_percentage'] = '-';
-                $app['institution'] = (strpos(strtoupper($sid), '4GM') === 0 || strpos(strtoupper($sid), 'GMIT') === 0) ? INSTITUTION_GMIT : INSTITUTION_GMU;
+                $app['institution'] = isGmitUsn($sid) ? INSTITUTION_GMIT : INSTITUTION_GMU;
             }
         }
         

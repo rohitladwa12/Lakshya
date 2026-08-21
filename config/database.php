@@ -18,7 +18,7 @@ class Database {
             'port' => getenv('DB_PORT') ?: '3306',
             'name' => getenv('DB_NAME') ?: 'lakshya',
             'user' => getenv('DB_USER') ?: 'root',
-            'pass' => getenv('DB_PASS') ?: ''
+            'pass' => getenv('DB_PASS') ?: 'nqqnyt96PU!@#'
         ];
 
     //$this->definitions['gmu'] = [

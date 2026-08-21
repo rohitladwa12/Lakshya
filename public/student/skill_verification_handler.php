@@ -51,8 +51,8 @@ try {
             $portfolioId = $_POST['portfolio_id'] ?? 0;
             
             // Verify ownership
-            $stmt = getDB()->prepare("SELECT * FROM student_portfolio WHERE id = ? AND student_id = ?");
-            $stmt->execute([$portfolioId, $username]);
+            $stmt = getDB()->prepare("SELECT * FROM student_portfolio WHERE id = ? AND (student_id = ? OR UPPER(student_id) = UPPER(?))");
+            $stmt->execute([$portfolioId, $username, $username]);
             $item = $stmt->fetch();
             
             if (!$item) {

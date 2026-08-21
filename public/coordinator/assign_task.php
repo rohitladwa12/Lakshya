@@ -167,7 +167,14 @@ if (isPost()) {
     if (isset($_POST['reset_filters'])) {
         SessionFilterHelper::clearFilters($pageId);
     } else {
-        SessionFilterHelper::handlePostToSession($pageId, $_POST);
+        // MERGE into the session (do not replace) so partial posts keep the other
+        // filters intact. Any filter change resets pagination back to page 1; only
+        // a pure pagination post carries its own "page" value.
+        $updates = $_POST;
+        if (!isset($updates['page'])) {
+            $updates['page'] = 1;
+        }
+        SessionFilterHelper::updateFilters($pageId, $updates);
     }
     header("Location: assign_task.php");
     exit;
@@ -175,7 +182,7 @@ if (isPost()) {
 
 // Handle GET tab switching (deprecated, but handled via Session fallback if needed)
 if (isset($_GET['inst'])) {
-    SessionFilterHelper::updateFilters($pageId, ['inst' => $_GET['inst']]);
+    SessionFilterHelper::updateFilters($pageId, ['inst' => $_GET['inst'], 'page' => 1]);
     header("Location: assign_task.php");
     exit;
 }
@@ -239,53 +246,54 @@ if ($discipline_filter_sql = buildInClauseCoord("asa.discipline", $discipline_fi
     $where_clauses[] = $discipline_filter_sql;
 }
 
-// Filter by Min SGPA (Needs careful handling for GMIT as SGPA is 0 in remote)
-if ($min_sgpa > 0) {
-    // For GMU, check sgpa column directly. For GMIT, we rely on the local fetch below.
-    // However, to do this efficiently in SQL for pagination, we join with local table.
-    // Since complex join across servers is tricky, we filter post-fetch or use simple logic.
-    // For now, to match report logic exactly, apply only to GMU or local GMIT IDs.
-    // Report logic filters GMU by SGPA directly in WHERE. For GMIT it relies on local IDs.
-    
-    // We'll mimic report: if searching for high SGPA, we must know which GMIT students possess it.
-    // But since report handles it via ID filtering, let's skip complex SGPA filtering in main SQL for GMIT
-    // and rely on the fact that most filtering is by semester.
-    
-    // Actually, report adds: asa.sgpa >= ? which affects GMU. GMIT requires local ID filter for this.
-    // Simplified for now: Apply only to GMU in main query if needed, or skip SQL filter for mixed.
-    // Let's stick to report logic:
-    if ($instFilter === 'gmu' || $instFilter === 'all') {
-         // This might filter out all GMIT if their dummy SGPA is 0.0 < min_sgpa.
-         // Report handles this by checking local DB first for GMIT high scorers.
-         // Let's just create a list of eligible GMIT IDs locally first.
-         $stmtLocal = $localDB->prepare("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE institution = ? AND sgpa >= ?");
-         $stmtLocal->execute([INSTITUTION_GMIT, $min_sgpa]);
-         $highScorerIds = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
-         
-         if (!empty($highScorerIds)) {
-             $placeholders = implode(',', array_fill(0, count($highScorerIds), '?'));
-             $where_clauses[] = "((asa.institution = '" . INSTITUTION_GMU . "' AND asa.sgpa >= ?) OR (asa.institution = '" . INSTITUTION_GMIT . "' AND asa.usn IN ($placeholders)))";
-             $params[] = $min_sgpa;
-             $params = array_merge($params, $highScorerIds);
-         } else {
-             $where_clauses[] = "(asa.institution = '" . INSTITUTION_GMU . "' AND asa.sgpa >= ?)";
-             $params[] = $min_sgpa;
-         }
-    }
-}
-
 // Semester Filtering (Dynamic based on Department) & GMIT Local Check
+// "Semester = N" must mean the student's CURRENT semester is N, not "has ever had a
+// record for semester N" — both institutions keep one row per semester of history,
+// so matching any row would pull in senior students (a 7th-sem student has rows for
+// sems 1..7 and would match a sem-5 filter). Current semester = MAX(sem/semester).
+// Min SGPA is evaluated against that current-semester row too (the GMIT rows in the
+// remote union carry a dummy sgpa of 0.0, so it can never be filtered in the main SQL).
 $semester_filter = getCoordinatorSemesterFilters($department);
 if ($sem_filter_val > 0 && in_array($sem_filter_val, $semester_filter)) {
     $semester_filter = [$sem_filter_val];
 }
 $sem_placeholders = implode(',', array_fill(0, count($semester_filter), '?'));
 
+// GMU: match students whose HIGHEST sem row is in the filter (and passes Min SGPA).
+$gmuSgpaSql = ($min_sgpa > 0) ? " AND cur_rows.sgpa >= ?" : "";
+$gmuCurrentSql = "asa.usn IN (
+    SELECT cur_rows.usn
+    FROM {$gmuPrefix}ad_student_approved cur_rows
+    JOIN (
+        SELECT usn, MAX(sem) AS current_sem
+        FROM {$gmuPrefix}ad_student_approved
+        GROUP BY usn
+    ) cur ON cur.usn = cur_rows.usn AND cur_rows.sem = cur.current_sem
+    WHERE cur_rows.sem IN ($sem_placeholders)$gmuSgpaSql
+)";
+$gmuCurrentParams = $semester_filter;
+if ($min_sgpa > 0) $gmuCurrentParams[] = $min_sgpa;
+
 if ($instFilter === 'all' || $instFilter === 'gmit') {
-    $stmtLocal = $localDB->prepare("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE institution = ? AND semester IN ($sem_placeholders)");
-    $stmtLocal->execute(array_merge([INSTITUTION_GMIT], $semester_filter));
+    // GMIT: eligible ids from the local SGPA table — filter (and apply Min SGPA) on
+    // each student's highest-semester row.
+    $gmitSgpaSql = ($min_sgpa > 0) ? " AND s.sgpa >= ?" : "";
+    $stmtLocal = $localDB->prepare("
+        SELECT DISTINCT s.student_id
+        FROM student_sem_sgpa s
+        JOIN (
+            SELECT student_id, MAX(semester) AS current_sem
+            FROM student_sem_sgpa
+            WHERE institution = ?
+            GROUP BY student_id
+        ) cur ON cur.student_id = s.student_id AND s.semester = cur.current_sem
+        WHERE s.institution = ? AND s.semester IN ($sem_placeholders)$gmitSgpaSql
+    ");
+    $gmitLocalParams = array_merge([INSTITUTION_GMIT, INSTITUTION_GMIT], $semester_filter);
+    if ($min_sgpa > 0) $gmitLocalParams[] = $min_sgpa;
+    $stmtLocal->execute($gmitLocalParams);
     $gmitUsnsRaw = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
-    
+
     // Expand GMIT USNs/IDs
     $gmitUsns = $gmitUsnsRaw;
     if (!empty($gmitUsnsRaw)) {
@@ -302,24 +310,30 @@ if ($instFilter === 'all' || $instFilter === 'gmit') {
             $gmitUsns = array_values(array_unique($gmitUsns));
         }
     }
-    
-    $gmu_sem_sql = "asa.sem IN ($sem_placeholders)";
-    $gmu_sem_params = $semester_filter;
 
-    if (!empty($gmitUsns)) {
-         $placeholders = implode(',', array_fill(0, count($gmitUsns), '?'));
-         // GMU sem check OR GMIT valid ID check
-         $where_clauses[] = "((asa.institution = '" . INSTITUTION_GMU . "' AND $gmu_sem_sql) OR (asa.institution = '" . INSTITUTION_GMIT . "' AND asa.usn IN ($placeholders)))";
-         $params = array_merge($params, $gmu_sem_params, $gmitUsns);
+    if ($instFilter === 'gmit') {
+        // GMIT only (institution clause already applied above)
+        if (!empty($gmitUsns)) {
+            $placeholders = implode(',', array_fill(0, count($gmitUsns), '?'));
+            $where_clauses[] = "asa.usn IN ($placeholders)";
+            $params = array_merge($params, $gmitUsns);
+        } else {
+            $where_clauses[] = "1=0";
+        }
+    } elseif (!empty($gmitUsns)) {
+        $placeholders = implode(',', array_fill(0, count($gmitUsns), '?'));
+        // GMU current-sem check OR GMIT valid ID check
+        $where_clauses[] = "((asa.institution = '" . INSTITUTION_GMU . "' AND $gmuCurrentSql) OR (asa.institution = '" . INSTITUTION_GMIT . "' AND asa.usn IN ($placeholders)))";
+        $params = array_merge($params, $gmuCurrentParams, $gmitUsns);
     } else {
-         // No GMIT students found with valid sem, show only GMU
-         $where_clauses[] = "(asa.institution = '" . INSTITUTION_GMU . "' AND $gmu_sem_sql)";
-         $params = array_merge($params, $gmu_sem_params);
+        // No GMIT students found with valid sem, show only GMU
+        $where_clauses[] = "(asa.institution = '" . INSTITUTION_GMU . "' AND $gmuCurrentSql)";
+        $params = array_merge($params, $gmuCurrentParams);
     }
 } else {
     // Only GMU
-     $where_clauses[] = "asa.sem IN ($sem_placeholders)";
-     $params = array_merge($params, $semester_filter);
+    $where_clauses[] = $gmuCurrentSql;
+    $params = array_merge($params, $gmuCurrentParams);
 }
 
 $where_sql = implode(" AND ", $where_clauses);
@@ -328,8 +342,13 @@ $where_sql = implode(" AND ", $where_clauses);
 $count_query = "SELECT COUNT(DISTINCT asa.usn) FROM {$combinedApproved} asa WHERE $where_sql";
 $stmt = $remoteDB->prepare($count_query);
 $stmt->execute($params);
-$total_records = $stmt->fetchColumn();
-$total_pages = ceil($total_records / $limit);
+$total_records = (int)$stmt->fetchColumn();
+$total_pages = max(1, (int)ceil($total_records / $limit));
+// Clamp a stale page number (e.g. filters narrowed the result set) back into range
+if ($page > $total_pages) {
+    $page = $total_pages;
+    $offset = ($page - 1) * $limit;
+}
 
 // Fetch Data
 $query = "SELECT asa.usn, MAX(asa.name) as name, MAX(asa.aadhar) as aadhar, MAX(asa.discipline) as discipline, MAX(asa.sem) as sem, MAX(asa.sgpa) as sgpa, MAX(asa.registered) as registered, asa.institution 
@@ -736,7 +755,7 @@ function buildUrl($key, $val) {
                     <select name="sem" class="form-input">
                         <option value="">All Semesters</option>
                         <?php foreach (getCoordinatorSemesterFilters($department) as $s): ?>
-                            <option value="<?php echo $s; ?>" <?php echo $sem_filter_val === $s ? 'selected' : ''; ?>>
+                            <option value="<?php echo $s; ?>" <?php echo $sem_filter_val === (int)$s ? 'selected' : ''; ?>>
                                 Semester <?php echo $s; ?>
                             </option>
                         <?php endforeach; ?>

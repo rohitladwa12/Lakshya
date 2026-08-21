@@ -25,9 +25,9 @@ class Resume extends Model {
             error_log("getByStudentId called with array: " . print_r($studentId, true));
             return null;
         }
-        $sql = "SELECT * FROM {$this->table} WHERE student_id = ? ORDER BY last_updated DESC LIMIT 1";
+        $sql = "SELECT * FROM {$this->table} WHERE (student_id = ? OR UPPER(student_id) = UPPER(?)) ORDER BY last_updated DESC LIMIT 1";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$studentId]);
+        $stmt->execute([$studentId, $studentId]);
         $resume = $stmt->fetch();
         
         if ($resume) {
@@ -83,7 +83,7 @@ class Resume extends Model {
                     achievements = ?,
                     resume_data = ?,
                     template_id = ?
-                    WHERE student_id = ?";
+                    WHERE id = ?";
             
             $stmt = $this->db->prepare($sql);
             return $stmt->execute([
@@ -105,7 +105,7 @@ class Resume extends Model {
                 $jsonFields['achievements'],
                 $jsonFields['resume_data'],
                 $resumeData['template_id'] ?? 'professional_ats',
-                $studentId
+                $existing['id']
             ]);
         } else {
             // Insert new resume

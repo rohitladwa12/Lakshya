@@ -99,6 +99,7 @@ if (empty($fullName) && !empty($mainProfile['name'])) {
 }
 
 $needsSgpaUpdate = false;
+$hasFullHistory = true;
 if ($isGMIT) {
     try {
         $db = getDB();
@@ -108,9 +109,9 @@ if ($isGMIT) {
         // Fetch all sem sgpa records for this student
         $stmt = $db->prepare(
             "SELECT semester, sgpa, is_current, freezed FROM student_sem_sgpa 
-             WHERE (student_id = ? OR student_id = ?) AND institution = ?"
+             WHERE (student_id = ? OR student_id = ? OR UPPER(student_id) = UPPER(?)) AND institution = ?"
         );
-        $stmt->execute([$studentIdToCheck, $studentAadhar ?: $studentIdToCheck, INSTITUTION_GMIT]);
+        $stmt->execute([$studentIdToCheck, $studentAadhar ?: $studentIdToCheck, $studentIdToCheck, INSTITUTION_GMIT]);
         $sgpaRecords = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         if (empty($sgpaRecords)) {
@@ -118,30 +119,24 @@ if ($isGMIT) {
             $needsSgpaUpdate = true;
         } else {
             $currentActiveSem = 0;
-            $sem6Sgpa = 0.0;
             $anyFreezed = false;
 
             foreach ($sgpaRecords as $r) {
                 if ($r['is_current'] == 1) {
                     $currentActiveSem = (int) $r['semester'];
                 }
-                if ($r['semester'] == 6) {
-                    $sem6Sgpa = (float) $r['sgpa'];
-                }
                 if ($r['freezed'] == 1) {
                     $anyFreezed = true;
                 }
             }
 
-            // If not frozen:
-            // - If current semester is 6 or less (they haven't moved to 7th sem yet)
-            // - Or, if they don't have an active current semester
-            // - Or, if they are marked in 7th/8th sem but 6th sem SGPA is empty or 0
-            if (!$anyFreezed) {
-                if ($currentActiveSem <= 6 || $sem6Sgpa <= 0) {
-                    $needsSgpaUpdate = true;
-                    $hasFullHistory = false; // Lock dashboard features
-                }
+            // Lock dashboard only if student has not selected an active current semester
+            if ($currentActiveSem === 0) {
+                $needsSgpaUpdate = true;
+                $hasFullHistory = false;
+            } else {
+                $hasFullHistory = true;
+                $needsSgpaUpdate = false;
             }
         }
     } catch (Exception $e) {
@@ -154,14 +149,33 @@ require_once __DIR__ . '/../../src/Models/Portfolio.php';
 $portfolioModel = new Portfolio();
 $allPortfolio = $portfolioModel->getStudentPortfolio($username, $institution ?: 'GMU');
 
+// If empty under $username, attempt fallback under USN or Aadhar
+$studentUsn = $mainProfile['usn'] ?? '';
+$studentAadhar = $mainProfile['aadhar'] ?? '';
+if (empty($allPortfolio) && (!empty($studentUsn) || !empty($studentAadhar))) {
+    $allPortfolio = $portfolioModel->getStudentPortfolio($studentUsn ?: $studentAadhar, $institution ?: 'GMU');
+}
+
 // --- COMPULSORY RESUME CHECK ---
 require_once __DIR__ . '/../../src/Models/Resume.php';
 $resumeModel = new Resume();
-$resumeData = $resumeModel->getByStudentId($userId);
+$resumeData = $resumeModel->getByStudentId($username);
+if (empty($resumeData) && !empty($studentUsn)) {
+    $resumeData = $resumeModel->getByStudentId($studentUsn);
+}
 
-// Also check for physical file: {USN}_Resume.pdf
-$resumeFilePath = UPLOADS_PATH . '/resumes/Student_Resumes/' . strtoupper($username) . '_Resume.pdf';
-$hasResume = file_exists($resumeFilePath);
+// Check for physical file or valid DB resume record
+$hasResumeDataInDb = !empty($resumeData) && !empty($resumeData['full_name']);
+$hasResumeFile = false;
+$checkIds = array_unique(array_filter([$username, $studentUsn, $studentAadhar]));
+foreach ($checkIds as $cId) {
+    if (file_exists(UPLOADS_PATH . '/resumes/Student_Resumes/' . strtoupper($cId) . '_Resume.pdf') ||
+        file_exists(UPLOADS_PATH . '/resumes/' . strtoupper($cId) . '_Resume.pdf')) {
+        $hasResumeFile = true;
+        break;
+    }
+}
+$hasResume = $hasResumeDataInDb || $hasResumeFile;
 // -------------------------------
 
 // Load companies for the Placement Guide tool
@@ -5022,33 +5036,7 @@ $dailyQuote = $_SESSION['grind_quote'];
         }
     </script>
 
-    <?php if ($needsSgpaUpdate && $isGMIT): ?>
-        <?php
-        $funnySentences = [
-            "VTU results are like a horror movie: you know something scary is coming, but you still have to look! Let's get your 6th Sem SGPA updated before the placement cell sends a search party.",
-            "6th Sem results are out! Whether you are celebrating your success or currently questioning the examiner's sanity, it's time to update your SGPA.",
-            "VTU just dropped the 6th sem results like a hot potato. Let's make it official on your profile before the placement department calls your home landline!",
-            "VTU results are finally here! Update your SGPA and current semester now, because ignoring it won't make the backlogs disappear."
-        ];
-        $randomSentence = $funnySentences[array_rand($funnySentences)];
-        ?>
-        <div class="vtu-results-overlay">
-            <div class="vtu-results-modal">
-                <div class="vtu-modal-icon">
-                    <i class="fas fa-graduation-cap"></i>
-                </div>
-                <h2>6th Sem Results are Out!</h2>
-                <p>VTU has officially released the 6th Semester results. Before we can celebrate (or initiate a recovery
-                    plan), you must update your academic profile.</p>
-                <div class="funny-sentence">
-                    "<?php echo htmlspecialchars($randomSentence); ?>"
-                </div>
-                <a href="sgpa_entry.php" class="vtu-update-btn">
-                    Update Academic Profile <i class="fas fa-arrow-right"></i>
-                </a>
-            </div>
-        </div>
-    <?php endif; ?>
+
 
     <?php if (empty($aiProfile) || empty($aiInsights) || empty($dailyChallenge)): ?>
     <script>

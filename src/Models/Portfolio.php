@@ -19,10 +19,11 @@ class Portfolio extends Model {
      */
     public function getStudentPortfolio($studentId, $institution) {
         $sql = "SELECT * FROM {$this->table} 
-                WHERE student_id = ? AND institution = ? 
+                WHERE (student_id = ? OR UPPER(student_id) = UPPER(?)) 
+                  AND (institution = ? OR institution IS NULL OR institution = '' OR ? IS NULL) 
                 ORDER BY category, created_at DESC";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$studentId, $institution]);
+        $stmt->execute([$studentId, $studentId, $institution, $institution]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -31,10 +32,12 @@ class Portfolio extends Model {
      */
     public function getStudentSkills($studentId, $institution) {
         $sql = "SELECT * FROM {$this->table} 
-                WHERE student_id = ? AND institution = ? AND category = 'Skill' 
+                WHERE (student_id = ? OR UPPER(student_id) = UPPER(?)) 
+                  AND (institution = ? OR institution IS NULL OR institution = '' OR ? IS NULL) 
+                  AND category = 'Skill' 
                 ORDER BY created_at DESC";
         $stmt = $this->db->prepare($sql);
-        $stmt->execute([$studentId, $institution]);
+        $stmt->execute([$studentId, $studentId, $institution, $institution]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     }
 
@@ -75,9 +78,9 @@ class Portfolio extends Model {
      * @return bool
      */
     public function deleteItem($id, $studentId) {
-        $sql = "DELETE FROM {$this->table} WHERE id = ? AND student_id = ?";
+        $sql = "DELETE FROM {$this->table} WHERE id = ? AND (student_id = ? OR UPPER(student_id) = UPPER(?))";
         $stmt = $this->db->prepare($sql);
-        return $stmt->execute([$id, $studentId]);
+        return $stmt->execute([$id, $studentId, $studentId]);
     }
 
     /**

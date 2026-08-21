@@ -17,7 +17,13 @@ $pageId = 'coordinator_analytics';
 
 // Handle POST (Filters, Reset, Export Request)
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    SessionFilterHelper::handlePostToSession($pageId, $_POST);
+    if (isset($_POST['reset_filters'])) {
+        SessionFilterHelper::clearFilters($pageId);
+    } else {
+        // MERGE into the session (do not replace): partial posts — the institution
+        // select, the export buttons — must not wipe the other stored filters.
+        SessionFilterHelper::updateFilters($pageId, $_POST);
+    }
     header("Location: analytics.php");
     exit;
 }
@@ -31,10 +37,26 @@ if (isset($_GET['reset'])) {
 
 $filters = SessionFilterHelper::getFilters($pageId);
 
+// Direct GET export for the per-task "missed list" links (opened in a new tab).
+// These arrive as GET params and are applied to this request only — nothing is
+// written to the session, so the page's own filters stay untouched.
+if (isset($_GET['missed_pdf'])) {
+    $filters['missed_pdf'] = 1;
+    if (isset($_GET['type'])) $filters['type'] = $_GET['type'];
+    if (isset($_GET['inst'])) $filters['inst'] = $_GET['inst'];
+}
+
 $fullName = getFullName();
 $coordinatorId = getUserId();
 $department = getDepartment();
-$semester_filter = getCoordinatorSemesterFilters($department);
+$allSemesters = getCoordinatorSemesterFilters($department);
+$semester_filter = $allSemesters;
+$semFilterVal = isset($filters['sem']) ? (int)$filters['sem'] : 0;
+if ($semFilterVal > 0 && in_array($semFilterVal, $allSemesters)) {
+    $semester_filter = [$semFilterVal];
+} else {
+    $semFilterVal = 0;
+}
 $discipline_filters = getCoordinatorDisciplineFilters($department);
 $deptLabel = (is_array($discipline_filters) && count($discipline_filters) > 1 && $discipline_filters[0] !== $discipline_filters[1])
     ? $discipline_filters[0] . ' & ' . $discipline_filters[1]
@@ -56,10 +78,52 @@ if ($instFilter !== 'all') {
     $coordFilters['institution'] = $instFilter;
 }
 $students = $studentModel->getAllWithUsers($coordFilters);
+
+// Resolve each student's CURRENT semester (GMU: latest approved row from the model;
+// GMIT: highest recorded semester in the local SGPA table).
+$dbLocal = getDB();
+$semOf = [];
+$gmitLookupIds = [];
+foreach ($students as $s) {
+    if ($s['institution'] === INSTITUTION_GMIT) {
+        $gmitLookupIds[] = $s['usn'];
+        if (!empty($s['aadhar'])) $gmitLookupIds[] = $s['aadhar'];
+    }
+}
+$gmitSemMap = [];
+if (!empty($gmitLookupIds)) {
+    $gmitLookupIds = array_values(array_unique(array_filter($gmitLookupIds)));
+    $ph = implode(',', array_fill(0, count($gmitLookupIds), '?'));
+    $stmtSem = $dbLocal->prepare("SELECT student_id, MAX(semester) FROM student_sem_sgpa WHERE institution = ? AND student_id IN ($ph) GROUP BY student_id");
+    $stmtSem->execute(array_merge([INSTITUTION_GMIT], $gmitLookupIds));
+    $gmitSemMap = $stmtSem->fetchAll(PDO::FETCH_KEY_PAIR);
+}
+foreach ($students as $s) {
+    $sem = (int)($s['semester'] ?? 0);
+    if ($s['institution'] === INSTITUTION_GMIT) {
+        $sem = (int)($gmitSemMap[$s['usn']] ?? (!empty($s['aadhar']) ? ($gmitSemMap[$s['aadhar']] ?? 0) : 0));
+    }
+    $semOf[$s['usn']] = $sem;
+}
+
+// "Semester = N" means the student's CURRENT semester is N — same rule as the
+// other coordinator pages (a 7th-sem student has history rows for sems 1..7 and
+// must not match a sem-5 filter).
+if ($semFilterVal > 0) {
+    $students = array_values(array_filter($students, function ($s) use ($semOf, $semFilterVal) {
+        return ($semOf[$s['usn']] ?? 0) === $semFilterVal;
+    }));
+}
+
 $studentCount = count($students);
 
 // Extract USNs/IDs
 $studentIds = array_column($students, 'usn');
+
+// Chart data defaults (filled below when there are students)
+$chartData = null;
+$heatmapRows = [];
+$heatmapCols = [];
 
 $metrics = [
     'skills' => 0,
@@ -211,13 +275,14 @@ if (!empty($studentIds)) {
     }
 
     // --- Export Logic (Excel & PDF) ---
-    if (isset($filters['export']) || isset($filters['pdf']) || isset($filters['pending_pdf'])) {
-        $isPdf = isset($filters['pdf']) || isset($filters['pending_pdf']);
+    if (isset($filters['export']) || isset($filters['pdf']) || isset($filters['missed_pdf'])) {
+        $isPdf = isset($filters['pdf']) || isset($filters['missed_pdf']);
         $isMissedOnly = isset($filters['missed_pdf']);
         $pendingType = $filters['type'] ?? null;
-        
-        // Consume export triggers
-        SessionFilterHelper::setFilters($pageId, array_diff_key($filters, ['export'=>1, 'pdf'=>1, 'missed_pdf'=>1, 'type'=>1]));
+
+        // Consume export triggers from the SESSION copy (GET-injected missed_pdf/type
+        // were never stored there, so this must not write local overrides back).
+        SessionFilterHelper::setFilters($pageId, array_diff_key(SessionFilterHelper::getFilters($pageId), ['export'=>1, 'pdf'=>1, 'missed_pdf'=>1, 'type'=>1]));
         
         if (!$isPdf) {
             ob_clean();
@@ -430,6 +495,140 @@ if (!empty($studentIds)) {
         <?php endif; ?>
         <?php exit;
     }
+
+    // ================= Chart data (page render only — export paths exit above) =================
+
+    // Engagement membership including Aadhar-keyed rows, so GMIT students whose
+    // local records are stored under Aadhar are still counted.
+    $engageIds = $studentIds;
+    foreach ($students as $s) if (!empty($s['aadhar'])) $engageIds[] = $s['aadhar'];
+    $engageIds = array_values(array_unique(array_filter($engageIds)));
+    $phE = implode(',', array_fill(0, count($engageIds), '?'));
+
+    $activitySets = ['skills'=>[], 'certifications'=>[], 'projects'=>[], 'resumes'=>[], 'mock_interviews'=>[], 'assessments'=>[]];
+    $catKey = ['Skill'=>'skills', 'Certification'=>'certifications', 'Project'=>'projects'];
+    try {
+        $stmtA = $db->prepare("SELECT DISTINCT student_id, category FROM student_portfolio WHERE student_id IN ($phE)");
+        $stmtA->execute($engageIds);
+        while ($r = $stmtA->fetch(PDO::FETCH_ASSOC)) {
+            if (isset($catKey[$r['category']])) $activitySets[$catKey[$r['category']]][$r['student_id']] = true;
+        }
+    } catch (Exception $e) {}
+    foreach ([['student_resumes','resumes'], ['mock_ai_interview_sessions','mock_interviews'], ['unified_ai_assessments','assessments']] as $pair) {
+        try {
+            $stmtA = $db->prepare("SELECT DISTINCT student_id FROM {$pair[0]} WHERE student_id IN ($phE)");
+            $stmtA->execute($engageIds);
+            foreach ($stmtA->fetchAll(PDO::FETCH_COLUMN) as $sid) $activitySets[$pair[1]][$sid] = true;
+        } catch (Exception $e) {}
+    }
+    $engaged = function ($set, $s) {
+        return isset($set[$s['usn']]) || (!empty($s['aadhar']) && isset($set[$s['aadhar']]));
+    };
+
+    // KPI metrics for the page = distinct engaged students (USN or Aadhar keyed)
+    $activityLabels = ['skills'=>'Skills', 'certifications'=>'Certifications', 'projects'=>'Projects', 'resumes'=>'Resume', 'mock_interviews'=>'Mock Interview', 'assessments'=>'AI Assessment'];
+    foreach ($activitySets as $key => $set) {
+        $n = 0;
+        foreach ($students as $s) if ($engaged($set, $s)) $n++;
+        $metrics[$key] = $n;
+    }
+
+    // Semester + institution distribution
+    $semCounts = [];
+    $instCounts = [];
+    foreach ($students as $s) {
+        $sem = $semOf[$s['usn']] ?? 0;
+        $label = $sem > 0 ? 'Sem ' . $sem : 'Unknown';
+        $semCounts[$label] = ($semCounts[$label] ?? 0) + 1;
+        $instCounts[$s['institution']] = ($instCounts[$s['institution']] ?? 0) + 1;
+    }
+    ksort($semCounts); // 'Sem 5' < 'Sem 8' < 'Unknown'
+
+    // Heatmap: semester rows x activity columns — % of that semester's students engaged
+    $heatmapCols = array_values($activityLabels);
+    $semGroups = [];
+    foreach ($students as $s) {
+        $sem = $semOf[$s['usn']] ?? 0;
+        $semGroups[$sem > 0 ? 'Sem ' . $sem : 'Unknown'][] = $s;
+    }
+    ksort($semGroups);
+    foreach ($semGroups as $label => $group) {
+        $cells = [];
+        $total = count($group);
+        foreach ($activitySets as $key => $set) {
+            $have = 0;
+            foreach ($group as $s) if ($engaged($set, $s)) $have++;
+            $cells[] = ['pct' => $total ? (int)round($have / $total * 100) : 0, 'have' => $have, 'total' => $total, 'activity' => $activityLabels[$key]];
+        }
+        $heatmapRows[] = ['sem' => $label, 'cells' => $cells];
+    }
+
+    // Task status by type (stacked bar) + score distribution of completions
+    $taskChart = ['labels'=>[], 'completed'=>[], 'pending'=>[], 'missed'=>[]];
+    $scoreBuckets = ['0-39'=>0, '40-59'=>0, '60-74'=>0, '75-100'=>0];
+    foreach ($tasksData as $td) {
+        $taskChart['labels'][] = ucfirst($td['type']);
+        $taskChart['completed'][] = $td['completed'];
+        $taskChart['pending'][] = count($td['pending_list']);
+        $taskChart['missed'][] = $td['missed'];
+        foreach ($td['completed_list'] as $c) {
+            if (!isset($c['score']) || $c['score'] === null || $c['score'] === '') continue;
+            $sc = (float)$c['score'];
+            if ($sc < 40) $scoreBuckets['0-39']++;
+            elseif ($sc < 60) $scoreBuckets['40-59']++;
+            elseif ($sc < 75) $scoreBuckets['60-74']++;
+            else $scoreBuckets['75-100']++;
+        }
+    }
+
+    // 12-week activity trend: tasks assigned vs completions by the filtered students
+    $weekStart = new DateTime('now');
+    $weekStart->setISODate((int)$weekStart->format('o'), (int)$weekStart->format('W')); // this ISO week's Monday
+    $trendLabels = [];
+    $trendKeys = [];
+    for ($i = 11; $i >= 0; $i--) {
+        $w = clone $weekStart;
+        $w->modify("-{$i} week");
+        $trendKeys[$w->format('Y-m-d')] = count($trendLabels);
+        $trendLabels[] = $w->format('d M');
+    }
+    $trendAssigned = array_fill(0, 12, 0);
+    $trendCompleted = array_fill(0, 12, 0);
+    $rangeStart = array_key_first($trendKeys) . ' 00:00:00';
+    $bucketWeek = function ($dateStr) use ($trendKeys) {
+        try { $d = new DateTime($dateStr); } catch (Exception $e) { return null; }
+        $d->setISODate((int)$d->format('o'), (int)$d->format('W'));
+        return $trendKeys[$d->format('Y-m-d')] ?? null;
+    };
+    try {
+        $stmtTr = $db->prepare("SELECT created_at FROM coordinator_tasks WHERE coordinator_id = ? AND created_at >= ?");
+        $stmtTr->execute([$coordinatorId, $rangeStart]);
+        foreach ($stmtTr->fetchAll(PDO::FETCH_COLUMN) as $d) {
+            $ix = $bucketWeek($d);
+            if ($ix !== null) $trendAssigned[$ix]++;
+        }
+        $stmtTr = $db->prepare("SELECT tc.completed_at FROM task_completions tc JOIN coordinator_tasks ct ON ct.id = tc.task_id WHERE ct.coordinator_id = ? AND tc.completed_at >= ? AND tc.student_id IN ($phE)");
+        $stmtTr->execute(array_merge([$coordinatorId, $rangeStart], $engageIds));
+        foreach ($stmtTr->fetchAll(PDO::FETCH_COLUMN) as $d) {
+            $ix = $bucketWeek($d);
+            if ($ix !== null) $trendCompleted[$ix]++;
+        }
+    } catch (Exception $e) {}
+
+    $engKeys = array_keys($activityLabels);
+    $chartData = [
+        'semDist' => ['labels' => array_keys($semCounts), 'counts' => array_values($semCounts)],
+        'engagement' => [
+            'labels' => array_values($activityLabels),
+            'pct' => array_map(function ($k) use ($metrics, $getPercentage, $studentCount) { return $getPercentage($metrics[$k], $studentCount); }, $engKeys),
+            'counts' => array_map(function ($k) use ($metrics) { return (int)$metrics[$k]; }, $engKeys),
+        ],
+        'tasks' => $taskChart,
+        'scores' => ['labels' => array_keys($scoreBuckets), 'counts' => array_values($scoreBuckets)],
+        'trend' => ['labels' => $trendLabels, 'assigned' => $trendAssigned, 'completed' => $trendCompleted],
+        'totalStudents' => $studentCount,
+    ];
+    $hasScores = array_sum($scoreBuckets) > 0;
 }
 ?>
 <!DOCTYPE html>
@@ -439,8 +638,9 @@ if (!empty($studentIds)) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Department Analytics - <?php echo APP_NAME; ?></title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
     <style>
         :root {
             --primary-maroon: #800000;
@@ -928,12 +1128,132 @@ if (!empty($studentIds)) {
             outline: none;
         }
 
+        /* ===== Charts ===== */
+        .section-head {
+            margin: 8px 0 20px;
+        }
+        .section-head h3 {
+            font-size: 20px;
+            color: var(--primary-maroon);
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .section-head p {
+            color: var(--text-muted);
+            font-size: 13px;
+            margin-top: 2px;
+        }
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 24px;
+            margin-bottom: 48px;
+        }
+        .chart-card {
+            background: var(--white);
+            border-radius: var(--radius);
+            padding: 22px 22px 18px;
+            box-shadow: var(--shadow-md);
+            border: 1px solid rgba(0, 0, 0, 0.03);
+            min-width: 0;
+        }
+        .chart-card h4 {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-main);
+            letter-spacing: -0.2px;
+        }
+        .chart-sub {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin: 2px 0 16px;
+        }
+        .chart-canvas {
+            position: relative;
+            height: 280px;
+        }
+        .chart-card-wide { grid-column: 1 / -1; }
+        .chart-empty {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 280px;
+            color: var(--text-light);
+            gap: 10px;
+            font-size: 13px;
+            font-weight: 500;
+        }
+        .chart-empty i { font-size: 28px; opacity: 0.5; }
+
+        /* Heatmap — 2px surface gaps between cells */
+        .heatmap {
+            display: grid;
+            grid-template-columns: 84px repeat(var(--hm-cols, 6), minmax(0, 1fr));
+            gap: 2px;
+            margin-top: 4px;
+        }
+        .hm-col {
+            font-size: 10.5px;
+            font-weight: 700;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            padding: 6px 4px;
+            text-align: center;
+            align-self: end;
+        }
+        .hm-row-label {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            padding-right: 12px;
+        }
+        .hm-cell {
+            border-radius: 6px;
+            min-height: 46px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: 700;
+            cursor: default;
+            transition: var(--transition);
+        }
+        .hm-cell:hover { transform: scale(1.05); box-shadow: var(--shadow-md); }
+        .hm-legend {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 14px;
+            font-size: 11px;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+        .hm-legend-bar {
+            flex: 0 0 140px;
+            height: 8px;
+            border-radius: 4px;
+            background: linear-gradient(90deg, #f8eeee, #d59d9d, #ad5252, #800000);
+        }
+
+        @media (max-width: 900px) {
+            .charts-grid { grid-template-columns: 1fr; }
+        }
+
         @media (max-width: 768px) {
             .main-content { padding: 20px; }
             .page-header { flex-direction: column; align-items: flex-start; gap: 16px; }
             .header-actions { width: 100%; flex-direction: column; align-items: stretch; }
             .filter-form-wrapper { justify-content: center; }
             .btn-action-primary, .btn-action-outline { justify-content: center; }
+            .hm-row-label { font-size: 10.5px; padding-right: 6px; }
+            .heatmap { grid-template-columns: 56px repeat(var(--hm-cols, 6), minmax(0, 1fr)); }
         }
     </style>
 </head>
@@ -950,28 +1270,158 @@ if (!empty($studentIds)) {
                 <h2>Department Analytics</h2>
                 <p><?php echo htmlspecialchars($deptLabel); ?> • <?php echo $studentCount; ?> Students Enrolled</p>
             </div>
-            <?php if ($studentCount > 0): ?>
             <div class="header-actions">
-                <form id="instFilterForm" method="POST" class="filter-form-wrapper">
+                <form id="filterBarForm" method="POST" class="filter-form-wrapper">
                     <i class="fas fa-filter" style="color: var(--text-muted); font-size: 14px;"></i>
                     <select name="inst" onchange="this.form.submit()" class="filter-select">
                         <option value="all" <?php echo $instFilter === 'all' ? 'selected' : ''; ?>>All Institutions</option>
                         <option value="GMU" <?php echo $instFilter === 'GMU' ? 'selected' : ''; ?>>GMU Only</option>
                         <option value="GMIT" <?php echo $instFilter === 'GMIT' ? 'selected' : ''; ?>>GMIT Only</option>
                     </select>
+                    <span style="width: 1px; height: 20px; background: var(--border-color);"></span>
+                    <select name="sem" onchange="this.form.submit()" class="filter-select">
+                        <option value="">All Semesters</option>
+                        <?php foreach ($allSemesters as $s): ?>
+                            <option value="<?php echo $s; ?>" <?php echo $semFilterVal === (int)$s ? 'selected' : ''; ?>>Semester <?php echo $s; ?></option>
+                        <?php endforeach; ?>
+                    </select>
                 </form>
+                <a href="analytics.php?reset=1" class="btn-action-outline" title="Clear all filters">
+                    <i class="fas fa-undo"></i>
+                </a>
+                <?php if ($studentCount > 0): ?>
                 <form method="POST" target="_blank">
                     <input type="hidden" name="pdf" value="1">
                     <button type="submit" class="btn-action-primary" style="background: #2c3e50; box-shadow: 0 4px 12px rgba(44, 62, 80, 0.2);">
                         <i class="fas fa-file-pdf"></i> Download PDF
                     </button>
                 </form>
+                <?php endif; ?>
             </div>
-            <?php endif; ?>
         </div>
 
         <?php if ($studentCount > 0): ?>
-            <!-- 1. Task Completion Overview (Primary Focus) -->
+
+            <!-- 1. KPI row — headline engagement numbers -->
+            <div class="highlight-grid">
+                <?php
+                $highlightMetrics = [
+                    ['label' => 'Skills Added', 'key' => 'skills', 'icon' => 'fa-bolt', 'color' => '#b45309'],
+                    ['label' => 'Certifications', 'key' => 'certifications', 'icon' => 'fa-certificate', 'color' => '#2a78d6'],
+                    ['label' => 'Projects', 'key' => 'projects', 'icon' => 'fa-project-diagram', 'color' => '#7c3aed'],
+                    ['label' => 'Resumes', 'key' => 'resumes', 'icon' => 'fa-file-invoice', 'color' => '#be185d'],
+                    ['label' => 'Mock Interviews', 'key' => 'mock_interviews', 'icon' => 'fa-headset', 'color' => '#047857'],
+                    ['label' => 'AI Assessments', 'key' => 'assessments', 'icon' => 'fa-robot', 'color' => '#4f46e5']
+                ];
+                foreach ($highlightMetrics as $hm):
+                    $p = $getPercentage($metrics[$hm['key']], $studentCount);
+                ?>
+                <div class="highlight-card">
+                    <div class="highlight-icon-box" style="background: <?php echo $hm['color']; ?>15; color: <?php echo $hm['color']; ?>;">
+                        <i class="fas <?php echo $hm['icon']; ?>"></i>
+                    </div>
+                    <div class="highlight-label"><?php echo $hm['label']; ?></div>
+                    <div class="highlight-value-row">
+                        <div class="highlight-value"><?php echo $metrics[$hm['key']]; ?></div>
+                        <div class="highlight-percent"><?php echo $p; ?>%</div>
+                    </div>
+                    <div style="height: 4px; background: #f1f5f9; border-radius: 2px; margin-top: 8px; overflow: hidden;">
+                        <div style="width: <?php echo $p; ?>%; height: 100%; background: <?php echo $hm['color']; ?>; border-radius: 2px;"></div>
+                    </div>
+                </div>
+                <?php endforeach; ?>
+            </div>
+
+            <!-- 2. Visual analytics -->
+            <div class="section-head">
+                <h3><i class="fas fa-chart-pie"></i> Visual Analytics</h3>
+                <p>
+                    All charts follow the filters above &mdash;
+                    <?php echo $studentCount; ?> students
+                    (<?php echo (int)($instCounts['GMU'] ?? 0); ?> GMU &middot; <?php echo (int)($instCounts['GMIT'] ?? 0); ?> GMIT)<?php echo $semFilterVal > 0 ? ', Semester ' . $semFilterVal : ''; ?>.
+                </p>
+            </div>
+
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <h4>Students by semester</h4>
+                    <p class="chart-sub">Current semester of the <?php echo $studentCount; ?> filtered students</p>
+                    <div class="chart-canvas"><canvas id="chartSem"></canvas></div>
+                </div>
+
+                <div class="chart-card">
+                    <h4>Portfolio engagement</h4>
+                    <p class="chart-sub">Share of students with at least one item per activity</p>
+                    <div class="chart-canvas"><canvas id="chartEngage"></canvas></div>
+                </div>
+
+                <div class="chart-card">
+                    <h4>Task status by type</h4>
+                    <p class="chart-sub">Completed vs pending vs missed &mdash; exact counts in the task cards below</p>
+                    <?php if (!empty($tasksData)): ?>
+                        <div class="chart-canvas"><canvas id="chartTasks"></canvas></div>
+                    <?php else: ?>
+                        <div class="chart-empty">
+                            <i class="fas fa-clipboard-list"></i>
+                            No tasks assigned yet &mdash; assign one from the Assign Tasks page.
+                        </div>
+                    <?php endif; ?>
+                </div>
+
+                <div class="chart-card">
+                    <h4>Activity &mdash; last 12 weeks</h4>
+                    <p class="chart-sub">Tasks you assigned vs completions by these students, per week</p>
+                    <div class="chart-canvas"><canvas id="chartTrend"></canvas></div>
+                </div>
+
+                <div class="chart-card chart-card-wide">
+                    <h4>Engagement heatmap</h4>
+                    <p class="chart-sub">Percentage of each semester's students active in each area &mdash; darker means higher</p>
+                    <?php
+                        $heatRamp = ['#f8eeee', '#f0dada', '#e5c0c0', '#d59d9d', '#c47878', '#ad5252', '#932d2d', '#800000'];
+                    ?>
+                    <div class="heatmap" style="--hm-cols: <?php echo count($heatmapCols); ?>;">
+                        <div></div>
+                        <?php foreach ($heatmapCols as $c): ?>
+                            <div class="hm-col"><?php echo htmlspecialchars($c); ?></div>
+                        <?php endforeach; ?>
+                        <?php foreach ($heatmapRows as $row): ?>
+                            <div class="hm-row-label"><?php echo htmlspecialchars($row['sem']); ?></div>
+                            <?php foreach ($row['cells'] as $cell):
+                                $ix = min(7, (int)floor($cell['pct'] / 100 * 7.999));
+                                $ink = $ix >= 5 ? '#ffffff' : '#4c1d1d';
+                                if ($cell['pct'] === 0) $ink = '#b08b8b';
+                            ?>
+                            <div class="hm-cell" style="background: <?php echo $heatRamp[$ix]; ?>; color: <?php echo $ink; ?>;"
+                                 title="<?php echo htmlspecialchars($row['sem'] . ' - ' . $cell['activity'] . ': ' . $cell['pct'] . '% (' . $cell['have'] . ' of ' . $cell['total'] . ' students)'); ?>">
+                                <?php echo $cell['pct']; ?>%
+                            </div>
+                            <?php endforeach; ?>
+                        <?php endforeach; ?>
+                    </div>
+                    <div class="hm-legend">
+                        <span>0%</span>
+                        <div class="hm-legend-bar"></div>
+                        <span>100%</span>
+                        <span style="margin-left: auto; font-weight: 500;">Hover a cell for exact counts</span>
+                    </div>
+                </div>
+
+                <div class="chart-card">
+                    <h4>Score distribution</h4>
+                    <p class="chart-sub">Scores across all completed task attempts</p>
+                    <?php if (!empty($hasScores)): ?>
+                        <div class="chart-canvas"><canvas id="chartScores"></canvas></div>
+                    <?php else: ?>
+                        <div class="chart-empty">
+                            <i class="fas fa-percent"></i>
+                            No scored completions yet.
+                        </div>
+                    <?php endif; ?>
+                </div>
+            </div>
+
+            <!-- 3. Task Completion Overview -->
             <?php if (!empty($tasksData)): ?>
             <div style="margin-top: 10px; margin-bottom: 32px;">
                 <h3 style="font-size: 22px; color: var(--primary-maroon); font-weight: 700; display: flex; align-items: center; gap: 12px; margin-bottom: 4px;">
@@ -1023,42 +1473,6 @@ if (!empty($studentIds)) {
                 <?php endforeach; ?>
             </div>
             <?php endif; ?>
-
-            <!-- 2. Portfolio Highlights (Secondary Context) -->
-            <div style="margin-top: 32px; margin-bottom: 24px;">
-                <h3 style="font-size: 20px; color: var(--primary-maroon); font-weight: 700; display: flex; align-items: center; gap: 10px;">
-                    <i class="fas fa-layer-group"></i> General Portfolio Highlights
-                </h3>
-            </div>
-
-            <div class="highlight-grid">
-                <?php 
-                $highlightMetrics = [
-                    ['label' => 'Skills Added', 'key' => 'skills', 'icon' => 'fa-bolt', 'color' => '#fbbf24'],
-                    ['label' => 'Certifications', 'key' => 'certifications', 'icon' => 'fa-certificate', 'color' => '#3b82f6'],
-                    ['label' => 'Projects', 'key' => 'projects', 'icon' => 'fa-project-diagram', 'color' => '#8b5cf6'],
-                    ['label' => 'Resumes', 'key' => 'resumes', 'icon' => 'fa-file-invoice', 'color' => '#ec4899'],
-                    ['label' => 'Mock Starts', 'key' => 'mock_interviews', 'icon' => 'fa-headset', 'color' => '#10b981'],
-                    ['label' => 'AI Assess', 'key' => 'assessments', 'icon' => 'fa-robot', 'color' => '#6366f1']
-                ];
-                foreach ($highlightMetrics as $hm): 
-                    $p = $getPercentage($metrics[$hm['key']], $studentCount);
-                ?>
-                <div class="highlight-card">
-                    <div class="highlight-icon-box" style="background: <?php echo $hm['color']; ?>15; color: <?php echo $hm['color']; ?>;">
-                        <i class="fas <?php echo $hm['icon']; ?>"></i>
-                    </div>
-                    <div class="highlight-label"><?php echo $hm['label']; ?></div>
-                    <div class="highlight-value-row">
-                        <div class="highlight-value"><?php echo $metrics[$hm['key']]; ?></div>
-                        <div class="highlight-percent"><?php echo $p; ?>%</div>
-                    </div>
-                    <div style="height: 4px; background: #f1f5f9; border-radius: 2px; margin-top: 8px; overflow: hidden;">
-                        <div style="width: <?php echo $p; ?>%; height: 100%; background: <?php echo $hm['color']; ?>; border-radius: 2px;"></div>
-                    </div>
-                </div>
-                <?php endforeach; ?>
-            </div>
 
             <div style="margin-top: 32px; border-top: 1px solid #f1f5f9; padding-top: 24px; display: flex; justify-content: flex-end; gap: 15px;">
                 <form method="POST">
@@ -1191,6 +1605,218 @@ if (!empty($studentIds)) {
                         document.body.style.overflow = 'auto';
                     }
                 }
+            </script>
+
+            <script>
+            (function () {
+                const D = <?php echo json_encode($chartData); ?>;
+                if (!D || typeof Chart === 'undefined') return;
+
+                // Palette validated with the dataviz color checks (CVD-safe on white):
+                // categorical maroon/blue/gold; status colors carry completed/pending/missed;
+                // an ordered maroon ramp carries the (ordered) semester slices.
+                const C = {
+                    maroon: '#a03434', blue: '#2a78d6', gold: '#B8860B',
+                    ordinal: ['#dfa8a8', '#cd8080', '#b45252', '#962b2b'],
+                    status: { good: '#0ca30c', warning: '#fab219', serious: '#ec835a', critical: '#d03b3b' },
+                    grid: '#efedea', ink: '#0f172a', muted: '#64748b', surface: '#ffffff', other: '#94a3b8'
+                };
+
+                Chart.defaults.font.family = "'Outfit', sans-serif";
+                Chart.defaults.font.size = 12;
+                Chart.defaults.color = C.muted;
+                Chart.defaults.plugins.legend.labels.usePointStyle = true;
+                Chart.defaults.plugins.legend.labels.boxWidth = 8;
+                Chart.defaults.plugins.legend.labels.boxHeight = 8;
+                Chart.defaults.plugins.tooltip.backgroundColor = '#1e293b';
+                Chart.defaults.plugins.tooltip.padding = 10;
+                Chart.defaults.plugins.tooltip.cornerRadius = 8;
+                Chart.defaults.plugins.tooltip.titleFont = { weight: 700 };
+
+                // Value labels at the tip of single-series bars (selective direct labels)
+                const tipLabels = {
+                    id: 'tipLabels',
+                    afterDatasetsDraw(chart, args, opts) {
+                        if (!opts || !opts.enabled) return;
+                        const ctx = chart.ctx;
+                        ctx.save();
+                        ctx.font = "600 11px 'Outfit', sans-serif";
+                        ctx.fillStyle = '#475569';
+                        const horizontal = chart.options.indexAxis === 'y';
+                        const meta = chart.getDatasetMeta(0);
+                        meta.data.forEach((el, i) => {
+                            const v = chart.data.datasets[0].data[i];
+                            if (v === null || v === undefined) return;
+                            const label = opts.format ? opts.format(v, i) : String(v);
+                            if (horizontal) {
+                                ctx.textAlign = 'left';
+                                ctx.textBaseline = 'middle';
+                                ctx.fillText(label, el.x + 6, el.y);
+                            } else {
+                                ctx.textAlign = 'center';
+                                ctx.textBaseline = 'bottom';
+                                ctx.fillText(label, el.x, el.y - 5);
+                            }
+                        });
+                        ctx.restore();
+                    }
+                };
+
+                const hairline = { color: C.grid, drawTicks: false };
+                const noGrid = { display: false };
+
+                // 1. Donut — students by current semester (ordered ramp, counts in legend)
+                const semEl = document.getElementById('chartSem');
+                if (semEl && D.semDist.labels.length) {
+                    const colors = D.semDist.labels.map((l, i) => l === 'Unknown' ? C.other : C.ordinal[Math.min(i, C.ordinal.length - 1)]);
+                    new Chart(semEl, {
+                        type: 'doughnut',
+                        data: {
+                            labels: D.semDist.labels,
+                            datasets: [{ data: D.semDist.counts, backgroundColor: colors, borderColor: C.surface, borderWidth: 2, hoverOffset: 6 }]
+                        },
+                        options: {
+                            maintainAspectRatio: false,
+                            cutout: '62%',
+                            plugins: {
+                                legend: {
+                                    position: 'right',
+                                    labels: {
+                                        generateLabels(chart) {
+                                            const base = Chart.overrides.doughnut.plugins.legend.labels.generateLabels(chart);
+                                            base.forEach((item, i) => {
+                                                item.text = chart.data.labels[i] + '  -  ' + chart.data.datasets[0].data[i];
+                                            });
+                                            return base;
+                                        }
+                                    }
+                                },
+                                tooltip: {
+                                    callbacks: {
+                                        label: (t) => ' ' + t.label + ': ' + t.parsed + ' students (' + Math.round(t.parsed / D.totalStudents * 100) + '%)'
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+
+                // 2. Horizontal bar — portfolio engagement (single series, one hue)
+                const engEl = document.getElementById('chartEngage');
+                if (engEl) {
+                    new Chart(engEl, {
+                        type: 'bar',
+                        plugins: [tipLabels],
+                        data: {
+                            labels: D.engagement.labels,
+                            datasets: [{
+                                data: D.engagement.pct,
+                                backgroundColor: C.maroon,
+                                maxBarThickness: 22,
+                                borderRadius: { topRight: 4, bottomRight: 4 },
+                                borderSkipped: 'start'
+                            }]
+                        },
+                        options: {
+                            indexAxis: 'y',
+                            maintainAspectRatio: false,
+                            layout: { padding: { right: 56 } },
+                            scales: {
+                                x: { min: 0, max: 100, grid: hairline, ticks: { callback: v => v + '%' } },
+                                y: { grid: noGrid, ticks: { color: C.ink, font: { weight: 600 } } }
+                            },
+                            plugins: {
+                                legend: { display: false },
+                                tipLabels: { enabled: true, format: (v, i) => v + '% (' + D.engagement.counts[i] + ')' },
+                                tooltip: { callbacks: { label: t => ' ' + t.parsed.x + '% - ' + D.engagement.counts[t.dataIndex] + ' of ' + D.totalStudents + ' students' } }
+                            }
+                        }
+                    });
+                }
+
+                // 3. Stacked bar — task status by type (status palette; counts in cards below)
+                const taskEl = document.getElementById('chartTasks');
+                if (taskEl && D.tasks.labels.length) {
+                    new Chart(taskEl, {
+                        type: 'bar',
+                        data: {
+                            labels: D.tasks.labels,
+                            datasets: [
+                                { label: 'Completed', data: D.tasks.completed, backgroundColor: C.status.good },
+                                { label: 'Pending', data: D.tasks.pending, backgroundColor: C.status.warning },
+                                { label: 'Missed', data: D.tasks.missed, backgroundColor: C.status.critical }
+                            ].map(d => Object.assign(d, { maxBarThickness: 24, borderColor: C.surface, borderWidth: 2 }))
+                        },
+                        options: {
+                            maintainAspectRatio: false,
+                            scales: {
+                                x: { stacked: true, grid: noGrid, ticks: { color: C.ink, font: { weight: 600 } } },
+                                y: { stacked: true, beginAtZero: true, grid: hairline, ticks: { precision: 0 } }
+                            },
+                            plugins: { legend: { position: 'bottom' } }
+                        }
+                    });
+                }
+
+                // 4. Line — 12-week activity (2px lines, ringed markers)
+                const trEl = document.getElementById('chartTrend');
+                if (trEl) {
+                    new Chart(trEl, {
+                        type: 'line',
+                        data: {
+                            labels: D.trend.labels,
+                            datasets: [
+                                { label: 'Completions', data: D.trend.completed, borderColor: C.maroon, backgroundColor: C.maroon },
+                                { label: 'Tasks assigned', data: D.trend.assigned, borderColor: C.blue, backgroundColor: C.blue }
+                            ].map(d => Object.assign(d, {
+                                borderWidth: 2, tension: 0.35,
+                                pointRadius: 4, pointHoverRadius: 6,
+                                pointBorderColor: C.surface, pointBorderWidth: 2
+                            }))
+                        },
+                        options: {
+                            maintainAspectRatio: false,
+                            interaction: { mode: 'index', intersect: false },
+                            scales: {
+                                x: { grid: noGrid },
+                                y: { beginAtZero: true, grid: hairline, ticks: { precision: 0 } }
+                            },
+                            plugins: { legend: { position: 'bottom' } }
+                        }
+                    });
+                }
+
+                // 5. Column — score distribution (ordered bands wear status colors)
+                const scEl = document.getElementById('chartScores');
+                if (scEl) {
+                    new Chart(scEl, {
+                        type: 'bar',
+                        plugins: [tipLabels],
+                        data: {
+                            labels: D.scores.labels,
+                            datasets: [{
+                                data: D.scores.counts,
+                                backgroundColor: [C.status.critical, C.status.serious, C.status.warning, C.status.good],
+                                maxBarThickness: 36,
+                                borderRadius: { topLeft: 4, topRight: 4 },
+                                borderSkipped: 'start'
+                            }]
+                        },
+                        options: {
+                            maintainAspectRatio: false,
+                            scales: {
+                                x: { grid: noGrid, ticks: { color: C.ink, font: { weight: 600 } } },
+                                y: { beginAtZero: true, grid: hairline, ticks: { precision: 0 } }
+                            },
+                            plugins: {
+                                legend: { display: false },
+                                tipLabels: { enabled: true },
+                                tooltip: { callbacks: { label: t => ' ' + t.parsed.y + ' completions scored ' + t.label } }
+                            }
+                        }
+                    });
+                }
+            })();
             </script>
         <?php else: ?>
             <div class="empty-state">

@@ -354,6 +354,58 @@ if ($activeTab === 'departments') {
     usort($deptRoster, function ($a, $b) {
         return $b['logins'] <=> $a['logins']; });
 
+    // Additional Department Analytics Computations for Rich Dashboard & Graphs
+    $deptEngagementRates = [];
+    $topDeptName = 'N/A';
+    $maxRate = -1;
+    $gmitTotal = 0; $gmitActive = 0;
+    $gmuTotal = 0; $gmuActive = 0;
+
+    foreach ($deptStats as $key => $s) {
+        $r = $s['total'] > 0 ? round(($s['active'] / $s['total']) * 100, 1) : 0;
+        $deptEngagementRates[$key] = $r;
+        if ($r > $maxRate && $s['total'] >= 3) {
+            $maxRate = $r;
+            $topDeptName = $key;
+        }
+
+        if ($s['inst'] === 'GMIT') {
+            $gmitTotal += $s['total'];
+            $gmitActive += $s['active'];
+        } else {
+            $gmuTotal += $s['total'];
+            $gmuActive += $s['active'];
+        }
+    }
+
+    // Sort engagement rates descending for ranking graph
+    arsort($deptEngagementRates);
+
+    // Engagement Tier distribution (Power, Regular, Occasional, Inactive)
+    $tierCounts = [
+        'Power (10+ Logins)' => 0,
+        'Regular (3-9 Logins)' => 0,
+        'Occasional (1-2 Logins)' => 0,
+        'Inactive (0 Logins)' => 0
+    ];
+    foreach ($uniqueStudents as $st) {
+        if ($st['logins'] >= 10) {
+            $tierCounts['Power (10+ Logins)']++;
+        } elseif ($st['logins'] >= 3) {
+            $tierCounts['Regular (3-9 Logins)']++;
+        } elseif ($st['logins'] >= 1) {
+            $tierCounts['Occasional (1-2 Logins)']++;
+        } else {
+            $tierCounts['Inactive (0 Logins)']++;
+        }
+    }
+
+    // Top 10 Most Active Students across Departments
+    $top10ActiveStudents = array_slice($deptRoster, 0, 10);
+    $totalCohortStudents = count($uniqueStudents);
+    $totalActiveCohort = count(array_filter($uniqueStudents, fn($x) => $x['logins'] > 0));
+    $overallEngagementRate = $totalCohortStudents > 0 ? round(($totalActiveCohort / $totalCohortStudents) * 100, 1) : 0;
+
     // Roster Pagination calculation
     $rosterPerPage = 15;
     $totalRosterCount = count($deptRoster);
@@ -1104,20 +1156,101 @@ $fullName = getFullName();
                     </div>
                 </div>
 
-                <div class="chart-row" style="grid-template-columns: 1fr 1fr; gap: 30px;">
-                    <div class="chart-card" style="min-height: 480px; display: flex; flex-direction: column;">
+                <!-- Department Executive KPI Stat Cards -->
+                <div class="metrics-grid" style="margin-bottom: 30px;">
+                    <div class="metric-card">
+                        <div class="metric-icon icon-maroon">
+                            <i class="fas fa-university"></i>
+                        </div>
+                        <div class="metric-info">
+                            <h3>Departments Tracked</h3>
+                            <div class="value"><?php echo count($deptStats); ?></div>
+                            <div class="metric-growth" style="color: var(--text-muted);">Active Disciplines</div>
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon icon-blue">
+                            <i class="fas fa-users"></i>
+                        </div>
+                        <div class="metric-info">
+                            <h3>Cohort Students</h3>
+                            <div class="value"><?php echo number_format($totalCohortStudents); ?></div>
+                            <div class="metric-growth" style="color: var(--accent-blue);"><?php echo number_format($totalActiveCohort); ?> Active</div>
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon icon-green">
+                            <i class="fas fa-bolt"></i>
+                        </div>
+                        <div class="metric-info">
+                            <h3>Overall Engagement</h3>
+                            <div class="value" style="color:#05CD99;"><?php echo $overallEngagementRate; ?>%</div>
+                            <div class="metric-growth" style="color: #05CD99;">Adoption Rate</div>
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon icon-orange">
+                            <i class="fas fa-trophy"></i>
+                        </div>
+                        <div class="metric-info">
+                            <h3>Top Department</h3>
+                            <div class="value" style="font-size: 16px; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px;" title="<?php echo htmlspecialchars($topDeptName); ?>"><?php echo htmlspecialchars($topDeptName); ?></div>
+                            <div class="metric-growth" style="color: #FF9920;"><?php echo $maxRate >= 0 ? $maxRate . '% Engaged' : 'N/A'; ?></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CHART ROW 1: Pie & Active vs Inactive -->
+                <div class="chart-row" style="grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px;">
+                    <div class="chart-card" style="min-height: 440px; display: flex; flex-direction: column;">
                         <div class="chart-card-title"><i class="fas fa-chart-pie"
                                 style="color:var(--primary-maroon);"></i> Department Login Distribution</div>
                         <div
-                            style="flex: 1; min-height: 380px; position: relative; display: flex; align-items: center; justify-content: center;">
-                            <canvas id="deptPieChart" style="max-height: 360px; max-width: 360px;"></canvas>
+                            style="flex: 1; min-height: 340px; position: relative; display: flex; align-items: center; justify-content: center;">
+                            <canvas id="deptPieChart" style="max-height: 340px; max-width: 340px;"></canvas>
                         </div>
                     </div>
-                    <div class="chart-card" style="min-height: 480px; display: flex; flex-direction: column;">
+                    <div class="chart-card" style="min-height: 440px; display: flex; flex-direction: column;">
                         <div class="chart-card-title"><i class="fas fa-chart-bar" style="color:var(--accent-blue);"></i>
                             Active vs Inactive Cohorts</div>
-                        <div style="flex: 1; min-height: 380px; position: relative;">
+                        <div style="flex: 1; min-height: 340px; position: relative;">
                             <canvas id="deptBarChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CHART ROW 2: Engagement Rate Ranking & Engagement Tiers -->
+                <div class="chart-row" style="grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px;">
+                    <div class="chart-card" style="min-height: 440px; display: flex; flex-direction: column;">
+                        <div class="chart-card-title"><i class="fas fa-poll" style="color:#05CD99;"></i>
+                            Department Engagement Rate % Ranking</div>
+                        <div style="flex: 1; min-height: 340px; position: relative;">
+                            <canvas id="deptRateChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card" style="min-height: 440px; display: flex; flex-direction: column;">
+                        <div class="chart-card-title"><i class="fas fa-chart-line" style="color:#FF9920;"></i>
+                            User Engagement Depth Tiers</div>
+                        <div style="flex: 1; min-height: 340px; position: relative; display: flex; align-items: center; justify-content: center;">
+                            <canvas id="deptTierChart" style="max-height: 320px; max-width: 320px;"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- CHART ROW 3: Institution Comparison & Top Power Users -->
+                <div class="chart-row" style="grid-template-columns: 1fr 1fr; gap: 30px; margin-bottom: 30px;">
+                    <div class="chart-card" style="min-height: 440px; display: flex; flex-direction: column;">
+                        <div class="chart-card-title"><i class="fas fa-building-columns" style="color:var(--primary-maroon);"></i>
+                            Institution Participation: GMIT vs GMU</div>
+                        <div style="flex: 1; min-height: 340px; position: relative;">
+                            <canvas id="instCompareChart"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card" style="min-height: 440px; display: flex; flex-direction: column;">
+                        <div class="chart-card-title"><i class="fas fa-fire" style="color:#ff5b5b;"></i>
+                            Top 10 Department Power Users</div>
+                        <div style="flex: 1; min-height: 340px; position: relative;">
+                            <canvas id="topStudentsChart"></canvas>
                         </div>
                     </div>
                 </div>

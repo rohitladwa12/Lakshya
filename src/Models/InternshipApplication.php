@@ -336,7 +336,7 @@ class InternshipApplication extends Model {
                 $app['student_name'] = $sid;
                 $app['usn'] = $sid;
                 $app['student_id'] = $sid;
-                $app['institution'] = (strpos(strtoupper($sid), '4GM') === 0 || strpos(strtoupper($sid), 'GMIT') === 0) ? INSTITUTION_GMIT : INSTITUTION_GMU;
+                $app['institution'] = isGmitUsn($sid) ? INSTITUTION_GMIT : INSTITUTION_GMU;
                 $app['branch'] = 'N/A';
                 $app['course'] = 'N/A';
                 $app['sem'] = $app['applied_semester'] ?? 1;

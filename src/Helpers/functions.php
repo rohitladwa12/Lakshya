@@ -538,6 +538,16 @@ function requireFeature($featureKey, $featureName = 'This feature') {
 }
 
 /**
+ * Detect if a USN belongs to GMIT (supports 4GM..., GMIT..., GM24..., GM23..., GM22..., etc.)
+ */
+function isGmitUsn($usn) {
+    if (empty($usn)) return false;
+    $u = strtoupper(trim((string)$usn));
+    if (strpos($u, 'GMU') === 0) return false;
+    return (strpos($u, '4GM') === 0 || strpos($u, 'GMIT') === 0 || strpos($u, 'GM') === 0);
+}
+
+/**
  * Get equivalent synonym branches (without hierarchical grouping)
  */
 function getSynonymBranches($branchName) {

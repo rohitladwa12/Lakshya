@@ -52,7 +52,7 @@ if (!empty($mentorId)) {
 if (isLoggedIn()) {
     $role = Session::getRole();
     if ($role === ROLE_VC) {
-        redirect('<?php echo APP_URL; ?>/vc/index.php');
+        redirect('vc/index.php');
     } elseif ($role === 'placement_officer') {
         redirect('officer/dashboard');
     } elseif ($role === 'hod') {
@@ -92,7 +92,7 @@ if (isPost()) {
             trackActivity('login', 'User logged in successfully', ['role' => $user['role'], 'institution' => $user['institution'] ?? 'N/A']);
 
             if ($user['role'] === ROLE_VC) {
-                redirect('<?php echo APP_URL; ?>/vc/index.php');
+                redirect('vc/index.php');
             } elseif ($user['role'] === 'placement_officer') {
                 redirect('officer/dashboard');
             } elseif ($user['role'] === 'hod') {

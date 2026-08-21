@@ -18,7 +18,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action'])) {
     if (isset($_POST['reset_filters'])) {
         SessionFilterHelper::clearFilters($pageId);
     } else {
-        SessionFilterHelper::handlePostToSession($pageId, $_POST);
+        // MERGE into the session (do not replace) so partial posts — tab switches
+        // (only "inst"/"section") and pagination (only "page") — keep the other filters intact.
+        $updates = $_POST;
+        // Any filter/tab change resets pagination back to page 1; only a pure
+        // pagination post carries its own "page" value.
+        if (!isset($updates['page'])) {
+            $updates['page'] = 1;
+        }
+        SessionFilterHelper::updateFilters($pageId, $updates);
     }
     header("Location: students_report.php");
     exit;
@@ -26,7 +34,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['ajax_action'])) {
 
 // Handle GET tab switching (manual redirect to session via POST is preferred, but we support GET for direct links if needed, immediately redirecting)
 if (isset($_GET['section']) || isset($_GET['inst'])) {
-    $updates = [];
+    $updates = ['page' => 1];
     if (isset($_GET['section'])) $updates['section'] = $_GET['section'];
     if (isset($_GET['inst'])) $updates['inst'] = $_GET['inst'];
     SessionFilterHelper::updateFilters($pageId, $updates);
@@ -283,8 +291,7 @@ function findStudentReportsCoord($usn) {
 $db = getDB('gmu');
 $localDB = getDB();
 $limit = 100;
-$page = $filters['page'] ?? 1;
-if ($page < 1) $page = 1;
+$page = max(1, (int)($filters['page'] ?? 1));
 $offset = ($page - 1) * $limit;
 
 $available_branches = array_values(array_unique(getCoordinatorDisciplineFilters($department)));
@@ -335,18 +342,33 @@ if ($search) {
 }
 
 if ($discipline_filter_sql = buildInClauseCoord("asa.discipline", $discipline_filter, $params)) $where_clauses[] = $discipline_filter_sql;
-if ($min_sgpa > 0) {
-    $where_clauses[] = "asa.sgpa >= ?";
-    $params[] = $min_sgpa;
-}
 
+// NOTE: Min SGPA must be applied per institution. The UNION hardcodes GMIT sgpa as 0.0
+// (real GMIT SGPAs live in local student_sem_sgpa), so a global "asa.sgpa >= ?" would
+// silently exclude every GMIT student. GMU is filtered on asa.sgpa below; GMIT is
+// filtered here when collecting eligible ids from student_sem_sgpa.
 $sem_placeholders = implode(',', array_fill(0, count($semester_filter), '?'));
+
+// "Semester = N" must mean the student's CURRENT semester is N, not "has ever had a
+// record for semester N" — both institutions keep one row per semester of history,
+// so matching any row would pull in senior students (a 7th-sem student has rows for
+// sems 1..7 and would match a sem-5 filter). Current semester = MAX(semester).
+// GMIT: join each student's highest-semester row, then filter (and apply Min SGPA) on it.
+$gmitSgpaSql = ($min_sgpa > 0) ? " AND s.sgpa >= ?" : "";
 $stmtLocal = $localDB->prepare("
-    SELECT DISTINCT student_id 
-    FROM student_sem_sgpa 
-    WHERE institution = ? AND semester IN ($sem_placeholders)
+    SELECT DISTINCT s.student_id
+    FROM student_sem_sgpa s
+    JOIN (
+        SELECT student_id, MAX(semester) AS current_sem
+        FROM student_sem_sgpa
+        WHERE institution = ?
+        GROUP BY student_id
+    ) cur ON cur.student_id = s.student_id AND s.semester = cur.current_sem
+    WHERE s.institution = ? AND s.semester IN ($sem_placeholders)$gmitSgpaSql
 ");
-$stmtLocal->execute(array_merge([INSTITUTION_GMIT], $semester_filter));
+$gmitLocalParams = array_merge([INSTITUTION_GMIT, INSTITUTION_GMIT], $semester_filter);
+if ($min_sgpa > 0) $gmitLocalParams[] = $min_sgpa;
+$stmtLocal->execute($gmitLocalParams);
 $gmitUsnsRaw = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
 
 // Expand GMIT USNs/IDs
@@ -366,21 +388,38 @@ if (!empty($gmitUsnsRaw)) {
     }
 }
 
+// GMU: same current-semester rule. Match students whose HIGHEST sem row is in the
+// filter (and, for Min SGPA, whose SGPA on that current-sem row qualifies). The outer
+// query then keeps all of the student's rows, so MAX(asa.sem) displays the true
+// current semester instead of echoing the filtered one.
+$gmuSgpaSql = ($min_sgpa > 0) ? " AND cur_rows.sgpa >= ?" : "";
+$gmuCurrentSql = "asa.usn IN (
+    SELECT cur_rows.usn
+    FROM {$gmuPrefix}ad_student_approved cur_rows
+    JOIN (
+        SELECT usn, MAX(sem) AS current_sem
+        FROM {$gmuPrefix}ad_student_approved
+        GROUP BY usn
+    ) cur ON cur.usn = cur_rows.usn AND cur_rows.sem = cur.current_sem
+    WHERE cur_rows.sem IN ($sem_placeholders)$gmuSgpaSql
+)";
+
 if (!$instFilter) {
-    $gmu_sem_sql = "asa.sem IN ($sem_placeholders)";
     foreach ($semester_filter as $s_val) $params[] = $s_val;
+    if ($min_sgpa > 0) $params[] = $min_sgpa;
 
     if (!empty($gmitUsns)) {
         $placeholders = implode(',', array_fill(0, count($gmitUsns), '?'));
-        $where_clauses[] = "((asa.institution = '" . INSTITUTION_GMU . "' AND $gmu_sem_sql) OR (asa.institution = '" . INSTITUTION_GMIT . "' AND asa.usn IN ($placeholders)))";
+        $where_clauses[] = "((asa.institution = '" . INSTITUTION_GMU . "' AND $gmuCurrentSql) OR (asa.institution = '" . INSTITUTION_GMIT . "' AND asa.usn IN ($placeholders)))";
         $params = array_merge($params, $gmitUsns);
     } else {
-        $where_clauses[] = "(asa.institution = '" . INSTITUTION_GMU . "' AND $gmu_sem_sql)";
+        $where_clauses[] = "(asa.institution = '" . INSTITUTION_GMU . "' AND $gmuCurrentSql)";
     }
 } else {
     if ($instFilter === INSTITUTION_GMU) {
-        $where_clauses[] = "asa.sem IN ($sem_placeholders)";
+        $where_clauses[] = $gmuCurrentSql;
         foreach ($semester_filter as $s_val) $params[] = $s_val;
+        if ($min_sgpa > 0) $params[] = $min_sgpa;
     } else {
         if (!empty($gmitUsns)) {
             $placeholders = implode(',', array_fill(0, count($gmitUsns), '?'));
@@ -397,8 +436,13 @@ $where_sql = implode(" AND ", $where_clauses);
 $count_query = "SELECT COUNT(DISTINCT asa.usn) FROM {$combinedApproved} asa WHERE $where_sql";
 $stmt = $db->prepare($count_query);
 $stmt->execute($params);
-$total_records = $stmt->fetchColumn();
-$total_pages = ceil($total_records / $limit);
+$total_records = (int)$stmt->fetchColumn();
+$total_pages = max(1, (int)ceil($total_records / $limit));
+// Clamp a stale page number (e.g. filters narrowed the result set) back into range
+if ($page > $total_pages) {
+    $page = $total_pages;
+    $offset = ($page - 1) * $limit;
+}
 
 if (isset($filters['export']) && $section === 'details') {
     // Consume export filter and redirect immediately back (to avoid staying in export mode)
@@ -582,8 +626,9 @@ if (!empty($detailsStudents)) {
     if (!empty($searchIds)) {
         $searchIds = array_values(array_unique($searchIds));
         $ph = implode(',', array_fill(0, count($searchIds), '?'));
-        // Prefer is_current = 1, otherwise will be handled by fallback logic in loop
-        $stmtC = $localDB->prepare("SELECT student_id, semester FROM student_sem_sgpa WHERE institution = ? AND student_id IN ($ph) AND is_current = 1");
+        // Current semester = highest recorded semester (matches the filter semantics;
+        // is_current is not always set, so MAX is the reliable source).
+        $stmtC = $localDB->prepare("SELECT student_id, MAX(semester) FROM student_sem_sgpa WHERE institution = ? AND student_id IN ($ph) GROUP BY student_id");
         $stmtC->execute(array_merge([INSTITUTION_GMIT], $searchIds));
         $gmitCurrentSemsMap = $stmtC->fetchAll(PDO::FETCH_KEY_PAIR);
     }
@@ -630,67 +675,99 @@ $fullName = getFullName();
     <!-- Font Awesome -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
-        :root { 
+        :root {
             --text-dark: #1e293b;
             --text-muted: #64748b;
             --border-light: #e2e8f0;
             --bg-body: #f8fafc;
+            --maroon-tint: #faf4f4;
+            --maroon-tint-border: #eddcdc;
         }
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        
-        .main-content { 
+
+        .main-content {
             /* Layout handled by navbar.php */
         }
-        .page-header { margin-bottom: 25px; }
-        .page-title { font-size: 24px; font-weight: 700; color: var(--primary-maroon); margin-bottom: 5px; }
-        .page-subtitle { font-size: 14px; color: var(--text-muted); }
-        
-        /* Simple Navigation */
-        .tabs-main { display: flex; gap: 20px; border-bottom: 1px solid var(--border-light); margin-bottom: 20px; }
-        .tab-main { padding: 10px 0; text-decoration: none; color: var(--text-muted); font-size: 14px; font-weight: 600; border-bottom: 2px solid transparent; transition: all 0.2s; }
-        .tab-main.active { color: var(--primary-maroon); border-bottom-color: var(--primary-maroon); }
-        
-        .tabs-inst { display: flex; gap: 6px; margin-bottom: 20px; }
-        .tab-inst { padding: 6px 12px; text-decoration: none; background: white; border: 1px solid var(--border-light); border-radius: 6px; font-size: 12px; font-weight: 600; color: var(--text-muted); }
-        .tab-inst.active { background: var(--primary-maroon); color: white; border-color: var(--primary-maroon); }
+        .page-header { display: flex; justify-content: space-between; align-items: flex-end; flex-wrap: wrap; gap: 16px; margin-bottom: 22px; }
+        .page-title { font-size: 26px; font-weight: 800; letter-spacing: -0.02em; color: var(--primary-maroon); margin-bottom: 4px; }
+        .page-subtitle { font-size: 13px; color: var(--text-muted); }
 
-        /* Professional Filter Form */
-        .filter-section { background: white; border: 1px solid var(--border-light); border-radius: 8px; padding: 15px; margin-bottom: 20px; }
-        .filter-grid { display: flex; gap: 15px; flex-wrap: wrap; }
-        .filter-item { display: flex; flex-direction: column; gap: 4px; }
-        .filter-item label { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
-        .filter-item input, .filter-item select { padding: 8px 12px; border: 1px solid var(--border-light); border-radius: 4px; font-size: 13px; min-width: 200px; background-color: #fff; cursor: pointer; }
-        .filter-item select:focus { border-color: var(--primary-maroon); outline: none; }
-        .filter-item { position: relative; }
-        .filter-item i.filter-icon { position: absolute; right: 10px; top: 28px; color: var(--text-muted); pointer-events: none; font-size: 12px; }
+        /* Institution segmented control */
+        .tabs-inst { display: inline-flex; gap: 2px; background: #fff; border: 1px solid var(--border-light); border-radius: 10px; padding: 4px; box-shadow: 0 1px 2px rgba(15,23,42,0.05); }
+        .tab-inst { padding: 7px 20px; border: none; background: transparent; border-radius: 7px; font-family: inherit; font-size: 12.5px; font-weight: 700; color: var(--text-muted); cursor: pointer; transition: all 0.15s ease; }
+        .tab-inst:hover { color: var(--primary-maroon); background: var(--maroon-tint); }
+        .tab-inst.active { background: var(--primary-maroon); color: #fff; box-shadow: 0 2px 8px rgba(128,0,0,0.28); }
+        .tab-inst:focus-visible { outline: 2px solid var(--primary-maroon); outline-offset: 2px; }
 
-        /* Clean Minimal Table */
-        .table-wrap { background: white; border: 1px solid var(--border-light); border-radius: 8px; overflow-x: auto; width: 100%; }
-        table { width: 100%; border-collapse: collapse; font-size: 11px; }
-        th { background: #f1f5f9; color: var(--text-muted); font-weight: 700; text-transform: uppercase; font-size: 12px; padding: 8px 2px; border-bottom: 1px solid var(--border-light); text-align: left; white-space: nowrap; }
-        td { padding: 8px 6px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
-        tr:hover td { background: #fcfcfc; }
+        /* Filter toolbar */
+        .filter-section { background: white; border: 1px solid var(--border-light); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(15,23,42,0.04); }
+        .filter-grid { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
+        .filter-item { display: flex; flex-direction: column; gap: 5px; position: relative; }
+        .filter-item label { font-size: 10.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
+        .filter-item input, .filter-item select { height: 36px; padding: 0 12px; border: 1px solid var(--border-light); border-radius: 8px; font-size: 13px; font-family: inherit; color: var(--text-dark); background-color: #fff; min-width: 170px; transition: border-color 0.15s, box-shadow 0.15s; }
+        .filter-item select { cursor: pointer; appearance: none; -webkit-appearance: none; padding-right: 32px; }
+        .filter-item input:focus, .filter-item select:focus { border-color: var(--primary-maroon); outline: none; box-shadow: 0 0 0 3px rgba(128,0,0,0.08); }
+        .filter-item i.filter-icon { position: absolute; right: 12px; bottom: 12px; color: var(--text-muted); pointer-events: none; font-size: 11px; }
+        .filter-actions { display: flex; gap: 8px; align-items: center; }
+        .filter-actions.push-right { margin-left: auto; }
+
+        /* Active filter chips */
+        .filter-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--maroon-tint); color: var(--primary-maroon); border: 1px solid var(--maroon-tint-border); padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+
+        /* Table card */
+        .table-card { background: white; border: 1px solid var(--border-light); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(15,23,42,0.04); }
+        .results-bar { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; padding: 12px 16px; border-bottom: 1px solid var(--border-light); font-size: 12.5px; color: var(--text-muted); }
+        .results-bar b { color: var(--text-dark); font-weight: 700; }
+        .table-wrap { overflow: auto; max-height: 68vh; }
+        table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11.5px; }
+        thead th { position: sticky; top: 0; z-index: 5; background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.04em; padding: 10px 8px; border-bottom: 1px solid var(--border-light); text-align: left; white-space: nowrap; }
+        td { padding: 9px 8px; border-bottom: 1px solid #f1f5f9; vertical-align: middle; }
+        tbody tr:nth-child(even) td { background: #fcfcfd; }
+        tbody tr:hover td { background: var(--maroon-tint); }
 
         /* Compact Data Styles */
         .student-name { font-weight: 700; color: #111; display: block; white-space: nowrap; }
-        .usn-text { color: var(--text-muted); font-family: monospace; }
+        .usn-text { color: var(--text-muted); font-family: Consolas, 'SFMono-Regular', monospace; font-size: 10.5px; letter-spacing: 0.02em; }
         .sgpa-col { text-align: center; font-weight: 700; color: var(--primary-maroon); width: 40px; }
         .score-box { font-weight: 700; color: #059669; }
-        .badge-simple { font-size: 9px; font-weight: 700; padding: 2px 4px; border-radius: 3px; background: #f1f5f9; color: #475569; }
-        
+        .badge-simple { display: inline-block; font-size: 9.5px; font-weight: 700; padding: 2px 7px; border-radius: 20px; background: #f1f5f9; color: #475569; letter-spacing: 0.03em; }
+        .badge-inst-gmu { background: var(--maroon-tint); color: var(--primary-maroon); border: 1px solid var(--maroon-tint-border); }
+        .badge-inst-gmit { background: #eff6ff; color: #1d4ed8; border: 1px solid #dbeafe; }
+
         /* Buttons */
-        .btn-simple { padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; cursor: pointer; border: 1px solid var(--border-light); background: white; color: var(--text-dark); text-decoration: none; display: inline-flex; align-items: center; gap: 5px; }
+        .btn-simple { height: 36px; padding: 0 14px; border-radius: 8px; font-size: 12.5px; font-weight: 600; font-family: inherit; cursor: pointer; border: 1px solid var(--border-light); background: white; color: var(--text-dark); text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s ease; white-space: nowrap; }
+        .btn-simple:hover { border-color: #cbd5e1; background: #f8fafc; }
         .btn-maroon { background: var(--primary-maroon); color: white; border-color: var(--primary-maroon); }
-        
-        .btn-view { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-light); background: white; cursor: pointer; color: var(--text-muted); font-size: 11px; font-weight: 600; transition: all 0.2s; }
-        .btn-view:hover { border-color: var(--primary-maroon); color: var(--primary-maroon); background: #fff7ed; }
+        .btn-maroon:hover { background: #690000; border-color: #690000; }
+
+        .btn-view { padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border-light); background: white; cursor: pointer; color: var(--text-muted); font-size: 11px; font-weight: 600; font-family: inherit; transition: all 0.2s; }
+        .btn-view:hover { border-color: var(--primary-maroon); color: var(--primary-maroon); background: var(--maroon-tint); }
         .btn-view.active { background: var(--primary-maroon); color: white; border-color: var(--primary-maroon); }
 
         /* Pagination & Meta */
-        .page-meta { padding: 12px 15px; display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--text-muted); border-top: 1px solid var(--border-light); }
+        .page-meta { padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; font-size: 12.5px; color: var(--text-muted); border-top: 1px solid var(--border-light); background: #fff; }
         .pagination { display: flex; gap: 4px; }
-        .page-link { padding: 4px 8px; border: 1px solid var(--border-light); border-radius: 4px; text-decoration: none; color: var(--text-dark); background: white; }
+        .page-link { min-width: 30px; height: 30px; display: inline-flex; align-items: center; justify-content: center; padding: 0 9px; border: 1px solid var(--border-light); border-radius: 7px; text-decoration: none; color: var(--text-dark); background: white; font-size: 12px; font-weight: 600; transition: all 0.15s; }
+        .page-link:hover { border-color: var(--primary-maroon); color: var(--primary-maroon); }
         .page-link.active { background: var(--primary-maroon); color: white; border-color: var(--primary-maroon); }
+
+        /* Toast notifications */
+        .toast-stack { position: fixed; bottom: 22px; right: 22px; display: flex; flex-direction: column; gap: 8px; z-index: 3000; }
+        .toast { background: #1e293b; color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 12.5px; font-weight: 600; box-shadow: 0 10px 25px rgba(15,23,42,0.25); display: flex; align-items: center; gap: 8px; animation: toastIn 0.25s ease; }
+        .toast.success { background: #065f46; }
+        .toast.error { background: #991b1b; }
+        @keyframes toastIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+        @media (prefers-reduced-motion: reduce) {
+            .toast { animation: none; }
+            .tab-inst, .btn-simple, .btn-view, .page-link { transition: none; }
+        }
+
+        @media (max-width: 768px) {
+            .filter-item input, .filter-item select { min-width: 140px; width: 100%; }
+            .filter-item { flex: 1 1 45%; }
+            .filter-actions { flex-wrap: wrap; }
+            .filter-actions.push-right { margin-left: 0; }
+        }
         
         /* Modal Professional */
         .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; z-index: 2000; animation: fadeIn 0.3s; }
@@ -717,53 +794,46 @@ $fullName = getFullName();
 
     <div class="main-content">
         <div class="page-header">
-            <h1 class="page-title">Students & Reports</h1>
-            <p class="page-subtitle">Managing data for <strong><?php echo htmlspecialchars($deptLabel); ?></strong></p>
+            <div>
+                <h1 class="page-title">Students &amp; Reports</h1>
+                <p class="page-subtitle">Managing data for <strong><?php echo htmlspecialchars($deptLabel); ?></strong></p>
+            </div>
+            <!-- Institution tabs: All | GMU | GMIT -->
+            <div class="tabs-inst" role="tablist" aria-label="Institution">
+                <form method="POST" style="display: contents;">
+                    <input type="hidden" name="inst" value="all">
+                    <button type="submit" class="tab-inst <?php echo $inst === 'all' ? 'active' : ''; ?>">All Institutions</button>
+                </form>
+                <form method="POST" style="display: contents;">
+                    <input type="hidden" name="inst" value="gmu">
+                    <button type="submit" class="tab-inst <?php echo $inst === 'gmu' ? 'active' : ''; ?>">GMU</button>
+                </form>
+                <form method="POST" style="display: contents;">
+                    <input type="hidden" name="inst" value="gmit">
+                    <button type="submit" class="tab-inst <?php echo $inst === 'gmit' ? 'active' : ''; ?>">GMIT</button>
+                </form>
+            </div>
         </div>
 
-        <!-- Main tabs: Student Details -->
-        <nav class="tabs-main">
-            <form method="POST" style="display: contents;">
-                <input type="hidden" name="section" value="details">
-                <button type="submit" class="tab-main <?php echo $section === 'details' ? 'active' : ''; ?>" style="background:none; border:none; padding:10px 0; font-family:inherit; cursor:pointer;">📋 Student Details</button>
-            </form>
-        </nav>
-
-        <!-- Sub-tabs: All | GMU | GMIT -->
-        <div class="tabs-inst">
-            <form method="POST" style="display: contents;">
-                <input type="hidden" name="inst" value="all">
-                <button type="submit" class="tab-inst <?php echo $inst === 'all' ? 'active' : ''; ?>" style="font-family:inherit; cursor:pointer;">All</button>
-            </form>
-            <form method="POST" style="display: contents;">
-                <input type="hidden" name="inst" value="gmu">
-                <button type="submit" class="tab-inst <?php echo $inst === 'gmu' ? 'active' : ''; ?>" style="font-family:inherit; cursor:pointer;">GMU</button>
-            </form>
-            <form method="POST" style="display: contents;">
-                <input type="hidden" name="inst" value="gmit">
-                <button type="submit" class="tab-inst <?php echo $inst === 'gmit' ? 'active' : ''; ?>" style="font-family:inherit; cursor:pointer;">GMIT</button>
-            </form>
-        </div>
-
-        <div id="panel-details" class="panel <?php echo $section === 'details' ? 'active' : ''; ?>">
+        <div id="panel-details">
             <div class="filter-section">
-                <form method="POST" class="filter-grid">
+                <form method="POST" class="filter-grid" id="filterForm">
                     <input type="hidden" name="section" value="details">
                     <input type="hidden" name="inst" value="<?php echo htmlspecialchars($inst); ?>">
                     <div class="filter-item">
-                        <label>Search USN / Name</label>
-                        <input type="text" name="search" value="<?php echo htmlspecialchars($search); ?>" placeholder="Search...">
+                        <label for="f-search">Search USN / Name / Aadhar</label>
+                        <input type="text" id="f-search" name="search" value="<?php echo htmlspecialchars($search); ?>" placeholder="Type and press Enter...">
                     </div>
                     <div class="filter-item">
-                        <label>Min SGPA</label>
-                        <input type="number" name="min_sgpa" value="<?php echo $min_sgpa > 0 ? htmlspecialchars($min_sgpa) : ''; ?>" step="0.01" min="0" max="10" placeholder="7.5">
+                        <label for="f-sgpa">Min SGPA</label>
+                        <input type="number" id="f-sgpa" name="min_sgpa" value="<?php echo $min_sgpa > 0 ? htmlspecialchars($min_sgpa) : ''; ?>" step="0.01" min="0" max="10" placeholder="e.g. 7.5" style="min-width: 110px;">
                     </div>
                     <div class="filter-item">
-                        <label>Filter Semester</label>
-                        <select name="sem" style="padding-right: 30px;">
+                        <label for="f-sem">Semester</label>
+                        <select id="f-sem" name="sem" onchange="this.form.submit()">
                             <option value="">All Semesters</option>
                             <?php foreach (getCoordinatorSemesterFilters($department) as $s): ?>
-                                <option value="<?php echo $s; ?>" <?php echo $sem_filter_val === $s ? 'selected' : ''; ?>>
+                                <option value="<?php echo $s; ?>" <?php echo $sem_filter_val === (int)$s ? 'selected' : ''; ?>>
                                     Semester <?php echo $s; ?>
                                 </option>
                             <?php endforeach; ?>
@@ -772,8 +842,8 @@ $fullName = getFullName();
                     </div>
                     <?php if (count($available_branches) > 1): ?>
                     <div class="filter-item">
-                        <label>Filter Branch</label>
-                        <select name="branch" style="padding-right: 30px;">
+                        <label for="f-branch">Branch</label>
+                        <select id="f-branch" name="branch" onchange="this.form.submit()">
                             <option value="">All Branches</option>
                             <?php foreach ($available_branches as $ab): ?>
                                 <option value="<?php echo htmlspecialchars($ab); ?>" <?php echo $branch_filter_val === $ab ? 'selected' : ''; ?>>
@@ -784,29 +854,50 @@ $fullName = getFullName();
                         <i class="fas fa-chevron-down filter-icon"></i>
                     </div>
                     <?php endif; ?>
-                    <div class="filter-item" style="justify-content: flex-end;">
-                        <button type="submit" class="btn-simple btn-maroon">Apply Filter</button>
+                    <div class="filter-actions">
+                        <button type="submit" class="btn-simple btn-maroon"><i class="fas fa-filter"></i> Apply</button>
+                        <button type="submit" name="reset_filters" value="1" class="btn-simple" title="Clear all filters">
+                            <i class="fas fa-undo"></i> Reset
+                        </button>
                     </div>
-                    <div class="filter-item" style="justify-content: flex-end; margin-left: auto; flex-direction: row; gap: 8px;">
+                    <div class="filter-actions push-right">
                         <?php if ($inst !== 'gmu'): ?>
                         <button type="button" class="btn-simple" onclick="freezeAllStudents()" style="background:#fff1f2; color:#be123c; border-color:#fda4af;">
-                            <i class="fas fa-lock"></i> Freeze All SGPAs
+                            <i class="fas fa-lock"></i> Freeze All
                         </button>
                         <button type="button" class="btn-simple" onclick="unfreezeAllStudents()" style="background:#ecfdf5; color:#059669; border-color:#6ee7b7;">
-                            <i class="fas fa-lock-open"></i> Unfreeze All SGPAs
+                            <i class="fas fa-lock-open"></i> Unfreeze All
                         </button>
                         <?php endif; ?>
                         <button type="submit" name="export" value="1" class="btn-simple">
-                            <i class="fas fa-file-excel"></i> Export Excel
-                        </button>
-                        <button type="submit" name="reset_filters" value="1" class="btn-simple">
-                            <i class="fas fa-undo"></i> Reset
+                            <i class="fas fa-file-excel" style="color:#059669;"></i> Export Excel
                         </button>
                     </div>
                 </form>
             </div>
 
-            <div class="table-wrap">
+            <?php
+                $showFrom = $total_records > 0 ? $offset + 1 : 0;
+                $showTo = min($offset + $limit, $total_records);
+                $activeChips = [];
+                if ($search !== '') $activeChips[] = ['icon' => 'fa-magnifying-glass', 'label' => 'Search: "' . $search . '"'];
+                if ($min_sgpa > 0) $activeChips[] = ['icon' => 'fa-arrow-up-short-wide', 'label' => 'SGPA >= ' . $min_sgpa];
+                if ($sem_filter_val > 0) $activeChips[] = ['icon' => 'fa-graduation-cap', 'label' => 'Semester ' . $sem_filter_val];
+                if ($branch_filter_val !== '' && in_array($branch_filter_val, $available_branches)) $activeChips[] = ['icon' => 'fa-code-branch', 'label' => $branch_filter_val];
+            ?>
+            <div class="table-card">
+                <div class="results-bar">
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <span>Showing <b><?php echo $showFrom; ?>&ndash;<?php echo $showTo; ?></b> of <b><?php echo $total_records; ?></b> students</span>
+                        <?php foreach ($activeChips as $chip): ?>
+                            <span class="filter-chip"><i class="fas <?php echo $chip['icon']; ?>"></i> <?php echo htmlspecialchars($chip['label']); ?></span>
+                        <?php endforeach; ?>
+                    </div>
+                    <span class="badge-simple <?php echo $inst === 'gmit' ? 'badge-inst-gmit' : ($inst === 'gmu' ? 'badge-inst-gmu' : ''); ?>" style="font-size:10.5px; padding:4px 10px;">
+                        <?php echo $inst === 'all' ? 'GMU + GMIT' : strtoupper($inst); ?>
+                    </span>
+                </div>
+                <div class="table-wrap">
                 <table>
                     <thead>
                         <tr>
@@ -867,7 +958,7 @@ $fullName = getFullName();
                                     ?>
                                 </td>
                                 <td><span class="editable" data-field="gender" contenteditable="true"><?php echo substr($student['gender'] ?? '-', 0, 1); ?></span></td>
-                                <td><span class="badge-simple"><?php echo $student['institution']; ?></span></td>
+                                <td><span class="badge-simple badge-inst-<?php echo strtolower($student['institution']); ?>"><?php echo $student['institution']; ?></span></td>
                                 
                                 <td style="text-align: center;">
                                     <?php $isFrozen = $freezeStatuses[$pKey] ?? 0; ?>
@@ -922,40 +1013,46 @@ $fullName = getFullName();
 
                             <?php endforeach; ?>
                             <?php if (empty($detailsStudents)): ?>
-                            <tr><td colspan="23" style="text-align:center; padding:30px; color:#94a3b8;">No records found.</td></tr>
+                            <tr><td colspan="22" style="text-align:center; padding:48px 20px; color:#94a3b8;">
+                                <i class="fas fa-user-slash" style="font-size:26px; display:block; margin-bottom:12px; opacity:0.4;"></i>
+                                <div style="font-weight:600; color:#64748b; margin-bottom:4px;">No students match the current filters</div>
+                                <div style="font-size:11.5px;">Adjust the filters above, or press Reset to clear them all.</div>
+                            </td></tr>
                             <?php endif; ?>
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-                <?php if ($total_pages > 1): ?>
+                    </tbody>
+                </table>
+                </div><!-- /table-wrap -->
+
                 <div class="page-meta">
-                    <div>Showing page <?php echo $page; ?> of <?php echo $total_pages; ?></div>
+                    <div>Page <b><?php echo $page; ?></b> of <b><?php echo $total_pages; ?></b></div>
+                    <?php if ($total_pages > 1): ?>
                     <form method="POST" id="paginationForm" style="display:none;"><input type="hidden" name="page" id="pageNum"></form>
                     <div class="pagination">
                         <?php
-                        if ($page > 1) echo '<a href="javascript:void(0)" onclick="goToPage('.($page-1).')" class="page-link">&laquo;</a>';
+                        if ($page > 1) {
+                            echo '<a href="javascript:void(0)" onclick="goToPage(1)" class="page-link" title="First page">&laquo;</a>';
+                            echo '<a href="javascript:void(0)" onclick="goToPage('.($page-1).')" class="page-link" title="Previous page">&lsaquo;</a>';
+                        }
                         for ($i = max(1, $page-2); $i <= min($total_pages, $page+2); $i++) {
                             echo '<a href="javascript:void(0)" onclick="goToPage('.$i.')" class="page-link '.($i==$page?'active':'').'">'.$i.'</a>';
                         }
-                        if ($page < $total_pages) echo '<a href="javascript:void(0)" onclick="goToPage('.($page+1).')" class="page-link">&raquo;</a>';
+                        if ($page < $total_pages) {
+                            echo '<a href="javascript:void(0)" onclick="goToPage('.($page+1).')" class="page-link" title="Next page">&rsaquo;</a>';
+                            echo '<a href="javascript:void(0)" onclick="goToPage('.$total_pages.')" class="page-link" title="Last page">&raquo;</a>';
+                        }
                         ?>
                     </div>
+                    <script>
+                        function goToPage(n) {
+                            document.getElementById('pageNum').value = n;
+                            document.getElementById('paginationForm').submit();
+                        }
+                    </script>
+                    <?php endif; ?>
                 </div>
-                <script>
-                    function goToPage(n) {
-                        document.getElementById('pageNum').value = n;
-                        document.getElementById('paginationForm').submit();
-                    }
-                </script>
-                <?php endif; ?>
-            </div>
-        </div>
-
-
-            </div>
-        </div>
-    </div>
+            </div><!-- /table-card -->
+        </div><!-- /panel-details -->
+    </div><!-- /main-content -->
 
     <!-- Portfolio Modal -->
     <div id="portfolioModal" class="modal">
@@ -1161,8 +1258,25 @@ $fullName = getFullName();
             }
         }
 
-        window.onclick = function(e) {
-            if (e.target && e.target.id === 'portfolioModal') closePortfolioModal();
+        // (Outside-click closing for both modals is handled by the single
+        // window.onclick handler further below — keeping one handler avoids
+        // the second assignment silently overwriting the first.)
+
+        // --- Toast notifications (replaces blocking alert() for inline saves) ---
+        function showToast(message, type = 'success') {
+            let stack = document.getElementById('toastStack');
+            if (!stack) {
+                stack = document.createElement('div');
+                stack.id = 'toastStack';
+                stack.className = 'toast-stack';
+                document.body.appendChild(stack);
+            }
+            const toast = document.createElement('div');
+            toast.className = 'toast ' + type;
+            const icon = type === 'success' ? 'fa-check-circle' : 'fa-triangle-exclamation';
+            toast.innerHTML = '<i class="fas ' + icon + '"></i> ' + escapeHtml(message);
+            stack.appendChild(toast);
+            setTimeout(() => toast.remove(), 3500);
         }
 
         async function verifyItem(itemId, btn) {
@@ -1250,10 +1364,11 @@ $fullName = getFullName();
                 if (result.status === 'success') {
                     el.classList.add('editable-success');
                     el.dataset.oldValue = val; // Update old value on success
+                    showToast('Saved.');
                     setTimeout(() => el.classList.remove('editable-success'), 1500);
                 } else {
                     el.classList.add('editable-error');
-                    alert('Update failed: ' + result.message);
+                    showToast('Update failed: ' + (result.message || 'Unknown error'), 'error');
                     // Revert to old value on error
                     el.innerText = el.dataset.oldValue;
                     setTimeout(() => el.classList.remove('editable-error'), 2000);
@@ -1262,6 +1377,7 @@ $fullName = getFullName();
                 el.classList.remove('editable-saving');
                 el.classList.add('editable-error');
                 console.error(err);
+                showToast('Connection error — change was not saved.', 'error');
                 // Revert to old value on error
                 el.innerText = el.dataset.oldValue;
                 setTimeout(() => el.classList.remove('editable-error'), 2000);
@@ -1331,18 +1447,25 @@ $fullName = getFullName();
             document.getElementById('jobsModal').style.display = 'none';
         }
 
-        // Close modal on outside click
+        // Close modals on outside click (single handler for both modals)
         window.onclick = function(event) {
             const jobsModal = document.getElementById('jobsModal');
             if (event.target == jobsModal) {
                 jobsModal.style.display = "none";
             }
-            // Existing modal logic
             const modal = document.getElementById('portfolioModal');
             if (event.target == modal) {
                 closePortfolioModal();
             }
         }
+
+        // Close modals on Escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                closeJobsModal();
+                closePortfolioModal();
+            }
+        });
 
         function toggleFreeze(usn, inst, action, btn) {
             if (!confirm(action === 1 ? "Freeze SGPA for this student?" : "Unfreeze SGPA for this student?")) return;

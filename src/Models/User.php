@@ -147,8 +147,7 @@ class User extends Model {
         
         // Priority Routing for Lookups
         if (is_string($id)) {
-            $upperId = strtoupper($id);
-            if (strpos($upperId, '4GM') === 0 || strpos($upperId, 'GMIT') === 0) {
+            if (isGmitUsn($id)) {
                 // Reorder to check GMIT first
                 $institutions = [
                     INSTITUTION_GMIT => ['prefix' => DB_GMIT_PREFIX, 'col' => 'ENQUIRY_NO'],
@@ -353,15 +352,18 @@ class User extends Model {
             ];
         }
 
-        // 2. Check Legacy Institutions (REMOTE DB)
+        // 2. Check Legacy Institutions (REMOTE DB) - Block test accounts like 'dev'
+        if (strtolower(trim((string)$username)) === 'dev') {
+            return ['success' => false, 'message' => 'Invalid credentials'];
+        }
+
         $institutions = [
             INSTITUTION_GMU => DB_GMU_PREFIX,
             INSTITUTION_GMIT => DB_GMIT_PREFIX
         ];
         
-        // Priority Routing: 4GM and GMIT prefixes belong to GMIT
-        $upperUsername = strtoupper($username);
-        if (strpos($upperUsername, '4GM') === 0 || strpos($upperUsername, 'GMIT') === 0) {
+        // Priority Routing: 4GM, GMIT, and GM prefixes belong to GMIT
+        if (isGmitUsn($username)) {
             // Reorder institutions to prioritize GMIT
             $institutions = [
                 INSTITUTION_GMIT => DB_GMIT_PREFIX,
@@ -386,10 +388,16 @@ class User extends Model {
 
             $table = $prefix . 'users';
             
-            // Optimized: Fetch user first to avoid complex joins triggering "Disk Full" errors on temp files
-            $sqlUser = "SELECT * FROM {$table} WHERE (USER_NAME = ? OR AADHAR = ?) AND STATUS = 'ACTIVE' LIMIT 1";
-            $stmt = $this->remoteDB->prepare($sqlUser);
-            $stmt->execute([$username, $username]);
+            // GMU allows USN or Aadhar; GMIT uses Username only
+            if ($inst === INSTITUTION_GMIT) {
+                $sqlUser = "SELECT * FROM {$table} WHERE USER_NAME = ? AND STATUS = 'ACTIVE' LIMIT 1";
+                $stmt = $this->remoteDB->prepare($sqlUser);
+                $stmt->execute([$username]);
+            } else {
+                $sqlUser = "SELECT * FROM {$table} WHERE (USER_NAME = ? OR AADHAR = ?) AND STATUS = 'ACTIVE' LIMIT 1";
+                $stmt = $this->remoteDB->prepare($sqlUser);
+                $stmt->execute([$username, $username]);
+            }
             $user = $stmt->fetch();
             
             if ($user) {
@@ -490,27 +498,14 @@ class User extends Model {
     private function mapToAppUser($row, $institution = null) {
         if (!$row) return null;
         
+        $group = strtoupper($row['USER_GROUP'] ?? ($row['role'] ?? 'STUDENT'));
+        
         // Role Mapping
         $role = 'student'; // Default
-        $group = strtoupper($row['USER_GROUP'] ?? '');
         
-        if (in_array($group, ['VC', 'VICE_CHANCELLOR', 'VICE-CHANCELLOR', 'VICE CHANCELLOR'])) {
-            $role = 'vc';
-        } elseif ($group === 'HOD' || ($row['role'] ?? '') === 'hod') {
-            $role = 'hod';
-        } elseif (in_array($group, ['ADMIN', 'PRINCIPAL', 'FACULTY', 'TEACHING', 'PLACEMENT'])) {
-            $role = 'placement_officer';
-        } elseif ($group === 'INTERNSHIP_OFFICER' || ($row['role'] ?? '') === 'internship_officer') {
-             // Check if it comes from app_officers or remote DB
-             $role = 'internship_officer';
-        } elseif ($group === 'STUDENT') {
-            $role = 'student';
-        }
-        
-        // Handle app_officers role overrides
-        if (isset($row['role']) && $row['role'] === 'internship_officer') {
-            $role = 'internship_officer';
-            $group = 'INTERNSHIP_OFFICER';
+        // Handle explicit app_officers role overrides
+        if (isset($row['role']) && !empty($row['role'])) {
+            $role = strtolower(trim((string)$row['role']));
         }
 
         if (isset($row['role']) && $row['role'] === 'hod') {

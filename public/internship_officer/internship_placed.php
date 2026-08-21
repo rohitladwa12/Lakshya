@@ -24,12 +24,71 @@ if (isset($_GET['download_template'])) {
     exit;
 }
 
-// Handle Data Deletion
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'delete') {
-    $stmt = $db->prepare("DELETE FROM internship_placed_students WHERE sl_no = ?");
-    $stmt->execute([$_POST['delete_id']]);
-    header("Location: internship_placed.php?success=Entry deleted successfully");
-    exit;
+// Handle Data Deletion (Single, Bulk Selected, or Filter-Based)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
+    if ($_POST['action'] === 'delete') {
+        $stmt = $db->prepare("DELETE FROM internship_placed_students WHERE sl_no = ?");
+        $stmt->execute([$_POST['delete_id']]);
+        header("Location: internship_placed.php?success=" . urlencode("Placement record deleted successfully"));
+        exit;
+    } elseif ($_POST['action'] === 'bulk_delete_selected') {
+        $rawIds = $_POST['selected_ids'] ?? '[]';
+        $ids = json_decode($rawIds, true);
+        if (is_array($ids) && !empty($ids)) {
+            $sanitizedIds = array_map('intval', $ids);
+            $placeholders = implode(',', array_fill(0, count($sanitizedIds), '?'));
+            $stmt = $db->prepare("DELETE FROM internship_placed_students WHERE sl_no IN ($placeholders)");
+            $stmt->execute($sanitizedIds);
+            $deletedCount = $stmt->rowCount();
+            header("Location: internship_placed.php?success=" . urlencode("$deletedCount placement records deleted successfully from table"));
+            exit;
+        } else {
+            header("Location: internship_placed.php?error=" . urlencode("No items selected for deletion"));
+            exit;
+        }
+    } elseif ($_POST['action'] === 'delete_all_filtered') {
+        $f_name = $_POST['f_name'] ?? '';
+        $f_year = $_POST['f_year'] ?? '';
+        $f_branch = $_POST['f_branch'] ?? '';
+        $f_sem = $_POST['f_sem'] ?? '';
+        $f_college = $_POST['f_college'] ?? '';
+
+        $whereDel = [];
+        $paramsDel = [];
+
+        if (!empty($f_name)) {
+            $whereDel[] = "name LIKE ?";
+            $paramsDel[] = "%$f_name%";
+        }
+        if (!empty($f_year)) {
+            $whereDel[] = "academic_year = ?";
+            $paramsDel[] = $f_year;
+        }
+        if (!empty($f_branch)) {
+            $whereDel[] = "branch = ?";
+            $paramsDel[] = $f_branch;
+        }
+        if (!empty($f_sem)) {
+            $whereDel[] = "sem = ?";
+            $paramsDel[] = $f_sem;
+        }
+        if (!empty($f_college)) {
+            $whereDel[] = "college = ?";
+            $paramsDel[] = $f_college;
+        }
+
+        if (!empty($whereDel)) {
+            $sqlDel = "DELETE FROM internship_placed_students WHERE " . implode(" AND ", $whereDel);
+            $stmtDel = $db->prepare($sqlDel);
+            $stmtDel->execute($paramsDel);
+            $deletedCount = $stmtDel->rowCount();
+            header("Location: internship_placed.php?success=" . urlencode("$deletedCount filtered placement records deleted successfully from table"));
+            exit;
+        } else {
+            header("Location: internship_placed.php?error=" . urlencode("Please specify at least one filter criteria before deleting filtered records."));
+            exit;
+        }
+    }
 }
 
 // Handle Form Submission (Add/Edit)
@@ -674,32 +733,68 @@ $error = $_GET['error'] ?? '';
         </div>
 
         <div class="panel">
+            <!-- Bulk Actions Bar -->
+            <div style="display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; background: #fff5f5; border-bottom: 1px solid #fee2e2; flex-wrap: wrap; gap: 12px;">
+                <div style="display: flex; align-items: center; gap: 12px;">
+                    <span id="selectedCountBadge" style="font-size: 13px; font-weight: 800; color: var(--primary);">0 selected</span>
+                    <form id="bulkDeleteForm" method="POST" style="display: inline;" onsubmit="return confirmBulkDeleteSelected()">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <input type="hidden" name="action" value="bulk_delete_selected">
+                        <input type="hidden" name="selected_ids" id="selectedIdsInput" value="[]">
+                        <button type="submit" id="btnDeleteSelected" class="btn" disabled style="padding: 8px 16px; font-size: 12px; border: 1px solid #fca5a5; color: #dc2626; background: #ffffff; opacity: 0.5; cursor: not-allowed; border-radius: 10px; font-weight: 800; transition: all 0.2s;">
+                            <i class="fas fa-trash"></i> Delete Selected (<span id="selectedCountNum">0</span>)
+                        </button>
+                    </form>
+                </div>
+                
+                <?php if (!empty($where)): ?>
+                    <form method="POST" style="display: inline;" onsubmit="return confirmDeleteAllFiltered(<?php echo $totalRecords; ?>)">
+                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token']; ?>">
+                        <input type="hidden" name="action" value="delete_all_filtered">
+                        <input type="hidden" name="f_name" value="<?php echo htmlspecialchars($f_name); ?>">
+                        <input type="hidden" name="f_year" value="<?php echo htmlspecialchars($f_year); ?>">
+                        <input type="hidden" name="f_branch" value="<?php echo htmlspecialchars($f_branch); ?>">
+                        <input type="hidden" name="f_sem" value="<?php echo htmlspecialchars($f_sem); ?>">
+                        <input type="hidden" name="f_college" value="<?php echo htmlspecialchars($f_college); ?>">
+                        <button type="submit" class="btn" style="padding: 8px 16px; font-size: 12px; background: #dc2626; color: white; border-radius: 10px; font-weight: 800;">
+                            <i class="fas fa-exclamation-triangle"></i> Delete All Filtered Results (<?php echo $totalRecords; ?>)
+                        </button>
+                    </form>
+                <?php endif; ?>
+            </div>
+
             <div class="table-responsive">
                 <table class="data-table">
                     <thead>
                         <tr>
-                                <th>Year</th>
-                                <th>Name</th>
-                                <th>USN</th>
-                                <th>Branch</th>
-                                <th>Sem</th>
-                                <th>College</th>
-                                <th>WhatsApp</th>
-                                <th>Email</th>
-                                <th>Company</th>
-                                <th>Type</th>
-                                <th>Status</th>
-                                <th>Duration</th>
-                                <th>Start</th>
-                                <th>End</th>
-                                <th>Offer</th>
-                                <th style="text-align: right;">Action</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach($paginatedStudents as $s): ?>
-                                <tr>
-                                    <td style="font-weight: 700; white-space: nowrap; font-size: 12px;"><?php echo htmlspecialchars($s['academic_year']); ?></td>
+                            <th style="width: 40px; text-align: center;">
+                                <input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAll(this)" style="cursor: pointer; width: 16px; height: 16px;">
+                            </th>
+                            <th>Year</th>
+                            <th>Name</th>
+                            <th>USN</th>
+                            <th>Branch</th>
+                            <th>Sem</th>
+                            <th>College</th>
+                            <th>WhatsApp</th>
+                            <th>Email</th>
+                            <th>Company</th>
+                            <th>Type</th>
+                            <th>Status</th>
+                            <th>Duration</th>
+                            <th>Start</th>
+                            <th>End</th>
+                            <th>Offer</th>
+                            <th style="text-align: right;">Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php foreach($paginatedStudents as $s): ?>
+                            <tr>
+                                <td style="text-align: center;">
+                                    <input type="checkbox" class="student-checkbox" value="<?php echo $s['sl_no']; ?>" onclick="updateBulkDeleteState()" style="cursor: pointer; width: 16px; height: 16px;">
+                                </td>
+                                <td style="font-weight: 700; white-space: nowrap; font-size: 12px;"><?php echo htmlspecialchars($s['academic_year']); ?></td>
                                     <td>
                                         <div class="outfit" style="font-weight: 800; color: #000; white-space: nowrap; font-size: 13px;"><?php echo htmlspecialchars($s['name']); ?></div>
                                     </td>
@@ -1088,6 +1183,63 @@ $error = $_GET['error'] ?? '';
             const m = document.getElementById('importModal');
             m.classList.remove('open');
             setTimeout(() => m.style.display = 'none', 300);
+        }
+
+        function toggleSelectAll(master) {
+            const checkboxes = document.querySelectorAll('.student-checkbox');
+            checkboxes.forEach(cb => cb.checked = master.checked);
+            updateBulkDeleteState();
+        }
+
+        function updateBulkDeleteState() {
+            const checkboxes = document.querySelectorAll('.student-checkbox:checked');
+            const ids = Array.from(checkboxes).map(cb => cb.value);
+            const count = ids.length;
+            
+            const countNum = document.getElementById('selectedCountNum');
+            const countBadge = document.getElementById('selectedCountBadge');
+            const btn = document.getElementById('btnDeleteSelected');
+            const idsInput = document.getElementById('selectedIdsInput');
+            const masterCb = document.getElementById('selectAllCheckbox');
+            
+            if (countNum) countNum.innerText = count;
+            if (countBadge) countBadge.innerText = count + ' selected';
+            if (idsInput) idsInput.value = JSON.stringify(ids);
+            
+            const allCbs = document.querySelectorAll('.student-checkbox');
+            if (masterCb && allCbs.length > 0) {
+                masterCb.checked = (count === allCbs.length);
+            }
+
+            if (btn) {
+                if (count > 0) {
+                    btn.disabled = false;
+                    btn.style.opacity = '1';
+                    btn.style.cursor = 'pointer';
+                    btn.style.background = '#dc2626';
+                    btn.style.color = '#ffffff';
+                } else {
+                    btn.disabled = true;
+                    btn.style.opacity = '0.5';
+                    btn.style.cursor = 'not-allowed';
+                    btn.style.background = '#ffffff';
+                    btn.style.color = '#dc2626';
+                }
+            }
+        }
+
+        function confirmBulkDeleteSelected() {
+            const idsInput = document.getElementById('selectedIdsInput');
+            const ids = idsInput.value ? JSON.parse(idsInput.value) : [];
+            if (ids.length === 0) {
+                alert('Please select at least one student placement record to delete.');
+                return false;
+            }
+            return confirm('Are you sure you want to permanently delete these ' + ids.length + ' selected student placement record(s) from the database table?');
+        }
+
+        function confirmDeleteAllFiltered(totalCount) {
+            return confirm('CRITICAL WARNING:\n\nAre you sure you want to permanently delete ALL ' + totalCount + ' student placement record(s) matching your active filter criteria from the database table?\n\nThis action cannot be undone!');
         }
 
         window.onclick = function(event) {

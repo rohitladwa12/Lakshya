@@ -23,8 +23,8 @@ $studentProfileModel = new StudentProfile();
 
 // Check if SGPA is frozen (reads from student_sem_sgpa.freezed column)
 $db = getDB();
-$stmtFreeze = $db->prepare("SELECT MAX(freezed) FROM student_sem_sgpa WHERE student_id = ? AND institution = ?");
-$stmtFreeze->execute([$username, $institution]);
+$stmtFreeze = $db->prepare("SELECT MAX(freezed) FROM student_sem_sgpa WHERE (student_id = ? OR UPPER(student_id) = UPPER(?)) AND institution = ?");
+$stmtFreeze->execute([$username, $username, $institution]);
 $isFrozen = (int)$stmtFreeze->fetchColumn() === 1;
 
 // Handle form submission
@@ -34,60 +34,60 @@ if (isPost() && !$isFrozen) {
     $semData = [];
     for ($i = 1; $i <= 8; $i++) {
         $val = post('sem' . $i);
-            if ($val !== '' && $val !== null) {
-                $semData[$i] = (float)$val;
+        if ($val !== '' && $val !== null) {
+            $semData[$i] = (float)$val;
+        }
+    }
+    
+    $currentSem = post('current_sem');
+    
+    if (!$currentSem) {
+        $error = "Please select your current semester.";
+    } else {
+        // Check for gaps
+        $missingSems = [];
+        for ($i = 1; $i < $currentSem; $i++) {
+            if (!isset($semData[$i])) {
+                $missingSems[] = $i;
             }
         }
-        
-        $currentSem = post('current_sem');
-        
-        if (!$currentSem) {
-            $error = "Please select your current semester.";
+
+        if (!empty($missingSems)) {
+            $error = "Please enter SGPA for all completed semesters (Missing: " . implode(', ', $missingSems) . ").";
+        } elseif (empty($semData) && $currentSem > 1) {
+            $error = "Please enter at least one semester SGPA.";
         } else {
-            // Check for gaps
-            $missingSems = [];
-            for ($i = 1; $i < $currentSem; $i++) {
-                if (!isset($semData[$i])) {
-                    $missingSems[] = $i;
-                }
-            }
-
-            if (!empty($missingSems)) {
-                $error = "Please enter SGPA for all completed semesters (Missing: " . implode(', ', $missingSems) . ").";
-            } elseif (empty($semData) && $currentSem > 1) {
-                $error = "Please enter at least one semester SGPA.";
+            if ($studentProfileModel->saveSGPA($username, INSTITUTION_GMIT, $semData, $currentSem)) {
+                Session::flash('success', 'Academic history updated successfully.');
+                redirect('dashboard');
             } else {
-                if ($studentProfileModel->saveSGPA($username, INSTITUTION_GMIT, $semData, $currentSem)) {
-                    Session::flash('success', 'Academic history updated successfully.');
-                    redirect('dashboard');
-                } else {
-                    $error = "Failed to save data. Please try again.";
-                }
+                $error = "Failed to save data. Please try again.";
             }
         }
-    } elseif (isPost() && $isFrozen) {
-        $error = "Your SGPA has been frozen by the coordinator and cannot be updated.";
     }
+} elseif (isPost() && $isFrozen) {
+    $error = "Your SGPA has been frozen by the coordinator and cannot be updated.";
+}
 
-    // Check current data directly from DB to ensure consistency with saveSGPA
-    $db = getDB();
-    $stmt = $db->prepare("SELECT semester, sgpa, is_current FROM student_sem_sgpa WHERE student_id = ? AND institution = ?");
-    $stmt->execute([trim((string)$username), INSTITUTION_GMIT]);
-    $records = $stmt->fetchAll(PDO::FETCH_ASSOC);
+// Check current data directly from DB to ensure consistency with saveSGPA
+$db = getDB();
+$stmt = $db->prepare("SELECT semester, sgpa, is_current FROM student_sem_sgpa WHERE (student_id = ? OR UPPER(student_id) = UPPER(?)) AND institution = ?");
+$stmt->execute([trim((string)$username), trim((string)$username), INSTITUTION_GMIT]);
+$records = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
-    $currentSgpas = [];
-    $activeSem = null;
+$currentSgpas = [];
+$activeSem = null;
 
-    foreach ($records as $r) {
-        // Populate SGPA if exists
-        if ($r['sgpa'] > 0) {
-            $currentSgpas[$r['semester']] = $r['sgpa'];
-        }
-        // Check active semester
-        if ($r['is_current'] == 1) {
-            $activeSem = $r['semester'];
-        }
+foreach ($records as $r) {
+    // Populate SGPA if exists
+    if ($r['sgpa'] > 0) {
+        $currentSgpas[$r['semester']] = $r['sgpa'];
     }
+    // Check active semester
+    if ($r['is_current'] == 1) {
+        $activeSem = $r['semester'];
+    }
+}
 
     ?>
 <!DOCTYPE html>
