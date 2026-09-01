@@ -101,20 +101,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $uploadDir = __DIR__ . '/../../uploads/offer_letters/';
                 if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
 
+                $allowedExts = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'];
+
                 if (is_array($files['name'])) {
                     for ($i = 0; $i < count($files['name']); $i++) {
                         if (isset($files['error'][$i]) && $files['error'][$i] === 0) {
-                            $fileName = time() . '_' . $i . '_' . basename($files['name'][$i]);
-                            if (move_uploaded_file($files['tmp_name'][$i], $uploadDir . $fileName)) {
-                                $offerLetters[] = 'uploads/offer_letters/' . $fileName;
+                            $ext = strtolower(pathinfo($files['name'][$i], PATHINFO_EXTENSION));
+                            if (in_array($ext, $allowedExts)) {
+                                $fileName = time() . '_' . $i . '_' . basename($files['name'][$i]);
+                                if (move_uploaded_file($files['tmp_name'][$i], $uploadDir . $fileName)) {
+                                    $offerLetters[] = 'uploads/offer_letters/' . $fileName;
+                                }
                             }
                         }
                     }
                 } else {
                     if ($files['error'] === 0) {
-                        $fileName = time() . '_' . basename($files['name']);
-                        if (move_uploaded_file($files['tmp_name'], $uploadDir . $fileName)) {
-                            $offerLetters[] = 'uploads/offer_letters/' . $fileName;
+                        $ext = strtolower(pathinfo($files['name'], PATHINFO_EXTENSION));
+                        if (in_array($ext, $allowedExts)) {
+                            $fileName = time() . '_' . basename($files['name']);
+                            if (move_uploaded_file($files['tmp_name'], $uploadDir . $fileName)) {
+                                $offerLetters[] = 'uploads/offer_letters/' . $fileName;
+                            }
                         }
                     }
                 }
@@ -157,20 +165,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 $uploadDir = __DIR__ . '/../../uploads/offer_letters/';
                 if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
 
+                $allowedExts = ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'];
+
                 if (is_array($files['name'])) {
                     for ($i = 0; $i < count($files['name']); $i++) {
                         if (isset($files['error'][$i]) && $files['error'][$i] === 0) {
-                            $fileName = time() . '_' . $i . '_' . basename($files['name'][$i]);
-                            if (move_uploaded_file($files['tmp_name'][$i], $uploadDir . $fileName)) {
-                                $newLetters[] = 'uploads/offer_letters/' . $fileName;
+                            $ext = strtolower(pathinfo($files['name'][$i], PATHINFO_EXTENSION));
+                            if (in_array($ext, $allowedExts)) {
+                                $fileName = time() . '_' . $i . '_' . basename($files['name'][$i]);
+                                if (move_uploaded_file($files['tmp_name'][$i], $uploadDir . $fileName)) {
+                                    $newLetters[] = 'uploads/offer_letters/' . $fileName;
+                                }
                             }
                         }
                     }
                 } else {
                     if ($files['error'] === 0) {
-                        $fileName = time() . '_' . basename($files['name']);
-                        if (move_uploaded_file($files['tmp_name'], $uploadDir . $fileName)) {
-                            $newLetters[] = 'uploads/offer_letters/' . $fileName;
+                        $ext = strtolower(pathinfo($files['name'], PATHINFO_EXTENSION));
+                        if (in_array($ext, $allowedExts)) {
+                            $fileName = time() . '_' . basename($files['name']);
+                            if (move_uploaded_file($files['tmp_name'], $uploadDir . $fileName)) {
+                                $newLetters[] = 'uploads/offer_letters/' . $fileName;
+                            }
                         }
                     }
                 }

@@ -4,6 +4,8 @@
  * One page: Student Details | AI Reports — with tabs for All | GMU | GMIT
  */
 
+$pageStartTime = microtime(true);
+
 require_once __DIR__ . '/../../config/bootstrap.php';
 
 require_once __DIR__ . '/../../src/Helpers/SessionFilterHelper.php';
@@ -234,8 +236,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
 
 // --- Filter Variable Initialization ---
 $search = clean($filters['search'] ?? '');
-$min_sgpa = isset($filters['min_sgpa']) ? (float)$filters['min_sgpa'] : 0;
+$min_sgpa = (isset($filters['min_sgpa']) && $filters['min_sgpa'] !== '') ? (float)$filters['min_sgpa'] : 0;
+$max_sgpa = (isset($filters['max_sgpa']) && $filters['max_sgpa'] !== '') ? (float)$filters['max_sgpa'] : 0;
+$sgpa_mode = clean($filters['sgpa_mode'] ?? 'latest'); // 'latest', 'avg', 'sem_1'..'sem_8', 'all_sems'
+$min_puc = (isset($filters['min_puc']) && $filters['min_puc'] !== '') ? (float)$filters['min_puc'] : 0;
+$min_sslc = (isset($filters['min_sslc']) && $filters['min_sslc'] !== '') ? (float)$filters['min_sslc'] : 0;
+$gender_filter = clean($filters['gender'] ?? '');
+$portfolio_filter = clean($filters['portfolio_status'] ?? '');
+$freeze_filter = clean($filters['freeze_status'] ?? '');
+$sort_by = clean($filters['sort_by'] ?? 'name_asc');
 $branch_filter_val = clean($filters['branch'] ?? '');
+
 // Default semester: query actual highest sem with students in this dept
 $semester_filter_range = getCoordinatorSemesterFilters($department);
 if (!array_key_exists('sem', $filters)) {
@@ -319,10 +330,10 @@ $combinedApproved = "
 ";
 
 $combinedDetails = "
-    (SELECT usn, student_id, gender, dob, student_mobile, parent_mobile, father_name, mother_name, email_id, puc_percentage, sslc_percentage, category, district, taluk, state
+    (SELECT usn, student_id, gender, dob, student_mobile, parent_mobile, father_name, mother_name, email_id, puc_percentage, sslc_percentage, category, district, taluk, state, regular_lateral
      FROM {$gmuPrefix}ad_student_details
      UNION ALL
-     SELECT usn, student_id, gender, dob, student_mobile, parent_mobile, father_name, mother_name, email_id, puc_percentage, sslc_percentage, category, district, taluk, state
+     SELECT usn, student_id, gender, dob, student_mobile, parent_mobile, father_name, mother_name, email_id, puc_percentage, sslc_percentage, category, district, taluk, state, regular_lateral
      FROM {$gmitPrefix}ad_student_details)
 ";
 
@@ -335,26 +346,78 @@ if ($instFilter) {
 }
 
 if ($search) {
-    $where_clauses[] = "(asa.usn LIKE ? OR asa.name LIKE ? OR asa.aadhar LIKE ?)";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
-    $params[] = "%$search%";
+    $where_clauses[] = "(asa.usn LIKE ? OR asa.name LIKE ? OR asa.aadhar LIKE ? OR asd.student_mobile LIKE ? OR asd.parent_mobile LIKE ? OR asd.father_name LIKE ? OR asd.email_id LIKE ?)";
+    for ($k = 0; $k < 7; $k++) {
+        $params[] = "%$search%";
+    }
 }
 
-if ($discipline_filter_sql = buildInClauseCoord("asa.discipline", $discipline_filter, $params)) $where_clauses[] = $discipline_filter_sql;
+if ($discipline_filter_sql = buildInClauseCoord("asa.discipline", $discipline_filter, $params)) {
+    $where_clauses[] = $discipline_filter_sql;
+}
 
-// NOTE: Min SGPA must be applied per institution. The UNION hardcodes GMIT sgpa as 0.0
-// (real GMIT SGPAs live in local student_sem_sgpa), so a global "asa.sgpa >= ?" would
-// silently exclude every GMIT student. GMU is filtered on asa.sgpa below; GMIT is
-// filtered here when collecting eligible ids from student_sem_sgpa.
+// 10th and 12th Percentage Filters
+if ($min_puc > 0) {
+    $where_clauses[] = "CAST(NULLIF(asd.puc_percentage, '') AS DECIMAL(5,2)) >= ?";
+    $params[] = $min_puc;
+}
+if ($min_sslc > 0) {
+    $where_clauses[] = "CAST(NULLIF(asd.sslc_percentage, '') AS DECIMAL(5,2)) >= ?";
+    $params[] = $min_sslc;
+}
+
+// Gender Filter
+if ($gender_filter === 'M' || $gender_filter === 'F') {
+    $where_clauses[] = "asd.gender LIKE ?";
+    $params[] = $gender_filter . '%';
+}
+
+// Portfolio Verification Status Filter
+if ($portfolio_filter === 'verified') {
+    $stmtVer = $localDB->query("SELECT DISTINCT student_id FROM student_portfolio WHERE is_verified = 1");
+    $verIds = $stmtVer ? $stmtVer->fetchAll(PDO::FETCH_COLUMN) : [];
+    if (!empty($verIds)) {
+        $phVer = implode(',', array_fill(0, count($verIds), '?'));
+        $where_clauses[] = "asa.usn IN ($phVer)";
+        $params = array_merge($params, $verIds);
+    } else {
+        $where_clauses[] = "1=0";
+    }
+} elseif ($portfolio_filter === 'unverified') {
+    $stmtVer = $localDB->query("SELECT DISTINCT student_id FROM student_portfolio WHERE is_verified = 1");
+    $verIds = $stmtVer ? $stmtVer->fetchAll(PDO::FETCH_COLUMN) : [];
+    if (!empty($verIds)) {
+        $phVer = implode(',', array_fill(0, count($verIds), '?'));
+        $where_clauses[] = "asa.usn NOT IN ($phVer)";
+        $params = array_merge($params, $verIds);
+    }
+}
+
+// Freeze Status Filter
+if ($freeze_filter === 'frozen') {
+    $stmtFrz = $localDB->query("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE freezed = 1");
+    $frzIds = $stmtFrz ? $stmtFrz->fetchAll(PDO::FETCH_COLUMN) : [];
+    if (!empty($frzIds)) {
+        $phFrz = implode(',', array_fill(0, count($frzIds), '?'));
+        $where_clauses[] = "asa.usn IN ($phFrz)";
+        $params = array_merge($params, $frzIds);
+    } else {
+        $where_clauses[] = "1=0";
+    }
+} elseif ($freeze_filter === 'active') {
+    $stmtFrz = $localDB->query("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE freezed = 1");
+    $frzIds = $stmtFrz ? $stmtFrz->fetchAll(PDO::FETCH_COLUMN) : [];
+    if (!empty($frzIds)) {
+        $phFrz = implode(',', array_fill(0, count($frzIds), '?'));
+        $where_clauses[] = "asa.usn NOT IN ($phFrz)";
+        $params = array_merge($params, $frzIds);
+    }
+}
+
+// Semester eligibility
 $sem_placeholders = implode(',', array_fill(0, count($semester_filter), '?'));
 
-// "Semester = N" must mean the student's CURRENT semester is N, not "has ever had a
-// record for semester N" — both institutions keep one row per semester of history,
-// so matching any row would pull in senior students (a 7th-sem student has rows for
-// sems 1..7 and would match a sem-5 filter). Current semester = MAX(semester).
-// GMIT: join each student's highest-semester row, then filter (and apply Min SGPA) on it.
-$gmitSgpaSql = ($min_sgpa > 0) ? " AND s.sgpa >= ?" : "";
+// 1. GMIT active USNs in selected semesters
 $stmtLocal = $localDB->prepare("
     SELECT DISTINCT s.student_id
     FROM student_sem_sgpa s
@@ -364,11 +427,9 @@ $stmtLocal = $localDB->prepare("
         WHERE institution = ?
         GROUP BY student_id
     ) cur ON cur.student_id = s.student_id AND s.semester = cur.current_sem
-    WHERE s.institution = ? AND s.semester IN ($sem_placeholders)$gmitSgpaSql
+    WHERE s.institution = ? AND s.semester IN ($sem_placeholders)
 ");
-$gmitLocalParams = array_merge([INSTITUTION_GMIT, INSTITUTION_GMIT], $semester_filter);
-if ($min_sgpa > 0) $gmitLocalParams[] = $min_sgpa;
-$stmtLocal->execute($gmitLocalParams);
+$stmtLocal->execute(array_merge([INSTITUTION_GMIT, INSTITUTION_GMIT], $semester_filter));
 $gmitUsnsRaw = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
 
 // Expand GMIT USNs/IDs
@@ -388,11 +449,7 @@ if (!empty($gmitUsnsRaw)) {
     }
 }
 
-// GMU: same current-semester rule. Match students whose HIGHEST sem row is in the
-// filter (and, for Min SGPA, whose SGPA on that current-sem row qualifies). The outer
-// query then keeps all of the student's rows, so MAX(asa.sem) displays the true
-// current semester instead of echoing the filtered one.
-$gmuSgpaSql = ($min_sgpa > 0) ? " AND cur_rows.sgpa >= ?" : "";
+// 2. GMU semester matching rule
 $gmuCurrentSql = "asa.usn IN (
     SELECT cur_rows.usn
     FROM {$gmuPrefix}ad_student_approved cur_rows
@@ -401,13 +458,11 @@ $gmuCurrentSql = "asa.usn IN (
         FROM {$gmuPrefix}ad_student_approved
         GROUP BY usn
     ) cur ON cur.usn = cur_rows.usn AND cur_rows.sem = cur.current_sem
-    WHERE cur_rows.sem IN ($sem_placeholders)$gmuSgpaSql
+    WHERE cur_rows.sem IN ($sem_placeholders)
 )";
 
 if (!$instFilter) {
     foreach ($semester_filter as $s_val) $params[] = $s_val;
-    if ($min_sgpa > 0) $params[] = $min_sgpa;
-
     if (!empty($gmitUsns)) {
         $placeholders = implode(',', array_fill(0, count($gmitUsns), '?'));
         $where_clauses[] = "((asa.institution = '" . INSTITUTION_GMU . "' AND $gmuCurrentSql) OR (asa.institution = '" . INSTITUTION_GMIT . "' AND asa.usn IN ($placeholders)))";
@@ -419,7 +474,6 @@ if (!$instFilter) {
     if ($instFilter === INSTITUTION_GMU) {
         $where_clauses[] = $gmuCurrentSql;
         foreach ($semester_filter as $s_val) $params[] = $s_val;
-        if ($min_sgpa > 0) $params[] = $min_sgpa;
     } else {
         if (!empty($gmitUsns)) {
             $placeholders = implode(',', array_fill(0, count($gmitUsns), '?'));
@@ -431,21 +485,228 @@ if (!$instFilter) {
     }
 }
 
+// 3. Fully Advanced & Universal SGPA Filter (Checks local student_sem_sgpa + remote DB)
+if ($min_sgpa > 0 || $max_sgpa > 0) {
+    $qualifyingSgpaIds = [];
+    
+    if ($sgpa_mode === 'avg') {
+        // Cumulative CGPA / Average SGPA
+        $havingLocal = [];
+        $havingParamsLocal = [];
+        if ($min_sgpa > 0) { $havingLocal[] = "AVG(sgpa) >= ?"; $havingParamsLocal[] = $min_sgpa; }
+        if ($max_sgpa > 0) { $havingLocal[] = "AVG(sgpa) <= ?"; $havingParamsLocal[] = $max_sgpa; }
+        $hLocalSql = implode(" AND ", $havingLocal);
+        
+        $stmtLSgpa = $localDB->prepare("SELECT student_id FROM student_sem_sgpa WHERE sgpa > 0 GROUP BY student_id HAVING $hLocalSql");
+        $stmtLSgpa->execute($havingParamsLocal);
+        $localIds = $stmtLSgpa->fetchAll(PDO::FETCH_COLUMN);
+
+        $stmtGSgpa = $db->prepare("SELECT usn FROM {$gmuPrefix}ad_student_approved WHERE sgpa > 0 GROUP BY usn HAVING $hLocalSql");
+        $stmtGSgpa->execute($havingParamsLocal);
+        $gmuIds = $stmtGSgpa->fetchAll(PDO::FETCH_COLUMN);
+        
+        $qualifyingSgpaIds = array_values(array_unique(array_merge($localIds, $gmuIds)));
+        
+    } elseif (strpos($sgpa_mode, 'sem_') === 0) {
+        // Specific Semester (Sem 1 to 8)
+        $semTarget = (int)str_replace('sem_', '', $sgpa_mode);
+        $condsL = ["semester = ?", "sgpa > 0"];
+        $pL = [$semTarget];
+        if ($min_sgpa > 0) { $condsL[] = "sgpa >= ?"; $pL[] = $min_sgpa; }
+        if ($max_sgpa > 0) { $condsL[] = "sgpa <= ?"; $pL[] = $max_sgpa; }
+        $cSqlL = implode(" AND ", $condsL);
+
+        $stmtLSgpa = $localDB->prepare("SELECT student_id FROM student_sem_sgpa WHERE $cSqlL");
+        $stmtLSgpa->execute($pL);
+        $localIds = $stmtLSgpa->fetchAll(PDO::FETCH_COLUMN);
+
+        $condsG = ["sem = ?", "sgpa > 0"];
+        $pG = [$semTarget];
+        if ($min_sgpa > 0) { $condsG[] = "sgpa >= ?"; $pG[] = $min_sgpa; }
+        if ($max_sgpa > 0) { $condsG[] = "sgpa <= ?"; $pG[] = $max_sgpa; }
+        $cSqlG = implode(" AND ", $condsG);
+
+        $stmtGSgpa = $db->prepare("SELECT usn FROM {$gmuPrefix}ad_student_approved WHERE $cSqlG");
+        $stmtGSgpa->execute($pG);
+        $gmuIds = $stmtGSgpa->fetchAll(PDO::FETCH_COLUMN);
+
+        $qualifyingSgpaIds = array_values(array_unique(array_merge($localIds, $gmuIds)));
+
+        // DIPLOMA / LATERAL ENTRY CONSIDERATION:
+        // Diploma students start directly in 2nd year (Sem 3) and have NO Sem 1 or Sem 2 SGPA.
+        // When filtering by Sem 1 or Sem 2, evaluate them on their starting degree semester (Sem 3 SGPA) or Diploma aggregate percentage!
+        if ($semTarget === 1 || $semTarget === 2) {
+            // 1. GMU Diploma students whose Sem 3 SGPA meets criteria
+            $condsDipG = ["cur.sem = 3", "cur.sgpa > 0"];
+            $pDipG = [];
+            if ($min_sgpa > 0) { $condsDipG[] = "cur.sgpa >= ?"; $pDipG[] = $min_sgpa; }
+            if ($max_sgpa > 0) { $condsDipG[] = "cur.sgpa <= ?"; $pDipG[] = $max_sgpa; }
+            $cSqlDipG = implode(" AND ", $condsDipG);
+
+            $stmtDipG = $db->prepare("
+                SELECT DISTINCT cur.usn 
+                FROM {$gmuPrefix}ad_student_approved cur
+                LEFT JOIN {$gmuPrefix}ad_student_details det ON cur.usn = det.usn
+                WHERE (det.regular_lateral = 'LATERAL' OR cur.usn NOT IN (
+                    SELECT DISTINCT usn FROM {$gmuPrefix}ad_student_approved WHERE sem IN (1, 2) AND sgpa > 0
+                ))
+                AND $cSqlDipG
+            ");
+            $stmtDipG->execute($pDipG);
+            $dipGmuIds = $stmtDipG->fetchAll(PDO::FETCH_COLUMN);
+
+            // 2. GMIT / Local Diploma students whose Sem 3 SGPA in student_sem_sgpa meets criteria
+            $condsDipL = ["s.semester = 3", "s.sgpa > 0"];
+            $pDipL = [];
+            if ($min_sgpa > 0) { $condsDipL[] = "s.sgpa >= ?"; $pDipL[] = $min_sgpa; }
+            if ($max_sgpa > 0) { $condsDipL[] = "s.sgpa <= ?"; $pDipL[] = $max_sgpa; }
+            $cSqlDipL = implode(" AND ", $condsDipL);
+
+            $stmtDipL = $localDB->prepare("
+                SELECT DISTINCT s.student_id 
+                FROM student_sem_sgpa s
+                WHERE s.student_id NOT IN (
+                    SELECT DISTINCT student_id FROM student_sem_sgpa WHERE semester IN (1, 2) AND sgpa > 0
+                )
+                AND $cSqlDipL
+            ");
+            $stmtDipL->execute($pDipL);
+            $dipLocIds = $stmtDipL->fetchAll(PDO::FETCH_COLUMN);
+
+            // 3. Also check Diploma percentage in puc_percentage for lateral students (e.g. 7.5 SGPA ~ 75%)
+            if ($min_sgpa > 0) {
+                $minPct = $min_sgpa * 10;
+                $maxPct = ($max_sgpa > 0) ? $max_sgpa * 10 : 100;
+                $stmtDipPctGmu = $db->prepare("
+                    SELECT usn FROM {$gmuPrefix}ad_student_details 
+                    WHERE regular_lateral = 'LATERAL' AND puc_percentage >= ? AND puc_percentage <= ?
+                ");
+                $stmtDipPctGmu->execute([$minPct, $maxPct]);
+                $dipPctGmuIds = $stmtDipPctGmu->fetchAll(PDO::FETCH_COLUMN);
+
+                $db_gmit = getDB('gmit');
+                $dipPctGmitIds = [];
+                if ($db_gmit) {
+                    $stmtDipPctGmit = $db_gmit->prepare("
+                        SELECT IFNULL(NULLIF(usn, ''), student_id) FROM ad_student_details 
+                        WHERE regular_lateral LIKE '%LATERAL%' AND puc_percentage >= ? AND puc_percentage <= ?
+                    ");
+                    $stmtDipPctGmit->execute([$minPct, $maxPct]);
+                    $dipPctGmitIds = $stmtDipPctGmit->fetchAll(PDO::FETCH_COLUMN);
+                }
+                $qualifyingSgpaIds = array_values(array_unique(array_merge($qualifyingSgpaIds, $dipPctGmuIds, $dipPctGmitIds)));
+            }
+
+            $qualifyingSgpaIds = array_values(array_unique(array_merge($qualifyingSgpaIds, $dipGmuIds, $dipLocIds)));
+        }
+
+    } elseif ($sgpa_mode === 'all_sems') {
+        // Cleared all available semesters with >= min_sgpa (Diploma students evaluated on their available Sem 3+ semesters)
+        $stmtLSgpa = $localDB->prepare("SELECT student_id FROM student_sem_sgpa WHERE sgpa > 0 GROUP BY student_id HAVING MIN(sgpa) >= ?");
+        $stmtLSgpa->execute([$min_sgpa]);
+        $localIds = $stmtLSgpa->fetchAll(PDO::FETCH_COLUMN);
+
+        $stmtGSgpa = $db->prepare("SELECT usn FROM {$gmuPrefix}ad_student_approved WHERE sgpa > 0 GROUP BY usn HAVING MIN(sgpa) >= ?");
+        $stmtGSgpa->execute([$min_sgpa]);
+        $gmuIds = $stmtGSgpa->fetchAll(PDO::FETCH_COLUMN);
+
+        $qualifyingSgpaIds = array_values(array_unique(array_merge($localIds, $gmuIds)));
+
+    } else {
+        // 'latest' / Current Semester SGPA (Default)
+        $condsL = ["s.sgpa > 0"];
+        $pL = [];
+        if ($min_sgpa > 0) { $condsL[] = "s.sgpa >= ?"; $pL[] = $min_sgpa; }
+        if ($max_sgpa > 0) { $condsL[] = "s.sgpa <= ?"; $pL[] = $max_sgpa; }
+        $cSqlL = implode(" AND ", $condsL);
+
+        $stmtLSgpa = $localDB->prepare("
+            SELECT DISTINCT s.student_id 
+            FROM student_sem_sgpa s 
+            JOIN (
+                SELECT student_id, MAX(semester) as max_sem 
+                FROM student_sem_sgpa 
+                WHERE sgpa > 0 
+                GROUP BY student_id
+            ) m ON s.student_id = m.student_id AND s.semester = m.max_sem 
+            WHERE $cSqlL
+        ");
+        $stmtLSgpa->execute($pL);
+        $localIds = $stmtLSgpa->fetchAll(PDO::FETCH_COLUMN);
+
+        $condsG = ["cur_rows.sgpa > 0"];
+        $pG = [];
+        if ($min_sgpa > 0) { $condsG[] = "cur_rows.sgpa >= ?"; $pG[] = $min_sgpa; }
+        if ($max_sgpa > 0) { $condsG[] = "cur_rows.sgpa <= ?"; $pG[] = $max_sgpa; }
+        $cSqlG = implode(" AND ", $condsG);
+
+        $stmtGSgpa = $db->prepare("
+            SELECT DISTINCT cur_rows.usn 
+            FROM {$gmuPrefix}ad_student_approved cur_rows 
+            JOIN (
+                SELECT usn, MAX(sem) as max_sem 
+                FROM {$gmuPrefix}ad_student_approved 
+                WHERE sgpa > 0 
+                GROUP BY usn
+            ) cur ON cur_rows.usn = cur.usn AND cur_rows.sem = cur.max_sem 
+            WHERE $cSqlG
+        ");
+        $stmtGSgpa->execute($pG);
+        $gmuIds = $stmtGSgpa->fetchAll(PDO::FETCH_COLUMN);
+
+        $qualifyingSgpaIds = array_values(array_unique(array_merge($localIds, $gmuIds)));
+    }
+
+    if (!empty($qualifyingSgpaIds)) {
+        $expandedSgpaIds = $qualifyingSgpaIds;
+        $db_gmit = getDB('gmit');
+        if ($db_gmit) {
+            $phSg = implode(',', array_fill(0, count($qualifyingSgpaIds), '?'));
+            $stmtExp = $db_gmit->prepare("SELECT DISTINCT usn, student_id FROM ad_student_details WHERE student_id IN ($phSg) OR usn IN ($phSg)");
+            $stmtExp->execute(array_merge($qualifyingSgpaIds, $qualifyingSgpaIds));
+            while ($m = $stmtExp->fetch(PDO::FETCH_ASSOC)) {
+                if (!empty($m['usn'])) $expandedSgpaIds[] = $m['usn'];
+                if (!empty($m['student_id'])) $expandedSgpaIds[] = $m['student_id'];
+            }
+            $expandedSgpaIds = array_values(array_unique($expandedSgpaIds));
+        }
+        $phQual = implode(',', array_fill(0, count($expandedSgpaIds), '?'));
+        $where_clauses[] = "(asa.usn IN ($phQual) OR asa.student_id_map IN ($phQual))";
+        $params = array_merge($params, $expandedSgpaIds, $expandedSgpaIds);
+    } else {
+        $where_clauses[] = "1=0";
+    }
+}
+
+// Sorting Order
+$orderBySql = "name ASC";
+switch ($sort_by) {
+    case 'name_desc': $orderBySql = "name DESC"; break;
+    case 'usn_asc': $orderBySql = "asa.usn ASC"; break;
+    case 'usn_desc': $orderBySql = "asa.usn DESC"; break;
+    case 'puc_desc': $orderBySql = "CAST(NULLIF(MAX(asd.puc_percentage), '') AS DECIMAL(5,2)) DESC"; break;
+    case 'sslc_desc': $orderBySql = "CAST(NULLIF(MAX(asd.sslc_percentage), '') AS DECIMAL(5,2)) DESC"; break;
+    default: $orderBySql = "name ASC"; break;
+}
+
 $where_sql = implode(" AND ", $where_clauses);
 
-$count_query = "SELECT COUNT(DISTINCT asa.usn) FROM {$combinedApproved} asa WHERE $where_sql";
+$count_query = "
+    SELECT COUNT(DISTINCT asa.usn) 
+    FROM {$combinedApproved} asa
+    LEFT JOIN {$combinedDetails} asd ON ( (asa.usn = asd.student_id AND asa.institution = '" . INSTITUTION_GMIT . "') OR (asa.usn = asd.usn AND asa.institution = '" . INSTITUTION_GMU . "') )
+    WHERE $where_sql
+";
 $stmt = $db->prepare($count_query);
 $stmt->execute($params);
 $total_records = (int)$stmt->fetchColumn();
 $total_pages = max(1, (int)ceil($total_records / $limit));
-// Clamp a stale page number (e.g. filters narrowed the result set) back into range
 if ($page > $total_pages) {
     $page = $total_pages;
     $offset = ($page - 1) * $limit;
 }
 
 if (isset($filters['export']) && $section === 'details') {
-    // Consume export filter and redirect immediately back (to avoid staying in export mode)
     SessionFilterHelper::updateFilters($pageId, ['export' => null]);
     header('Content-Type: application/vnd.ms-excel');
     header('Content-Disposition: attachment; filename="student_details_report_'.date('Y-m-d').'.xls"');
@@ -459,7 +720,7 @@ if (isset($filters['export']) && $section === 'details') {
         LEFT JOIN {$combinedDetails} asd ON ( (asa.usn = asd.student_id AND asa.institution = '" . INSTITUTION_GMIT . "') OR (asa.usn = asd.usn AND asa.institution = '" . INSTITUTION_GMU . "') )
         WHERE $where_sql
         GROUP BY asa.usn, asa.aadhar, asa.institution
-        ORDER BY name ASC
+        ORDER BY $orderBySql
     ";
     $stmt = $db->prepare($query);
     $stmt->execute($params);
@@ -505,13 +766,14 @@ $details_query = "
     MAX(asd.gender) as gender, MAX(asd.dob) as dob, MAX(asd.student_mobile) as student_mobile, MAX(asd.parent_mobile) as parent_mobile,
     MAX(asd.father_name) as father_name, MAX(asd.mother_name) as mother_name,
     MAX(asd.email_id) as email_id, MAX(asd.puc_percentage) as puc_percentage, MAX(asd.sslc_percentage) as sslc_percentage,
-    MAX(asd.category) as category, MAX(asd.district) as district, MAX(asd.taluk) as taluk, MAX(asd.state) as state, asa.institution,
+    MAX(asd.category) as category, MAX(asd.district) as district, MAX(asd.taluk) as taluk, MAX(asd.state) as state,
+    MAX(asd.regular_lateral) as regular_lateral, asa.institution,
     MAX(asa.sem) as sem
     FROM {$combinedApproved} asa
     LEFT JOIN {$combinedDetails} asd ON ( (asa.usn = asd.student_id AND asa.institution = '" . INSTITUTION_GMIT . "') OR (asa.usn = asd.usn AND asa.institution = '" . INSTITUTION_GMU . "') )
     WHERE $where_sql
     GROUP BY asa.usn, asa.aadhar, asa.institution
-    ORDER BY name ASC
+    ORDER BY $orderBySql
     LIMIT $limit OFFSET $offset
 ";
 
@@ -615,47 +877,96 @@ try {
 } catch (Exception $e) {}
 // Bulk fetch current semesters for GMIT
 $gmitCurrentSemsMap = [];
+$bulkSgpaMap = [];
 if (!empty($detailsStudents)) {
     $searchIds = [];
+    $usnListAll = [];
     foreach ($detailsStudents as $s) {
-        if ($s['institution'] === INSTITUTION_GMIT) {
-            if ($s['usn']) $searchIds[] = $s['usn'];
-            if ($s['aadhar']) $searchIds[] = $s['aadhar'];
+        if (!empty($s['usn'])) {
+            $usnListAll[] = $s['usn'];
+            $searchIds[] = $s['usn'];
+        }
+        if (!empty($s['aadhar'])) {
+            $searchIds[] = $s['aadhar'];
         }
     }
     if (!empty($searchIds)) {
         $searchIds = array_values(array_unique($searchIds));
         $ph = implode(',', array_fill(0, count($searchIds), '?'));
-        // Current semester = highest recorded semester (matches the filter semantics;
-        // is_current is not always set, so MAX is the reliable source).
+        
+        // 1. Current semester for GMIT
         $stmtC = $localDB->prepare("SELECT student_id, MAX(semester) FROM student_sem_sgpa WHERE institution = ? AND student_id IN ($ph) GROUP BY student_id");
         $stmtC->execute(array_merge([INSTITUTION_GMIT], $searchIds));
         $gmitCurrentSemsMap = $stmtC->fetchAll(PDO::FETCH_KEY_PAIR);
+
+        // 2. High-Performance Bulk Pre-fetch all 8 Semesters of SGPA from Local DB
+        try {
+            $stmtBulkLocal = $localDB->prepare("
+                SELECT student_id, semester, sgpa 
+                FROM student_sem_sgpa 
+                WHERE student_id IN ($ph) AND sgpa > 0
+            ");
+            $stmtBulkLocal->execute($searchIds);
+            while ($r = $stmtBulkLocal->fetch(PDO::FETCH_ASSOC)) {
+                $sid = $r['student_id'];
+                $sem = (int)$r['semester'];
+                if ($sem >= 1 && $sem <= 8) {
+                    if (!isset($bulkSgpaMap[$sid])) $bulkSgpaMap[$sid] = array_fill(1, 8, null);
+                    $bulkSgpaMap[$sid][$sem] = (float)$r['sgpa'];
+                }
+            }
+        } catch (Exception $e) {}
+
+        // 3. High-Performance Bulk Pre-fetch from GMU remote DB for any missing values
+        if ($inst !== 'gmit') {
+            try {
+                $stmtBulkGmu = $db->prepare("
+                    SELECT usn, sem, sgpa 
+                    FROM " . DB_GMU_PREFIX . "ad_student_approved 
+                    WHERE usn IN ($ph) AND sem BETWEEN 1 AND 8 AND sgpa > 0
+                ");
+                $stmtBulkGmu->execute($searchIds);
+                while ($r = $stmtBulkGmu->fetch(PDO::FETCH_ASSOC)) {
+                    $u = $r['usn'];
+                    $sem = (int)$r['sem'];
+                    if (!isset($bulkSgpaMap[$u])) $bulkSgpaMap[$u] = array_fill(1, 8, null);
+                    if ($bulkSgpaMap[$u][$sem] === null) {
+                        $bulkSgpaMap[$u][$sem] = (float)$r['sgpa'];
+                    }
+                }
+            } catch (Exception $e) {}
+        }
     }
 }
 
 function getSemesterSGPACoord($remoteDB, $localDB, $usn, $aadhar, $institution) {
-    if ($institution === INSTITUTION_GMIT) {
-        $sgpaData = array_fill(1, 8, null);
-        try {
-            // Flexible check for student_id (could be USN or Aadhar)
-            $stmt = $localDB->prepare("SELECT semester, sgpa FROM student_sem_sgpa WHERE (student_id = ? OR student_id = ?) AND institution = ? ORDER BY semester");
-            $stmt->execute([$usn, $aadhar, INSTITUTION_GMIT]);
-            while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
-                $sgpaData[(int)$row['semester']] = $row['sgpa'];
-            }
-        } catch (Exception $e) { }
-        return $sgpaData;
-    }
-    $prefix = DB_GMU_PREFIX;
     $sgpaData = array_fill(1, 8, null);
     try {
-        $stmt = $remoteDB->prepare("SELECT sem, sgpa FROM {$prefix}ad_student_approved WHERE usn = ? ORDER BY sem");
-        $stmt->execute([$usn]);
-        while ($row = $stmt->fetch()) {
-            if ($row['sem'] >= 1 && $row['sem'] <= 8) $sgpaData[$row['sem']] = $row['sgpa'];
+        // 1. Check local student_sem_sgpa (for both GMIT and GMU coordinator updates)
+        $stmt = $localDB->prepare("SELECT semester, sgpa FROM student_sem_sgpa WHERE (student_id = ? OR student_id = ?) AND (institution = ? OR institution IS NULL) ORDER BY semester");
+        $stmt->execute([$usn, $aadhar, $institution]);
+        while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+            $s = (int)$row['semester'];
+            if ($s >= 1 && $s <= 8 && $row['sgpa'] !== null && (float)$row['sgpa'] > 0) {
+                $sgpaData[$s] = (float)$row['sgpa'];
+            }
         }
-    } catch (PDOException $e) {}
+    } catch (Exception $e) { }
+
+    // 2. If GMU, fill in any missing semesters from remote ad_student_approved
+    if ($institution === INSTITUTION_GMU) {
+        $prefix = DB_GMU_PREFIX;
+        try {
+            $stmt = $remoteDB->prepare("SELECT sem, sgpa FROM {$prefix}ad_student_approved WHERE usn = ? ORDER BY sem");
+            $stmt->execute([$usn]);
+            while ($row = $stmt->fetch()) {
+                $s = (int)$row['sem'];
+                if ($s >= 1 && $s <= 8 && $sgpaData[$s] === null && $row['sgpa'] !== null && (float)$row['sgpa'] > 0) {
+                    $sgpaData[$s] = (float)$row['sgpa'];
+                }
+            }
+        } catch (PDOException $e) {}
+    }
     return $sgpaData;
 }
 
@@ -700,19 +1011,21 @@ $fullName = getFullName();
         .tab-inst:focus-visible { outline: 2px solid var(--primary-maroon); outline-offset: 2px; }
 
         /* Filter toolbar */
-        .filter-section { background: white; border: 1px solid var(--border-light); border-radius: 12px; padding: 16px 18px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(15,23,42,0.04); }
-        .filter-grid { display: flex; gap: 14px; flex-wrap: wrap; align-items: flex-end; }
-        .filter-item { display: flex; flex-direction: column; gap: 5px; position: relative; }
-        .filter-item label { font-size: 10.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.06em; }
-        .filter-item input, .filter-item select { height: 36px; padding: 0 12px; border: 1px solid var(--border-light); border-radius: 8px; font-size: 13px; font-family: inherit; color: var(--text-dark); background-color: #fff; min-width: 170px; transition: border-color 0.15s, box-shadow 0.15s; }
-        .filter-item select { cursor: pointer; appearance: none; -webkit-appearance: none; padding-right: 32px; }
+        .filter-section { background: white; border: 1px solid var(--border-light); border-radius: 14px; padding: 18px 20px; margin-bottom: 18px; box-shadow: 0 1px 3px rgba(15,23,42,0.04); }
+        .filter-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; align-items: end; }
+        .filter-item { display: flex; flex-direction: column; gap: 5px; position: relative; min-width: 0; }
+        .filter-item.col-span-2 { grid-column: span 2; }
+        .filter-item.col-span-3 { grid-column: span 3; }
+        .filter-item label { font-size: 10.5px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: flex; align-items: center; gap: 4px; }
+        .filter-item input, .filter-item select { height: 36px; padding: 0 10px; border: 1px solid var(--border-light); border-radius: 8px; font-size: 12.5px; font-family: inherit; color: var(--text-dark); background-color: #fff; width: 100%; min-width: 0; transition: border-color 0.15s, box-shadow 0.15s; }
+        .filter-item select { cursor: pointer; appearance: none; -webkit-appearance: none; padding-right: 28px; }
         .filter-item input:focus, .filter-item select:focus { border-color: var(--primary-maroon); outline: none; box-shadow: 0 0 0 3px rgba(128,0,0,0.08); }
-        .filter-item i.filter-icon { position: absolute; right: 12px; bottom: 12px; color: var(--text-muted); pointer-events: none; font-size: 11px; }
-        .filter-actions { display: flex; gap: 8px; align-items: center; }
-        .filter-actions.push-right { margin-left: auto; }
+        .filter-item i.filter-icon { position: absolute; right: 10px; bottom: 12px; color: var(--text-muted); pointer-events: none; font-size: 10px; }
+        .filter-actions-bar { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; padding-top: 12px; margin-top: 4px; border-top: 1px solid #f1f5f9; }
+        .filter-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
         /* Active filter chips */
-        .filter-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--maroon-tint); color: var(--primary-maroon); border: 1px solid var(--maroon-tint-border); padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+        .filter-chip { display: inline-flex; align-items: center; gap: 5px; background: var(--maroon-tint); color: var(--primary-maroon); border: 1px solid var(--maroon-tint-border); padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 
         /* Table card */
         .table-card { background: white; border: 1px solid var(--border-light); border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(15,23,42,0.04); }
@@ -762,11 +1075,8 @@ $fullName = getFullName();
             .tab-inst, .btn-simple, .btn-view, .page-link { transition: none; }
         }
 
-        @media (max-width: 768px) {
-            .filter-item input, .filter-item select { min-width: 140px; width: 100%; }
-            .filter-item { flex: 1 1 45%; }
-            .filter-actions { flex-wrap: wrap; }
-            .filter-actions.push-right { margin-left: 0; }
+        @media (max-width: 900px) {
+            .filter-item.col-span-2, .filter-item.col-span-3 { grid-column: span 1; }
         }
         
         /* Modal Professional */
@@ -820,16 +1130,46 @@ $fullName = getFullName();
                 <form method="POST" class="filter-grid" id="filterForm">
                     <input type="hidden" name="section" value="details">
                     <input type="hidden" name="inst" value="<?php echo htmlspecialchars($inst); ?>">
-                    <div class="filter-item">
-                        <label for="f-search">Search USN / Name / Aadhar</label>
-                        <input type="text" id="f-search" name="search" value="<?php echo htmlspecialchars($search); ?>" placeholder="Type and press Enter...">
+                    
+                    <!-- Search Field -->
+                    <div class="filter-item col-span-2">
+                        <label for="f-search"><i class="fas fa-search"></i> Search Student</label>
+                        <input type="text" id="f-search" name="search" value="<?php echo htmlspecialchars($search); ?>" placeholder="USN, Name, Aadhar, Mobile, Email...">
                     </div>
+                    
+                    <!-- SGPA Filter Mode -->
                     <div class="filter-item">
-                        <label for="f-sgpa">Min SGPA</label>
-                        <input type="number" id="f-sgpa" name="min_sgpa" value="<?php echo $min_sgpa > 0 ? htmlspecialchars($min_sgpa) : ''; ?>" step="0.01" min="0" max="10" placeholder="e.g. 7.5" style="min-width: 110px;">
+                        <label for="f-sgpa-mode"><i class="fas fa-calculator"></i> SGPA Mode</label>
+                        <select id="f-sgpa-mode" name="sgpa_mode" onchange="this.form.submit()">
+                            <option value="latest" <?php echo $sgpa_mode === 'latest' ? 'selected' : ''; ?>>Current Sem</option>
+                            <option value="avg" <?php echo $sgpa_mode === 'avg' ? 'selected' : ''; ?>>Average CGPA</option>
+                            <option value="all_sems" <?php echo $sgpa_mode === 'all_sems' ? 'selected' : ''; ?>>All Sems &ge; Min</option>
+                            <optgroup label="Specific Semester">
+                                <?php for($s=1; $s<=8; $s++): ?>
+                                    <option value="sem_<?php echo $s; ?>" <?php echo $sgpa_mode === 'sem_' . $s ? 'selected' : ''; ?>>
+                                        Sem <?php echo $s; ?> SGPA<?php echo ($s <= 2) ? ' (Sem 3 for Diploma)' : ''; ?>
+                                    </option>
+                                <?php endfor; ?>
+                            </optgroup>
+                        </select>
+                        <i class="fas fa-chevron-down filter-icon"></i>
                     </div>
+
+                    <!-- Min SGPA -->
                     <div class="filter-item">
-                        <label for="f-sem">Semester</label>
+                        <label for="f-sgpa"><i class="fas fa-arrow-up-wide-short"></i> Min SGPA</label>
+                        <input type="number" id="f-sgpa" name="min_sgpa" value="<?php echo $min_sgpa > 0 ? htmlspecialchars($min_sgpa) : ''; ?>" step="0.01" min="0" max="10" placeholder="e.g. 7.5">
+                    </div>
+
+                    <!-- Max SGPA -->
+                    <div class="filter-item">
+                        <label for="f-max-sgpa"><i class="fas fa-arrow-down-wide-short"></i> Max SGPA</label>
+                        <input type="number" id="f-max-sgpa" name="max_sgpa" value="<?php echo $max_sgpa > 0 ? htmlspecialchars($max_sgpa) : ''; ?>" step="0.01" min="0" max="10" placeholder="e.g. 10.0">
+                    </div>
+
+                    <!-- Semester -->
+                    <div class="filter-item">
+                        <label for="f-sem"><i class="fas fa-graduation-cap"></i> Semester</label>
                         <select id="f-sem" name="sem" onchange="this.form.submit()">
                             <option value="">All Semesters</option>
                             <?php foreach (getCoordinatorSemesterFilters($department) as $s): ?>
@@ -840,9 +1180,11 @@ $fullName = getFullName();
                         </select>
                         <i class="fas fa-chevron-down filter-icon"></i>
                     </div>
+
+                    <!-- Branch -->
                     <?php if (count($available_branches) > 1): ?>
                     <div class="filter-item">
-                        <label for="f-branch">Branch</label>
+                        <label for="f-branch"><i class="fas fa-code-branch"></i> Branch</label>
                         <select id="f-branch" name="branch" onchange="this.form.submit()">
                             <option value="">All Branches</option>
                             <?php foreach ($available_branches as $ab): ?>
@@ -854,24 +1196,87 @@ $fullName = getFullName();
                         <i class="fas fa-chevron-down filter-icon"></i>
                     </div>
                     <?php endif; ?>
-                    <div class="filter-actions">
-                        <button type="submit" class="btn-simple btn-maroon"><i class="fas fa-filter"></i> Apply</button>
-                        <button type="submit" name="reset_filters" value="1" class="btn-simple" title="Clear all filters">
-                            <i class="fas fa-undo"></i> Reset
-                        </button>
+
+                    <!-- Min PUC / 12th % -->
+                    <div class="filter-item">
+                        <label for="f-puc"><i class="fas fa-percent"></i> Min 12th%</label>
+                        <input type="number" id="f-puc" name="min_puc" value="<?php echo $min_puc > 0 ? htmlspecialchars($min_puc) : ''; ?>" step="0.1" min="0" max="100" placeholder="e.g. 60">
                     </div>
-                    <div class="filter-actions push-right">
-                        <?php if ($inst !== 'gmu'): ?>
-                        <button type="button" class="btn-simple" onclick="freezeAllStudents()" style="background:#fff1f2; color:#be123c; border-color:#fda4af;">
-                            <i class="fas fa-lock"></i> Freeze All
-                        </button>
-                        <button type="button" class="btn-simple" onclick="unfreezeAllStudents()" style="background:#ecfdf5; color:#059669; border-color:#6ee7b7;">
-                            <i class="fas fa-lock-open"></i> Unfreeze All
-                        </button>
-                        <?php endif; ?>
-                        <button type="submit" name="export" value="1" class="btn-simple">
-                            <i class="fas fa-file-excel" style="color:#059669;"></i> Export Excel
-                        </button>
+
+                    <!-- Min SSLC / 10th % -->
+                    <div class="filter-item">
+                        <label for="f-sslc"><i class="fas fa-percent"></i> Min 10th%</label>
+                        <input type="number" id="f-sslc" name="min_sslc" value="<?php echo $min_sslc > 0 ? htmlspecialchars($min_sslc) : ''; ?>" step="0.1" min="0" max="100" placeholder="e.g. 60">
+                    </div>
+
+                    <!-- Gender -->
+                    <div class="filter-item">
+                        <label for="f-gender"><i class="fas fa-venus-mars"></i> Gender</label>
+                        <select id="f-gender" name="gender" onchange="this.form.submit()">
+                            <option value="">All</option>
+                            <option value="M" <?php echo $gender_filter === 'M' ? 'selected' : ''; ?>>Male</option>
+                            <option value="F" <?php echo $gender_filter === 'F' ? 'selected' : ''; ?>>Female</option>
+                        </select>
+                        <i class="fas fa-chevron-down filter-icon"></i>
+                    </div>
+
+                    <!-- Portfolio Verification -->
+                    <div class="filter-item">
+                        <label for="f-portfolio"><i class="fas fa-certificate"></i> Portfolio</label>
+                        <select id="f-portfolio" name="portfolio_status" onchange="this.form.submit()">
+                            <option value="">All</option>
+                            <option value="verified" <?php echo $portfolio_filter === 'verified' ? 'selected' : ''; ?>>Verified</option>
+                            <option value="unverified" <?php echo $portfolio_filter === 'unverified' ? 'selected' : ''; ?>>Unverified</option>
+                        </select>
+                        <i class="fas fa-chevron-down filter-icon"></i>
+                    </div>
+
+                    <!-- Freeze Status -->
+                    <div class="filter-item">
+                        <label for="f-freeze"><i class="fas fa-lock"></i> Freeze Status</label>
+                        <select id="f-freeze" name="freeze_status" onchange="this.form.submit()">
+                            <option value="">All</option>
+                            <option value="frozen" <?php echo $freeze_filter === 'frozen' ? 'selected' : ''; ?>>Frozen</option>
+                            <option value="active" <?php echo $freeze_filter === 'active' ? 'selected' : ''; ?>>Active</option>
+                        </select>
+                        <i class="fas fa-chevron-down filter-icon"></i>
+                    </div>
+
+                    <!-- Sort By -->
+                    <div class="filter-item">
+                        <label for="f-sort"><i class="fas fa-sort"></i> Sort Order</label>
+                        <select id="f-sort" name="sort_by" onchange="this.form.submit()">
+                            <option value="name_asc" <?php echo $sort_by === 'name_asc' ? 'selected' : ''; ?>>Name (A &rarr; Z)</option>
+                            <option value="name_desc" <?php echo $sort_by === 'name_desc' ? 'selected' : ''; ?>>Name (Z &rarr; A)</option>
+                            <option value="usn_asc" <?php echo $sort_by === 'usn_asc' ? 'selected' : ''; ?>>USN (Asc)</option>
+                            <option value="usn_desc" <?php echo $sort_by === 'usn_desc' ? 'selected' : ''; ?>>USN (Desc)</option>
+                            <option value="puc_desc" <?php echo $sort_by === 'puc_desc' ? 'selected' : ''; ?>>12th % (High)</option>
+                            <option value="sslc_desc" <?php echo $sort_by === 'sslc_desc' ? 'selected' : ''; ?>>10th % (High)</option>
+                        </select>
+                        <i class="fas fa-chevron-down filter-icon"></i>
+                    </div>
+
+                    <!-- Bottom Actions Bar -->
+                    <div class="filter-actions-bar">
+                        <div class="filter-actions">
+                            <button type="submit" class="btn-simple btn-maroon"><i class="fas fa-filter"></i> Apply Filters</button>
+                            <button type="submit" name="reset_filters" value="1" class="btn-simple" title="Clear all filters">
+                                <i class="fas fa-undo"></i> Reset
+                            </button>
+                        </div>
+                        <div class="filter-actions">
+                            <?php if ($inst !== 'gmu'): ?>
+                            <button type="button" class="btn-simple" onclick="freezeAllStudents()" style="background:#fff1f2; color:#be123c; border-color:#fda4af;">
+                                <i class="fas fa-lock"></i> Freeze All
+                            </button>
+                            <button type="button" class="btn-simple" onclick="unfreezeAllStudents()" style="background:#ecfdf5; color:#059669; border-color:#6ee7b7;">
+                                <i class="fas fa-lock-open"></i> Unfreeze All
+                            </button>
+                            <?php endif; ?>
+                            <button type="submit" name="export" value="1" class="btn-simple">
+                                <i class="fas fa-file-excel" style="color:#059669;"></i> Export Excel
+                            </button>
+                        </div>
                     </div>
                 </form>
             </div>
@@ -879,16 +1284,38 @@ $fullName = getFullName();
             <?php
                 $showFrom = $total_records > 0 ? $offset + 1 : 0;
                 $showTo = min($offset + $limit, $total_records);
+                $loadTimeMs = isset($pageStartTime) ? round((microtime(true) - $pageStartTime) * 1000, 1) : 0;
                 $activeChips = [];
                 if ($search !== '') $activeChips[] = ['icon' => 'fa-magnifying-glass', 'label' => 'Search: "' . $search . '"'];
-                if ($min_sgpa > 0) $activeChips[] = ['icon' => 'fa-arrow-up-short-wide', 'label' => 'SGPA >= ' . $min_sgpa];
+                if ($min_sgpa > 0 || $max_sgpa > 0) {
+                    $modeLabel = ($sgpa_mode === 'avg') ? 'CGPA' : (($sgpa_mode === 'all_sems') ? 'All Sems' : (strpos($sgpa_mode, 'sem_') === 0 ? 'Sem ' . str_replace('sem_', '', $sgpa_mode) : 'SGPA'));
+                    if ($min_sgpa > 0 && $max_sgpa > 0) {
+                        $activeChips[] = ['icon' => 'fa-calculator', 'label' => $modeLabel . ': ' . $min_sgpa . ' - ' . $max_sgpa];
+                    } elseif ($min_sgpa > 0) {
+                        $activeChips[] = ['icon' => 'fa-arrow-up-short-wide', 'label' => $modeLabel . ' >= ' . $min_sgpa];
+                    } else {
+                        $activeChips[] = ['icon' => 'fa-arrow-down-short-wide', 'label' => $modeLabel . ' <= ' . $max_sgpa];
+                    }
+                }
                 if ($sem_filter_val > 0) $activeChips[] = ['icon' => 'fa-graduation-cap', 'label' => 'Semester ' . $sem_filter_val];
                 if ($branch_filter_val !== '' && in_array($branch_filter_val, $available_branches)) $activeChips[] = ['icon' => 'fa-code-branch', 'label' => $branch_filter_val];
+                if ($min_puc > 0) $activeChips[] = ['icon' => 'fa-percent', 'label' => '12th >= ' . $min_puc . '%'];
+                if ($min_sslc > 0) $activeChips[] = ['icon' => 'fa-percent', 'label' => '10th >= ' . $min_sslc . '%'];
+                if ($gender_filter === 'M') $activeChips[] = ['icon' => 'fa-mars', 'label' => 'Male'];
+                if ($gender_filter === 'F') $activeChips[] = ['icon' => 'fa-venus', 'label' => 'Female'];
+                if ($portfolio_filter === 'verified') $activeChips[] = ['icon' => 'fa-certificate', 'label' => 'Verified Portfolio'];
+                if ($portfolio_filter === 'unverified') $activeChips[] = ['icon' => 'fa-clock', 'label' => 'Unverified Portfolio'];
+                if ($freeze_filter === 'frozen') $activeChips[] = ['icon' => 'fa-lock', 'label' => 'Frozen Records'];
+                if ($freeze_filter === 'active') $activeChips[] = ['icon' => 'fa-lock-open', 'label' => 'Active Records'];
+                if ($sort_by !== 'name_asc') $activeChips[] = ['icon' => 'fa-sort', 'label' => 'Sorted: ' . $sort_by];
             ?>
             <div class="table-card">
                 <div class="results-bar">
                     <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                         <span>Showing <b><?php echo $showFrom; ?>&ndash;<?php echo $showTo; ?></b> of <b><?php echo $total_records; ?></b> students</span>
+                        <span class="badge-simple" style="background:#f8fafc; border:1px solid #e2e8f0; color:#475569; font-size:11px; font-weight:600;" title="Execution load time">
+                            <i class="fas fa-bolt" style="color:#eab308; margin-right:3px;"></i> <?php echo $loadTimeMs; ?> ms
+                        </span>
                         <?php foreach ($activeChips as $chip): ?>
                             <span class="filter-chip"><i class="fas <?php echo $chip['icon']; ?>"></i> <?php echo htmlspecialchars($chip['label']); ?></span>
                         <?php endforeach; ?>
@@ -921,12 +1348,16 @@ $fullName = getFullName();
                     <tbody>
 
                             <?php foreach ($detailsStudents as $index => $student):
-                                $sgpaData = getSemesterSGPACoord($db, $localDB, $student['usn'], $student['aadhar'], $student['institution']);
+                                $uKey = $student['usn'] ?? '';
+                                $aKey = $student['aadhar'] ?? '';
+                                $sgpaData = $bulkSgpaMap[$uKey] ?? ($aKey && isset($bulkSgpaMap[$aKey]) ? $bulkSgpaMap[$aKey] : array_fill(1, 8, null));
                                 $rowNum = $offset + $index + 1;
                                 $pKey = ($student['institution'] ?? '') . '|' . ($student['usn'] ?? '');
                                 $pSkill = $portfolioSummary[$pKey]['Skill'] ?? ['total' => 0, 'verified' => 0];
                                 $pProj = $portfolioSummary[$pKey]['Project'] ?? ['total' => 0, 'verified' => 0];
                                 $appCount = $applicationCounts[$student['usn']] ?? 0;
+                                $isDiploma = (stripos($student['regular_lateral'] ?? '', 'LATERAL') !== false) 
+                                             || ($sgpaData[1] === null && $sgpaData[2] === null && ($sgpaData[3] !== null || $sgpaData[4] !== null || $sgpaData[5] !== null));
                             ?>
                             <tr data-usn="<?php echo htmlspecialchars($student['usn']); ?>" data-inst="<?php echo htmlspecialchars($student['institution']); ?>">
                                 <td style="text-align: center; color: #999;"><?php echo $rowNum; ?></td>
@@ -937,7 +1368,12 @@ $fullName = getFullName();
                                            onclick="openPortfolio('<?php echo htmlspecialchars($student['usn']); ?>','<?php echo htmlspecialchars($student['institution']); ?>','<?php echo htmlspecialchars($student['name']); ?>', 'AI')"
                                            title="View Portfolio & AI Reports"></i>
                                     </div>
-                                    <span class="usn-text"><?php echo htmlspecialchars($student['usn']); ?></span>
+                                    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px; margin-top: 2px;">
+                                        <span class="usn-text"><?php echo htmlspecialchars($student['usn']); ?></span>
+                                        <?php if ($isDiploma): ?>
+                                            <span class="badge-simple" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a; font-size:9.5px; padding:1px 5px; font-weight:700; border-radius:3px;" title="Diploma / Lateral Entry (Admitted directly to Sem 3)">Diploma</span>
+                                        <?php endif; ?>
+                                    </div>
                                 </td>
                                 <td style="font-size: 11px; font-weight: 600; color: #475569;">
                                     <?php echo htmlspecialchars($student['discipline'] ?? '-'); ?>
@@ -979,9 +1415,15 @@ $fullName = getFullName();
                                 
                                 <?php for($i=1; $i<=8; $i++): ?>
                                     <td class="sgpa-col">
-                                        <span class="editable" data-field="sem_<?php echo $i; ?>" contenteditable="true" data-old-value="<?php echo $sgpaData[$i] !== null ? number_format($sgpaData[$i], 1) : '-'; ?>">
-                                            <?php echo $sgpaData[$i] !== null ? number_format($sgpaData[$i], 1) : '-'; ?>
-                                        </span>
+                                        <?php if ($isDiploma && $i <= 2 && $sgpaData[$i] === null): ?>
+                                            <span class="editable" data-field="sem_<?php echo $i; ?>" contenteditable="true" data-old-value="-" title="Diploma / Lateral Entry (Direct entry to Sem 3, no Sem <?php echo $i; ?>)" style="color:#94a3b8; font-style:italic;">
+                                                -
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="editable" data-field="sem_<?php echo $i; ?>" contenteditable="true" data-old-value="<?php echo $sgpaData[$i] !== null ? number_format($sgpaData[$i], 1) : '-'; ?>">
+                                                <?php echo $sgpaData[$i] !== null ? number_format($sgpaData[$i], 1) : '-'; ?>
+                                            </span>
+                                        <?php endif; ?>
                                     </td>
                                 <?php endfor; ?>
 

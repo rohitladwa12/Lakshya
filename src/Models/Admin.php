@@ -205,12 +205,23 @@ class Admin extends Model {
 
             $userModel = new User();
 
+            // Pre-fetch all current active semesters from student_sem_sgpa
+            $semMap = [];
+            try {
+                $semRows = $this->db->query("SELECT student_id, semester FROM student_sem_sgpa WHERE is_current = 1")->fetchAll(PDO::FETCH_ASSOC);
+                foreach ($semRows as $sr) {
+                    $semMap[strtoupper(trim($sr['student_id']))] = $sr['semester'];
+                }
+            } catch (Throwable $e) {}
+
             foreach ($resumes as $r) {
                 $sid = $r['student_id'];
                 $student = $userModel->find($sid);
                 
                 $resolvedDept = 'Unknown';
                 $institution = 'Unknown';
+                $resolvedSem = 'N/A';
+                $remoteUser = null;
                 
                 $possibleInstitutions = [];
                 if ($student && !empty($student['institution']) && $student['institution'] !== 'Unknown') {
@@ -223,6 +234,9 @@ class Admin extends Model {
                 if ($student) {
                     $resolvedDept = $student['DISCIPLINE'] ?? 'Unknown';
                     $institution = $student['institution'] ?? 'Unknown';
+                    if (!empty($student['sem']) || !empty($student['semester'])) {
+                        $resolvedSem = 'Sem ' . ($student['sem'] ?? $student['semester']);
+                    }
                     // Use USN if found for PDF path consistency
                     if (!empty($student['username'])) {
                         $sid = $student['username'];
@@ -266,6 +280,9 @@ class Admin extends Model {
                                     // Robust mapping
                                     $resolvedDept = $remoteUser['discipline'] ?? ($remoteUser['DISCIPLINE'] ?? ($remoteUser['branch'] ?? ($remoteUser['DEPT_ID'] ?? 'Unknown')));
                                     $institution = strtoupper($inst);
+                                    if (!empty($remoteUser['sem']) || !empty($remoteUser['semester'])) {
+                                        $resolvedSem = 'Sem ' . ($remoteUser['sem'] ?? $remoteUser['semester']);
+                                    }
                                     if (!empty($remoteUser['usn'])) {
                                         $sid = $remoteUser['usn'];
                                     }
@@ -276,6 +293,25 @@ class Admin extends Model {
                              logMessage("Admin Fallback Query Error for $sid: " . $e->getMessage(), 'WARNING');
                         }
                     }
+                }
+
+                // Check semMap for active semester
+                $sidUpper = strtoupper(trim($sid));
+                $origUpper = strtoupper(trim($r['student_id'] ?? ''));
+                if (isset($semMap[$sidUpper])) {
+                    $resolvedSem = 'Sem ' . $semMap[$sidUpper];
+                } elseif (isset($semMap[$origUpper])) {
+                    $resolvedSem = 'Sem ' . $semMap[$origUpper];
+                } elseif ($resolvedSem === 'N/A') {
+                    // Fallback to MAX(semester) from student_sem_sgpa
+                    try {
+                        $stmtSem = $this->db->prepare("SELECT MAX(semester) FROM student_sem_sgpa WHERE student_id = ? OR UPPER(student_id) = UPPER(?)");
+                        $stmtSem->execute([$sid, $sid]);
+                        $maxSem = $stmtSem->fetchColumn();
+                        if ($maxSem) {
+                            $resolvedSem = 'Sem ' . $maxSem;
+                        }
+                    } catch (Throwable $e) {}
                 }
 
                 // Construct PDF path using resolved USN
@@ -289,6 +325,7 @@ class Admin extends Model {
                     'full_name' => $r['full_name'],
                     'institution' => $institution,
                     'department' => $resolvedDept ?: 'Unknown',
+                    'semester' => $resolvedSem,
                     'built_at' => $r['created_at'],
                     'pdf_path' => $pdfPath
                 ];

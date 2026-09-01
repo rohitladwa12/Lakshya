@@ -1,0 +1,452 @@
+-- Migration: Expand DSA Coding Problems (52 New Problems)
+-- Categories covered: Queues, Stacks, Arrays, Strings, Linked Lists, Trees, Graphs, DP
+-- Difficulties: Easy, Medium, Hard
+
+INSERT INTO coding_problems (title, category, difficulty, problem_statement, constraints, example_input, example_output, concept_explanation, time_complexity, space_complexity) VALUES
+
+-- ============================================================================
+-- QUEUES (Easy, Medium, Hard)
+-- ============================================================================
+('Implement Queue using Array', 'Queues', 'Easy',
+'Design and implement a First-In-First-Out (FIFO) Queue using a fixed size or dynamic array. Support enqueue, dequeue, peek, and isEmpty operations.',
+'1 <= queue elements <= 10^5\nOperations count <= 10^4',
+'enqueue(1), enqueue(2), peek(), dequeue(), isEmpty()',
+'1, 1, false',
+'A Queue follows the FIFO principle (First In First Out). Operating pointers (front and rear) allow O(1) enqueue and dequeue operations when managed properly with fixed array or modular indexing (circular queue).',
+'O(1)', 'O(n)'),
+
+('First Unique Character in a Stream', 'Queues', 'Easy',
+'Given a stream of characters, find the first non-repeating character at each step. If no non-repeating character exists, return "#".',
+'1 <= stream length <= 10^5\nCharacters are lowercase English letters.',
+'a a b c',
+'a # b b',
+'Use a Queue to maintain the order of characters and a frequency map/array to count occurrences. Pop characters from the front of the queue if their frequency > 1.',
+'O(n)', 'O(1)'),
+
+('Design Circular Queue', 'Queues', 'Medium',
+'Design your implementation of the circular queue. The circular queue is a linear data structure in which the operations are performed based on FIFO principle and the last position is connected back to the first position to make a circle.',
+'1 <= k <= 1000 where k is capacity of queue.',
+'CircularQueue(3), enQueue(1), enQueue(2), enQueue(3), enQueue(4), Rear(), isFull(), deQueue(), enQueue(4), Rear()',
+'true, true, true, false, 3, true, true, true, 4',
+'Circular Queue reuses freed memory slots at the front when elements are dequeued. Track front and rear indices using modulo arithmetic: `rear = (rear + 1) % capacity`.',
+'O(1)', 'O(k)'),
+
+('Task Scheduler', 'Queues', 'Medium',
+'Given a characters array tasks representing CPU tasks and a non-negative integer n representing the cooling period between two same tasks, return the least number of units of times that the CPU will take to finish all the given tasks.',
+'1 <= tasks.length <= 10^4\n0 <= n <= 100',
+'tasks = ["A","A","A","B","B","B"], n = 2',
+'8 (A -> B -> idle -> A -> B -> idle -> A -> B)',
+'Use a Max-Heap / Priority Queue combined with a Queue for cooling down tasks. Always schedule the task with the highest remaining frequency. When a task is executed, place it in a cooldown queue until n units of time pass.',
+'O(N)', 'O(1)'),
+
+('Sliding Window Maximum', 'Queues', 'Hard',
+'You are given an array of integers nums, there is a sliding window of size k which is moving from the very left of the array to the very right. Return the max sliding window.',
+'1 <= nums.length <= 10^5\n1 <= k <= nums.length',
+'nums = [1,3,-1,-3,5,3,6,7], k = 3',
+'[3,3,5,5,6,7]',
+'Use a Monotonic Deque (Double-Ended Queue) to store indices of elements in decreasing order. The element at the front of the deque is always the maximum for the current window. Remove elements outside the current window from the front and smaller elements from the back.',
+'O(n)', 'O(k)'),
+
+
+-- ============================================================================
+-- STACKS (Easy, Medium, Hard)
+-- ============================================================================
+('Remove Outermost Parentheses', 'Stacks', 'Easy',
+'A valid parentheses string is primitive if it is non-empty and cannot be split into two valid parentheses strings. Remove the outermost parentheses of every primitive string in the expansion of S.',
+'1 <= S.length <= 10^5\nS[i] is "(" or ")"',
+'s = "(()())(())"',
+'"()()()"',
+'Maintain a depth/open count. When encountering "(", append to result if open count > 0, then increment count. When encountering ")", decrement count, then append to result if open count > 0.',
+'O(n)', 'O(n)'),
+
+('Backspace String Compare', 'Stacks', 'Easy',
+'Given two strings s and t, return true if they are equal when both are typed into empty text editors. "#" means a backspace character.',
+'1 <= s.length, t.length <= 200\ns and t contain lowercase letters and "#"',
+'s = "ab#c", t = "ad#c"',
+'true (Both become "ac")',
+'Use a Stack for each string. Push characters onto the stack, and when encountering "#", pop from the stack if not empty. Finally, compare the remaining stacks.',
+'O(n + m)', 'O(n + m)'),
+
+('Evaluate Reverse Polish Notation', 'Stacks', 'Medium',
+'Evaluate the value of an arithmetic expression in Reverse Polish Notation (Postfix Notation). Valid operators are +, -, *, and /. Each operand may be an integer or another expression.',
+'1 <= tokens.length <= 10^4\ntokens[i] is an operator or integer.',
+'tokens = ["2","1","+","3","*"]',
+'9 ((2 + 1) * 3)',
+'Use a Stack. Iterate through tokens: if it is a number, push to stack. If it is an operator, pop two operands (second operand popped first, first operand popped second), evaluate the operation, and push result back to stack.',
+'O(n)', 'O(n)'),
+
+('Daily Temperatures', 'Stacks', 'Medium',
+'Given an array of integers temperatures represents the daily temperatures, return an array answer such that answer[i] is the number of days you have to wait after the i-th day to get a warmer temperature. If there is no future day for which this is possible, keep answer[i] == 0.',
+'1 <= temperatures.length <= 10^5\n30 <= temperatures[i] <= 100',
+'temperatures = [73,74,75,71,69,72,76,73]',
+'[1,1,4,2,1,1,0,0]',
+'Use a Monotonic Decreasing Stack storing indices. Iterate through temperatures: while current temp is greater than temp at stack top index, pop index and calculate index difference `current_i - popped_i`. Then push current index.',
+'O(n)', 'O(n)'),
+
+('Next Greater Element I', 'Stacks', 'Medium',
+'The next greater element of some element x in an array is the first greater element that is to the right of x in the same array. Find all next greater elements for nums1 in nums2.',
+'1 <= nums1.length <= nums2.length <= 1000\n0 <= nums1[i], nums2[i] <= 10^4',
+'nums1 = [4,1,2], nums2 = [1,3,4,2]',
+'[-1,3,3]',
+'Use a Monotonic Stack with a Hash Map. Iterate through nums2 from left to right, maintaining a stack of decreasing numbers. When encountering a larger number, pop from stack and record `map[popped] = current`.',
+'O(n + m)', 'O(m)'),
+
+('Decode String', 'Stacks', 'Medium',
+'Given an encoded string, return its decoded string. The encoding rule is: k[encoded_string], where the encoded_string inside the square brackets is being repeated exactly k times.',
+'1 <= s.length <= 30',
+'s = "3[a2[c]]"',
+'"accaccacc"',
+'Use two stacks: one for numbers (counts) and one for strings (current decoded buffers). When encountering "[", push current number and current string, then reset. When encountering "]", pop count and previous string, and append repeated current string.',
+'O(N)', 'O(N)'),
+
+('Largest Rectangle in Histogram', 'Stacks', 'Hard',
+'Given an array of integers heights representing the histogram bar height where the width of each bar is 1, return the area of the largest rectangle in the histogram.',
+'1 <= heights.length <= 10^5\n0 <= heights[i] <= 10^4',
+'heights = [2,1,5,6,2,3]',
+'10 (The largest rectangle is formed by heights 5 and 6 with area 2 * 5 = 10)',
+'Use a Monotonic Increasing Stack storing indices. When a bar of lower height is encountered, pop bars from stack and calculate area assuming the popped bar is the limiting height. The width extends from current index to the new stack top index.',
+'O(n)', 'O(n)'),
+
+('Trapping Rain Water', 'Stacks', 'Hard',
+'Given n non-negative integers representing an elevation map where the width of each bar is 1, compute how much water it can trap after raining.',
+'n == height.length\n1 <= n <= 2 * 10^4\n0 <= height[i] <= 10^5',
+'height = [0,1,0,2,1,0,1,3,2,1,2,1]',
+'6',
+'Can be solved with Monotonic Stack or Two Pointers. With Stack: store indices of bars. When a higher bar is found, pop bounded valleys, calculate trapped water = `(min(height[left], height[right]) - height[bottom]) * width`.',
+'O(n)', 'O(n)'),
+
+
+-- ============================================================================
+-- ARRAYS (Easy, Medium, Hard)
+-- ============================================================================
+('Running Sum of 1D Array', 'Arrays', 'Easy',
+'Given an array nums. We define a running sum of an array as runningSum[i] = sum(nums[0]...nums[i]). Return the running sum of nums.',
+'1 <= nums.length <= 1000\n-10^6 <= nums[i] <= 10^6',
+'nums = [1,2,3,4]',
+'[1,3,6,10]',
+'Iterate through the array starting from index 1 and add the previous element to the current element: `nums[i] += nums[i-1]`.',
+'O(n)', 'O(1)'),
+
+('Find Pivot Index', 'Arrays', 'Easy',
+'Given an array of integers nums, calculate the pivot index of this array. The pivot index is the index where the sum of all the numbers strictly to the left is equal to the sum of all the numbers strictly to the right.',
+'1 <= nums.length <= 10^4\n-1000 <= nums[i] <= 1000',
+'nums = [1,7,3,6,5,6]',
+'3 (Left sum = 1+7+3 = 11, Right sum = 5+6 = 11)',
+'First calculate total sum of array. Iterate through array maintaining `left_sum`. For each element, `right_sum = total_sum - left_sum - nums[i]`. If `left_sum == right_sum`, return current index.',
+'O(n)', 'O(1)'),
+
+('Squares of a Sorted Array', 'Arrays', 'Easy',
+'Given an integer array nums sorted in non-decreasing order, return an array of the squares of each number sorted in non-decreasing order.',
+'1 <= nums.length <= 10^4\n-10^4 <= nums[i] <= 10^4',
+'nums = [-4,-1,0,3,10]',
+'[0,1,9,16,100]',
+'Use Two Pointers: one at start (left) and one at end (right). Compare absolute values of `nums[left]` and `nums[right]`. Place the larger square at the end of the output array and move the respective pointer inward.',
+'O(n)', 'O(n)'),
+
+('Subarray Sums Divisible by K', 'Arrays', 'Medium',
+'Given an integer array nums and an integer k, return the number of non-empty subarrays that have a sum divisible by k.',
+'1 <= nums.length <= 3 * 10^4\n-10^4 <= nums[i] <= 10^4\n2 <= k <= 10^4',
+'nums = [4,5,0,-2,-3,1], k = 5',
+'7',
+'Use Prefix Sum and Hash Map / Modulo Frequency array. If two prefix sums have the same remainder when divided by k, the subarray between them is divisible by k. Normalize negative remainders: `(sum % k + k) % k`.',
+'O(n)', 'O(k)'),
+
+('4Sum', 'Arrays', 'Medium',
+'Given an array nums of n integers, return an array of all the unique quadruplets [nums[a], nums[b], nums[c], nums[d]] such that their sum equals target.',
+'1 <= nums.length <= 200\n-10^9 <= nums[i], target <= 10^9',
+'nums = [1,0,-1,0,-2,2], target = 0',
+'[[-2,-1,1,2],[-2,0,0,2],[-1,0,0,1]]',
+'Sort array. Use two nested loops for first two numbers, then use Two Pointers for remaining two numbers. Skip duplicate elements at each level to ensure unique quadruplets.',
+'O(n³)', 'O(1)'),
+
+('Next Permutation', 'Arrays', 'Medium',
+'A permutation of an array of integers is an arrangement of its members into a sequence or linear order. Rearrange numbers into the lexicographically next greater permutation of numbers.',
+'1 <= nums.length <= 1000\n0 <= nums[i] <= 100',
+'nums = [1,2,3]',
+'[1,3,2]',
+'1. Find first decreasing element from right (index i). 2. Find first element from right larger than nums[i] (index j). 3. Swap nums[i] and nums[j]. 4. Reverse subarray from i+1 to end.',
+'O(n)', 'O(1)'),
+
+('First Missing Positive', 'Arrays', 'Hard',
+'Given an unsorted integer array nums, return the smallest missing positive integer. You must implement an algorithm that runs in O(n) time and uses O(1) auxiliary space.',
+'1 <= nums.length <= 10^5\n-2^31 <= nums[i] <= 2^31 - 1',
+'nums = [3,4,-1,1]',
+'2',
+'Use Cyclic Sort (Bucket Sort logic in-place). Place each number x at index `x - 1` if `1 <= x <= n`. Then iterate through array: the first index `i` where `nums[i] != i + 1` gives answer `i + 1`.',
+'O(n)', 'O(1)'),
+
+
+-- ============================================================================
+-- STRINGS (Easy, Medium, Hard)
+-- ============================================================================
+('Isomorphic Strings', 'Strings', 'Easy',
+'Given two strings s and t, determine if they are isomorphic. Two strings s and t are isomorphic if the characters in s can be replaced to get t.',
+'1 <= s.length <= 5 * 10^4\nt.length == s.length',
+'s = "egg", t = "add"',
+'true',
+'Use two Hash Maps or character mapping arrays to track mapping from s->t and t->s. Ensure one-to-one mapping without duplicate target mappings.',
+'O(n)', 'O(1)'),
+
+('Is Subsequence', 'Strings', 'Easy',
+'Given two strings s and t, return true if s is a subsequence of t, or false otherwise.',
+'0 <= s.length <= 100\n0 <= t.length <= 10^4',
+'s = "abc", t = "ahbgdc"',
+'true',
+'Two Pointers technique. Point `i` to s and `j` to t. Advance `j` on every step, and advance `i` whenever `s[i] == t[j]`. If `i` reaches length of s, return true.',
+'O(n)', 'O(1)'),
+
+('String Compression', 'Strings', 'Medium',
+'Given an array of characters chars, compress it in-place using the consecutive repeating characters algorithm. Return the new length of the array.',
+'1 <= chars.length <= 2000',
+'chars = ["a","a","b","b","c","c","c"]',
+'6 (chars becomes ["a","2","b","2","c","3"])',
+'Use Two Pointers (read pointer and write pointer). Count consecutive identical characters. Write character, then write count digits if count > 1.',
+'O(n)', 'O(1)'),
+
+('Find All Anagrams in a String', 'Strings', 'Medium',
+'Given two strings s and p, return an array of all the start indices of p''s anagrams in s. You may return the answer in any order.',
+'1 <= s.length, p.length <= 3 * 10^4',
+'s = "cbaebabacd", p = "abc"',
+'[0, 6]',
+'Sliding Window with frequency array. Maintain character frequency count of pattern p and current window of size `len(p)` in s. Compare frequency arrays on each window shift.',
+'O(n)', 'O(1)'),
+
+('Custom Sort String', 'Strings', 'Medium',
+'You are given two strings order and s. All the characters of order are unique and were sorted in some custom order. Permute the characters of s so that they match the order.',
+'1 <= order.length <= 26\n1 <= s.length <= 200',
+'order = "cba", s = "abcd"',
+'"cbad"',
+'Count frequencies of characters in s. Iterate through order, appending each character according to its count in s. Finally append remaining characters from s not present in order.',
+'O(n)', 'O(1)'),
+
+('Minimum Window Substring', 'Strings', 'Hard',
+'Given two strings s and t of lengths m and n respectively, return the minimum window substring of s such that every character in t (including duplicates) is included in the window.',
+'1 <= s.length, t.length <= 10^5',
+'s = "ADOBECODEBANC", t = "ABC"',
+'"BANC"',
+'Sliding Window with two pointers (right expands, left contracts). Maintain map of required character counts. When all characters are satisfied, shrink window from left to find minimum length.',
+'O(m + n)', 'O(1)'),
+
+
+-- ============================================================================
+-- LINKED LISTS (Easy, Medium, Hard)
+-- ============================================================================
+('Palindrome Linked List', 'Linked Lists', 'Easy',
+'Given the head of a singly linked list, return true if it is a palindrome or false otherwise.',
+'1 <= number of nodes <= 10^5\n0 <= Node.val <= 9',
+'head = [1,2,2,1]',
+'true',
+'1. Find middle of linked list using Fast & Slow Pointers. 2. Reverse second half of linked list. 3. Compare values of first half and reversed second half.',
+'O(n)', 'O(1)'),
+
+('Delete Node in a Linked List', 'Linked Lists', 'Easy',
+'There is a single-linked list head and you want to delete a node in it. You are given only the node to be deleted (not head).',
+'2 <= nodes <= 1000\nNode to delete is not tail node.',
+'node = 5 (list [4,5,1,9])',
+'List becomes [4,1,9]',
+'Since head is not provided, copy the value of next node to current node: `node.val = node.next.val`, then delete next node: `node.next = node.next.next`.',
+'O(1)', 'O(1)'),
+
+('Reorder List', 'Linked Lists', 'Medium',
+'Reorder a linked list L: L0 -> L1 -> ... -> Ln-1 -> Ln to L0 -> Ln -> L1 -> Ln-1 -> L2 -> Ln-2 ...',
+'1 <= number of nodes <= 5 * 10^4',
+'head = [1,2,3,4]',
+'[1,4,2,3]',
+'1. Split list into two halves using Fast/Slow pointers. 2. Reverse second half. 3. Interleave/merge nodes alternating between first half and reversed second half.',
+'O(n)', 'O(1)'),
+
+('Sort List', 'Linked Lists', 'Medium',
+'Given the head of a linked list, return the list after sorting it in ascending order using Merge Sort.',
+'0 <= number of nodes <= 5 * 10^4',
+'head = [4,2,1,3]',
+'[1,2,3,4]',
+'Use Top-Down Merge Sort. Divide list in half using Fast/Slow pointers, recursively sort both halves, then merge sorted halves using standard sorted list merge algorithm.',
+'O(n log n)', 'O(log n)'),
+
+('Swap Nodes in Pairs', 'Linked Lists', 'Medium',
+'Given a linked list, swap every two adjacent nodes and return its head. You must solve the problem without modifying the values in the list''s nodes (only nodes itself may be changed).',
+'0 <= number of nodes <= 100',
+'head = [1,2,3,4]',
+'[2,1,4,3]',
+'Iterative approach with dummy node. Pointer `prev` points to node before pair. Adjust pointers: `first = prev.next`, `second = first.next`, `first.next = second.next`, `second.next = first`, `prev.next = second`.',
+'O(n)', 'O(1)'),
+
+('Reverse Nodes in k-Group', 'Linked Lists', 'Hard',
+'Given the head of a linked list, reverse the nodes of a list k at a time, and return its modified list. k is a positive integer <= length of linked list.',
+'1 <= k <= length of list <= 5000',
+'head = [1,2,3,4,5], k = 2',
+'[2,1,4,3,5]',
+'Check if k nodes exist ahead. If yes, reverse sublist of length k, link previous tail to new head, and recurse/repeat for next k nodes. If fewer than k nodes remain, keep them as is.',
+'O(n)', 'O(1)'),
+
+
+-- ============================================================================
+-- TREES (Easy, Medium, Hard)
+-- ============================================================================
+('Symmetric Tree', 'Trees', 'Easy',
+'Given the root of a binary tree, check whether it is a mirror of itself (i.e., symmetric around its center).',
+'1 <= number of nodes <= 1000',
+'root = [1,2,2,3,4,4,3]',
+'true',
+'Helper function `isMirror(t1, t2)`: two trees are mirrors if roots have same value, `t1.left` mirrors `t2.right`, and `t1.right` mirrors `t2.left`. Can be done recursively or iteratively using Queue.',
+'O(n)', 'O(h)'),
+
+('Subtree of Another Tree', 'Trees', 'Easy',
+'Given the roots of two binary trees root and subRoot, return true if there is a subtree of root with the same structure and node values of subRoot.',
+'1 <= root nodes <= 2000\n1 <= subRoot nodes <= 1000',
+'root = [3,4,5,1,2], subRoot = [4,1,2]',
+'true',
+'Recursive approach: check if `isSameTree(root, subRoot)`. If not, recursively check `isSubtree(root.left, subRoot)` or `isSubtree(root.right, subRoot)`.',
+'O(N * M)', 'O(h)'),
+
+('Diameter of Binary Tree', 'Trees', 'Easy',
+'Given the root of a binary tree, return the length of the diameter of the tree. The diameter is the length of the longest path between any two nodes in a tree.',
+'1 <= number of nodes <= 10^4',
+'root = [1,2,3,4,5]',
+'3 (Path [4,2,1,3] or [5,2,1,3] has length 3)',
+'Post-order traversal (DFS). At each node, calculate left height and right height. The path through current node is `left_h + right_h`. Update global max diameter and return `max(left_h, right_h) + 1`.',
+'O(n)', 'O(h)'),
+
+('Construct Binary Tree from Preorder and Inorder Traversal', 'Trees', 'Medium',
+'Given two integer arrays preorder and inorder, construct and return the binary tree.',
+'1 <= preorder.length <= 3000\ninorder.length == preorder.length',
+'preorder = [3,9,20,15,7], inorder = [9,3,15,20,7]',
+'[3,9,20,null,null,15,7]',
+'First element of preorder is root. Locate root in inorder array using Hash Map. Elements to left of root in inorder form left subtree; elements to right form right subtree. Recursively build subtrees.',
+'O(n)', 'O(n)'),
+
+('Count Good Nodes in Binary Tree', 'Trees', 'Medium',
+'Given a binary tree root, a node X in the tree is named good if in the path from root to X there are no nodes with a value greater than X. Return the number of good nodes.',
+'1 <= nodes <= 10^5\n-10^4 <= Node.val <= 10^4',
+'root = [3,1,4,3,null,1,5]',
+'4 (Nodes 3, 4, 5 and 3 at bottom left are good)',
+'DFS traversal carrying `max_so_far` value along the path. If `current.val >= max_so_far`, increment good node count and update `max_so_far = current.val` for child calls.',
+'O(n)', 'O(h)'),
+
+('Binary Tree Maximum Path Sum', 'Trees', 'Hard',
+'A path in a binary tree is a sequence of nodes where each pair of adjacent nodes has an edge connecting them. Return the maximum path sum of any non-empty path.',
+'1 <= nodes <= 3 * 10^4\n-1000 <= Node.val <= 1000',
+'root = [-10,9,20,null,null,15,7]',
+'42 (Path [15, 20, 7] has max sum 15 + 20 + 7 = 42)',
+'Post-order DFS. At each node, compute max gain from left and right children (max with 0 to ignore negative sums). Current max path through node = `val + left_gain + right_gain`. Return `val + max(left_gain, right_gain)` to parent.',
+'O(n)', 'O(h)'),
+
+('Serialize and Deserialize Binary Tree', 'Trees', 'Hard',
+'Design an algorithm to serialize a binary tree to a string and deserialize a string back to the original binary tree structure.',
+'1 <= nodes <= 10^4\n-1000 <= Node.val <= 1000',
+'root = [1,2,3,null,null,4,5]',
+'"1,2,X,X,3,4,X,X,5,X,X"',
+'Pre-order traversal DFS. Serialize: append node values separated by commas, using "X" or "null" for null nodes. Deserialize: convert string to queue/list of tokens, recursively reconstruct nodes.',
+'O(n)', 'O(n)'),
+
+
+-- ============================================================================
+-- GRAPHS (Easy, Medium, Hard)
+-- ============================================================================
+('Find Center of Star Graph', 'Graphs', 'Easy',
+'There is an undirected star graph consisting of n nodes labeled from 1 to n. A star graph is a graph where there is one center node connected to every other node. Find the center node.',
+'3 <= n <= 10^5\nedges.length == n - 1',
+'edges = [[1,2],[2,3],[4,2]]',
+'2',
+'Since the center node must appear in every edge, simply compare the first two edges `edges[0]` and `edges[1]`. The common vertex between them is the center node!',
+'O(1)', 'O(1)'),
+
+('Find if Path Exists in Graph', 'Graphs', 'Easy',
+'Given a bi-directional graph with n vertices and edges, determine if there is a valid path between source and destination.',
+'1 <= n <= 2 * 10^5\n0 <= edges.length <= 2 * 10^5',
+'n = 3, edges = [[0,1],[1,2],[2,0]], source = 0, destination = 2',
+'true',
+'Build Adjacency List. Use BFS or DFS (or Disjoint Set Union / DSU) starting from `source` node maintaining a `visited` set/array. If `destination` is visited, return true.',
+'O(V + E)', 'O(V + E)'),
+
+('Rotting Oranges', 'Graphs', 'Medium',
+'You are given an m x n grid where 0 = empty cell, 1 = fresh orange, 2 = rotten orange. Every minute, any fresh orange that is 4-directionally adjacent to a rotten orange becomes rotten. Return minimum minutes elapsed.',
+'1 <= m, n <= 10',
+'grid = [[2,1,1],[1,1,0],[0,1,1]]',
+'4',
+'Multi-Source BFS. Push all initial rotten orange positions into a Queue and count total fresh oranges. Process queue level by level (minute by minute), rotting adjacent fresh oranges and decrementing fresh count.',
+'O(m * n)', 'O(m * n)'),
+
+('Clone Graph', 'Graphs', 'Medium',
+'Given a reference of a node in a connected undirected graph, return a deep copy (clone) of the graph.',
+'1 <= nodes <= 100\nNode.val is unique.',
+'adjList = [[2,4],[1,3],[2,4],[1,3]]',
+'Cloned Graph matching structure',
+'Use DFS or BFS with a Hash Map (`map[original_node] = cloned_node`). When visiting a node, clone it, add to map, and recursively clone all neighbor edges.',
+'O(V + E)', 'O(V)'),
+
+('Pacific Atlantic Water Flow', 'Graphs', 'Medium',
+'There is an m x n rectangular island that borders both the Pacific Ocean (top/left) and Atlantic Ocean (bottom/right). Find all grid coordinates where water can flow to both oceans.',
+'1 <= m, n <= 200',
+'heights = [[1,2,2,3,5],[3,2,3,4,4],[2,4,5,3,1],[6,7,1,4,5],[5,1,1,2,4]]',
+'[[0,4],[1,3],[1,4],[2,2],[3,0],[3,1],[4,0]]',
+'Reverse Flow DFS/BFS starting from ocean borders inland. Run DFS from Pacific borders (top/left) upwards into higher heights. Run DFS from Atlantic borders (bottom/right). Intersection of reachable sets is answer.',
+'O(m * n)', 'O(m * n)'),
+
+('Course Schedule II', 'Graphs', 'Medium',
+'There are n courses labeled from 0 to n-1. You are given prerequisites array. Return the ordering of courses you should take to finish all courses. If impossible, return empty array.',
+'1 <= numCourses <= 2000\n0 <= prerequisites.length <= 5000',
+'numCourses = 4, prerequisites = [[1,0],[2,0],[3,1],[3,2]]',
+'[0,1,2,3] (or [0,2,1,3])',
+'Topological Sort using Kahn''s Algorithm (BFS with In-degree count). Calculate in-degree for all nodes. Add nodes with in-degree 0 to Queue. Process queue: decrement neighbor in-degrees and append to order.',
+'O(V + E)', 'O(V + E)'),
+
+('Cheapest Flights Within K Stops', 'Graphs', 'Hard',
+'There are n cities connected by flights. Given src, dst, and max k stops, find cheapest price from src to dst with at most k stops. Return -1 if no such route.',
+'1 <= n <= 100\n0 <= k < n',
+'n = 4, flights = [[0,1,100],[1,2,100],[2,0,100],[1,3,600],[2,3,200]], src = 0, dst = 3, k = 1',
+'700 (Flight 0 -> 1 -> 3 with price 100 + 600)',
+'Modified Bellman-Ford or BFS with distance array. Run BFS level-by-level up to k + 1 iterations, updating minimum cost array `dist[]` at each step to prevent using more than allowed stops.',
+'O(K * E)', 'O(V)'),
+
+
+-- ============================================================================
+-- DYNAMIC PROGRAMMING (Easy, Medium, Hard)
+-- ============================================================================
+('Fibonacci Number (DP)', 'DP', 'Easy',
+'The Fibonacci numbers form a sequence where each number is the sum of the two preceding ones. Given n, calculate F(n).',
+'0 <= n <= 30',
+'n = 4',
+'3 (F(4) = F(3) + F(2) = 2 + 1 = 3)',
+'Bottom-Up Dynamic Programming. Maintain two variables `prev2` and `prev1` starting at 0 and 1. Iterate from 2 to n updating `curr = prev1 + prev2`.',
+'O(n)', 'O(1)'),
+
+('Target Sum', 'DP', 'Medium',
+'You are given an integer array nums and an integer target. You want to build an expression out of nums by adding "+" or "-" before each integer. Return the number of different ways to assign symbols to make sum equal to target.',
+'1 <= nums.length <= 20\n0 <= target <= 1000',
+'nums = [1,1,1,1,1], target = 3',
+'5',
+'Transform problem into 0/1 Knapsack / Subset Sum: find subset P with sum `P = (sum(nums) + target) / 2`. Use DP array `dp[j]` representing number of ways to form sum `j`.',
+'O(n * target)', 'O(target)'),
+
+('Coin Change II', 'DP', 'Medium',
+'You are given an integer array coins representing coins of different denominations and an integer amount representing a total amount of money. Return the number of combinations that make up that amount.',
+'1 <= coins.length <= 300\n1 <= amount <= 5000',
+'amount = 5, coins = [1,2,5]',
+'4 (Combinations: 5, 2+2+1, 2+1+1+1, 1+1+1+1+1)',
+'Unbounded Knapsack DP. 1D DP array `dp[i]` stores number of ways to make amount `i`. Outer loop over coins, inner loop over amounts from `coin` to `amount`: `dp[i] += dp[i - coin]`.',
+'O(n * amount)', 'O(amount)'),
+
+('House Robber II', 'DP', 'Medium',
+'You are a professional robber planning to rob houses along a street. Houses are arranged in a circle (first and last houses are adjacent). Return maximum money you can rob without alerting police.',
+'1 <= nums.length <= 1000',
+'nums = [2,3,2]',
+'3 (Cannot rob house 1 and house 3 because they are adjacent)',
+'Break circular constraint into two linear House Robber subproblems: 1. Rob houses from index 0 to n-2. 2. Rob houses from index 1 to n-1. Answer is `max(subproblem1, subproblem2)`.',
+'O(n)', 'O(1)'),
+
+('Burst Balloons', 'DP', 'Hard',
+'You are given n balloons indexed from 0 to n-1. Each balloon is painted with a number. If you burst balloon i you get `nums[i-1] * nums[i] * nums[i+1]` coins. Return maximum coins you can collect.',
+'1 <= n <= 300\n0 <= nums[i] <= 100',
+'nums = [3,1,5,8]',
+'167',
+'Interval DP. Instead of thinking which balloon to burst first, think which balloon `k` is burst LAST in range `(i, j)`. `dp[i][j] = max(dp[i][k] + dp[k][j] + nums[i]*nums[k]*nums[j])` for all k between i and j.',
+'O(n³)', 'O(n²)'),
+
+('Distinct Subsequences', 'DP', 'Hard',
+'Given two strings s and t, return the number of distinct subsequences of s which equals t.',
+'1 <= s.length, t.length <= 1000',
+'s = "rabbbit", t = "rabbit"',
+'3',
+'2D DP `dp[i][j]` = number of distinct subsequences of `s[0...i-1]` matching `t[0...j-1]`. If `s[i-1] == t[j-1]`, `dp[i][j] = dp[i-1][j-1] + dp[i-1][j]`. Otherwise `dp[i][j] = dp[i-1][j]`.',
+'O(m * n)', 'O(m * n)');

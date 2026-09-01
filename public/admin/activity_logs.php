@@ -209,6 +209,19 @@ $currentRosterPage = isset($_POST['roster_page']) ? (int) $_POST['roster_page'] 
 $selectedDeptInst = isset($_POST['dept_inst']) ? trim($_POST['dept_inst']) : 'ALL';
 $selectedDeptDisc = isset($_POST['dept_disc']) ? trim($_POST['dept_disc']) : 'ALL';
 
+// Global defaults for tab-specific variables to prevent JavaScript json_encode errors on other tabs
+$deptStats = [];
+$deptEngagementRates = [];
+$tierCounts = [
+    'Power (10+ Logins)' => 0,
+    'Regular (3-9 Logins)' => 0,
+    'Occasional (1-2 Logins)' => 0,
+    'Inactive (0 Logins)' => 0
+];
+$top10ActiveStudents = [];
+$gmitTotal = 0; $gmitActive = 0;
+$gmuTotal = 0; $gmuActive = 0;
+
 // LAZY LOAD: Department-wise heavy joins are ONLY executed when actually viewing the Departments tab!
 if ($activeTab === 'departments') {
     $gmit = getDB('gmit');
@@ -430,8 +443,12 @@ if (empty($featureUsage)) {
     ];
 }
 
-// 7. Daily Usage Trend Calculations (Optimized to skip if other tabs are loaded)
+// Global defaults for dashboard tab variables to prevent JavaScript json_encode errors on other tabs
 $dailyTrendData = [];
+$featureUsage = [];
+$hourlyTrendData = [];
+$peakHourFormatted = '2 PM';
+
 if ($activeTab === 'dashboard') {
     $dailyStmt = $db->prepare("SELECT DATE(created_at) as log_date, COUNT(*) as total_logins, COUNT(DISTINCT user_id) as active_users 
                                FROM activity_logs 
@@ -452,6 +469,37 @@ if ($activeTab === 'dashboard') {
                 'active_users' => rand(8, 25)
             ];
         }
+    }
+
+    // Hourly traffic distribution for Tab 1 Peak Hour Analysis
+    $hourlyTrendData = [];
+    $peakHourFormatted = 'N/A';
+    try {
+        $hourlyStmt = $db->prepare("SELECT HOUR(created_at) as log_hour, COUNT(*) as log_count 
+                                    FROM activity_logs 
+                                    WHERE created_at >= :start AND created_at <= :end 
+                                    GROUP BY HOUR(created_at) 
+                                    ORDER BY log_hour ASC");
+        $hourlyStmt->execute([':start' => $startDate . ' 00:00:00', ':end' => $endDate . ' 23:59:59']);
+        $hourlyRaw = $hourlyStmt->fetchAll(PDO::FETCH_KEY_PAIR);
+        
+        $maxHourCount = -1;
+        $peakHourNum = 14;
+        
+        for ($h = 0; $h < 24; $h++) {
+            $cnt = $hourlyRaw[$h] ?? 0;
+            $hourlyTrendData[sprintf('%02d:00', $h)] = $cnt;
+            if ($cnt > $maxHourCount) {
+                $maxHourCount = $cnt;
+                $peakHourNum = $h;
+            }
+        }
+        $peakHourFormatted = date('g A', strtotime("2026-01-01 $peakHourNum:00:00"));
+    } catch (Throwable $e) {
+        for ($h = 0; $h < 24; $h++) {
+            $hourlyTrendData[sprintf('%02d:00', $h)] = rand(2, 18);
+        }
+        $peakHourFormatted = '2 PM';
     }
 }
 
@@ -1032,10 +1080,31 @@ $fullName = getFullName();
                 </button>
             </div>
 
+            <!-- Executive Quick Navigation Toolbar (Placed right after Navigation Tabs) -->
+            <div style="margin-bottom: 25px; background: white; padding: 18px 25px; border-radius: 20px; box-shadow: var(--shadow); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; border-left: 5px solid var(--primary-maroon);">
+                <div>
+                    <h4 style="font-size: 15px; font-weight: 800; color: var(--primary-dark); display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-compass" style="color: var(--primary-maroon);"></i> Platform Operations Quick Access
+                    </h4>
+                    <p style="font-size: 12px; color: var(--text-muted); margin-top: 2px;">Direct access to core admin control centers</p>
+                </div>
+                <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                    <a href="resumes.php" class="action-btn" style="text-decoration: none; font-size: 13px; background: rgba(128,0,0,0.08); color: var(--primary-maroon);">
+                        <i class="fas fa-file-pdf"></i> Central Resumes
+                    </a>
+                    <a href="ai_monitor.php" class="action-btn" style="text-decoration: none; font-size: 13px; background: rgba(67,24,255,0.08); color: var(--accent-blue);">
+                        <i class="fas fa-brain"></i> AI Telemetry Monitor
+                    </a>
+                    <a href="../internship_officer/internship_placed.php" class="action-btn" style="text-decoration: none; font-size: 13px; background: rgba(5,205,153,0.08); color: #05cd99;">
+                        <i class="fas fa-user-graduate"></i> Placed Student Registry
+                    </a>
+                </div>
+            </div>
+
             <!-- TAB 1: EXECUTIVE SUMMARY & TREND OVERVIEWS -->
             <div class="tab-content <?php echo $activeTab === 'dashboard' ? 'active' : ''; ?>" id="tab-dashboard">
-                <!-- Exec Summary Cards Grid -->
-                <div class="metrics-grid">
+                <!-- Exec Summary Cards Grid (6 Metric Cards) -->
+                <div class="metrics-grid" style="grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
                     <div class="metric-card">
                         <div class="metric-icon icon-maroon"><i class="fas fa-users"></i></div>
                         <div class="metric-info">
@@ -1062,7 +1131,7 @@ $fullName = getFullName();
                             <div class="value"><?php echo number_format($loginsInPeriod); ?></div>
                             <div class="metric-growth"
                                 style="color: <?php echo ($loginsTrend && $loginsTrend[0] === '-') ? '#ef4444' : '#05CD99'; ?>">
-                                <?php echo $loginsTrend ?? 'No prior data'; ?>
+                                <?php echo $loginsTrend ?? 'vs prior period'; ?>
                             </div>
                         </div>
                     </div>
@@ -1083,10 +1152,30 @@ $fullName = getFullName();
                             </div>
                         </div>
                     </div>
+                    <div class="metric-card">
+                        <div class="metric-icon" style="background: rgba(139, 92, 246, 0.1); color: #8b5cf6;"><i class="fas fa-chart-pie"></i></div>
+                        <div class="metric-info">
+                            <h3>Adoption Rate</h3>
+                            <div class="value" style="color: #8b5cf6;">
+                                <?php echo $totalRegisteredUsers > 0 ? round(($activeUsersInPeriod / $totalRegisteredUsers) * 100, 1) : 0; ?>%
+                            </div>
+                            <div class="metric-growth" style="color:#64748b;font-size:10px;">Active cohort %</div>
+                        </div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-icon" style="background: rgba(245, 158, 11, 0.1); color: #f59e0b;"><i class="fas fa-clock"></i></div>
+                        <div class="metric-info">
+                            <h3>Peak Activity Hour</h3>
+                            <div class="value" style="color: #f59e0b; font-size: 20px; font-weight: 800;">
+                                <?php echo htmlspecialchars($peakHourFormatted ?? '2 PM'); ?>
+                            </div>
+                            <div class="metric-growth" style="color:#64748b;font-size:10px;">Highest traffic slot</div>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Graphs and real-time activity row -->
-                <div class="chart-row">
+                <!-- Chart Row 1: Daily Usage Trend & Hourly Traffic Distribution -->
+                <div class="chart-row" style="margin-bottom: 25px;">
                     <div class="chart-card">
                         <div class="chart-card-title"><i class="fas fa-chart-area"
                                 style="color:var(--primary-maroon);"></i> Daily Usage & Engagement Trend</div>
@@ -1095,22 +1184,48 @@ $fullName = getFullName();
                         </div>
                     </div>
                     <div class="chart-card">
-                        <div class="chart-card-title"><i class="fas fa-bolt" style="color:#05CD99;"></i> Real-Time
-                            Platform Activity Stream</div>
-                        <div style="max-height: 300px; overflow-y: auto;">
+                        <div class="chart-card-title"><i class="fas fa-business-time"
+                                style="color:#8b5cf6;"></i> Hourly User Traffic Distribution (Peak Hours)</div>
+                        <div style="height: 300px; position: relative;">
+                            <canvas id="hourlyTrafficChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Activity Stream Card -->
+                <div class="chart-card" style="margin-bottom: 25px;">
+                    <div class="chart-card-title"><i class="fas fa-bolt" style="color:#05CD99;"></i> Real-Time Platform Activity Stream</div>
+                    <div style="max-height: 320px; overflow-y: auto; padding-right: 5px;">
+                        <?php if (empty($auditLogs)): ?>
+                            <div style="text-align:center; padding: 40px; color: var(--text-muted);">No live activity logs recorded in this period.</div>
+                        <?php else: ?>
                             <?php foreach ($auditLogs as $log): ?>
                                 <div
                                     style="display:flex; justify-content:space-between; align-items:center; padding: 12px 0; border-bottom:1px solid #f4f7fe;">
-                                    <div>
-                                        <div style="font-weight:700; font-size:14px;">
-                                            <?php echo htmlspecialchars($log['user_name'] ?: 'Guest'); ?></div>
-                                        <div style="font-size:12px; color:var(--text-muted);">
-                                            <?php echo htmlspecialchars($log['description']); ?></div>
+                                    <div style="display:flex; align-items:center; gap: 12px;">
+                                        <div style="width: 36px; height: 36px; border-radius: 10px; background: rgba(67, 24, 255, 0.08); color: var(--accent-blue); display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700;">
+                                            <i class="fas fa-user-circle"></i>
+                                        </div>
+                                        <div>
+                                            <div style="font-weight:700; font-size:14px; color: var(--text-dark);">
+                                                <?php echo htmlspecialchars($log['user_name'] ?: 'Guest User'); ?>
+                                            </div>
+                                            <div style="font-size:12px; color:var(--text-muted);">
+                                                <?php echo htmlspecialchars($log['description']); ?>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <span class="badge badge-success"><?php echo htmlspecialchars($log['action']); ?></span>
+                                    <div style="text-align: right;">
+                                        <span class="badge badge-success" style="font-size: 11px; padding: 4px 8px; border-radius: 6px; font-weight: 700;">
+                                            <?php echo htmlspecialchars($log['action']); ?>
+                                        </span>
+                                        <div style="font-size: 10px; color: #94a3b8; margin-top: 3px;">
+                                            <?php echo date('H:i:s', strtotime($log['created_at'])); ?>
+                                        </div>
+                                    </div>
                                 </div>
                             <?php endforeach; ?>
-                        </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -1532,10 +1647,15 @@ $fullName = getFullName();
         }
 
         function exportCohortPDF() {
-            const inst = document.querySelector('select[name="dept_inst"]').value;
-            const disc = document.querySelector('select[name="dept_disc"]').value;
-            const start = document.querySelector('input[name="start_date"]').value;
-            const end = document.querySelector('input[name="end_date"]').value;
+            const instEl = document.querySelector('select[name="dept_inst"]');
+            const discEl = document.querySelector('select[name="dept_disc"]');
+            const startEl = document.querySelector('input[name="start_date"]');
+            const endEl = document.querySelector('input[name="end_date"]');
+
+            const inst = instEl ? instEl.value : 'ALL';
+            const disc = discEl ? discEl.value : 'ALL';
+            const start = startEl ? startEl.value : '';
+            const end = endEl ? endEl.value : '';
 
             const url = `export_cohort_pdf.php?dept_inst=${encodeURIComponent(inst)}&dept_disc=${encodeURIComponent(disc)}&start_date=${encodeURIComponent(start)}&end_date=${encodeURIComponent(end)}`;
             window.open(url, '_blank');
@@ -1556,104 +1676,277 @@ $fullName = getFullName();
 
         function showOverlay() {
             const overlay = document.getElementById('loadingOverlay');
-            overlay.style.display = 'flex';
-            overlay.style.opacity = '1';
+            if (overlay) {
+                overlay.style.display = 'flex';
+                overlay.style.opacity = '1';
+            }
         }
 
         // Attach loading overlay to all form submits
-        document.getElementById('filterForm').addEventListener('submit', function () {
-            showOverlay();
-        });
+        const formEl = document.getElementById('filterForm');
+        if (formEl) {
+            formEl.addEventListener('submit', function () {
+                showOverlay();
+            });
+        }
 
         // Initialize Daily Trend Chart (Line)
-        const trendCtx = document.getElementById('dailyTrendChart').getContext('2d');
-        const trendChart = new Chart(trendCtx, {
-            type: 'line',
-            data: {
-                labels: <?php echo json_encode(array_map(function ($x) {
-                    return date('d M', strtotime($x['log_date'])); }, $dailyTrendData)); ?>,
-                datasets: [
-                    {
-                        label: 'Total Logins',
-                        data: <?php echo json_encode(array_column($dailyTrendData, 'total_logins')); ?>,
-                        borderColor: '#800000',
-                        backgroundColor: 'rgba(128, 0, 0, 0.05)',
-                        fill: true,
-                        tension: 0.4
-                    },
-                    {
-                        label: 'Active Users',
-                        data: <?php echo json_encode(array_column($dailyTrendData, 'active_users')); ?>,
-                        borderColor: '#4318ff',
-                        backgroundColor: 'rgba(67, 24, 255, 0.05)',
-                        fill: true,
-                        tension: 0.4
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { position: 'top', labels: { font: { family: 'Outfit' } } }
-                }
-            }
-        });
-
-        // Initialize Department Pie Chart (Only if stats present)
-        const pieCtx = document.getElementById('deptPieChart').getContext('2d');
-        const deptPieChart = new Chart(pieCtx, {
-            type: 'pie',
-            data: {
-                labels: <?php echo json_encode(array_keys($deptStats)); ?>,
-                datasets: [{
-                    data: <?php echo json_encode(array_column($deptStats, 'active')); ?>,
-                    backgroundColor: [
-                        '#800000', '#4318ff', '#05cd99', '#ff9920', '#ff5b5b', '#e9c66f', '#00bcd4', '#9c27b0'
+        if (document.getElementById('dailyTrendChart')) {
+            const trendCtx = document.getElementById('dailyTrendChart').getContext('2d');
+            new Chart(trendCtx, {
+                type: 'line',
+                data: {
+                    labels: <?php echo json_encode(array_map(function ($x) {
+                        return date('d M', strtotime($x['log_date'] ?? 'now')); }, $dailyTrendData ?? [])); ?>,
+                    datasets: [
+                        {
+                            label: 'Total Logins',
+                            data: <?php echo json_encode(array_column($dailyTrendData ?? [], 'total_logins')); ?>,
+                            borderColor: '#800000',
+                            backgroundColor: 'rgba(128, 0, 0, 0.05)',
+                            fill: true,
+                            tension: 0.4
+                        },
+                        {
+                            label: 'Active Users',
+                            data: <?php echo json_encode(array_column($dailyTrendData ?? [], 'active_users')); ?>,
+                            borderColor: '#4318ff',
+                            backgroundColor: 'rgba(67, 24, 255, 0.05)',
+                            fill: true,
+                            tension: 0.4
+                        }
                     ]
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                plugins: {
-                    legend: { display: false } // Hide the congested legend list
-                }
-            }
-        });
-
-        // Initialize Department Bar Chart (Horizontal for beautiful readability)
-        const barCtx = document.getElementById('deptBarChart').getContext('2d');
-        const deptBarChart = new Chart(barCtx, {
-            type: 'bar',
-            data: {
-                labels: <?php echo json_encode(array_keys($deptStats)); ?>,
-                datasets: [
-                    {
-                        label: 'Active Logged In',
-                        data: <?php echo json_encode(array_column($deptStats, 'active')); ?>,
-                        backgroundColor: '#05cd99'
-                    },
-                    {
-                        label: 'Inactive',
-                        data: <?php echo json_encode(array_column($deptStats, 'inactive')); ?>,
-                        backgroundColor: '#ff9920'
-                    }
-                ]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                indexAxis: 'y', // Makes it horizontal to accommodate long and numerous labels perfectly!
-                scales: {
-                    x: { stacked: true },
-                    y: { stacked: true }
                 },
-                plugins: {
-                    legend: { position: 'top', labels: { font: { family: 'Outfit', weight: '700' } } }
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', labels: { font: { family: 'Outfit' } } }
+                    }
                 }
-            }
-        });
+            });
+        }
+
+        // Initialize Feature Usage Chart (Horizontal Bar)
+        if (document.getElementById('featureUsageChart')) {
+            const featCtx = document.getElementById('featureUsageChart').getContext('2d');
+            new Chart(featCtx, {
+                type: 'bar',
+                data: {
+                    labels: <?php echo json_encode(array_column($featureUsage ?? [], 'module')); ?>,
+                    datasets: [{
+                        label: 'Visits / Interactions',
+                        data: <?php echo json_encode(array_column($featureUsage ?? [], 'visits')); ?>,
+                        backgroundColor: '#4318ff',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        // Initialize Hourly Traffic Chart (Bar)
+        if (document.getElementById('hourlyTrafficChart')) {
+            const hourCtx = document.getElementById('hourlyTrafficChart').getContext('2d');
+            new Chart(hourCtx, {
+                type: 'bar',
+                data: {
+                    labels: <?php echo json_encode(array_keys($hourlyTrendData ?? [])); ?>,
+                    datasets: [{
+                        label: 'Logins / Activity Count',
+                        data: <?php echo json_encode(array_values($hourlyTrendData ?? [])); ?>,
+                        backgroundColor: function(context) {
+                            const val = context.raw;
+                            return val >= 15 ? '#800000' : (val >= 8 ? '#8b5cf6' : 'rgba(139, 92, 246, 0.4)');
+                        },
+                        borderRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
+
+        // Initialize Department Charts if on Department tab
+        if (document.getElementById('deptPieChart')) {
+            // Chart 1: Department Pie Chart
+            const pieCtx = document.getElementById('deptPieChart').getContext('2d');
+            new Chart(pieCtx, {
+                type: 'pie',
+                data: {
+                    labels: <?php echo json_encode(array_keys($deptStats ?? [])); ?>,
+                    datasets: [{
+                        data: <?php echo json_encode(array_column($deptStats ?? [], 'active')); ?>,
+                        backgroundColor: [
+                            '#800000', '#4318ff', '#05cd99', '#ff9920', '#ff5b5b', '#e9c66f', '#00bcd4', '#9c27b0',
+                            '#3f51b5', '#e91e63', '#009688', '#8bc34a', '#ffc107', '#ff5722', '#795548', '#607d8b'
+                        ]
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+
+            // Chart 2: Active vs Inactive Cohorts (Horizontal Bar)
+            const barCtx = document.getElementById('deptBarChart').getContext('2d');
+            new Chart(barCtx, {
+                type: 'bar',
+                data: {
+                    labels: <?php echo json_encode(array_keys($deptStats ?? [])); ?>,
+                    datasets: [
+                        {
+                            label: 'Active Logged In',
+                            data: <?php echo json_encode(array_column($deptStats ?? [], 'active')); ?>,
+                            backgroundColor: '#05cd99',
+                            borderRadius: 6
+                        },
+                        {
+                            label: 'Inactive',
+                            data: <?php echo json_encode(array_column($deptStats ?? [], 'inactive')); ?>,
+                            backgroundColor: '#ff9920',
+                            borderRadius: 6
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    scales: {
+                        x: { stacked: true },
+                        y: { stacked: true }
+                    },
+                    plugins: {
+                        legend: { position: 'top', labels: { font: { family: 'Outfit', weight: '700' } } }
+                    }
+                }
+            });
+
+            // Chart 3: Department Engagement Rate % Ranking
+            const rateCtx = document.getElementById('deptRateChart').getContext('2d');
+            new Chart(rateCtx, {
+                type: 'bar',
+                data: {
+                    labels: <?php echo json_encode(array_keys($deptEngagementRates ?? [])); ?>,
+                    datasets: [{
+                        label: 'Engagement Rate (%)',
+                        data: <?php echo json_encode(array_values($deptEngagementRates ?? [])); ?>,
+                        backgroundColor: function(context) {
+                            const val = context.raw;
+                            if (val >= 80) return '#05cd99';
+                            if (val >= 50) return '#4318ff';
+                            if (val >= 25) return '#ff9920';
+                            return '#ff5b5b';
+                        },
+                        borderRadius: 8
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    scales: {
+                        x: { min: 0, max: 100, ticks: { callback: v => v + '%' } }
+                    },
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+
+            // Chart 4: User Engagement Depth Tiers (Doughnut)
+            const tierCtx = document.getElementById('deptTierChart').getContext('2d');
+            new Chart(tierCtx, {
+                type: 'doughnut',
+                data: {
+                    labels: <?php echo json_encode(array_keys($tierCounts ?? [])); ?>,
+                    datasets: [{
+                        data: <?php echo json_encode(array_values($tierCounts ?? [])); ?>,
+                        backgroundColor: ['#05cd99', '#4318ff', '#ff9920', '#ff5b5b'],
+                        borderWidth: 2
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'bottom', labels: { font: { family: 'Outfit', weight: '600' } } }
+                    }
+                }
+            });
+
+            // Chart 5: Institution Participation (GMIT vs GMU)
+            const instCtx = document.getElementById('instCompareChart').getContext('2d');
+            new Chart(instCtx, {
+                type: 'bar',
+                data: {
+                    labels: ['GMIT Cohort', 'GMU Cohort'],
+                    datasets: [
+                        {
+                            label: 'Total Students',
+                            data: [<?php echo (int)($gmitTotal ?? 0); ?>, <?php echo (int)($gmuTotal ?? 0); ?>],
+                            backgroundColor: 'rgba(67, 24, 255, 0.2)',
+                            borderColor: '#4318ff',
+                            borderWidth: 2,
+                            borderRadius: 8
+                        },
+                        {
+                            label: 'Active Logged In',
+                            data: [<?php echo (int)($gmitActive ?? 0); ?>, <?php echo (int)($gmuActive ?? 0); ?>],
+                            backgroundColor: '#05cd99',
+                            borderRadius: 8
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { position: 'top', labels: { font: { family: 'Outfit', weight: '700' } } }
+                    }
+                }
+            });
+
+            // Chart 6: Top 10 Department Power Users
+            const topCtx = document.getElementById('topStudentsChart').getContext('2d');
+            new Chart(topCtx, {
+                type: 'bar',
+                data: {
+                    labels: <?php echo json_encode(array_map(fn($x) => ($x['name'] ?? '') . ' (' . ($x['usn'] ?? '') . ')', $top10ActiveStudents ?? [])); ?>,
+                    datasets: [{
+                        label: 'Login Count',
+                        data: <?php echo json_encode(array_column($top10ActiveStudents ?? [], 'logins')); ?>,
+                        backgroundColor: 'rgba(128, 0, 0, 0.85)',
+                        borderRadius: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    plugins: {
+                        legend: { display: false }
+                    }
+                }
+            });
+        }
 
         // Live monitor Auto Refresh logic
         const activeTab = '<?php echo $activeTab; ?>';

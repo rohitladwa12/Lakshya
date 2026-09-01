@@ -41,18 +41,13 @@ $defaultAcademicYear = $defaultYearData['max_year'] ?? date('Y') . '-' . (date('
 
 // Define Scope & Academic Filters
 $coordFilters = [];
-if ($view === 'local') {
-    list($deptGmu, $deptGmit) = getCoordinatorDisciplineFilters($myDepartment);
-    $coordFilters['discipline'] = [$deptGmu, $deptGmit];
-    if ($inst_filter !== 'all') {
-        $coordFilters['institution'] = (strtoupper($inst_filter) === 'GMIT') ? INSTITUTION_GMIT : INSTITUTION_GMU;
-    } else {
-        $coordFilters['institution'] = $myInst;
-    }
-} else {
-    if ($inst_filter !== 'all') {
-        $coordFilters['institution'] = (strtoupper($inst_filter) === 'GMIT') ? INSTITUTION_GMIT : INSTITUTION_GMU;
-    }
+list($deptGmu, $deptGmit) = getCoordinatorDisciplineFilters($myDepartment);
+$coordFilters['discipline'] = array_values(array_unique([$deptGmu, $deptGmit]));
+
+if ($inst_filter === 'gmu') {
+    $coordFilters['institution'] = INSTITUTION_GMU;
+} elseif ($inst_filter === 'gmit') {
+    $coordFilters['institution'] = INSTITUTION_GMIT;
 }
 
 // Enforce coordinator semester scope (Only Semesters 5, 6, 7, 8 are eligible)
@@ -298,6 +293,35 @@ if (empty($students)) {
         .student-usn { font-family: monospace; color: var(--text-light); font-size: 12px; }
         
         .score-val { font-weight: 600; text-align: center; display: block; }
+        .badge-inst {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .badge-inst-gmu {
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+        }
+        .badge-inst-gmit {
+            background: #eff6ff;
+            color: #1d4ed8;
+            border: 1px solid #dbeafe;
+        }
+        .badge-sem {
+            display: inline-block;
+            font-size: 11px;
+            font-weight: 600;
+            color: #475569;
+            background: #f1f5f9;
+            padding: 2px 6px;
+            border-radius: 4px;
+            white-space: nowrap;
+        }
         .total-badge {
             background: #f1f5f9;
             padding: 6px 12px;
@@ -663,8 +687,10 @@ if (empty($students)) {
                         </th>
                         <th width="40">Rank</th>
                         <th>Name</th>
-                        <th width="100">USN</th>
-                        <th width="140">Branch</th>
+                        <th width="90">USN</th>
+                        <th width="120">Branch</th>
+                        <th width="50" style="text-align: center;">Sem</th>
+                        <th width="55" style="text-align: center;">Inst</th>
                         <?php for($i=1; $i<=8; $i++): ?>
                             <th width="35" style="text-align: center;">S<?php echo $i; ?></th>
                         <?php endfor; ?>
@@ -678,7 +704,7 @@ if (empty($students)) {
                 <tbody>
                     <?php if (empty($display_leaderboard)): ?>
                         <tr>
-                            <td colspan="18" style="text-align:center; padding: 50px; color: var(--text-light);">
+                            <td colspan="20" style="text-align:center; padding: 50px; color: var(--text-light);">
                                 <i class="fas fa-search" style="font-size: 32px; margin-bottom: 10px; display: block;"></i>
                                 No students found for the selected criteria.
                             </td>
@@ -700,6 +726,14 @@ if (empty($students)) {
                             </td>
                             <td>
                                 <span style="font-size: 11px; color: var(--text-light); font-weight: 500;"><?php echo htmlspecialchars($e['discipline']); ?></span>
+                            </td>
+                            <td style="text-align: center;">
+                                <span class="badge-sem"><?php echo !empty($e['sem']) ? 'Sem ' . $e['sem'] : '-'; ?></span>
+                            </td>
+                            <td style="text-align: center;">
+                                <span class="badge-inst badge-inst-<?php echo strtolower($e['institution']); ?>">
+                                    <?php echo htmlspecialchars($e['institution']); ?>
+                                </span>
                             </td>
                             <?php for($semNum=1; $semNum<=8; $semNum++): ?>
                                 <td style="text-align: center;">

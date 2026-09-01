@@ -56,6 +56,15 @@ class LeaderboardService
         $skillData = self::fetchStudentSkills($allIdList);
         $assessmentTimestamps = self::fetchAssessmentTimestamps($allIdList);
 
+        // Pre-fetch active current semesters from student_sem_sgpa (max semester entered)
+        $semMap = [];
+        try {
+            $semRows = getDB()->query("SELECT student_id, MAX(semester) as semester FROM student_sem_sgpa GROUP BY student_id")->fetchAll(\PDO::FETCH_ASSOC);
+            foreach ($semRows as $sr) {
+                $semMap[strtolower(trim($sr['student_id']))] = (int)$sr['semester'];
+            }
+        } catch (\Throwable $e) {}
+
         // Build reverse Aadhar-to-USN map for score consolidation
         $aadharToUsn = [];
         foreach ($gmitAadharMap as $usn => $aadhar) {
@@ -106,6 +115,35 @@ class LeaderboardService
             // Academic History (for filtering and display)
             $history = $academicHistory[$lowUsn] ?? ($academicHistory[$lowAadhar] ?? []);
 
+            // Active / Updated Semester Resolution
+            $currentSem = (int)($s['sem'] ?? 0);
+            $localMaxSem = $semMap[$lowUsn] ?? ($semMap[$lowAadhar] ?? 0);
+            if ($s['institution'] === INSTITUTION_GMIT) {
+                $semVal = $localMaxSem ?: $currentSem;
+            } else {
+                $semVal = max($currentSem, $localMaxSem);
+            }
+            if (!$semVal && !empty($history)) {
+                $sems = array_keys($history);
+                if (!empty($sems)) {
+                    $semVal = max(array_map('intval', $sems));
+                }
+            }
+
+            $latestSgpa = (float) ($s['sgpa'] ?? 0);
+            if ($latestSgpa <= 0 && !empty($history)) {
+                $semsWithSgpa = [];
+                foreach ($history as $sNum => $hData) {
+                    if (!empty($hData['sgpa']) && (float)$hData['sgpa'] > 0) {
+                        $semsWithSgpa[(int)$sNum] = (float)$hData['sgpa'];
+                    }
+                }
+                if (!empty($semsWithSgpa)) {
+                    krsort($semsWithSgpa);
+                    $latestSgpa = reset($semsWithSgpa);
+                }
+            }
+
             $rankings[] = [
                 'name' => $s['name'],
                 'usn' => $usn,
@@ -113,7 +151,8 @@ class LeaderboardService
                 'aadhar' => $s['aadhar'] ?? '',
                 'institution' => $s['institution'],
                 'discipline' => $s['department'],
-                'sgpa' => (float) ($s['sgpa'] ?? 0),
+                'sem' => (int) $semVal,
+                'sgpa' => (float) $latestSgpa,
                 'academic_history' => $history,
                 'skills' => $skills,
                 'aptitude' => $pillars['aptitude'],
@@ -291,6 +330,23 @@ class LeaderboardService
                     'year' => $row['academic_year']
                 ];
             }
+
+            // Overlay local student_sem_sgpa (coordinator updates/edits for GMU)
+            try {
+                $stmtLocal = getDB()->query("SELECT student_id, semester, sgpa, academic_year 
+                                            FROM student_sem_sgpa 
+                                            WHERE student_id IN ($list) AND (institution = '" . INSTITUTION_GMU . "' OR institution IS NULL)
+                                            ORDER BY semester ASC");
+                while ($row = $stmtLocal->fetch()) {
+                    $sid = strtolower($row['student_id']);
+                    if ($row['sgpa'] !== null && (float)$row['sgpa'] > 0) {
+                        $history[$sid][$row['semester']] = [
+                            'sgpa' => (float) $row['sgpa'],
+                            'year' => $row['academic_year']
+                        ];
+                    }
+                }
+            } catch (\Throwable $e) {}
         }
 
         return $history;

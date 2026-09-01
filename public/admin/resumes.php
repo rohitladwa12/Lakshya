@@ -11,25 +11,32 @@ requireRole(ROLE_ADMIN);
 
 $fullName = getFullName();
 $adminModel = new Admin();
-// Extract unique departments for filter (from full list)
+// Extract unique departments and semesters for filter (from full list)
 $allResumes = $adminModel->getDetailedResumeList();
 $departments = array_unique(array_map(function($r) { 
     return $r['department']; 
 }, $allResumes));
 sort($departments);
 
+$semesters = array_unique(array_filter(array_map(function($r) {
+    return $r['semester'];
+}, $allResumes), fn($s) => $s !== 'N/A' && !empty($s)));
+sort($semesters);
+
 // Filtering logic
 $search = trim($_GET['search'] ?? '');
 $deptFilter = trim($_GET['dept'] ?? '');
+$semFilter = trim($_GET['sem'] ?? '');
 
-$filteredResumes = array_filter($allResumes, function($r) use ($search, $deptFilter) {
+$filteredResumes = array_filter($allResumes, function($r) use ($search, $deptFilter, $semFilter) {
     $matchesSearch = empty($search) || 
                      stripos($r['full_name'], $search) !== false || 
                      stripos($r['student_id'], $search) !== false;
     
     $matchesDept = empty($deptFilter) || $r['department'] === $deptFilter;
+    $matchesSem = empty($semFilter) || $r['semester'] === $semFilter;
     
-    return $matchesSearch && $matchesDept;
+    return $matchesSearch && $matchesDept && $matchesSem;
 });
 
 // Pagination
@@ -331,6 +338,14 @@ $pagination = $paginationData['pagination'];
                             </option>
                         <?php endforeach; ?>
                     </select>
+                    <select name="sem" class="filter-select" onchange="this.form.submit()">
+                        <option value="">All Semesters</option>
+                        <?php foreach($semesters as $sm): ?>
+                            <option value="<?php echo htmlspecialchars($sm); ?>" <?php echo $semFilter === $sm ? 'selected' : ''; ?>>
+                                <?php echo htmlspecialchars($sm); ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
                     <button type="submit" style="display: none;"></button>
                 </form>
             </div>
@@ -342,6 +357,7 @@ $pagination = $paginationData['pagination'];
                         <th>USN / ID</th>
                         <th>Institution</th>
                         <th>Department</th>
+                        <th>Semester</th>
                         <th>Built Date</th>
                         <th>Actions</th>
                     </tr>
@@ -359,6 +375,11 @@ $pagination = $paginationData['pagination'];
                                 </span>
                             </td>
                             <td><?php echo htmlspecialchars($r['department']); ?></td>
+                            <td>
+                                <span style="background: #f1f5f9; color: #334155; font-weight: 800; font-size: 11px; padding: 4px 8px; border-radius: 6px; display: inline-block;">
+                                    <?php echo htmlspecialchars($r['semester'] ?? 'N/A'); ?>
+                                </span>
+                            </td>
                             <td style="color: var(--text-muted);">
                                 <?php echo date('d M Y, h:i A', strtotime($r['built_at'])); ?>
                             </td>
@@ -371,7 +392,7 @@ $pagination = $paginationData['pagination'];
                     <?php endforeach; ?>
                     
                     <?php if (empty($resumes)): ?>
-                        <tr><td colspan="6" style="text-align: center; color: var(--text-muted); padding: 50px;">No resumes found in the centralized database.</td></tr>
+                        <tr><td colspan="7" style="text-align: center; color: var(--text-muted); padding: 50px;">No resumes found in the centralized database.</td></tr>
                     <?php endif; ?>
                 </tbody>
             </table>
@@ -385,12 +406,12 @@ $pagination = $paginationData['pagination'];
                         <?php echo $pagination['total_items']; ?>
                     </span>
                     
-                    <a href="?page=1<?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?>" 
+                    <a href="?page=1<?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?><?php echo $semFilter ? '&sem='.urlencode($semFilter) : ''; ?>" 
                        class="pagination-btn <?php echo !$pagination['has_prev'] ? 'disabled' : ''; ?>">
                         <i class="fas fa-angle-double-left"></i>
                     </a>
                     
-                    <a href="?page=<?php echo $pagination['current_page'] - 1; ?><?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?>" 
+                    <a href="?page=<?php echo $pagination['current_page'] - 1; ?><?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?><?php echo $semFilter ? '&sem='.urlencode($semFilter) : ''; ?>" 
                        class="pagination-btn <?php echo !$pagination['has_prev'] ? 'disabled' : ''; ?>">
                         <i class="fas fa-angle-left"></i> Prev
                     </a>
@@ -402,18 +423,18 @@ $pagination = $paginationData['pagination'];
                     
                     for($i = $startPage; $i <= $endPage; $i++): 
                     ?>
-                        <a href="?page=<?php echo $i; ?><?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?>" 
+                        <a href="?page=<?php echo $i; ?><?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?><?php echo $semFilter ? '&sem='.urlencode($semFilter) : ''; ?>" 
                            class="pagination-btn <?php echo $pagination['current_page'] == $i ? 'active' : ''; ?>">
                             <?php echo $i; ?>
                         </a>
                     <?php endfor; ?>
 
-                    <a href="?page=<?php echo $pagination['current_page'] + 1; ?><?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?>" 
+                    <a href="?page=<?php echo $pagination['current_page'] + 1; ?><?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?><?php echo $semFilter ? '&sem='.urlencode($semFilter) : ''; ?>" 
                        class="pagination-btn <?php echo !$pagination['has_next'] ? 'disabled' : ''; ?>">
                         Next <i class="fas fa-angle-right"></i>
                     </a>
                     
-                    <a href="?page=<?php echo $pagination['total_pages']; ?><?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?>" 
+                    <a href="?page=<?php echo $pagination['total_pages']; ?><?php echo $search ? '&search='.urlencode($search) : ''; ?><?php echo $deptFilter ? '&dept='.urlencode($deptFilter) : ''; ?><?php echo $semFilter ? '&sem='.urlencode($semFilter) : ''; ?>" 
                        class="pagination-btn <?php echo !$pagination['has_next'] ? 'disabled' : ''; ?>">
                         <i class="fas fa-angle-double-right"></i>
                     </a>

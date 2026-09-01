@@ -122,9 +122,65 @@ if (isPost()) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login — LAKSHYA | GM University</title>
-    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+    <meta name="google-site-verification" content="gHmW8ge9TTkAZxbUI9hHCRMMCfednoa9ByU0zyWfUAw" />
+    <link rel="icon" type="image/png" href="<?php echo APP_URL; ?>/assets/img/favicon.png">
+    <link rel="shortcut icon" type="image/png" href="<?php echo APP_URL; ?>/assets/img/favicon.png">
+    <link rel="apple-touch-icon" href="<?php echo APP_URL; ?>/assets/img/favicon.png">
+    <meta name="description" content="Login to LAKSHYA Internship & Placement Portal at GM University.">
+    <meta name="robots" content="index, follow, max-image-preview:large">
+    <link rel="canonical" href="https://leap.gmu.ac.in/Lakshya/login">
+    <meta property="og:title" content="Login — LAKSHYA | GM University">
+    <meta property="og:description" content="Login to LAKSHYA Internship & Placement Portal at GM University.">
+    <meta property="og:url" content="https://leap.gmu.ac.in/Lakshya/login">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="https://leap.gmu.ac.in/Lakshya/assets/img/favicon.png">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Login — LAKSHYA | GM University">
+    <meta name="twitter:description" content="Login to LAKSHYA Internship & Placement Portal at GM University.">
+    <meta name="twitter:image" content="https://leap.gmu.ac.in/Lakshya/assets/img/favicon.png">
+
+    <!-- Schema.org JSON-LD Structured Data for SEO & Search Console Favicon -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "EducationalOrganization",
+          "@id": "https://gmu.ac.in/#organization",
+          "name": "GM University",
+          "url": "https://gmu.ac.in/",
+          "logo": "https://leap.gmu.ac.in/Lakshya/assets/img/favicon.png",
+          "email": "placement@gmu.ac.in",
+          "telephone": "+918310793613"
+        },
+        {
+          "@type": "WebPage",
+          "@id": "https://leap.gmu.ac.in/Lakshya/login#webpage",
+          "url": "https://leap.gmu.ac.in/Lakshya/login",
+          "name": "Login — LAKSHYA | GM University",
+          "description": "Login to LAKSHYA Internship & Placement Portal at GM University.",
+          "isPartOf": {
+            "@type": "WebSite",
+            "@id": "https://leap.gmu.ac.in/Lakshya/#website",
+            "url": "https://leap.gmu.ac.in/Lakshya/",
+            "name": "LAKSHYA — Internship & Placement Portal | GM University",
+            "publisher": {
+              "@id": "https://gmu.ac.in/#organization"
+            }
+          },
+          "primaryImageOfPage": {
+            "@type": "ImageObject",
+            "url": "https://leap.gmu.ac.in/Lakshya/assets/img/favicon.png"
+          }
+        }
+      ]
+    }
+    </script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="preload" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" as="style" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css"></noscript>
     <style>
         *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -541,6 +597,11 @@ if (isPost()) {
             pointer-events: none;
         }
 
+        button, input, a, .field__eye, .btn-login, .btn-demo {
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+
         .field input {
             width: 100%;
             height: 50px;
@@ -551,7 +612,7 @@ if (isPost()) {
             font-size: 0.9rem;
             color: var(--text);
             background: #fafafa;
-            transition: all 0.22s ease;
+            transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
             outline: none;
         }
 
@@ -574,8 +635,8 @@ if (isPost()) {
             cursor: pointer;
             color: rgba(0,0,0,0.3);
             font-size: 0.85rem;
-            padding: 4px;
-            transition: color 0.2s ease;
+            padding: 6px;
+            transition: color 0.15s ease;
         }
 
         .field__eye:hover { color: var(--maroon); }
@@ -593,7 +654,7 @@ if (isPost()) {
             font-weight: 700;
             letter-spacing: 0.04em;
             cursor: pointer;
-            transition: all 0.25s ease;
+            transition: background-color 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
             margin-top: 8px;
             display: flex;
             align-items: center;
@@ -675,10 +736,14 @@ if (isPost()) {
 
         .login__note a:hover { text-decoration: underline; }
 
-        /* Responsive */
+        /* Responsive & INP Performance Optimization */
         @media (max-width: 900px) {
-            .login__left { display: none; }
+            .login__left { display: none !important; }
             .login__right { width: 100%; padding: 40px 24px; }
+            .login__ticker-track, .login__orb, .login__brand-dot {
+                animation: none !important;
+                will-change: auto !important;
+            }
         }
 
         @media (max-width: 480px) {
@@ -863,21 +928,29 @@ if (isPost()) {
     const passwordInput = document.getElementById('password');
     const eyeIcon = document.getElementById('eyeIcon');
 
-    // Toggle password visibility
-    togglePwd.addEventListener('click', () => {
-        const type = passwordInput.getAttribute('type') === 'password' ? 'text' : 'password';
-        passwordInput.setAttribute('type', type);
-        eyeIcon.classList.toggle('fa-eye');
-        eyeIcon.classList.toggle('fa-eye-slash');
-    });
+    // Fast toggle password visibility with requestAnimationFrame
+    if (togglePwd && passwordInput && eyeIcon) {
+        togglePwd.addEventListener('click', (e) => {
+            e.preventDefault();
+            requestAnimationFrame(() => {
+                const isPwd = passwordInput.type === 'password';
+                passwordInput.type = isPwd ? 'text' : 'password';
+                eyeIcon.className = isPwd ? 'fas fa-eye-slash' : 'fas fa-eye';
+            });
+        });
+    }
 
-    // Loading state on form submission
-    form.addEventListener('submit', () => {
-        loginBtn.disabled = true;
-        loginBtn.style.opacity = '0.7';
-        loginBtn.style.cursor = 'not-allowed';
-        loginBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Authenticating...';
-    });
+    // Fast loading state on form submission
+    if (form && loginBtn) {
+        form.addEventListener('submit', () => {
+            requestAnimationFrame(() => {
+                loginBtn.disabled = true;
+                loginBtn.style.opacity = '0.75';
+                loginBtn.style.cursor = 'not-allowed';
+                loginBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Authenticating...';
+            });
+        });
+    }
 </script>
 
 </body>

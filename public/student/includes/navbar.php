@@ -520,6 +520,10 @@ if ($db && getUsername()) {
                     <!--<a href="resume_analyzer.php" class="dropdown-item">
                         <i class="fas fa-microscope" style="color: #4f46e5; background: rgba(79,70,229,0.1);"></i> AI Resume Analyzer
                     </a> -->
+                    <a href="market_job_search.php" class="dropdown-item">
+                        <i class="fas fa-globe" style="color: #05cd99; background: rgba(5,205,153,0.1);"></i>
+                        Live Market Job Search
+                    </a>
                     <a href="sso_redirect.php" class="dropdown-item">
                         <i class="fas fa-graduation-cap" style="color: #1e3a8a; background: rgba(30,58,138,0.1);"></i>
                         AI Tutor

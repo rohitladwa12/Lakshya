@@ -292,10 +292,16 @@ class User extends Model {
         $appUser = $stmt->fetch();
         
         if ($appUser) {
-             // Support both plain text (legacy) and bcrypt
-             $passMatch = false;
-             if ($appUser['password'] === $password) $passMatch = true;
-             elseif (password_verify($password, $appUser['password'])) $passMatch = true;
+             $passMatch = password_verify($password, $appUser['password']);
+             
+             // Legacy plaintext fallback & auto-migration
+             if (!$passMatch && $appUser['password'] === $password) {
+                 $passMatch = true;
+                 // Auto-hash and update the database to secure it for next time
+                 $newHash = password_hash($password, PASSWORD_BCRYPT);
+                 $updateStmt = $this->db->prepare("UPDATE app_officers SET password = ? WHERE id = ?");
+                 $updateStmt->execute([$newHash, $appUser['id']]);
+             }
              
              if ($passMatch) {
                 if (!$appUser['is_active']) {
@@ -329,27 +335,39 @@ class User extends Model {
         $stmt = $this->db->prepare("SELECT * FROM dept_coordinators WHERE email = ? LIMIT 1");
         $stmt->execute([$username]);
         $coord = $stmt->fetch();
-        if ($coord && password_verify($password, $coord['password'])) {
-            if (!$coord['is_active']) {
+        
+        if ($coord) {
+            $passMatch = password_verify($password, $coord['password']);
+            
+            if (!$passMatch && $coord['password'] === $password) {
+                $passMatch = true;
+                $newHash = password_hash($password, PASSWORD_BCRYPT);
+                $updateStmt = $this->db->prepare("UPDATE dept_coordinators SET password = ? WHERE id = ?");
+                $updateStmt->execute([$newHash, $coord['id']]);
+            }
+            
+            if ($passMatch) {
+                if (!$coord['is_active']) {
+                    return [
+                        'success' => false,
+                        'message' => 'Your login has been disabled. Please contact admin to enable it.'
+                    ];
+                }
                 return [
-                    'success' => false,
-                    'message' => 'Your login has been disabled. Please contact admin to enable it.'
+                    'success' => true,
+                    'user' => [
+                        'id' => $coord['id'],
+                        'username' => $coord['email'],
+                        'email' => $coord['email'],
+                        'full_name' => $coord['full_name'],
+                        'role' => 'dept_coordinator',
+                        'is_active' => true,
+                        'original_role' => 'DEPT_COORDINATOR',
+                        'institution' => $coord['institution'] ?? 'GMU',
+                        'department' => $coord['department']
+                    ]
                 ];
             }
-            return [
-                'success' => true,
-                'user' => [
-                    'id' => $coord['id'],
-                    'username' => $coord['email'],
-                    'email' => $coord['email'],
-                    'full_name' => $coord['full_name'],
-                    'role' => 'dept_coordinator',
-                    'is_active' => true,
-                    'original_role' => 'DEPT_COORDINATOR',
-                    'institution' => $coord['institution'] ?? 'GMU',
-                    'department' => $coord['department']
-                ]
-            ];
         }
 
         // 2. Check Legacy Institutions (REMOTE DB) - Block test accounts like 'dev'
@@ -403,18 +421,16 @@ class User extends Model {
             if ($user) {
                 // VERIFY PASSWORD FIRST (Fastest)
                 $authenticated = false;
-                if ($inst === INSTITUTION_GMIT) {
-                    $authenticated = password_verify($password, $user['PASSWORD']);
-                } else {
-                    if (password_verify($password, $user['PASSWORD'])) {
-                        $authenticated = true;
-                    } elseif ($password === $user['PASSWORD']) {
-                        $authenticated = true;
-                        // MIGRATION: Update to bcrypt
-                        $newHash = password_hash($password, PASSWORD_BCRYPT, ['cost' => 8]);
-                        $this->remoteDB->prepare("UPDATE {$table} SET PASSWORD = ? WHERE SL_NO = ?")
-                                       ->execute([$newHash, $user['SL_NO']]);
-                    }
+                if (password_verify($password, $user['PASSWORD'])) {
+                    $authenticated = true;
+                } elseif ($user['PASSWORD'] === $password) {
+                    $authenticated = true;
+                    // Auto-hash and migrate plaintext password
+                    $newHash = password_hash($password, PASSWORD_BCRYPT);
+                    // GMU table uses SL_NO, GMIT uses ENQUIRY_NO or id maybe? Let's use USER_NAME to be safe and cross-compatible
+                    $updateSql = "UPDATE {$table} SET PASSWORD = ? WHERE USER_NAME = ?";
+                    $updateStmt = $this->remoteDB->prepare($updateSql);
+                    $updateStmt->execute([$newHash, $user['USER_NAME']]);
                 }
 
                 if (!$authenticated) {
@@ -609,14 +625,10 @@ class User extends Model {
             }
             $newPassword = password_hash($newPassword, PASSWORD_BCRYPT, ['cost' => 8]);
         } else {
-            // GMU - Check hash first, then plain text (handling migration if they change pw)
+            // GMU - Check hash only
             $verified = false;
-            if ($stored) {
-                if (password_verify($currentPassword, $stored)) {
-                    $verified = true;
-                } elseif ($currentPassword === $stored) {
-                    $verified = true;
-                }
+            if ($stored && password_verify($currentPassword, $stored)) {
+                $verified = true;
             }
             
             if (!$verified) {

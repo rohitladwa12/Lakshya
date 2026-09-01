@@ -213,9 +213,42 @@ class StudentProfile extends Model {
             $stmt->execute([$username, $aadhar]);
             $records = $stmt->fetchAll();
             
-            return array_map(function($row) use ($user, $inst) {
-                return $this->mapToAppProfile($row, $user, [], $inst);
+            // Check local student_sem_sgpa for any coordinator overrides/updates
+            $localSgpa = [];
+            try {
+                $stmtLocal = $this->db->prepare("SELECT semester, sgpa, academic_year FROM student_sem_sgpa WHERE (student_id = ? OR student_id = ?) AND (institution = ? OR institution IS NULL)");
+                $stmtLocal->execute([$username, $aadhar, INSTITUTION_GMU]);
+                while ($lRow = $stmtLocal->fetch()) {
+                    if ($lRow['sgpa'] !== null) {
+                        $localSgpa[(int)$lRow['semester']] = $lRow;
+                    }
+                }
+            } catch (\Throwable $e) {}
+
+            $history = array_map(function($row) use ($user, $inst, $localSgpa) {
+                $p = $this->mapToAppProfile($row, $user, [], $inst);
+                $s = (int)($p['semester'] ?? $row['sem'] ?? 0);
+                if (isset($localSgpa[$s])) {
+                    $p['sgpa'] = (float)$localSgpa[$s]['sgpa'];
+                    $p['cgpa'] = (float)$localSgpa[$s]['sgpa'];
+                }
+                return $p;
             }, $records);
+
+            // Also add any semesters in student_sem_sgpa not present in remote records
+            $existingSems = array_column($records, 'sem');
+            foreach ($localSgpa as $sNum => $lData) {
+                if (!in_array($sNum, $existingSems)) {
+                    $p = $this->mapToAppProfile([], $user, [], $inst);
+                    $p['semester'] = $sNum;
+                    $p['sgpa'] = (float)$lData['sgpa'];
+                    $p['cgpa'] = (float)$lData['sgpa'];
+                    $p['academic_year'] = $lData['academic_year'] ?? '';
+                    $history[] = $p;
+                }
+            }
+
+            return $history;
         }
     }
     
@@ -553,9 +586,21 @@ class StudentProfile extends Model {
             if (!empty($sems)) {
                 $inst = $filters['institution'] ?? null;
                 $semPlaceholders = implode(',', $sems);
+                $gmitCurrentSemQuery = "
+                    SELECT DISTINCT s.student_id
+                    FROM student_sem_sgpa s
+                    JOIN (
+                        SELECT student_id, MAX(semester) AS current_sem
+                        FROM student_sem_sgpa
+                        WHERE institution = ?
+                        GROUP BY student_id
+                    ) cur ON cur.student_id = s.student_id AND s.semester = cur.current_sem
+                    WHERE s.institution = ? AND s.semester IN (" . implode(',', array_fill(0, count($sems), '?')) . ")
+                ";
+
                 if ($inst === INSTITUTION_GMIT) {
-                    $stmtLocal = $this->db->prepare("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE institution = ? AND semester IN (" . implode(',', array_fill(0, count($sems), '?')) . ")");
-                    $stmtLocal->execute(array_merge([INSTITUTION_GMIT], $sems));
+                    $stmtLocal = $this->db->prepare($gmitCurrentSemQuery);
+                    $stmtLocal->execute(array_merge([INSTITUTION_GMIT, INSTITUTION_GMIT], $sems));
                     $gmitUsns = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
                     if (!empty($gmitUsns)) {
                         $ph = implode(',', array_fill(0, count($gmitUsns), '?'));
@@ -568,8 +613,8 @@ class StudentProfile extends Model {
                     $sql .= " AND sem IN ($semPlaceholders)";
                 } else {
                     // No institution = coordinator sees both GMU and GMIT
-                    $stmtLocal = $this->db->prepare("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE institution = ? AND semester IN (" . implode(',', array_fill(0, count($sems), '?')) . ")");
-                    $stmtLocal->execute(array_merge([INSTITUTION_GMIT], $sems));
+                    $stmtLocal = $this->db->prepare($gmitCurrentSemQuery);
+                    $stmtLocal->execute(array_merge([INSTITUTION_GMIT, INSTITUTION_GMIT], $sems));
                     $gmitUsns = $stmtLocal->fetchAll(PDO::FETCH_COLUMN);
                     if (!empty($gmitUsns)) {
                         $ph = implode(',', array_fill(0, count($gmitUsns), '?'));
@@ -786,27 +831,32 @@ class StudentProfile extends Model {
                 $gmitUsns[$row['usn']] = true;
             }
         }
-        $maxSemGmit = [];
-        if (!empty($gmitUsns)) {
-            $usnList = array_keys($gmitUsns);
-            $aadharsList = array_filter(array_column($rows, 'aadhar'));
-            $idsToCheck = array_unique(array_merge($usnList, $aadharsList));
+        $allUsns = array_column($rows, 'usn');
+        $allAadhars = array_filter(array_column($rows, 'aadhar'));
+        $idsToCheck = array_values(array_unique(array_merge($allUsns, $allAadhars)));
+        if (!empty($idsToCheck)) {
             $placeholders = implode(',', array_fill(0, count($idsToCheck), '?'));
-            $stmt = $this->db->prepare("SELECT student_id, MAX(semester) as max_sem FROM student_sem_sgpa WHERE institution = ? AND student_id IN ($placeholders) GROUP BY student_id");
-            $stmt->execute(array_merge([INSTITUTION_GMIT], $idsToCheck));
+            $stmt = $this->db->prepare("SELECT student_id, institution, MAX(semester) as max_sem FROM student_sem_sgpa WHERE student_id IN ($placeholders) GROUP BY student_id, institution");
+            $stmt->execute($idsToCheck);
             $dbResults = [];
             while ($r = $stmt->fetch()) {
-                $dbResults[$r['student_id']] = (int) $r['max_sem'];
+                $dbResults[$r['institution'] . '|' . strtolower($r['student_id'])] = (int) $r['max_sem'];
+                $dbResults[strtolower($r['student_id'])] = (int) $r['max_sem'];
             }
             foreach ($rows as &$row) {
-                if (($row['institution'] ?? '') === INSTITUTION_GMIT) {
-                    $usn = $row['usn'] ?? '';
-                    $aadhar = $row['aadhar'] ?? '';
-                    if (isset($dbResults[$usn])) {
-                        $row['sem'] = $dbResults[$usn];
-                    } elseif ($aadhar && isset($dbResults[$aadhar])) {
-                        $row['sem'] = $dbResults[$aadhar];
-                    }
+                $inst = $row['institution'] ?? '';
+                $u = strtolower($row['usn'] ?? '');
+                $a = strtolower($row['aadhar'] ?? '');
+                $latestSem = null;
+                if (isset($dbResults[$inst . '|' . $u])) {
+                    $latestSem = $dbResults[$inst . '|' . $u];
+                } elseif (isset($dbResults[$inst . '|' . $a])) {
+                    $latestSem = $dbResults[$inst . '|' . $a];
+                } elseif (isset($dbResults[$u])) {
+                    $latestSem = $dbResults[$u];
+                }
+                if ($latestSem !== null && ($inst === INSTITUTION_GMIT || $latestSem > (int)($row['sem'] ?? 0))) {
+                    $row['sem'] = $latestSem;
                 }
             }
             unset($row);

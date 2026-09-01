@@ -118,7 +118,11 @@ try {
                         echo json_encode(['success' => false, 'message' => 'Profile Photo must be an image.']);
                         exit;
                     }
-                    $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+                    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                    if (!in_array($ext, ['jpg', 'jpeg', 'png'])) {
+                        echo json_encode(['success' => false, 'message' => 'Profile Photo must be a JPG or PNG file.']);
+                        exit;
+                    }
                     $filename = $username . '_intro_photo_' . time() . '.' . $ext;
                     if (move_uploaded_file($file['tmp_name'], $photoDir . $filename)) {
                         $data['attachment_path'] = 'uploads/profile photos/' . $filename;
@@ -136,7 +140,11 @@ try {
                         echo json_encode(['success' => false, 'message' => 'Intro Video must be a video file.']);
                         exit;
                     }
-                    $ext = pathinfo($file['name'], PATHINFO_EXTENSION);
+                    $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+                    if (!in_array($ext, ['mp4', 'avi', 'mov', 'webm'])) {
+                        echo json_encode(['success' => false, 'message' => 'Intro Video must be a valid video format (MP4, AVI, MOV, WEBM).']);
+                        exit;
+                    }
                     $filename = $username . '_intro_video_' . time() . '.' . $ext;
                     if (move_uploaded_file($file['tmp_name'], $videoDir . $filename)) {
                         $data['attachment_path_2'] = 'uploads/self intro video/' . $filename; // Store video in path 2
@@ -156,7 +164,10 @@ try {
                     foreach ($_FILES['certificate_files']['tmp_name'] as $key => $tmpName) {
                         if ($_FILES['certificate_files']['error'][$key] === UPLOAD_ERR_OK) {
                             $name = $_FILES['certificate_files']['name'][$key];
-                            $ext = pathinfo($name, PATHINFO_EXTENSION);
+                            $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
+                            
+                            if (!in_array($ext, ['pdf', 'jpg', 'jpeg', 'png'])) continue; // skip invalid files
+                            
                             $filename = $username . '_cert_' . time() . '_' . $key . '.' . $ext;
                             if (move_uploaded_file($tmpName, $uploadDir . $filename)) {
                                 $paths[] = 'uploads/certificates/' . $filename;

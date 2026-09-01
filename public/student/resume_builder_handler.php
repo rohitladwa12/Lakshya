@@ -346,6 +346,18 @@ if ($action === 'save_resume' && $_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
 
+        if ($ok) {
+            try {
+                require_once __DIR__ . '/../../src/Services/StudentIntelligenceService.php';
+                $intelService = new \App\Services\StudentIntelligenceService();
+                $studentName = $resumeData['full_name'] ?? '';
+                $institution = $_SESSION['institution'] ?? (strpos($username, 'GMIT') !== false ? 'GMIT' : 'GMU');
+                $intelService->generateStudentInsights($username, $institution, $studentName);
+            } catch (\Throwable $t) {
+                error_log("Failed to refresh student AI insights on resume save: " . $t->getMessage());
+            }
+        }
+
         echo json_encode(['success' => (bool)$ok, 'pdf_url' => $pdfUrl]);
     } catch (\Throwable $e) {
         $debugInfo = $e->getMessage() . " in " . $e->getFile() . " on line " . $e->getLine() . "\n" . $e->getTraceAsString();
@@ -353,6 +365,30 @@ if ($action === 'save_resume' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         http_response_code(200); // Override 500 so JSON can be parsed by the frontend
         echo json_encode(['success' => false, 'error' => $e->getMessage() . ' in ' . $e->getFile() . ' on line ' . $e->getLine()]);
     }
+    exit;
+}
+
+// ─── ATS ANALYSIS (REAL-TIME & DEEP AUDIT) ───────────────────────────────────
+if ($action === 'analyze_ats') {
+    $rawInput = file_get_contents('php://input');
+    $payload = json_decode($rawInput, true);
+    if (!$payload && isset($_POST['resume_data'])) {
+        $payload = json_decode($_POST['resume_data'], true);
+    }
+
+    if (!$payload) {
+        echo json_encode(['success' => false, 'error' => 'Invalid or missing resume data payload']);
+        exit;
+    }
+
+    $resumeData = isset($payload['resume_data']) ? $payload['resume_data'] : $payload;
+    $jobDescription = isset($payload['job_description']) ? $payload['job_description'] : ($_POST['job_description'] ?? '');
+
+    require_once __DIR__ . '/../../src/Services/AIService.php';
+    $aiService = new AIService();
+    $result = $aiService->analyzeResumeBuilderATS($resumeData, $jobDescription);
+
+    echo json_encode($result);
     exit;
 }
 

@@ -35,11 +35,7 @@ if (!$item) {
 
 $department = 'All';
 $deptLabel = 'All Departments';
-require_once __DIR__ . '/../../src/Models/StudentProfile.php';
-$studentModel = new StudentProfile();
-$overallFilters = [];
 $semRange = [1,2,3,4,5,6,7,8];
-$allStudents = $studentModel->getAllWithUsers($overallFilters);
 
 // Get applied students
 if ($type === 'job') {
@@ -64,52 +60,51 @@ foreach ($applications as $app) {
 }
 
 $appliedStudents = [];
-$notAppliedStudents = [];
-
-foreach ($allStudents as $stu) {
-    $isApplied = false;
-    $status = 'Unknown';
-    $resume = null;
+if (!empty($appliedUsns)) {
+    require_once __DIR__ . '/../../src/Models/StudentProfile.php';
+    $studentModel = new StudentProfile();
+    $overallFilters = ['usns' => array_values(array_unique($appliedUsns))];
+    $allStudents = $studentModel->getAllWithUsers($overallFilters);
     
-    if (in_array($stu['usn'], $appliedUsns)) {
-        $isApplied = true;
-        $status = $appStatuses[$stu['usn']] ?? 'Unknown';
-        $resume = $appResumes[$stu['usn']] ?? null;
-    } elseif (!empty($stu['aadhar']) && in_array($stu['aadhar'], $appliedUsns)) {
-        $isApplied = true;
-        $status = $appStatuses[$stu['aadhar']] ?? 'Unknown';
-        $resume = $appResumes[$stu['aadhar']] ?? null;
-    }
-    
-    if ($isApplied) {
-        $stu['app_status'] = $status;
-        $stu['resume_path'] = $resume;
+    foreach ($allStudents as $stu) {
+        $isApplied = false;
+        $status = 'Unknown';
+        $resume = null;
         
-        $key = in_array($stu['usn'], $appliedUsns) ? $stu['usn'] : $stu['aadhar'];
-        $stu['applied_semester_val'] = $appSemesters[$key] ?? null;
-        $stu['applied_sgpa_val'] = $appSgpas[$key] ?? null;
+        if (in_array($stu['usn'], $appliedUsns)) {
+            $isApplied = true;
+            $status = $appStatuses[$stu['usn']] ?? 'Unknown';
+            $resume = $appResumes[$stu['usn']] ?? null;
+        } elseif (!empty($stu['aadhar']) && in_array($stu['aadhar'], $appliedUsns)) {
+            $isApplied = true;
+            $status = $appStatuses[$stu['aadhar']] ?? 'Unknown';
+            $resume = $appResumes[$stu['aadhar']] ?? null;
+        }
         
-        $appliedStudents[] = $stu;
-    } else {
-        $notAppliedStudents[] = $stu;
+        if ($isApplied) {
+            $stu['app_status'] = $status;
+            $stu['resume_path'] = $resume;
+            
+            $key = in_array($stu['usn'], $appliedUsns) ? $stu['usn'] : $stu['aadhar'];
+            $stu['applied_semester_val'] = $appSemesters[$key] ?? null;
+            $stu['applied_sgpa_val'] = $appSgpas[$key] ?? null;
+            
+            $appliedStudents[] = $stu;
+        }
     }
 }
 
 // Sort by USN
 usort($appliedStudents, function($a, $b) { return strcmp($a['usn'], $b['usn']); });
-usort($notAppliedStudents, function($a, $b) { return strcmp($a['usn'], $b['usn']); });
 
-$activeTab = $_GET['tab'] ?? 'applied';
-if (!in_array($activeTab, ['applied', 'not_applied'])) {
-    $activeTab = 'applied';
-}
+$activeTab = 'applied';
 
 $searchQuery = $_GET['q'] ?? '';
 $semesterFilter = $_GET['semester'] ?? '';
 $statusFilter = $_GET['status'] ?? '';
 $institutionFilter = $_GET['institution'] ?? '';
 
-$filterStudents = function($list) use ($searchQuery, $semesterFilter, $statusFilter, $institutionFilter, $activeTab) {
+$filterStudents = function($list) use ($searchQuery, $semesterFilter, $statusFilter, $institutionFilter) {
     $result = [];
     foreach ($list as $stu) {
         if ($searchQuery) {
@@ -130,7 +125,7 @@ $filterStudents = function($list) use ($searchQuery, $semesterFilter, $statusFil
             continue;
         }
         
-        if ($activeTab === 'applied' && $statusFilter) {
+        if ($statusFilter) {
             $appStatus = strtolower($stu['app_status'] ?? '');
             if ($statusFilter === 'Pending' && strpos($appStatus, 'applied') === false && strpos($appStatus, 'pending') === false) continue;
             if ($statusFilter === 'Shortlisted' && strpos($appStatus, 'shortlist') === false) continue;
@@ -144,10 +139,8 @@ $filterStudents = function($list) use ($searchQuery, $semesterFilter, $statusFil
 };
 
 $appliedCount = count($appliedStudents);
-$notAppliedCount = count($notAppliedStudents);
 
-$listToDisplay = $activeTab === 'applied' ? $appliedStudents : $notAppliedStudents;
-$listToDisplay = $filterStudents($listToDisplay);
+$listToDisplay = $filterStudents($appliedStudents);
 
 // Batch fetch 10th & 12th percentages, gender, mobile, and resume email
 if (!empty($listToDisplay)) {
@@ -434,18 +427,14 @@ if (!empty($listToDisplay)) {
         </div>
 
         <div class="tabs">
-            <a href="?id=<?php echo $id; ?>&type=<?php echo $type; ?>&tab=applied" class="tab-btn <?php echo $activeTab === 'applied' ? 'active' : ''; ?>">
+            <a href="?id=<?php echo $id; ?>&type=<?php echo $type; ?>" class="tab-btn active">
                 Applied Students <span class="tab-badge"><?php echo $appliedCount; ?></span>
-            </a>
-            <a href="?id=<?php echo $id; ?>&type=<?php echo $type; ?>&tab=not_applied" class="tab-btn <?php echo $activeTab === 'not_applied' ? 'active' : ''; ?>">
-                Not Applied <span class="tab-badge"><?php echo $notAppliedCount; ?></span>
             </a>
         </div>
 
         <form method="GET" class="filter-card">
             <input type="hidden" name="id" value="<?php echo $id; ?>">
             <input type="hidden" name="type" value="<?php echo htmlspecialchars($type); ?>">
-            <input type="hidden" name="tab" value="<?php echo htmlspecialchars($activeTab); ?>">
             
             <input type="text" name="q" value="<?php echo htmlspecialchars($searchQuery); ?>" placeholder="Search by name or USN..." class="search-input">
             
@@ -474,7 +463,7 @@ if (!empty($listToDisplay)) {
             
             <button type="submit" class="btn-filter">Filter</button>
             <?php if($searchQuery || $semesterFilter || $statusFilter || $institutionFilter): ?>
-            <a href="?id=<?php echo $id; ?>&type=<?php echo htmlspecialchars($type); ?>&tab=<?php echo htmlspecialchars($activeTab); ?>" class="btn-clear">Clear</a>
+            <a href="?id=<?php echo $id; ?>&type=<?php echo htmlspecialchars($type); ?>" class="btn-clear">Clear</a>
             <?php endif; ?>
         </form>
 

@@ -609,13 +609,13 @@ class StudentIntelligenceService {
     }
 
     /**
-     * Fetch unread AI Insights, or generate them dynamically if none exist
+     * Fetch unread AI Insights, or generate them dynamically if none exist or are outdated
      */
     public function getStudentInsights($studentId, $institution, $studentName = '', $autoCreate = true) {
         try {
             // Retrieve recent insights
-            $stmt = $this->db->prepare("SELECT * FROM student_ai_insights WHERE student_id = ? AND institution = ? ORDER BY priority DESC, created_at DESC LIMIT 5");
-            $stmt->execute([$studentId, $institution]);
+            $stmt = $this->db->prepare("SELECT * FROM student_ai_insights WHERE (student_id = ? OR UPPER(student_id) = UPPER(?)) AND (institution = ? OR institution IS NULL OR institution = '' OR ? IS NULL) ORDER BY priority DESC, created_at DESC LIMIT 5");
+            $stmt->execute([$studentId, $studentId, $institution, $institution]);
             $insights = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
 
             $needsRegen = empty($insights);
@@ -626,9 +626,9 @@ class StudentIntelligenceService {
                 }
             }
 
-            if ($needsRegen && $autoCreate) {
+            if ($needsRegen) {
                 $this->generateStudentInsights($studentId, $institution, $studentName);
-                $stmt->execute([$studentId, $institution]);
+                $stmt->execute([$studentId, $studentId, $institution, $institution]);
                 $insights = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
             }
 
@@ -681,12 +681,27 @@ class StudentIntelligenceService {
                 ];
             }
 
-            // Rule 2: Portfolio Completeness Warnings
+            // Rule 2: Portfolio Completeness Warnings (Check Portfolio + Resume)
             $skillsCount = 0;
             $projectsCount = 0;
             foreach ($portfolio as $item) {
                 if ($item['category'] === 'Skill') $skillsCount++;
                 if ($item['category'] === 'Project') $projectsCount++;
+            }
+
+            if (!empty($dbResume)) {
+                if (!empty($dbResume['projects']) && is_array($dbResume['projects'])) {
+                    $projectsCount += count(array_filter($dbResume['projects']));
+                }
+                if (!empty($dbResume['skills']) && is_array($dbResume['skills'])) {
+                    foreach ($dbResume['skills'] as $sGroup) {
+                        if (is_array($sGroup)) {
+                            $skillsCount += count(array_filter($sGroup));
+                        } elseif (!empty($sGroup) && is_string($sGroup) && trim($sGroup) !== '') {
+                            $skillsCount++;
+                        }
+                    }
+                }
             }
 
             if ($skillsCount === 0) {

@@ -33,6 +33,8 @@ if ($cachedStats && is_array($cachedStats)) {
     $stats = $cachedStats['stats'];
     $totalCostStats = $cachedStats['totalCostStats'];
     $serviceStats = $cachedStats['serviceStats'];
+    $aiTrendData = $cachedStats['aiTrendData'] ?? [];
+    $serviceHealthStats = $cachedStats['serviceHealthStats'] ?? [];
 } else {
     // Overall Stats (Separating Input and Output tokens for precise cost)
     $stats = $db->query("SELECT 
@@ -41,11 +43,12 @@ if ($cachedStats && is_array($cachedStats)) {
         SUM(completion_tokens) as total_completion_tokens,
         SUM(total_tokens) as total_tokens,
         AVG(latency_ms) as avg_latency,
-        SUM(CASE WHEN status = 'failure' THEN 1 ELSE 0 END) as failures
+        SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) as failures
     FROM ai_audit_logs WHERE created_at >= DATE_SUB(NOW(), INTERVAL 24 HOUR)")->fetch(PDO::FETCH_ASSOC);
 
-    // Total Cost Estimation
+    // Total Cost Estimation & All-Time Stats
     $totalCostStats = $db->query("SELECT 
+        COUNT(*) as total_all_time_requests,
         SUM(prompt_tokens) as total_prompt_tokens,
         SUM(completion_tokens) as total_completion_tokens,
         SUM(total_tokens) as total_tokens
@@ -62,10 +65,41 @@ if ($cachedStats && is_array($cachedStats)) {
     GROUP BY service_method 
     ORDER BY tokens DESC")->fetchAll(PDO::FETCH_ASSOC);
 
+    // 7-Day AI Request & Token Volume Trend
+    $aiTrendData = $db->query("
+        SELECT 
+            DATE(created_at) as log_date,
+            COUNT(*) as requests,
+            SUM(prompt_tokens) as prompt_tokens,
+            SUM(completion_tokens) as completion_tokens,
+            SUM(total_tokens) as total_tokens,
+            ROUND(AVG(latency_ms), 0) as avg_latency
+        FROM ai_audit_logs
+        WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+        GROUP BY DATE(created_at)
+        ORDER BY log_date ASC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+
+    // Service Health & Latency Telemetry
+    $serviceHealthStats = $db->query("
+        SELECT 
+            service_method,
+            SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as success_count,
+            SUM(CASE WHEN status != 'success' THEN 1 ELSE 0 END) as fail_count,
+            ROUND(AVG(latency_ms), 0) as avg_latency
+        FROM ai_audit_logs
+        WHERE created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        GROUP BY service_method
+        ORDER BY COUNT(*) DESC
+        LIMIT 8
+    ")->fetchAll(PDO::FETCH_ASSOC);
+
     $redisHelper->set('ai_monitor:aggregate_stats', [
         'stats' => $stats,
         'totalCostStats' => $totalCostStats,
-        'serviceStats' => $serviceStats
+        'serviceStats' => $serviceStats,
+        'aiTrendData' => $aiTrendData,
+        'serviceHealthStats' => $serviceHealthStats
     ], 30); // cache for 30 seconds
 }
 
@@ -126,6 +160,7 @@ foreach ($workerPulses as $id => $time) {
     <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <style>
         :root {
@@ -368,9 +403,15 @@ foreach ($workerPulses as $id => $time) {
         <!-- Metrics Area -->
         <div class="metrics-grid">
             <div class="metric-card">
-                <div class="label">Total Requests</div>
-                <div class="value"><?php echo formatNumberIndian($stats['total_requests']); ?></div>
+                <div class="label">Total Requests (24h)</div>
+                <div class="value"><?php echo formatNumberIndian($stats['total_requests'] ?? 0); ?></div>
                 <div class="trend">Last 24 hours</div>
+            </div>
+
+            <div class="metric-card">
+                <div class="label">All-Time Requests</div>
+                <div class="value" style="color: var(--accent-blue);"><?php echo formatNumberIndian($totalCostStats['total_all_time_requests'] ?? 0); ?></div>
+                <div class="trend">Cumulative AI requests</div>
             </div>
             
             <div class="metric-card">
@@ -407,6 +448,61 @@ foreach ($workerPulses as $id => $time) {
                         <span id="rpm-dot" style="width:8px;height:8px;border-radius:50%;background:#10b981;display:inline-block;animation:rpm-pulse 2s infinite;"></span>
                         Live · updates every 15s
                     </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Infrastructure Telemetry Charts Grid -->
+        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(480px, 1fr)); gap: 25px; margin-bottom: 40px;">
+            <!-- Chart 1: AI Token & Request Volume Trend (7D) -->
+            <div class="content-card" style="padding: 24px; display: flex; flex-direction: column; min-height: 420px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="font-size: 16px; font-weight: 800; color: var(--primary-dark); display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-chart-line" style="color: var(--primary-maroon);"></i> AI Token & Request Volume Trend (7D)
+                    </h2>
+                    <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); background: #f1f5f9; padding: 4px 10px; border-radius: 8px;">7-Day History</span>
+                </div>
+                <div style="flex: 1; position: relative; min-height: 320px;">
+                    <canvas id="aiTrendChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Chart 2: Input vs Output Token & Cost Share -->
+            <div class="content-card" style="padding: 24px; display: flex; flex-direction: column; min-height: 420px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="font-size: 16px; font-weight: 800; color: var(--primary-dark); display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-chart-pie" style="color: var(--accent-blue);"></i> Input vs Output Token Breakdown
+                    </h2>
+                    <span style="font-size: 11px; font-weight: 700; color: var(--success); background: #ecfdf5; padding: 4px 10px; border-radius: 8px;">Cost Model: gpt-4o-mini</span>
+                </div>
+                <div style="flex: 1; position: relative; display: flex; align-items: center; justify-content: center; min-height: 320px;">
+                    <canvas id="tokenDistChart" style="max-height: 300px; max-width: 300px;"></canvas>
+                </div>
+            </div>
+
+            <!-- Chart 3: AI Service Method Token Share -->
+            <div class="content-card" style="padding: 24px; display: flex; flex-direction: column; min-height: 420px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="font-size: 16px; font-weight: 800; color: var(--primary-dark); display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-server" style="color: #8b5cf6;"></i> Service Method Token Consumption
+                    </h2>
+                    <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); background: #f1f5f9; padding: 4px 10px; border-radius: 8px;">Top AI Endpoints</span>
+                </div>
+                <div style="flex: 1; position: relative; min-height: 320px;">
+                    <canvas id="serviceTokenChart"></canvas>
+                </div>
+            </div>
+
+            <!-- Chart 4: Service Telemetry & Success / Failure Rate -->
+            <div class="content-card" style="padding: 24px; display: flex; flex-direction: column; min-height: 420px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                    <h2 style="font-size: 16px; font-weight: 800; color: var(--primary-dark); display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-microchip" style="color: #f59e0b;"></i> Endpoint Telemetry (Success vs Failure)
+                    </h2>
+                    <span style="font-size: 11px; font-weight: 700; color: var(--text-muted); background: #f1f5f9; padding: 4px 10px; border-radius: 8px;">Last 7 Days</span>
+                </div>
+                <div style="flex: 1; position: relative; min-height: 320px;">
+                    <canvas id="serviceLatencyChart"></canvas>
                 </div>
             </div>
         </div>
@@ -591,6 +687,142 @@ foreach ($workerPulses as $id => $time) {
                     el.textContent = 'err';
                 });
         }
+
+        // ----------------------------------------------------
+        // Chart 1: AI Token & Request Volume Trend (7D)
+        // ----------------------------------------------------
+        const trendCtx = document.getElementById('aiTrendChart').getContext('2d');
+        new Chart(trendCtx, {
+            type: 'line',
+            data: {
+                labels: <?php echo json_encode(array_map(function($x) { return date('M d', strtotime($x['log_date'])); }, $aiTrendData)); ?>,
+                datasets: [
+                    {
+                        label: 'Total Tokens Consumed',
+                        data: <?php echo json_encode(array_column($aiTrendData, 'total_tokens')); ?>,
+                        borderColor: '#800000',
+                        backgroundColor: 'rgba(128, 0, 0, 0.08)',
+                        fill: true,
+                        tension: 0.4,
+                        yAxisID: 'y'
+                    },
+                    {
+                        label: 'AI Requests Count',
+                        data: <?php echo json_encode(array_column($aiTrendData, 'requests')); ?>,
+                        borderColor: '#0066cc',
+                        backgroundColor: 'rgba(0, 102, 204, 0.08)',
+                        fill: true,
+                        tension: 0.4,
+                        yAxisID: 'y1'
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        type: 'linear',
+                        display: true,
+                        position: 'left',
+                        title: { display: true, text: 'Tokens' }
+                    },
+                    y1: {
+                        type: 'linear',
+                        display: true,
+                        position: 'right',
+                        grid: { drawOnChartArea: false },
+                        title: { display: true, text: 'Requests' }
+                    }
+                },
+                plugins: {
+                    legend: { position: 'top', labels: { font: { family: 'Outfit', weight: '600' } } }
+                }
+            }
+        });
+
+        // ----------------------------------------------------
+        // Chart 2: Input vs Output Token Breakdown (Doughnut)
+        // ----------------------------------------------------
+        const tokenCtx = document.getElementById('tokenDistChart').getContext('2d');
+        new Chart(tokenCtx, {
+            type: 'doughnut',
+            data: {
+                labels: ['Prompt Input Tokens', 'Completion Output Tokens'],
+                datasets: [{
+                    data: [
+                        <?php echo (int)($totalCostStats['total_prompt_tokens'] ?? 0); ?>,
+                        <?php echo (int)($totalCostStats['total_completion_tokens'] ?? 0); ?>
+                    ],
+                    backgroundColor: ['#0066cc', '#10b981'],
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'bottom', labels: { font: { family: 'Outfit', weight: '600' } } }
+                }
+            }
+        });
+
+        // ----------------------------------------------------
+        // Chart 3: AI Service Method Token Share (Horizontal Bar)
+        // ----------------------------------------------------
+        const serviceTokenCtx = document.getElementById('serviceTokenChart').getContext('2d');
+        new Chart(serviceTokenCtx, {
+            type: 'bar',
+            data: {
+                labels: <?php echo json_encode(array_column($serviceStats, 'service_method')); ?>,
+                datasets: [{
+                    label: 'Total Tokens',
+                    data: <?php echo json_encode(array_column($serviceStats, 'tokens')); ?>,
+                    backgroundColor: '#8b5cf6',
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: {
+                    legend: { display: false }
+                }
+            }
+        });
+
+        // ----------------------------------------------------
+        // Chart 4: Service Telemetry (Success vs Fail & Latency)
+        // ----------------------------------------------------
+        const latencyCtx = document.getElementById('serviceLatencyChart').getContext('2d');
+        new Chart(latencyCtx, {
+            type: 'bar',
+            data: {
+                labels: <?php echo json_encode(array_column($serviceHealthStats, 'service_method')); ?>,
+                datasets: [
+                    {
+                        label: 'Success Count',
+                        data: <?php echo json_encode(array_column($serviceHealthStats, 'success_count')); ?>,
+                        backgroundColor: '#10b981',
+                        borderRadius: 6
+                    },
+                    {
+                        label: 'Fail / Retry Count',
+                        data: <?php echo json_encode(array_column($serviceHealthStats, 'fail_count')); ?>,
+                        backgroundColor: '#ef4444',
+                        borderRadius: 6
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { position: 'top', labels: { font: { family: 'Outfit', weight: '600' } } }
+                }
+            }
+        });
 
         // Initial fetch on page load
         fetchRPM();

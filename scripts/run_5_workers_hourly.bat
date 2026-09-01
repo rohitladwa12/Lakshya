@@ -8,10 +8,10 @@ echo [ %date% %time% ] Launching 5 silent workers...
 set "VBS_FILE=%temp%\run_silent_worker.vbs"
 echo Set WshShell = CreateObject("WScript.Shell") > "%VBS_FILE%"
 
-:: Launch 5 workers with separate log files and a 1-second startup stagger
+:: Launch 5 workers with separate log files and a 1-minute (60,000 ms) startup stagger
 for /L %%i in (1,1,5) do (
-    echo WshShell.Run "cmd /c php src\Workers\AIWorker.php >> logs\ai_worker_%%i.log 2>&1", 0 >> "%VBS_FILE%"
-    echo WScript.Sleep 1000 >> "%VBS_FILE%"
+    echo WshShell.Run "cmd /c php src\Workers\AIWorker.php %%i >> logs\ai_worker_%%i.log 2>&1", 0 >> "%VBS_FILE%"
+    echo WScript.Sleep 60000 >> "%VBS_FILE%"
 )
 echo Set WshShell = Nothing >> "%VBS_FILE%"
 

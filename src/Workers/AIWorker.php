@@ -24,9 +24,10 @@ $services = [
     new CareerAdvisorAI(),
 ];
 
-// Identify this worker
-$workerId = gethostname() . "_" . getmypid();
-workerLog("Worker Identity: $workerId");
+// Identify worker index and identity
+$workerIndex = isset($argv[1]) ? max(1, intval($argv[1])) : 1;
+$workerId = gethostname() . "_W" . $workerIndex . "_" . getmypid();
+workerLog("Worker Identity: $workerId (Worker #$workerIndex)");
 
 function updatePulse($id, $jobCount = 0)
 {
@@ -37,13 +38,28 @@ function updatePulse($id, $jobCount = 0)
         $redisHelper->getClient()->hset('ai_workers_jobs', $id, $jobCount);
     }
 }
+
+// Graceful shutdown function to clean up Redis pulse immediately when process stops
+register_shutdown_function(function() use ($workerId) {
+    global $redisHelper;
+    workerLog("Worker $workerId shutting down. Cleaning pulse...");
+    try {
+        if ($redisHelper && $redisHelper->isConnected()) {
+            $redisHelper->getClient()->hdel('ai_workers_pulse', $workerId);
+            $redisHelper->getClient()->hdel('ai_workers_memory', $workerId);
+            $redisHelper->getClient()->hdel('ai_workers_jobs', $workerId);
+        }
+    } catch (Throwable $e) {}
+});
+
 $jobCount = 0;
 updatePulse($workerId, $jobCount);
 
 $startTime = time();
-$maxRuntime = 86400 * 30; // 30 days runtime
+// Stagger max runtime by 60 seconds per worker index to prevent simultaneous worker expirations
+$maxRuntime = (86400 * 30) + (($workerIndex - 1) * 60); // 30 days + staggered offset
 $maxMemory = 256 * 1024 * 1024; // 256MB limit
-$maxJobs = 100000; // High job limit before restart
+$maxJobs = 100000 + (($workerIndex - 1) * 500); // Staggered job limit
 
 while (true) {
     // 0. Health & Memory Checks

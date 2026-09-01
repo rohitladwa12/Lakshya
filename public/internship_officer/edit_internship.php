@@ -47,14 +47,16 @@ if (isPost()) {
 
     // File Upload: Logo
     if (!empty($_FILES['company_logo']['name'])) {
-        $ext = pathinfo($_FILES['company_logo']['name'], PATHINFO_EXTENSION);
-        $logoName = 'logo_' . time() . '.' . $ext;
-        $uploadDir = 'uploads/internships/logo/';
-        $fullUploadDir = __DIR__ . '/../../public/' . $uploadDir;
-        if (!is_dir($fullUploadDir)) mkdir($fullUploadDir, 0777, true);
-        
-        if (move_uploaded_file($_FILES['company_logo']['tmp_name'], $fullUploadDir . $logoName)) {
-            $updateData['company_logo'] = $uploadDir . $logoName;
+        $ext = strtolower(pathinfo($_FILES['company_logo']['name'], PATHINFO_EXTENSION));
+        if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'svg'])) {
+            $logoName = 'logo_' . time() . '.' . $ext;
+            $uploadDir = 'uploads/internships/logo/';
+            $fullUploadDir = __DIR__ . '/../../public/' . $uploadDir;
+            if (!is_dir($fullUploadDir)) mkdir($fullUploadDir, 0777, true);
+            
+            if (move_uploaded_file($_FILES['company_logo']['tmp_name'], $fullUploadDir . $logoName)) {
+                $updateData['company_logo'] = $uploadDir . $logoName;
+            }
         }
     }
     
@@ -69,10 +71,12 @@ if (isPost()) {
         $docPaths = []; // If we want to replace existing docs
         for ($i = 0; $i < $count; $i++) {
             if ($files['error'][$i] == 0) {
-                $ext = pathinfo($files['name'][$i], PATHINFO_EXTENSION);
-                $docName = 'doc_' . time() . '_' . $i . '.' . $ext;
-                if (move_uploaded_file($files['tmp_name'][$i], $fullDocDir . $docName)) {
-                    $docPaths[] = $docUploadDir . $docName;
+                $ext = strtolower(pathinfo($files['name'][$i], PATHINFO_EXTENSION));
+                if (in_array($ext, ['pdf', 'doc', 'docx'])) {
+                    $docName = 'doc_' . time() . '_' . $i . '.' . $ext;
+                    if (move_uploaded_file($files['tmp_name'][$i], $fullDocDir . $docName)) {
+                        $docPaths[] = $docUploadDir . $docName;
+                    }
                 }
             }
         }

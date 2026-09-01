@@ -28,12 +28,12 @@ DirectoryIndex index.php
     RewriteCond %{REQUEST_FILENAME} -d
     RewriteRule ^ - [L]
 
-    # Route clean URLs to matching .php files inside THIS public folder
-    RewriteCond %{REQUEST_FILENAME}.php -f
-    RewriteRule ^(.+)$ $1.php [L,QSA]
+    # Route clean URLs to matching .php files inside public folder
+    RewriteCond %{DOCUMENT_ROOT}/Lakshya/public/$1.php -f
+    RewriteRule ^(.+)$ public/$1.php [L,QSA]
 
     # Default root
-    RewriteRule ^$ index.php [L]
+    RewriteRule ^$ public/index.php [L]
 </IfModule>
 
 # SEO & Header Enhancements for Search Engine Crawlers

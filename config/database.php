@@ -38,18 +38,18 @@ class Database {
   //];
 
    $this->definitions['gmu'] = [
-       'host' => '192.168.8.140',  // Since GMU tables are on localhost
-	  	'user' => 'gmu_leap',     // MySQL username
-	 	'pass' => '$ecure@ccess@LEAP', // MySQL password
-	 	'name' => 'gmu',     // GMU database name
+       'host' => getenv('DB_REMOTE_HOST') ?: '192.168.8.140',
+	  	'user' => getenv('DB_REMOTE_USER') ?: 'root',
+	 	'pass' => getenv('DB_REMOTE_PASS') ?: '',
+	 	'name' => getenv('DB_GMU_NAME') ?: 'gmu',
 	 	'port' => 3306, 
     ];
 
    $this->definitions['gmit'] = [
-      'host' => '192.168.8.140',  // Since GMU tables are on localhost
-	  	'user' => 'gmu_leap',     // MySQL username
-	  	'pass' => '$ecure@ccess@LEAP', // MySQL password
-	  	'name' => 'gmit_new',     // GMU database name
+      'host' => getenv('DB_REMOTE_HOST') ?: '192.168.8.140',
+	  	'user' => getenv('DB_REMOTE_USER') ?: 'root',
+	  	'pass' => getenv('DB_REMOTE_PASS') ?: '',
+	  	'name' => getenv('DB_GMIT_NAME') ?: 'gmit_new',
 	  	'port' => 3306, 
    ];
     }
@@ -105,7 +105,7 @@ class Database {
         // Only die if it's the default connection or critical
         if ($name === 'default') {
             http_response_code(500);
-            die("<h1>Database Error</h1><p>Failed to connect to the main database ({$name}).</p><p>" . htmlspecialchars($exception->getMessage()) . "</p>");
+            die("<h1>Database Error</h1><p>Failed to connect to the main database. Please check the server logs for details.</p>");
         }
     }
 

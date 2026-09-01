@@ -82,4 +82,53 @@ class Internship extends Model {
         $stmt->execute($params);
         return $stmt->fetchAll();
     }
+
+    /**
+     * Get all internships from this portal only, paginated (for officer dashboard)
+     */
+    public function getPortalInternshipsPaginated($page = 1, $perPage = 10, $status = null) {
+        $countSql = "SELECT COUNT(*) as total FROM {$this->table} WHERE created_by IS NOT NULL";
+        $params = [];
+        if ($status) {
+            $countSql .= " AND status = ?";
+            $params[] = $status;
+        }
+        
+        $countStmt = $this->db->prepare($countSql);
+        $countStmt->execute($params);
+        $total = $countStmt->fetch()['total'];
+        
+        $totalPages = ceil($total / $perPage);
+        $page = max(1, min($page, max(1, $totalPages)));
+        $offset = ($page - 1) * $perPage;
+        
+        $sql = "SELECT i.*, 
+                       (SELECT COUNT(*) FROM internship_applications ia WHERE ia.internship_id = i.id) as application_count,
+                       (SELECT COUNT(*) FROM internship_applications ia WHERE ia.internship_id = i.id AND ia.status = 'Shortlisted') as shortlisted_count,
+                       (SELECT COUNT(*) FROM internship_applications ia WHERE ia.internship_id = i.id AND ia.status = 'Selected') as selected_count
+                FROM {$this->table} i
+                WHERE i.created_by IS NOT NULL";
+        
+        if ($status) {
+            $sql .= " AND i.status = ?";
+        }
+        
+        $sql .= " ORDER BY i.created_at DESC LIMIT {$perPage} OFFSET {$offset}";
+        
+        $stmt = $this->db->prepare($sql);
+        $stmt->execute($params);
+        $items = $stmt->fetchAll();
+        
+        return [
+            'items' => $items,
+            'pagination' => [
+                'current_page' => $page,
+                'per_page' => $perPage,
+                'total_items' => $total,
+                'total_pages' => $totalPages,
+                'has_prev' => $page > 1,
+                'has_next' => $page < $totalPages
+            ]
+        ];
+    }
 }

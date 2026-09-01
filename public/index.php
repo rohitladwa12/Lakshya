@@ -6,14 +6,50 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LAKSHYA — Internship & Placement Portal | GM University</title>
+    <meta name="google-site-verification" content="gHmW8ge9TTkAZxbUI9hHCRMMCfednoa9ByU0zyWfUAw" />
     <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
     <meta name="description"
         content="GM University's premier platform for internships, placements, AI interview prep, and career development.">
+    <meta name="robots" content="index, follow, max-image-preview:large">
+    <link rel="canonical" href="https://leap.gmu.ac.in/Lakshya/">
+    <meta property="og:title" content="LAKSHYA — Internship & Placement Portal | GM University">
+    <meta property="og:description" content="GM University's premier platform for internships, placements, AI interview prep, and career development.">
+    <meta property="og:url" content="https://leap.gmu.ac.in/Lakshya/">
+    <meta property="og:type" content="website">
+    <meta property="og:image" content="https://leap.gmu.ac.in/Lakshya/assets/img/favicon.png">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <!-- Schema.org JSON-LD Structured Data for SEO -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@graph": [
+        {
+          "@type": "EducationalOrganization",
+          "@id": "https://gmu.ac.in/#organization",
+          "name": "GM University",
+          "url": "https://gmu.ac.in/",
+          "logo": "https://leap.gmu.ac.in/Lakshya/assets/img/favicon.png",
+          "email": "placement@gmu.ac.in",
+          "telephone": "+918310793613"
+        },
+        {
+          "@type": "WebSite",
+          "@id": "https://leap.gmu.ac.in/Lakshya/#website",
+          "url": "https://leap.gmu.ac.in/Lakshya/",
+          "name": "LAKSHYA — Internship & Placement Portal | GM University",
+          "description": "GM University's premier platform for internships, placements, AI interview prep, and career development.",
+          "publisher": {
+            "@id": "https://gmu.ac.in/#organization"
+          }
+        }
+      ]
+    }
+    </script>
 
     <!-- Animation Libraries (load before body) -->
     <script src="https://cdn.jsdelivr.net/npm/@studio-freight/lenis@1.0.42/dist/lenis.min.js"></script>
@@ -58,6 +94,10 @@
 
         html {
             scroll-behavior: auto;
+            width: 100%;
+            max-width: 100vw;
+            overflow-x: clip;
+            box-sizing: border-box;
         }
 
         /* let Lenis handle this */
@@ -66,7 +106,11 @@
             font-family: 'Inter', -apple-system, sans-serif;
             background: var(--white);
             color: var(--text);
-            overflow-x: hidden;
+            width: 100%;
+            max-width: 100vw;
+            overflow-x: clip;
+            position: relative;
+            box-sizing: border-box;
             -webkit-font-smoothing: antialiased;
         }
 
@@ -77,39 +121,45 @@
         /* Outer wrapper — centers the pill */
         .nav {
             position: fixed;
-            top: 20px;
+            top: 16px;
             left: 0;
+            right: 0;
             width: 100%;
+            max-width: 100vw;
             z-index: 1000;
             display: flex;
             justify-content: center;
-            padding: 0 24px;
+            align-items: center;
+            padding: 0 16px;
             pointer-events: none;
-            /* let clicks pass through gaps */
+            box-sizing: border-box;
         }
 
         /* The pill itself */
         .nav__pill {
             display: flex;
             align-items: center;
+            justify-content: space-between;
             gap: 0;
-            height: 52px;
-            background: rgba(13, 4, 4, 0.65);
+            height: 50px;
+            max-width: 100%;
+            background: rgba(13, 4, 4, 0.75);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
             border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 100px;
-            padding: 0 6px 0 18px;
+            padding: 0 6px 0 16px;
             pointer-events: all;
-            transition: background 0.4s ease, border-color 0.4s ease, box-shadow 0.4s ease;
+            transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
             box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            box-sizing: border-box;
         }
 
         /* Scrolled: slightly more opaque, subtle gold tint border */
         .nav.scrolled .nav__pill {
-            background: rgba(8, 2, 2, 0.82);
-            border-color: rgba(212, 175, 55, 0.18);
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(212, 175, 55, 0.08);
+            background: rgba(8, 2, 2, 0.88);
+            border-color: rgba(212, 175, 55, 0.22);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(212, 175, 55, 0.08);
         }
 
         /* Logo */
@@ -117,15 +167,16 @@
             display: inline-flex;
             align-items: center;
             gap: 7px;
-            font-size: 0.9rem;
+            font-size: 0.88rem;
             font-weight: 900;
             letter-spacing: 0.12em;
             color: var(--white);
             text-decoration: none;
             white-space: nowrap;
-            padding-right: 16px;
+            padding-right: 14px;
             border-right: 1px solid rgba(255, 255, 255, 0.1);
             margin-right: 4px;
+            flex-shrink: 0;
         }
 
         .nav__logo-dot {
@@ -167,7 +218,7 @@
             letter-spacing: 0.02em;
             color: rgba(255, 255, 255, 0.6);
             text-decoration: none;
-            padding: 8px 14px;
+            padding: 8px 12px;
             border-radius: 50px;
             transition: all 0.22s ease;
             white-space: nowrap;
@@ -181,9 +232,9 @@
         /* Divider before actions */
         .nav__sep {
             width: 1px;
-            height: 20px;
+            height: 18px;
             background: rgba(255, 255, 255, 0.12);
-            margin: 0 10px;
+            margin: 0 8px;
             flex-shrink: 0;
         }
 
@@ -203,6 +254,14 @@
             color: var(--white);
         }
 
+        /* Right actions cluster inside pill */
+        .nav__actions {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+        }
+
         /* CTA button */
         .nav__cta {
             display: inline-flex;
@@ -210,8 +269,8 @@
             gap: 6px;
             font-size: 0.78rem;
             font-weight: 700;
-            padding: 0 18px;
-            height: 36px;
+            padding: 0 16px;
+            height: 34px;
             border-radius: 50px;
             background: var(--gold);
             color: #1a0808 !important;
@@ -220,7 +279,6 @@
             transition: all 0.22s ease;
             box-shadow: 0 2px 10px rgba(212, 175, 55, 0.35);
             flex-shrink: 0;
-            margin-left: 6px;
         }
 
         .nav__cta:hover {
@@ -233,18 +291,29 @@
         .nav__toggle {
             display: none;
             flex-direction: column;
+            align-items: center;
+            justify-content: center;
             gap: 4px;
             cursor: pointer;
-            padding: 10px 8px;
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.1);
             z-index: 1010;
-            margin-left: 4px;
+            flex-shrink: 0;
+            transition: all 0.2s ease;
+        }
+
+        .nav__toggle:hover {
+            background: rgba(255, 255, 255, 0.12);
         }
 
         .nav__toggle span {
             display: block;
-            width: 18px;
+            width: 16px;
             height: 1.5px;
-            background: rgba(255, 255, 255, 0.75);
+            background: rgba(255, 255, 255, 0.85);
             border-radius: 2px;
             transition: all 0.3s ease;
         }
@@ -266,67 +335,158 @@
             display: none;
             position: fixed;
             inset: 0;
-            background: var(--maroon-deep);
+            background: rgba(13, 4, 4, 0.97);
+            backdrop-filter: blur(25px);
+            -webkit-backdrop-filter: blur(25px);
             z-index: 1005;
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 8px;
+            gap: 16px;
+            padding: 24px;
         }
 
         .nav__mobile-menu.open {
             display: flex;
         }
 
-        .nav__mobile-menu a {
-            font-size: 2rem;
-            font-weight: 900;
-            color: rgba(255, 255, 255, 0.7);
-            text-decoration: none;
-            letter-spacing: -0.03em;
-            padding: 10px 24px;
-            border-radius: 12px;
+        /* Dedicated top-right close button in mobile menu */
+        .nav__mobile-close {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: var(--white);
+            font-size: 1.25rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
             transition: all 0.2s ease;
+            touch-action: manipulation;
+            z-index: 1010;
+        }
+
+        .nav__mobile-close:hover,
+        .nav__mobile-close:active {
+            background: rgba(212, 175, 55, 0.2);
+            border-color: var(--gold);
+            color: var(--gold-light);
+            transform: scale(1.08);
+        }
+
+        .nav__mobile-brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1.1rem;
+            font-weight: 900;
+            letter-spacing: 0.14em;
+            color: var(--white);
+            margin-bottom: 24px;
+            opacity: 0.7;
+        }
+
+        .nav__mobile-menu a {
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+            letter-spacing: -0.02em;
+            padding: 10px 24px;
+            border-radius: 14px;
+            transition: all 0.2s ease;
+            text-align: center;
         }
 
         .nav__mobile-menu a:hover {
             color: var(--white);
-            background: rgba(255, 255, 255, 0.05);
+            background: rgba(255, 255, 255, 0.08);
         }
 
         .nav__mobile-menu .mobile-cta {
-            margin-top: 24px;
-            font-size: 1rem;
+            margin-top: 16px;
+            font-size: 0.95rem;
             font-weight: 700;
             background: var(--gold);
             color: #1a0808 !important;
-            padding: 14px 40px;
+            padding: 14px 36px;
             border-radius: 50px;
+            box-shadow: 0 4px 20px rgba(212, 175, 55, 0.4);
         }
 
         .nav__mobile-menu .mobile-cta:hover {
             background: var(--gold-light);
         }
 
-        /* Mobile: show hamburger, hide desktop links */
-        @media (max-width: 768px) {
+        /* Navigation Responsive rules */
+        @media (max-width: 900px) {
             .nav {
                 top: 12px;
-                padding: 0 16px;
+                padding: 0 12px;
+                width: 100vw;
+                max-width: 100vw;
+                box-sizing: border-box;
+            }
+
+            .nav__pill {
+                width: 100%;
+                max-width: 100%;
+                padding: 0 6px 0 14px;
+            }
+
+            .nav__logo {
+                border-right: none;
+                padding-right: 0;
+                margin-right: 0;
+                font-size: 0.85rem;
             }
 
             .nav__links,
             .nav__demo,
             .nav__sep {
-                display: none;
+                display: none !important;
             }
 
             .nav__toggle {
                 display: flex;
             }
 
-            .nav__pill {
-                padding: 0 6px 0 16px;
+            .nav__cta {
+                padding: 0 12px;
+                height: 32px;
+                font-size: 0.72rem;
+            }
+
+            /* Prevent any mobile background bleeding / right white space */
+            .hero__orb,
+            .stats::before,
+            .stats::after,
+            .story__right::before {
+                display: none !important;
+            }
+
+            .cta-section::before {
+                font-size: clamp(3.5rem, 14vw, 7rem) !important;
+                max-width: 95vw !important;
+            }
+        }
+
+        @media (max-width: 360px) {
+            .nav__logo {
+                font-size: 0.78rem;
+            }
+            .nav__cta {
+                padding: 0 10px;
+                font-size: 0.68rem;
+            }
+            .nav__toggle {
+                width: 32px;
+                height: 32px;
             }
         }
 
@@ -380,7 +540,7 @@
         }
 
         .hero__inner {
-            max-width: 900px;
+            max-width: 1100px;
             text-align: center;
             position: relative;
             z-index: 2;
@@ -748,45 +908,6 @@
             }
         }
 
-        /* Responsive — keep 4 cols, only shrink padding + text */
-        @media (max-width: 1024px) {
-            .stats__top {
-                padding: 60px 40px 40px;
-            }
-
-            .stat {
-                padding: 40px 28px;
-            }
-
-            .stat__number {
-                font-size: clamp(2.4rem, 4vw, 4rem);
-            }
-        }
-
-        @media (max-width: 600px) {
-            .stats__top {
-                flex-direction: column;
-                padding: 40px 20px 28px;
-            }
-
-            .stats__headline {
-                font-size: 1.8rem;
-            }
-
-            .stat {
-                padding: 28px 16px;
-            }
-
-            .stat__number {
-                font-size: 2rem;
-            }
-
-            .stat__label {
-                font-size: 0.6rem;
-                letter-spacing: 0.08em;
-            }
-        }
-
         /* ============================================
            FEATURES SECTION
         ============================================ */
@@ -1063,63 +1184,6 @@
             margin-top: 6px;
         }
 
-        /* Responsive bento */
-        @media (max-width: 1024px) {
-            .features__grid {
-                grid-template-columns: repeat(4, 1fr);
-            }
-
-            .fc:nth-child(1) {
-                grid-column: span 4;
-            }
-
-            .fc:nth-child(2) {
-                grid-column: span 4;
-            }
-
-            .fc:nth-child(3) {
-                grid-column: span 2;
-            }
-
-            .fc:nth-child(4) {
-                grid-column: span 2;
-            }
-
-            .fc:nth-child(5) {
-                grid-column: span 2;
-            }
-
-            .fc:nth-child(6) {
-                grid-column: span 2;
-            }
-        }
-
-        @media (max-width: 768px) {
-            .features {
-                padding: 80px 24px;
-            }
-
-            .features__grid {
-                grid-template-columns: 1fr;
-                gap: 14px;
-            }
-
-            .fc:nth-child(n) {
-                grid-column: span 1;
-            }
-
-            .fc {
-                min-height: 220px;
-            }
-
-            .fc--wide {
-                padding: 40px 32px;
-                min-height: 180px;
-            }
-
-            .fc--wide .fc__inner {
-                gap: 30px;
-            }
         }
 
         /* ============================================
@@ -1333,31 +1397,6 @@
             height: 400vh;
         }
 
-        /* Mobile story */
-        @media (max-width: 768px) {
-            .story__sticky {
-                grid-template-columns: 1fr;
-            }
-
-            .story__left {
-                display: none;
-            }
-
-            .story__right {
-                padding: 40px 24px;
-            }
-
-            .story__step {
-                padding: 40px 24px;
-            }
-
-            .story__step-title {
-                font-size: 2.2rem;
-            }
-
-            .story__dots {
-                right: 16px;
-            }
         }
 
         /* ============================================
@@ -1423,10 +1462,10 @@
 
         .footer__top {
             display: grid;
-            grid-template-columns: 1.5fr 1fr 1fr 1fr;
-            gap: 60px;
-            margin-bottom: 60px;
-            padding-bottom: 60px;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 50px 80px;
+            margin-bottom: 50px;
+            padding-bottom: 50px;
             border-bottom: 1px solid rgba(255, 255, 255, 0.08);
         }
 
@@ -1507,97 +1546,239 @@
         }
 
         /* ============================================
-           RESPONSIVE
+           RESPONSIVE & MOBILE POLISH
         ============================================ */
         @media (max-width: 1024px) {
+            .stats__top {
+                padding: 60px 40px 40px;
+            }
+
+            .stats__grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .stat {
+                padding: 44px 36px;
+            }
+
+            .stat:nth-child(2) {
+                border-right: none;
+            }
+
+            .stat:nth-child(1), .stat:nth-child(2) {
+                border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+            }
+
             .features__grid {
                 grid-template-columns: repeat(2, 1fr);
+            }
+
+            .fc:nth-child(1), .fc:nth-child(2), .fc:nth-child(6) {
+                grid-column: span 2;
+            }
+
+            .fc:nth-child(3), .fc:nth-child(4), .fc:nth-child(5) {
+                grid-column: span 1;
             }
 
             .footer__top {
                 grid-template-columns: 1fr 1fr;
                 gap: 40px;
             }
-
-            .stats__inner {
-                grid-template-columns: repeat(2, 1fr);
-            }
-
-            .stat:first-child {
-                border-radius: var(--radius-md) 0 0 0;
-            }
-
-            .stat:last-child {
-                border-radius: 0 0 var(--radius-md) 0;
-            }
-
-            .stat:nth-child(2) {
-                border-radius: 0 var(--radius-md) 0 0;
-            }
-
-            .stat:nth-child(3) {
-                border-radius: 0 0 0 var(--radius-md);
-            }
         }
 
         @media (max-width: 768px) {
-            .nav {
-                padding: 0 24px;
-            }
-
-            .nav__links {
-                display: none;
-            }
-
-            .nav__toggle {
-                display: flex;
-            }
-
             .hero {
-                padding: 100px 24px 80px;
+                padding: 110px 20px 70px;
+                min-height: 90vh;
+            }
+
+            .hero__badge {
+                font-size: 0.72rem;
+                padding: 5px 14px;
+                margin-bottom: 20px;
+            }
+
+            .hero__title {
+                font-size: clamp(2.4rem, 9vw, 3.8rem);
+                margin-bottom: 18px;
+            }
+
+            .hero__sub {
+                font-size: 0.95rem;
+                line-height: 1.7;
+                margin-bottom: 30px;
             }
 
             .hero__actions {
                 flex-direction: column;
-                align-items: center;
+                align-items: stretch;
+                width: 100%;
+                max-width: 320px;
+                margin: 0 auto;
+                gap: 12px;
             }
 
+            .hero__actions .btn {
+                width: 100%;
+                justify-content: center;
+                padding: 14px 24px;
+                font-size: 0.95rem;
+            }
+
+            .hero__scroll {
+                display: none;
+            }
+
+            /* Stats Section Mobile */
+            .stats__top {
+                flex-direction: column;
+                align-items: flex-start;
+                padding: 50px 24px 30px;
+                gap: 16px;
+            }
+
+            .stats__headline {
+                font-size: 1.85rem;
+                line-height: 1.2;
+            }
+
+            .stats__intro {
+                font-size: 0.88rem;
+                line-height: 1.65;
+            }
+
+            .stats__grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .stat {
+                padding: 32px 20px;
+            }
+
+            .stat__number {
+                font-size: 2.2rem;
+            }
+
+            .stat__label {
+                font-size: 0.7rem;
+            }
+
+            /* Features Section Mobile */
             .features {
-                padding: 80px 24px;
+                padding: 70px 20px;
+            }
+
+            .features__header {
+                margin-bottom: 40px;
+            }
+
+            .section-title {
+                font-size: 1.9rem;
+                line-height: 1.2;
+            }
+
+            .section-sub {
+                font-size: 0.92rem;
             }
 
             .features__grid {
+                grid-template-columns: 1fr !important;
+                gap: 16px;
+            }
+
+            .fc:nth-child(n) {
+                grid-column: span 1 !important;
+            }
+
+            .fc {
+                padding: 30px 24px;
+                min-height: auto;
+                border-radius: var(--radius-sm);
+            }
+
+            .fc__title {
+                font-size: 1.3rem;
+            }
+
+            .fc__desc {
+                font-size: 0.85rem;
+            }
+
+            .fc--wide {
+                padding: 32px 24px;
+            }
+
+            .fc--wide .fc__inner {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 20px;
+            }
+
+            .fc--wide .fc__big-stat {
+                font-size: 3rem;
+            }
+
+            /* Story Section Mobile */
+            .story__sticky {
                 grid-template-columns: 1fr;
             }
 
-            .stats {
-                padding: 60px 24px;
+            .story__left {
+                display: none;
             }
 
-            .stats__inner {
-                grid-template-columns: 1fr 1fr;
-                gap: 2px;
+            .story__right {
+                padding: 50px 24px;
             }
 
-            .stat:first-child {
-                border-radius: var(--radius-sm) 0 0 0;
+            .story__step {
+                padding: 50px 24px;
             }
 
-            .stat:last-child {
-                border-radius: 0 0 var(--radius-sm) 0;
+            .story__step-tag {
+                margin-bottom: 16px;
             }
 
+            .story__step-title {
+                font-size: 1.9rem;
+                line-height: 1.2;
+                margin-bottom: 16px;
+            }
+
+            .story__step-text {
+                font-size: 0.92rem;
+                line-height: 1.7;
+            }
+
+            .story__dots {
+                right: 14px;
+            }
+
+            /* CTA Mobile */
             .cta-section {
-                padding: 100px 24px;
+                padding: 80px 20px;
             }
 
+            .cta-section h2 {
+                font-size: 2rem;
+            }
+
+            .cta-section p {
+                font-size: 0.92rem;
+                margin-bottom: 30px;
+            }
+
+            /* Footer Mobile 2x2 */
             footer {
-                padding: 60px 24px 32px;
+                padding: 50px 20px 32px;
             }
 
             .footer__top {
-                grid-template-columns: 1fr 1fr;
-                gap: 32px;
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+                gap: 36px 24px;
+                margin-bottom: 36px;
+                padding-bottom: 36px;
             }
 
             .footer__bottom {
@@ -1605,37 +1786,29 @@
                 gap: 12px;
                 text-align: center;
             }
-
-            .story__dots {
-                right: 16px;
-            }
-
-            .story__step-title {
-                font-size: 2rem;
-            }
         }
 
         @media (max-width: 480px) {
-            .stats__inner {
+            .stats__grid {
                 grid-template-columns: 1fr;
-                gap: 2px;
             }
 
-            .stat:first-child {
-                border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+            .stat {
+                border-right: none;
+                border-bottom: 1px solid rgba(0, 0, 0, 0.07);
+                padding: 28px 20px;
             }
 
             .stat:last-child {
-                border-radius: 0 0 var(--radius-sm) var(--radius-sm);
+                border-bottom: none;
             }
 
-            .stat:nth-child(2),
-            .stat:nth-child(3) {
-                border-radius: 0;
+            .stat__number {
+                font-size: 2.4rem;
             }
 
-            .footer__top {
-                grid-template-columns: 1fr;
+            .hero__title {
+                font-size: 2.3rem;
             }
         }
     </style>
@@ -1666,14 +1839,14 @@
             <!-- Try Demo 
         <a href="login?demo=1" class="nav__demo mobile-link">Try Demo</a> -->
 
-            <!-- CTA -->
-            <a href="login" class="nav__cta mobile-link">
-                Login <i class="fas fa-arrow-right" style="font-size:0.65rem;"></i>
-            </a>
-
-            <!-- Mobile toggle -->
-            <div class="nav__toggle" id="navToggle" aria-label="Menu">
-                <span></span><span></span><span></span>
+            <!-- Actions -->
+            <div class="nav__actions">
+                <a href="login" class="nav__cta mobile-link">
+                    Login <i class="fas fa-arrow-right" style="font-size:0.65rem;"></i>
+                </a>
+                <div class="nav__toggle" id="navToggle" aria-label="Menu">
+                    <span></span><span></span><span></span>
+                </div>
             </div>
 
         </div>
@@ -1681,9 +1854,16 @@
 
     <!-- Mobile Menu -->
     <div class="nav__mobile-menu" id="mobileMenu">
+        <button class="nav__mobile-close" id="mobileMenuClose" aria-label="Close menu">
+            <i class="fas fa-times"></i>
+        </button>
+        <div class="nav__mobile-brand">
+            <span class="nav__logo-dot"></span> LAKSHYA
+        </div>
+        <a href="#about" class="mobile-link">Stats</a>
         <a href="#features" class="mobile-link">Features</a>
-        <a href="#about" class="mobile-link">About</a>
-        <a href="login" class="mobile-link">Login</a>
+        <a href="#story" class="mobile-link">How It Works</a>
+        <a href="login" class="mobile-cta mobile-link">Sign In / Login <i class="fas fa-arrow-right"></i></a>
     </div>
 
     <!-- ============ HERO ============ -->
@@ -1695,12 +1875,11 @@
         <div class="hero__inner">
             <div class="hero__badge gsap-fade">GM University · Placement Portal</div>
             <h1 class="hero__title gsap-up">
-                Launch Your<br>
-                <span class="hero__highlight">Dream Career</span>
+                LAKSHYA<br>
+                <span class="hero__highlight" style="font-size: clamp(1.6rem, 5.2vw, 4.2rem); letter-spacing: -0.04em; display: inline-block;">Internship & Placement Portal</span>
             </h1>
             <p class="hero__sub gsap-up">
-                AI-powered interview prep, smart aptitude tests, and direct connections
-                to 100+ top companies — all in one platform.
+                GM University's official platform for internships, campus placements, AI mock interviews, and career development.
             </p>
             <div class="hero__actions gsap-up">
                 <a href="login" class="btn btn--primary">
@@ -1737,25 +1916,25 @@
             <div class="stats__grid">
                 <div class="stat gsap-up">
                     <i class="stat__icon fas fa-user-graduate"></i>
-                    <div class="stat__number" data-count="1000" data-suffix="+">0+</div>
+                    <div class="stat__number" data-count="1000" data-suffix="+">1000+</div>
                     <div class="stat__label">Students Placed</div>
                     <div class="stat__bar"></div>
                 </div>
                 <div class="stat gsap-up">
                     <i class="stat__icon fas fa-building"></i>
-                    <div class="stat__number" data-count="100" data-suffix="+">0+</div>
+                    <div class="stat__number" data-count="100" data-suffix="+">100+</div>
                     <div class="stat__label">Partner Companies</div>
                     <div class="stat__bar"></div>
                 </div>
                 <div class="stat gsap-up">
                     <i class="stat__icon fas fa-chart-line"></i>
-                    <div class="stat__number" data-count="95" data-suffix="%">0%</div>
+                    <div class="stat__number" data-count="95" data-suffix="%">95%</div>
                     <div class="stat__label">Placement Rate</div>
                     <div class="stat__bar"></div>
                 </div>
                 <div class="stat gsap-up">
                     <i class="stat__icon fas fa-indian-rupee-sign"></i>
-                    <div class="stat__number" data-count="10" data-suffix=" LPA">0 LPA</div>
+                    <div class="stat__number" data-count="10" data-suffix=" LPA">10 LPA</div>
                     <div class="stat__label">Average Package</div>
                     <div class="stat__bar"></div>
                 </div>
@@ -1809,7 +1988,7 @@
             <div class="fc fc--dark gsap-up">
                 <div class="fc__visual"><i class="fas fa-robot"></i></div>
                 <div class="fc__chip">AI-Powered</div>
-                <h3 class="fc__title">Interview Coach<br>that never sleeps.</h3>
+                <h3 class="fc__title">AI Mock Interviews &<br>Interview Coach</h3>
                 <p class="fc__desc">Practice with our AI trained on 500+ real placement patterns. Get instant, honest
                     feedback on every answer — available 24/7.</p>
             </div>
@@ -1818,7 +1997,7 @@
             <div class="fc fc--maroon gsap-up">
                 <div class="fc__visual"><i class="fas fa-pen-to-square"></i></div>
                 <div class="fc__chip">Adaptive</div>
-                <h3 class="fc__title">Tests that adapt<br>to your level.</h3>
+                <h3 class="fc__title">Smart Aptitude Tests &<br>Company Practice</h3>
                 <p class="fc__desc">Company-specific aptitude, verbal, and reasoning tests. Difficulty adjusts in real
                     time so you're always challenged correctly.</p>
             </div>
@@ -1827,7 +2006,7 @@
             <div class="fc fc--light gsap-up">
                 <div class="fc__visual"><i class="fas fa-briefcase"></i></div>
                 <div class="fc__chip">Verified</div>
-                <h3 class="fc__title">Job & Internship Portal</h3>
+                <h3 class="fc__title">Internship & Placement Opportunities</h3>
                 <p class="fc__desc">Browse 100+ verified listings. Apply in one click using your Lakshya resume.</p>
             </div>
 
@@ -1835,7 +2014,7 @@
             <div class="fc fc--light gsap-up">
                 <div class="fc__visual"><i class="fas fa-chart-bar"></i></div>
                 <div class="fc__chip">Real-time</div>
-                <h3 class="fc__title">Performance Analytics</h3>
+                <h3 class="fc__title">Placement Performance Analytics</h3>
                 <p class="fc__desc">See exactly where you stand — readiness score, weak areas, and improvement over
                     time.</p>
             </div>
@@ -1844,7 +2023,7 @@
             <div class="fc fc--gold gsap-up">
                 <div class="fc__visual"><i class="fas fa-bullseye"></i></div>
                 <div class="fc__chip">Personalized</div>
-                <h3 class="fc__title">Career Roadmaps</h3>
+                <h3 class="fc__title">Personalized Career Roadmaps</h3>
                 <p class="fc__desc">AI-curated learning paths built for your target role. No guesswork, just a clear
                     plan.</p>
             </div>
@@ -1858,8 +2037,7 @@
                     </div>
                     <div class="fc__right">
                         <div class="fc__chip">ATS-Optimized</div>
-                        <h3 class="fc__title" style="font-size:clamp(1.4rem,3vw,2.2rem);">Resume Builder & Portfolio
-                            Sync</h3>
+                        <h3 class="fc__title" style="font-size:clamp(1.4rem,3vw,2.2rem);">ATS Resume Builder & Portfolio Tools</h3>
                         <p class="fc__desc">Create a professional resume in minutes. Projects and certifications sync
                             automatically — no copy-paste needed.</p>
                     </div>
@@ -1965,14 +2143,14 @@
                 </div>
                 <div class="footer__col">
                     <h4>Resources</h4>
-                    <a href="#">Placement Guide</a>
-                    <a href="#">Interview Tips</a>
-                    <a href="#">Resume Templates</a>
-                    <a href="#">FAQs</a>
+                    <a href="#features">Placement & Internship Tools</a>
+                    <a href="#features">AI Interview Practice</a>
+                    <a href="#features">ATS Resume Builder</a>
+                    <a href="#story">How It Works</a>
                 </div>
                 <div class="footer__col">
                     <h4>Contact</h4>
-                    <a href="#">GM University</a>
+                    <a href="https://gmu.ac.in/" target="_blank" rel="noopener">GM University</a>
                     <a href="mailto:placement@gmu.ac.in">placement@gmu.ac.in</a>
                     <a href="tel:+918310793613">+91 8310793613</a>
                     <a href="tel:+919901191487">+91 9901191487</a>
@@ -2016,17 +2194,19 @@
             // ─── Mobile menu ─────────────────────────────────────────────────────────
             const navToggle = document.getElementById('navToggle');
             const mobileMenu = document.getElementById('mobileMenu');
+            const mobileMenuClose = document.getElementById('mobileMenuClose');
             let menuOpen = false;
 
             function toggleMenu() {
                 menuOpen = !menuOpen;
-                navToggle.classList.toggle('open', menuOpen);
-                mobileMenu.classList.toggle('open', menuOpen);
+                if (navToggle) navToggle.classList.toggle('open', menuOpen);
+                if (mobileMenu) mobileMenu.classList.toggle('open', menuOpen);
                 document.body.style.overflow = menuOpen ? 'hidden' : '';
                 menuOpen ? lenis.stop() : lenis.start();
             }
 
-            navToggle.addEventListener('click', toggleMenu);
+            if (navToggle) navToggle.addEventListener('click', toggleMenu);
+            if (mobileMenuClose) mobileMenuClose.addEventListener('click', toggleMenu);
             document.querySelectorAll('.mobile-link').forEach(l => l.addEventListener('click', () => {
                 if (menuOpen) toggleMenu();
             }));

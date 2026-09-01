@@ -78,11 +78,16 @@ if (isPost() && isset($_POST['apply'])) {
                         $uploadDir = RESUME_UPLOAD_PATH . '/Custom_Uploads/';
                         if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
                         
-                        $ext = pathinfo($_FILES[$fileKey]['name'], PATHINFO_EXTENSION);
-                        $fileName = $userId . '_' . time() . '_' . $i . '.' . $ext;
-                        
-                        if (move_uploaded_file($_FILES[$fileKey]['tmp_name'], $uploadDir . $fileName)) {
-                            $response['value'] = 'uploads/resumes/Custom_Uploads/' . $fileName;
+                        $ext = strtolower(pathinfo($_FILES[$fileKey]['name'], PATHINFO_EXTENSION));
+                        if (in_array($ext, ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png'])) {
+                            $fileName = $userId . '_' . time() . '_' . $i . '.' . $ext;
+                            
+                            if (move_uploaded_file($_FILES[$fileKey]['tmp_name'], $uploadDir . $fileName)) {
+                                $response['value'] = 'uploads/resumes/Custom_Uploads/' . $fileName;
+                            }
+                        } else {
+                            $error = "Invalid file type for custom file upload. Allowed: PDF, DOC, DOCX, JPG, PNG.";
+                            break;
                         }
                     }
                 } else {
@@ -96,16 +101,18 @@ if (isPost() && isset($_POST['apply'])) {
             }
         }
 
-        $result = $applicationModel->apply($jobId, $userId, [
-            'cover_letter' => post('cover_letter'),
-            'custom_responses' => json_encode($customResponses)
-        ]);
-        
-        if ($result['success']) {
-            $message = $result['message'];
-            $hasApplied = true;
-        } else {
-            $error = $result['message'];
+        if (empty($error)) {
+            $result = $applicationModel->apply($jobId, $userId, [
+                'cover_letter' => post('cover_letter'),
+                'custom_responses' => json_encode($customResponses)
+            ]);
+            
+            if ($result['success']) {
+                $message = $result['message'];
+                $hasApplied = true;
+            } else {
+                $error = $result['message'];
+            }
         }
     }
 }

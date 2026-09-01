@@ -339,6 +339,9 @@ window.saveResume = async function(isAuto = false) {
     // 2) Prepare form data for upload
     const formData = new FormData();
     formData.append('resume_data', JSON.stringify(RD));
+    if (window.CSRF_TOKEN) {
+        formData.append('csrf_token', window.CSRF_TOKEN);
+    }
     if (pdfBlob) {
         formData.append('resume_pdf', pdfBlob, 'resume.pdf');
     }
@@ -346,9 +349,21 @@ window.saveResume = async function(isAuto = false) {
     try {
         const res  = await fetch(HANDLER_URL + '?action=save_resume', {
             method: 'POST',
+            headers: {
+                'Accept': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
             body: formData, // using FormData instead of JSON string
         });
-        const data = await res.json();
+
+        let data;
+        try {
+            data = await res.json();
+        } catch (jsonErr) {
+            console.error('Non-JSON response received from server:', res.status);
+            throw new Error(`Server returned HTTP ${res.status}`);
+        }
+
         if (data.success) {
             const link = data.pdf_url ? ` | <a href="${data.pdf_url}" target="_blank" style="color:#fbbf24;text-decoration:underline;">View PDF</a>` : '';
             showToast(`Saved successfully!${link}`, 6000);
@@ -357,26 +372,31 @@ window.saveResume = async function(isAuto = false) {
             const syncData = new FormData();
             syncData.append('action', 'sync_skills');
             syncData.append('skill_groups', JSON.stringify(RD.skills.technical));
-            fetch('portfolio_handler.php', { method: 'POST', body: syncData });
+            if (window.CSRF_TOKEN) syncData.append('csrf_token', window.CSRF_TOKEN);
+            fetch('portfolio_handler.php', { method: 'POST', body: syncData }).catch(() => {});
 
             // Background Project Sync
             const projSyncData = new FormData();
             projSyncData.append('action', 'sync_projects');
             projSyncData.append('projects', JSON.stringify(RD.projects));
-            fetch('portfolio_handler.php', { method: 'POST', body: projSyncData });
+            if (window.CSRF_TOKEN) projSyncData.append('csrf_token', window.CSRF_TOKEN);
+            fetch('portfolio_handler.php', { method: 'POST', body: projSyncData }).catch(() => {});
             
             const btn = document.getElementById('saveBtn');
-            btn.classList.add('saved');
-            btn.innerHTML = '<i class="fas fa-check"></i> Saved';
-            setTimeout(() => {
-                btn.classList.remove('saved');
-                btn.innerHTML = '<i class="fas fa-save"></i> Save';
-            }, 2000);
+            if (btn) {
+                btn.classList.add('saved');
+                btn.innerHTML = '<i class="fas fa-check"></i> Saved';
+                setTimeout(() => {
+                    btn.classList.remove('saved');
+                    btn.innerHTML = '<i class="fas fa-save"></i> Save';
+                }, 2000);
+            }
         } else {
-            if (!isAuto) showToast('Save failed: ' + (data.error || 'Unknown error'));
+            if (!isAuto) showToast('Save failed: ' + (data.error || data.message || 'Unknown error'));
         }
     } catch (e) {
-        if (!isAuto) showToast('Network error – could not save');
+        console.error('Save Resume Error:', e);
+        if (!isAuto) showToast('Error saving resume: ' + (e.message || 'Please check your connection'));
     }
 }
 
@@ -387,6 +407,45 @@ window.saveResume = async function(isAuto = false) {
 window.schedulePreview = function() {
     clearTimeout(previewTimer);
     previewTimer = setTimeout(renderPreview, 250);
+    // ATS Audit disabled while Coming Soon
+};
+
+window.switchRightTab = function(tabName) {
+    const btnPreview = document.getElementById('btnTabPreview');
+    const btnATS = document.getElementById('btnTabATS');
+    const tabPreview = document.getElementById('rightTabPreview');
+    const tabATS = document.getElementById('rightTabATS');
+
+    if (!btnPreview || !btnATS || !tabPreview || !tabATS) return;
+
+    if (tabName === 'ats') {
+        btnPreview.style.background = '#f8fafc';
+        btnPreview.style.color = '#475569';
+        btnPreview.style.border = '1.5px solid #e2e8f0';
+
+        btnATS.style.background = 'var(--maroon)';
+        btnATS.style.color = 'white';
+        btnATS.style.border = 'none';
+
+        tabPreview.style.display = 'none';
+        tabATS.style.display = 'flex';
+    } else {
+        btnATS.style.background = '#f8fafc';
+        btnATS.style.color = '#475569';
+        btnATS.style.border = '1.5px solid #e2e8f0';
+
+        btnPreview.style.background = 'var(--maroon)';
+        btnPreview.style.color = 'white';
+        btnPreview.style.border = 'none';
+
+        tabATS.style.display = 'none';
+        tabPreview.style.display = 'flex';
+    }
+};
+
+window.scheduleATSAudit = function() {
+    // Disabled while ATS feature is Coming Soon
+    return;
 };
 
 function renderPreview() {
@@ -1233,3 +1292,323 @@ function showToast(msg, duration = 3000) {
     t.classList.add('show');
     setTimeout(() => t.classList.remove('show'), duration);
 }
+
+// ─────────────────────────────────────────────────────────
+// ATS TAB SWITCHING & REAL-TIME ATS AUDIT ENGINE (WITH STATE CACHING)
+// ─────────────────────────────────────────────────────────
+let atsAuditTimer = null;
+let lastATSAnalyzedFingerprint = sessionStorage.getItem('ats_cache_fp') || '';
+let cachedATSResultData = null;
+
+try {
+    const savedCache = sessionStorage.getItem('ats_cache_data');
+    if (savedCache) cachedATSResultData = JSON.parse(savedCache);
+} catch(e) {}
+
+function getATSFingerprint(resumeData, jdText) {
+    const raw = JSON.stringify(resumeData) + '||' + (jdText || '');
+    let hash = 0;
+    for (let i = 0; i < raw.length; i++) {
+        const char = raw.charCodeAt(i);
+        hash = (hash << 5) - hash + char;
+        hash |= 0;
+    }
+    return hash.toString();
+}
+
+window.switchRightTab = function(tabName) {
+    const btnPreview = document.getElementById('tabBtnPreview');
+    const btnATS = document.getElementById('tabBtnATS');
+    const tabPreview = document.getElementById('rightTabPreview');
+    const tabATS = document.getElementById('rightTabATS');
+
+    if (!btnPreview || !btnATS || !tabPreview || !tabATS) return;
+
+    if (tabName === 'ats') {
+        btnPreview.style.background = '#f8fafc';
+        btnPreview.style.color = '#475569';
+        btnPreview.style.border = '1.5px solid #e2e8f0';
+
+        btnATS.style.background = 'var(--maroon)';
+        btnATS.style.color = 'white';
+        btnATS.style.border = 'none';
+
+        tabPreview.style.display = 'none';
+        tabATS.style.display = 'flex';
+        // ATS Audit disabled / Coming Soon - do not call runLiveATSAudit()
+    } else {
+        btnATS.style.background = '#f8fafc';
+        btnATS.style.color = '#475569';
+        btnATS.style.border = '1.5px solid #e2e8f0';
+
+        btnPreview.style.background = 'var(--maroon)';
+        btnPreview.style.color = 'white';
+        btnPreview.style.border = 'none';
+
+        tabATS.style.display = 'none';
+        tabPreview.style.display = 'flex';
+    }
+};
+
+window.scheduleATSAudit = function() {
+    // Disabled while ATS feature is Coming Soon
+    return;
+};
+
+window.toggleJdBox = function() {
+    const box = document.getElementById('jdInputContainer');
+    const icon = document.getElementById('jdToggleIcon');
+    if (!box) return;
+    if (box.style.display === 'none') {
+        box.style.display = 'block';
+        if (icon) icon.className = 'fas fa-chevron-up';
+    } else {
+        box.style.display = 'none';
+        if (icon) icon.className = 'fas fa-chevron-down';
+    }
+};
+
+async function runLiveATSAudit(forceRefresh = false) {
+    collectData();
+    const jdText = gv('targetJdText');
+    const currentFingerprint = getATSFingerprint(RD, jdText);
+
+    // If resume data and JD haven't changed, render cached result instantly without overlay or API call
+    if (!forceRefresh && currentFingerprint === lastATSAnalyzedFingerprint && cachedATSResultData !== null) {
+        renderATSDiagnostics(cachedATSResultData);
+        return;
+    }
+
+    const overlay = document.getElementById('atsLoadingOverlay');
+    const subtitle = document.getElementById('atsLoadingSubtitle');
+
+    if (overlay) overlay.style.display = 'flex';
+
+    let msgIndex = 0;
+    const loadingMsgs = [
+        'Extracting domain competencies & key requirements...',
+        'Analyzing bullet quality (Action → Task → Method → Result)...',
+        'Verifying skill evidence mapping & candidate proof...',
+        'Calculating 25-point weighted ATS & Recruiter scores...'
+    ];
+
+    const msgTimer = setInterval(() => {
+        msgIndex = (msgIndex + 1) % loadingMsgs.length;
+        if (subtitle) subtitle.textContent = loadingMsgs[msgIndex];
+    }, 1200);
+
+    try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (window.CSRF_TOKEN) {
+            headers['X-CSRF-TOKEN'] = window.CSRF_TOKEN;
+        }
+
+        const res = await fetch(HANDLER_URL + '?action=analyze_ats', {
+            method: 'POST',
+            headers: headers,
+            body: JSON.stringify({
+                resume_data: RD,
+                job_description: jdText
+            })
+        });
+
+        clearInterval(msgTimer);
+        if (overlay) overlay.style.display = 'none';
+
+        if (!res.ok) {
+            console.warn('ATS audit non-200 response:', res.status);
+            return;
+        }
+
+        const data = await res.json();
+
+        if (data.success) {
+            lastATSAnalyzedFingerprint = currentFingerprint;
+            cachedATSResultData = data;
+            sessionStorage.setItem('ats_cache_fp', currentFingerprint);
+            sessionStorage.setItem('ats_cache_data', JSON.stringify(data));
+            renderATSDiagnostics(data);
+        }
+    } catch(e) {
+        clearInterval(msgTimer);
+        if (overlay) overlay.style.display = 'none';
+        console.warn('ATS audit fetch error:', e);
+    }
+}
+
+function renderATSDiagnostics(data) {
+    const scores = data.scores || {};
+
+    const health = scores.resume_health || data.overall_score || 0;
+    const atsComp = scores.ats_compatibility || 90;
+    const jobMatch = scores.job_match || 80;
+    const recruiterScan = scores.recruiter_scan || 85;
+
+    const healthEl = document.getElementById('scoreHealthVal');
+    const atsEl = document.getElementById('scoreAtsVal');
+    const jobMatchEl = document.getElementById('scoreJobMatchVal');
+    const recruiterEl = document.getElementById('scoreRecruiterVal');
+
+    if (healthEl) healthEl.textContent = health + '%';
+    if (atsEl) atsEl.textContent = atsComp + '%';
+    if (jobMatchEl) jobMatchEl.textContent = jobMatch + '%';
+    if (recruiterEl) recruiterEl.textContent = recruiterScan + '%';
+
+    // 1. Render Matched vs Missing Keywords
+    const ka = data.keyword_analysis || {};
+    const matchedList = document.getElementById('matchedKeywordsList');
+    const missingList = document.getElementById('missingKeywordsList');
+
+    if (matchedList) {
+        const matched = ka.matched_keywords || [];
+        matchedList.innerHTML = matched.length > 0 
+            ? matched.map(k => `<span style="background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0; padding: 3px 10px; border-radius: 50px; font-size: 0.72rem; font-weight: 800;"><i class="fas fa-check-circle"></i> ${k}</span>`).join('')
+            : '<span style="font-size:0.75rem; color:#94a3b8;">None indexed yet</span>';
+    }
+
+    if (missingList) {
+        const missing = ka.missing_keywords || [];
+        missingList.innerHTML = missing.length > 0 
+            ? missing.map(k => `<span style="background: #fff5f5; color: #ef4444; border: 1px solid #fecaca; padding: 3px 10px; border-radius: 50px; font-size: 0.72rem; font-weight: 800;"><i class="fas fa-exclamation-triangle"></i> ${k}</span>`).join('')
+            : '<span style="font-size:0.75rem; color:#10b981; font-weight:800;">No critical skill gaps found</span>';
+    }
+
+    // 2. Render Skill Evidence Mapping
+    const skillTable = document.getElementById('skillEvidenceTable');
+    const skillMaps = data.skill_evidence_mapping || [];
+    if (skillTable) {
+        if (skillMaps.length === 0) {
+            skillTable.innerHTML = '<span style="font-size:0.8rem; color:#94a3b8;">Add technical skills to see evidence mapping.</span>';
+        } else {
+            skillTable.innerHTML = skillMaps.map(m => {
+                let badgeClass = "background: #ecfdf5; color: #059669; border: 1px solid #a7f3d0;";
+                if (m.confidence === 'Low' || m.confidence === 'None') {
+                    badgeClass = "background: #fff5f5; color: #ef4444; border: 1px solid #fecaca;";
+                } else if (m.confidence === 'Medium') {
+                    badgeClass = "background: #fffbeb; color: #d97706; border: 1px solid #fde68a;";
+                }
+                return `
+                    <div style="display: flex; justify-content: space-between; align-items: center; background: #f8fafc; padding: 8px 12px; border-radius: 10px; border: 1px solid #f1f5f9; font-size: 0.8rem;">
+                        <span style="font-weight: 800; color: #1e293b;">${m.skill}</span>
+                        <span style="color: #64748b; font-size: 0.75rem;">Demonstrated: <strong style="color: #334155;">${m.evidence}</strong></span>
+                        <span style="${badgeClass} padding: 2px 8px; border-radius: 50px; font-size: 0.7rem; font-weight: 800;">${m.confidence} Confidence</span>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    // 3. Render Bullet Quality Surgery Cards
+    const bulletList = document.getElementById('bulletQualityList');
+    const bullets = data.bullets_quality || [];
+    if (bulletList) {
+        if (bullets.length === 0) {
+            bulletList.innerHTML = '<span style="font-size:0.8rem; color:#94a3b8;">Add project descriptions to analyze bullet quality.</span>';
+        } else {
+            bulletList.innerHTML = bullets.map(b => {
+                const bd = b.breakdown || {};
+                return `
+                    <div style="background: #f8fafc; border-radius: 12px; padding: 14px; border: 1px solid #e2e8f0; display: flex; flex-direction: column; gap: 8px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 6px;">
+                            <span style="font-size: 0.75rem; font-weight: 800; color: #475569;"><i class="fas fa-map-marker-alt" style="color: #94a3b8;"></i> ${b.where}</span>
+                            <span style="background: ${b.score >= 75 ? '#ecfdf5' : '#fffbeb'}; color: ${b.score >= 75 ? '#059669' : '#d97706'}; font-size: 0.7rem; font-weight: 900; padding: 2px 8px; border-radius: 50px;">Bullet Score: ${b.score}/100 (${b.type})</span>
+                        </div>
+                        <div style="font-size: 0.8rem; color: #334155; font-style: italic; background: white; padding: 8px 12px; border-radius: 8px; border: 1px solid #e2e8f0;">
+                            "${b.original}"
+                        </div>
+                        <div style="display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.7rem; font-weight: 800;">
+                            <span style="color: ${bd.action_verb ? '#10b981' : '#ef4444'};">Action Verb: ${bd.action_verb ? '✅' : '❌'}</span>
+                            <span style="color: ${bd.technology ? '#10b981' : '#ef4444'};">Technology: ${bd.technology ? '✅' : '❌'}</span>
+                            <span style="color: ${bd.scale ? '#10b981' : '#ef4444'};">Scale / Metrics: ${bd.scale ? '✅' : '❌'}</span>
+                            <span style="color: ${bd.result ? '#10b981' : '#ef4444'};">Business Impact: ${bd.result ? '✅' : '❌'}</span>
+                        </div>
+                        <div style="font-size: 0.8rem; color: #065f46; background: #ecfdf5; padding: 10px 12px; border-radius: 8px; border: 1px solid #a7f3d0; margin-top: 4px;">
+                            <strong style="color: #047857;"><i class="fas fa-magic"></i> Personalized AI Rewrite:</strong> "${b.recommendation}"
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    }
+
+    // 4. Render What / Where / Why / How To Fix Cards
+    const auditList = document.getElementById('atsAuditList');
+    const countBadge = document.getElementById('auditCountBadge');
+
+    const audits = data.audits || [];
+    if (countBadge) countBadge.textContent = `${audits.length} Diagnostics`;
+
+    if (!auditList) return;
+
+    if (audits.length === 0) {
+        auditList.innerHTML = `
+            <div style="background: white; border-radius: 16px; padding: 30px; text-align: center; border: 1px solid #e2e8f0;">
+                <i class="fas fa-check-circle" style="font-size: 2rem; color: #10b981; margin-bottom: 10px;"></i>
+                <h4 style="margin: 0; font-size: 1rem; font-weight: 800; color: #0f172a;">Flawless ATS Optimization</h4>
+                <p style="margin: 4px 0 0; font-size: 0.85rem; color: #64748b;">No structural or content issues detected.</p>
+            </div>
+        `;
+        return;
+    }
+
+    auditList.innerHTML = audits.map(a => {
+        let badgeBg = "#fff5f5";
+        let badgeColor = "#ef4444";
+        let badgeBorder = "#fecaca";
+        let icon = "fa-exclamation-circle";
+        let severityTitle = "CRITICAL ISSUE";
+
+        if (a.severity === 'warning') {
+            badgeBg = "#fffbeb";
+            badgeColor = "#d97706";
+            badgeBorder = "#fde68a";
+            icon = "fa-triangle-exclamation";
+            severityTitle = "WARNING";
+        } else if (a.severity === 'success') {
+            badgeBg = "#ecfdf5";
+            badgeColor = "#059669";
+            badgeBorder = "#a7f3d0";
+            icon = "fa-check-circle";
+            severityTitle = "PASSED CHECK";
+        }
+
+        return `
+            <div style="background: white; border-radius: 16px; padding: 20px; border: 1px solid #e2e8f0; box-shadow: 0 2px 8px rgba(0,0,0,0.02); display: flex; flex-direction: column; gap: 12px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap;">
+                    <span style="background: ${badgeBg}; color: ${badgeColor}; border: 1px solid ${badgeBorder}; font-size: 0.7rem; font-weight: 900; padding: 3px 10px; border-radius: 50px; text-transform: uppercase; letter-spacing: 0.05em; display: inline-flex; align-items: center; gap: 5px;">
+                        <i class="fas ${icon}"></i> ${severityTitle} ${a.module ? '• ' + a.module : ''}
+                    </span>
+                    <span style="background: #f1f5f9; color: #475569; font-size: 0.75rem; font-weight: 800; padding: 3px 10px; border-radius: 8px;">
+                        <i class="fas fa-map-marker-alt" style="color: #94a3b8; margin-right: 4px;"></i>${a.where}
+                    </span>
+                </div>
+
+                <div>
+                    <h5 style="margin: 0 0 6px 0; font-size: 0.95rem; font-weight: 800; color: #0f172a; line-height: 1.3;">
+                        WHAT: ${a.what}
+                    </h5>
+                    <div style="font-size: 0.82rem; color: #475569; line-height: 1.5; background: #f8fafc; padding: 10px 14px; border-radius: 10px; border-left: 3.5px solid ${badgeColor};">
+                        <strong style="color: #1e293b;">WHY IT MATTERS:</strong> ${a.why}
+                    </div>
+                </div>
+
+                <div style="font-size: 0.82rem; color: #065f46; background: #ecfdf5; padding: 10px 14px; border-radius: 10px; border: 1px solid #a7f3d0;">
+                    <strong style="color: #047857;"><i class="fas fa-lightbulb" style="margin-right: 4px;"></i> HOW TO FIX:</strong> ${a.how_to_fix}
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+function updateGauge(textId, barId, val) {
+    const txt = document.getElementById(textId);
+    const bar = document.getElementById(barId);
+    if (txt) txt.textContent = val + '%';
+    if (bar) {
+        bar.style.width = val + '%';
+        if (val >= 80) bar.style.background = '#10b981';
+        else if (val >= 60) bar.style.background = '#f59e0b';
+        else bar.style.background = '#ef4444';
+    }
+}
+

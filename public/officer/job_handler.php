@@ -44,25 +44,29 @@ switch ($action) {
 
             // File Upload: Logo
             if (!empty($_FILES['company_logo']['name'])) {
-                $ext = pathinfo($_FILES['company_logo']['name'], PATHINFO_EXTENSION);
-                $logoName = 'logo_' . time() . '.' . $ext;
-                $uploadDir = COMPANY_IMAGES_UPLOAD_PATH . '/';
-                if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
-                
-                if (move_uploaded_file($_FILES['company_logo']['tmp_name'], $uploadDir . $logoName)) {
-                    $companyData['logo_url'] = $logoName;
+                $ext = strtolower(pathinfo($_FILES['company_logo']['name'], PATHINFO_EXTENSION));
+                if (in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'svg'])) {
+                    $logoName = 'logo_' . time() . '.' . $ext;
+                    $uploadDir = COMPANY_IMAGES_UPLOAD_PATH . '/';
+                    if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+                    
+                    if (move_uploaded_file($_FILES['company_logo']['tmp_name'], $uploadDir . $logoName)) {
+                        $companyData['logo_url'] = $logoName;
+                    }
                 }
             }
 
             // File Upload: Document
             if (!empty($_FILES['company_doc']['name'])) {
-                $ext = pathinfo($_FILES['company_doc']['name'], PATHINFO_EXTENSION);
-                $docName = 'doc_' . time() . '.' . $ext;
-                $uploadDir = DOCUMENT_UPLOAD_PATH . '/docs/';
-                if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+                $ext = strtolower(pathinfo($_FILES['company_doc']['name'], PATHINFO_EXTENSION));
+                if (in_array($ext, ['pdf', 'doc', 'docx'])) {
+                    $docName = 'doc_' . time() . '.' . $ext;
+                    $uploadDir = DOCUMENT_UPLOAD_PATH . '/docs/';
+                    if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
 
-                if (move_uploaded_file($_FILES['company_doc']['tmp_name'], $uploadDir . $docName)) {
-                    $companyData['document_url'] = $docName;
+                    if (move_uploaded_file($_FILES['company_doc']['tmp_name'], $uploadDir . $docName)) {
+                        $companyData['document_url'] = $docName;
+                    }
                 }
             }
 

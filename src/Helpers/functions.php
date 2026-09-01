@@ -482,6 +482,169 @@ function isFeatureEnabled($featureKey) {
 }
 
 /**
+ * Get a specific system setting
+ * @param string $key
+ * @param string $default
+ * @return string
+ */
+function getSystemSetting($key, $default = '') {
+    try {
+        $db = getDB();
+        if (!$db) return $default;
+        
+        $stmt = $db->prepare("SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1");
+        $stmt->execute([$key]);
+        $val = $stmt->fetchColumn();
+        return ($val !== false && $val !== null) ? trim((string)$val) : $default;
+    } catch (\Exception $e) {
+        return $default;
+    }
+}
+
+/**
+ * Fetch all active AI feature announcements configured by Admin in AI Feature Control
+ * @return array
+ */
+function getActiveAIFeatureAnnouncements() {
+    $announcements = [];
+    $featureMap = [
+        'feature_mock_ai' => [
+            'name' => 'Mock AI Interview',
+            'icon' => 'fas fa-fire',
+            'link' => 'mock_ai_interview',
+            'color' => '#ea580c',
+            'bg' => '#fff7ed',
+            'border' => '#fed7aa',
+            'badge_bg' => '#ffedd5'
+        ],
+        'feature_company_guide' => [
+            'name' => 'Company Placement Guide',
+            'icon' => 'fas fa-graduation-cap',
+            'link' => 'javascript:void(0)" onclick="openGuideModal()',
+            'color' => '#0284c7',
+            'bg' => '#f0f9ff',
+            'border' => '#bae6fd',
+            'badge_bg' => '#e0f2fe'
+        ],
+        'feature_resume_builder' => [
+            'name' => 'AI Resume Builder',
+            'icon' => 'fas fa-file-invoice',
+            'link' => 'resume_builder.php',
+            'color' => '#059669',
+            'bg' => '#ecfdf5',
+            'border' => '#a7f3d0',
+            'badge_bg' => '#d1fae5'
+        ],
+        'feature_profile_analyzer' => [
+            'name' => 'AI Profile Analyzer',
+            'icon' => 'fas fa-chart-line',
+            'link' => 'profile_analyzer.php',
+            'color' => '#7c3aed',
+            'bg' => '#f5f3ff',
+            'border' => '#ddd6fe',
+            'badge_bg' => '#ede9fe'
+        ],
+        'feature_leaderboard' => [
+            'name' => 'Leaderboard',
+            'icon' => 'fas fa-trophy',
+            'link' => 'leaderboard',
+            'color' => '#b8860b',
+            'bg' => '#fefce8',
+            'border' => '#fef08a',
+            'badge_bg' => '#fef9c3'
+        ],
+        'feature_ai_tutor' => [
+            'name' => 'AI Tutor',
+            'icon' => 'fas fa-robot',
+            'link' => 'ai_tutor.php',
+            'color' => '#db2777',
+            'bg' => '#fdf2f8',
+            'border' => '#fbcfe8',
+            'badge_bg' => '#fce7f3'
+        ]
+    ];
+
+    // Check for General Platform Announcement
+    $genMsg = getSystemSetting('general_portal_announcement', '');
+    $genStatus = getSystemSetting('general_portal_announcement_status', 'enabled');
+    if (!empty($genMsg) && $genStatus === 'enabled') {
+        $announcements['general_portal'] = [
+            'name' => 'General Announcement',
+            'icon' => 'fas fa-bullhorn',
+            'link' => '',
+            'color' => '#800000',
+            'bg' => '#fffbeb',
+            'border' => '#fef3c7',
+            'badge_bg' => '#fde68a',
+            'key' => 'general_portal',
+            'message' => $genMsg
+        ];
+    }
+
+    foreach ($featureMap as $fKey => $meta) {
+        if (!isFeatureEnabled($fKey)) continue;
+        $msg = getSystemSetting($fKey . '_message', '');
+        if (!empty($msg)) {
+            $announcements[$fKey] = array_merge($meta, [
+                'key' => $fKey,
+                'message' => $msg
+            ]);
+        }
+    }
+    return $announcements;
+}
+
+/**
+ * Format announcement text safely with WhatsApp / Markdown style formatting (*bold*, _italic_, bullet lists)
+ * @param string $text
+ * @return string
+ */
+function formatAnnouncementText($text) {
+    if (empty($text)) return '';
+
+    // 1. First escape all raw HTML for security
+    $escaped = htmlspecialchars($text, ENT_QUOTES, 'UTF-8');
+
+    // 2. Bold: **text** or *text*
+    $escaped = preg_replace('/\*\*([^*]+)\*\*/u', '<strong>$1</strong>', $escaped);
+    $escaped = preg_replace('/(?<!\*)\*([^*]+)\*(?!\*)/u', '<strong>$1</strong>', $escaped);
+
+    // 3. Italics: _text_
+    $escaped = preg_replace('/_([^_]+)_/u', '<em>$1</em>', $escaped);
+
+    // 4. Bullet lists: lines starting with * or - or •
+    $lines = explode("\n", $escaped);
+    $output = [];
+    $inList = false;
+
+    foreach ($lines as $line) {
+        $trimmed = trim($line);
+        if (preg_match('/^(\*|-|•)\s+(.+)$/u', $trimmed, $m)) {
+            if (!$inList) {
+                $output[] = '<ul style="margin: 6px 0; padding-left: 20px; list-style-type: disc;">';
+                $inList = true;
+            }
+            $output[] = '<li style="margin-bottom: 4px; line-height: 1.5;">' . $m[2] . '</li>';
+        } else {
+            if ($inList) {
+                $output[] = '</ul>';
+                $inList = false;
+            }
+            if ($trimmed === '') {
+                $output[] = '<div style="height: 6px;"></div>';
+            } else {
+                $output[] = '<p style="margin: 3px 0; line-height: 1.55;">' . $line . '</p>';
+            }
+        }
+    }
+    if ($inList) {
+        $output[] = '</ul>';
+    }
+
+    return implode("\n", $output);
+}
+
+/**
  * Require a feature to be enabled, otherwise show maintenance page
  * @param string $featureKey
  * @param string $featureName Human readable name for the error message

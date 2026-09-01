@@ -60,14 +60,13 @@ $fullName = getFullName();
             display: grid;
             grid-template-columns: var(--panel-width) 1fr;
             height: 100vh;
-            /* Using calc for total stacked header height (72px + 58px = 130px) */
-            padding-top: calc(72px + var(--topbar-height));
+            padding-top: var(--topbar-height);
             box-sizing: border-box;
         }
 
         /* ── TOP BAR ─────────────────────────────────────────────── */
         .topbar {
-            top: 72px; /* Explicit match for var(--nav-height) from navbar.php */
+            top: 0;
             height: var(--topbar-height);
             background: rgba(128, 0, 0, 0.95);
             backdrop-filter: blur(12px);
@@ -132,7 +131,7 @@ $fullName = getFullName();
             background: #fff;
             border-right: 1px solid var(--border);
             overflow-y: auto;
-            height: calc(100vh - var(--nav-height) - var(--topbar-height));
+            height: calc(100vh - var(--topbar-height));
             padding: 12px;
         }
 
@@ -481,7 +480,7 @@ $fullName = getFullName();
             flex-direction: column;
             align-items: center;
             padding: 30px 20px;
-            height: calc(100vh - var(--nav-height) - var(--topbar-height));
+            height: calc(100vh - var(--topbar-height));
         }
         .preview-panel::-webkit-scrollbar { width: 6px; }
         .preview-panel::-webkit-scrollbar-thumb { background: #9ca3af; border-radius: 4px; }
@@ -639,6 +638,9 @@ $fullName = getFullName();
             text-decoration: underline;
         }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes pulseGlow { 0% { transform: scale(0.9); opacity: 0.5; } 50% { transform: scale(1.25); opacity: 0.9; } 100% { transform: scale(0.9); opacity: 0.5; } }
+        @keyframes spinBrain { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes shimmerBar { 0% { margin-left: 0%; width: 25%; } 50% { margin-left: 50%; width: 45%; } 100% { margin-left: 75%; width: 25%; } }
 
         /* ── PRINT CSS ───────────────────────────────────────────── */
         @media print {
@@ -647,9 +649,7 @@ $fullName = getFullName();
             #printFrame { display: block !important; }
         }
     </style>
-</head>
 <body>
-<?php include_once 'includes/navbar.php'; ?>
 
 <!-- ONBOARDING MODAL -->
 <div id="onboardingModal" class="onboarding-overlay" style="display: none;">
@@ -955,13 +955,145 @@ $fullName = getFullName();
 
     </div><!-- /editor-panel -->
 
-    <!-- ── RIGHT: PREVIEW ── -->
-    <div class="preview-panel">
-        <div id="overflowWarning"><i class="fas fa-exclamation-triangle"></i> RESUME EXCEEDS 1 PAGE</div>
-        <div id="resumePreview" class="resume-paper">
-            <div style="text-align:center; padding: 60px 0; color: #9ca3af;">
-                <i class="fas fa-spinner fa-spin" style="font-size:2rem;"></i>
-                <p style="margin-top:12px; font-size:0.9rem;">Loading your resume...</p>
+    <!-- ── RIGHT: PREVIEW & ATS AUDIT ── -->
+    <div class="preview-panel" style="padding: 0; background: #f1f5f9; display: flex; flex-direction: column;">
+        <!-- Right Panel Header Switcher -->
+        <div style="background: white; border-bottom: 1px solid #e2e8f0; padding: 12px 20px; display: flex; gap: 10px; width: 100%; position: sticky; top: 0; z-index: 50; box-shadow: 0 2px 10px rgba(0,0,0,0.02);">
+            <button type="button" id="tabBtnPreview" onclick="switchRightTab('preview')" style="flex: 1; padding: 10px 16px; border-radius: 12px; font-weight: 800; font-size: 0.85rem; border: none; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--maroon); color: white; transition: 0.2s;">
+                <i class="fas fa-file-alt"></i> Live A4 Preview
+            </button>
+            <button type="button" id="tabBtnATS" disabled style="flex: 1; padding: 10px 16px; border-radius: 12px; font-weight: 800; font-size: 0.85rem; border: 1.5px solid #e2e8f0; cursor: not-allowed; opacity: 0.75; display: flex; align-items: center; justify-content: center; gap: 8px; background: #f8fafc; color: #64748b; transition: 0.2s;">
+                <i class="fas fa-robot" style="color: #64748b;"></i> ATS Audit & Optimizer 
+                <span id="atsBadgeScore" style="background: rgba(245, 158, 11, 0.15); color: #d97706; border: 1px solid rgba(245, 158, 11, 0.3); padding: 2px 8px; border-radius: 50px; font-size: 0.7rem; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em;"><i class="fas fa-clock" style="margin-right: 3px;"></i> Coming Soon</span>
+            </button>
+        </div>
+
+        <div style="flex: 1; overflow-y: auto; width: 100%; display: flex; flex-direction: column; align-items: center; padding: 24px 16px;">
+            <!-- Tab 1: Live A4 Preview Container -->
+            <div id="rightTabPreview" style="width: 100%; display: flex; flex-direction: column; align-items: center;">
+                <div id="overflowWarning"><i class="fas fa-exclamation-triangle"></i> RESUME EXCEEDS 1 PAGE</div>
+                <div id="resumePreview" class="resume-paper">
+                    <div style="text-align:center; padding: 60px 0; color: #9ca3af;">
+                        <i class="fas fa-spinner fa-spin" style="font-size:2rem;"></i>
+                        <p style="margin-top:12px; font-size:0.9rem;">Loading your resume...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 2: Detailed 25-Point ATS Analysis & Optimization Dashboard -->
+            <div id="rightTabATS" style="width: 100%; max-width: 820px; display: none; flex-direction: column; gap: 20px;">
+                <!-- AI Loading Overlay for ATS Analysis -->
+                <div id="atsLoadingOverlay" style="display: none; background: white; border-radius: 20px; padding: 40px 24px; text-align: center; border: 1.5px solid #e2e8f0; box-shadow: 0 10px 30px rgba(0,0,0,0.05); flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 40;">
+                    <div style="position: relative; width: 64px; height: 64px; display: flex; align-items: center; justify-content: center;">
+                        <div style="position: absolute; width: 100%; height: 100%; border-radius: 50%; background: rgba(128, 0, 0, 0.15); animation: pulseGlow 1.8s infinite ease-in-out;"></div>
+                        <i class="fas fa-brain" style="font-size: 2rem; color: var(--maroon); position: relative; z-index: 2; animation: spinBrain 3s infinite linear;"></i>
+                    </div>
+                    <div>
+                        <h4 style="margin: 0; font-size: 1.1rem; font-weight: 800; color: #0f172a;" id="atsLoadingTitle">AI ATS Diagnostics Engine Active</h4>
+                        <p style="margin: 6px 0 0; font-size: 0.85rem; color: #64748b; font-weight: 600;" id="atsLoadingSubtitle">Extracting domain competencies & evaluating evidence mapping...</p>
+                    </div>
+                    <div style="width: 220px; height: 5px; background: #e2e8f0; border-radius: 50px; overflow: hidden; margin-top: 4px;">
+                        <div id="atsLoadingProgressBar" style="width: 35%; height: 100%; background: var(--maroon); border-radius: 50px; animation: shimmerBar 1.5s infinite ease-in-out;"></div>
+                    </div>
+                </div>
+
+                <!-- Target Job Description Input Box -->
+                <div style="background: white; border-radius: 16px; padding: 18px 20px; border: 1.5px solid #e2e8f0; box-shadow: 0 4px 14px rgba(0,0,0,0.02);">
+                    <div style="display: flex; justify-content: space-between; align-items: center; cursor: pointer;" onclick="toggleJdBox()">
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                            <i class="fas fa-bullseye" style="color: var(--maroon); font-size: 1.1rem;"></i>
+                            <h4 style="margin: 0; font-size: 0.95rem; font-weight: 800; color: #0f172a;">Target Job Description (JD Match & Keyword Gap)</h4>
+                        </div>
+                        <i id="jdToggleIcon" class="fas fa-chevron-down" style="color: #64748b;"></i>
+                    </div>
+                    <div id="jdInputContainer" style="display: none; margin-top: 14px; pt-3; border-top: 1px dashed #e2e8f0;">
+                        <textarea id="targetJdText" rows="4" placeholder="Paste target Job Description (JD) here to evaluate exact keyword coverage, missing skills, and role compatibility..." style="width: 100%; padding: 12px; border-radius: 10px; border: 1px solid #cbd5e1; font-size: 0.82rem; font-family: 'Inter', sans-serif; resize: vertical; box-sizing: border-box;"></textarea>
+                        <div style="display: flex; justify-content: flex-end; margin-top: 10px;">
+                            <button type="button" onclick="runLiveATSAudit(true)" style="background: var(--maroon); color: white; border: none; padding: 8px 18px; border-radius: 10px; font-weight: 800; font-size: 0.8rem; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                                <i class="fas fa-magic"></i> Calculate Exact JD Match
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 4 Primary Score Cards -->
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px;">
+                    <div style="background: white; border-radius: 16px; padding: 18px; border: 1px solid #e2e8f0; text-align: center;">
+                        <span style="font-size: 0.7rem; font-weight: 900; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em;">Resume Health</span>
+                        <div id="scoreHealthVal" style="font-size: 2rem; font-weight: 900; color: #0f172a; margin: 4px 0;">86%</div>
+                        <span style="font-size: 0.72rem; color: #10b981; font-weight: 800;">Structural & Syntax Quality</span>
+                    </div>
+                    <div style="background: white; border-radius: 16px; padding: 18px; border: 1px solid #e2e8f0; text-align: center;">
+                        <span style="font-size: 0.7rem; font-weight: 900; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em;">ATS Compatibility</span>
+                        <div id="scoreAtsVal" style="font-size: 2rem; font-weight: 900; color: var(--maroon); margin: 4px 0;">94%</div>
+                        <span style="font-size: 0.72rem; color: #10b981; font-weight: 800;">Parse Hazard Protection</span>
+                    </div>
+                    <div style="background: white; border-radius: 16px; padding: 18px; border: 1px solid #e2e8f0; text-align: center;">
+                        <span style="font-size: 0.7rem; font-weight: 900; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em;">Job Match</span>
+                        <div id="scoreJobMatchVal" style="font-size: 2rem; font-weight: 900; color: #3b82f6; margin: 4px 0;">84%</div>
+                        <span style="font-size: 0.72rem; color: #3b82f6; font-weight: 800;">Domain & Skill Alignment</span>
+                    </div>
+                    <div style="background: white; border-radius: 16px; padding: 18px; border: 1px solid #e2e8f0; text-align: center;">
+                        <span style="font-size: 0.7rem; font-weight: 900; text-transform: uppercase; color: #64748b; letter-spacing: 0.05em;">Recruiter 10s Scan</span>
+                        <div id="scoreRecruiterVal" style="font-size: 2rem; font-weight: 900; color: #f59e0b; margin: 4px 0;">88%</div>
+                        <span style="font-size: 0.72rem; color: #f59e0b; font-weight: 800;">First Glance Impression</span>
+                    </div>
+                </div>
+
+                <!-- Keyword Analysis Box -->
+                <div style="background: white; border-radius: 16px; padding: 20px; border: 1px solid #e2e8f0;">
+                    <h4 style="margin: 0 0 12px 0; font-size: 0.95rem; font-weight: 800; color: #0f172a;">
+                        <i class="fas fa-key" style="color: var(--maroon); margin-right: 6px;"></i> Keyword & Critical Skill Analysis
+                    </h4>
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <div>
+                            <span style="font-size: 0.75rem; font-weight: 800; color: #10b981; text-transform: uppercase;">Matched Keywords:</span>
+                            <div id="matchedKeywordsList" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;">
+                                <!-- Pills -->
+                            </div>
+                        </div>
+                        <div style="margin-top: 6px;">
+                            <span style="font-size: 0.75rem; font-weight: 800; color: #ef4444; text-transform: uppercase;">Missing Critical Skills (Add to projects):</span>
+                            <div id="missingKeywordsList" style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px;">
+                                <!-- Pills -->
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Skill Evidence Mapping Matrix -->
+                <div style="background: white; border-radius: 16px; padding: 20px; border: 1px solid #e2e8f0;">
+                    <h4 style="margin: 0 0 12px 0; font-size: 0.95rem; font-weight: 800; color: #0f172a;">
+                        <i class="fas fa-project-diagram" style="color: var(--maroon); margin-right: 6px;"></i> Skill Evidence Mapping Matrix
+                    </h4>
+                    <div id="skillEvidenceTable" style="display: flex; flex-direction: column; gap: 8px;">
+                        <!-- Skill rows -->
+                    </div>
+                </div>
+
+                <!-- Bullet Quality Surgery & Rewrites -->
+                <div style="background: white; border-radius: 16px; padding: 20px; border: 1px solid #e2e8f0;">
+                    <h4 style="margin: 0 0 12px 0; font-size: 0.95rem; font-weight: 800; color: #0f172a;">
+                        <i class="fas fa-file-signature" style="color: var(--maroon); margin-right: 6px;"></i> Bullet Quality Analyzer (Action → Task → Technology → Result)
+                    </h4>
+                    <div id="bulletQualityList" style="display: flex; flex-direction: column; gap: 14px;">
+                        <!-- Bullet cards -->
+                    </div>
+                </div>
+
+                <!-- Diagnostic Findings (What / Where / Why / How To Fix Cards) -->
+                <div>
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
+                        <h4 style="font-size: 0.95rem; font-weight: 800; color: #1e293b; text-transform: uppercase; letter-spacing: 0.05em;">
+                            Diagnostic Findings & Fix Recommendations
+                        </h4>
+                        <span id="auditCountBadge" style="font-size: 0.75rem; font-weight: 800; color: #64748b; background: #e2e8f0; padding: 2px 10px; border-radius: 50px;">0 Audits</span>
+                    </div>
+
+                    <div id="atsAuditList" style="display: flex; flex-direction: column; gap: 14px;">
+                        <!-- Dynamically populated ATS cards -->
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -974,6 +1106,7 @@ $fullName = getFullName();
 <!-- PRINT FRAME (hidden, used for PDF) -->
 <script>
     const HANDLER_URL = 'resume_builder_handler.php';
+    window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ""; ?>';
 </script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js" crossorigin="anonymous"></script>
 <script src="resume_builder.js?v=<?php echo time(); ?>"></script>

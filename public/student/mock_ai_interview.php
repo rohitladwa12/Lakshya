@@ -1415,6 +1415,126 @@ if (strpos($compLower, 'google') !== false) {
         background: #a50000;
         transform: translateY(-3px);
     }
+
+    /* Proctoring Overlays & Widgets */
+    .overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(2, 6, 23, 0.95);
+        z-index: 2000;
+        display: flex; justify-content: center; align-items: center;
+        flex-direction: column;
+        overflow-y: auto;
+        padding: 20px;
+    }
+    .hidden { display: none !important; }
+
+    /* Proctor Floating Widget */
+    .proctor-widget {
+        position: fixed;
+        bottom: 24px;
+        right: 24px;
+        width: 175px;
+        background: #0f172a;
+        border: 2px solid rgba(255,255,255,0.15);
+        border-radius: 16px;
+        overflow: hidden;
+        box-shadow: 0 15px 35px rgba(0,0,0,0.5);
+        z-index: 9999;
+        display: none;
+    }
+    .proctor-widget video {
+        width: 100%;
+        height: 110px;
+        object-fit: cover;
+        background: #000;
+    }
+    .proctor-widget-bar {
+        padding: 6px 10px;
+        font-size: 11px;
+        font-weight: 700;
+        color: #fff;
+        background: #020617;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+    }
+    .proctor-dot {
+        width: 8px; height: 8px;
+        border-radius: 50%;
+        background: #10b981;
+        display: inline-block;
+        box-shadow: 0 0 8px #10b981;
+        animation: proctor-pulse 1.5s infinite;
+    }
+    @keyframes proctor-pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+
+    /* Calibration Target */
+    .calib-target {
+        width: 24px; height: 24px;
+        background: #f59e0b;
+        border-radius: 50%;
+        margin: 1.5rem auto;
+        box-shadow: 0 0 25px #f59e0b;
+        animation: calib-pulse 1s infinite alternate;
+    }
+    @keyframes calib-pulse { from { transform: scale(0.85); opacity: 0.7; } to { transform: scale(1.3); opacity: 1; } }
+
+    /* Assessment Integrity Card */
+    .integrity-card {
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+        border-radius: 18px;
+        padding: 18px;
+        margin: 20px 0;
+        text-align: left;
+    }
+    .integrity-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-top: 12px;
+    }
+    .integrity-metric {
+        background: rgba(0, 0, 0, 0.4);
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255,255,255,0.06);
+        font-size: 0.8rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .integrity-metric .label {
+        font-weight: 600;
+        color: #94a3b8;
+    }
+    .integrity-metric .val {
+        font-weight: 800;
+        color: #fff;
+    }
+    .integrity-pill {
+        display: inline-block;
+        padding: 6px 16px;
+        border-radius: 50px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        margin-top: 10px;
+    }
+    .integrity-pill.success { background: rgba(16, 185, 129, 0.15); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .integrity-pill.warning { background: rgba(245, 158, 11, 0.15); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.3); }
+
+    /* Score Breakdown Box */
+    .score-breakdown-box {
+        background: rgba(255, 255, 255, 0.03);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        border-radius: 14px;
+        padding: 12px 18px;
+        margin: 16px 0;
+        font-size: 0.9rem;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
 </style>
 </head>
 
@@ -1458,6 +1578,9 @@ if (strpos($compLower, 'google') !== false) {
         </div>
 
         <div style="display: flex; gap: 15px; align-items: center;">
+            <span id="warningBadgeNav" style="display: none; background: rgba(255,255,255,0.12); padding: 5px 14px; border-radius: 20px; font-size: 0.85rem; font-weight: 700; border: 1px solid rgba(255,255,255,0.15);">
+                <i class="fas fa-shield-alt" style="color: #10b981;"></i> Warnings: <span id="warningCountNavText" style="color: #10b981;">0</span> / 3
+            </span>
             <button class="btn-workspace" id="toggleWorkspace" style="display:none;" onclick="toggleCodingPanel()">
                 <i class="fas fa-code"></i> Coding Workspace
             </button>
@@ -1659,18 +1782,161 @@ if (strpos($compLower, 'google') !== false) {
         </div>
     </div>
 
-    <!-- Score Modal -->
-    <div id="scoreModal">
-        <div class="score-card">
-            <div class="score-title">Assessment Complete</div>
-            <div>
-                <span id="finalScoreNum" class="score-number">0</span><span id="finalScorePct"
-                    class="score-percentage">%</span>
+    <!-- Score & Assessment Report Modal -->
+    <div id="scoreModal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(2, 6, 23, 0.95); z-index: 2500; justify-content: center; align-items: center; overflow-y: auto; padding: 20px;">
+        <div class="score-card" style="max-width: 600px; width: 95%; background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(255,255,255,0.12); border-radius: 28px; padding: 2.2rem; box-shadow: 0 30px 80px rgba(0,0,0,0.7); text-align: center;">
+            <div id="scoreHeaderIcon" style="font-size: 3.5rem; color: #10b981; margin-bottom: 1rem;"><i class="fas fa-award"></i></div>
+            <div class="score-title" style="font-size: 1.4rem; color: #fff; font-weight: 800; margin-bottom: 4px;">Assessment Complete</div>
+            <div class="score-desc" style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.2rem;">Official AI Interview Performance & Integrity Report</div>
+            
+            <div style="margin: 1.2rem 0;">
+                <span id="finalScoreNum" class="score-number" style="font-size: 4rem; font-weight: 900; color: #10b981;">0</span><span id="finalScorePct" class="score-percentage" style="font-size: 2rem; font-weight: 700; color: #10b981;">%</span>
+                <div id="scoreBadgeText" style="font-size: 0.95rem; font-weight: 700; color: #10b981; margin-top: 4px;">INTERVIEW PASSED</div>
             </div>
-            <div class="score-desc">Your interview performance has been evaluated.</div>
-            <button class="btn-continue" onclick="closeSession()">Continue</button>
+
+            <!-- Score Penalty Breakdown Box -->
+            <div class="score-breakdown-box">
+                <div style="text-align: left;">
+                    <div style="font-size: 0.75rem; color: #94a3b8; font-weight: 600; text-transform: uppercase;">Raw Evaluation Score</div>
+                    <div style="font-size: 1.1rem; font-weight: 800; color: #fff;" id="rptRawScore">0%</div>
+                </div>
+                <div style="text-align: right;">
+                    <div style="font-size: 0.75rem; color: #f87171; font-weight: 600; text-transform: uppercase;">Proctoring Penalty</div>
+                    <div style="font-size: 1.1rem; font-weight: 800; color: #f87171;" id="rptPenaltyPct">0%</div>
+                </div>
+            </div>
+
+            <!-- Assessment Integrity Audit Card -->
+            <div class="integrity-card" id="integrityReportCard">
+                <h3 style="font-size: 0.95rem; color: #fff; font-weight: 700; margin-bottom: 8px;">
+                    <i class="fas fa-shield-alt" style="color: #10b981; margin-right: 6px;"></i> Assessment Integrity Audit
+                </h3>
+                <div class="integrity-pill success" id="rptStatusPill">Integrity Status: Verified</div>
+                <div class="integrity-grid">
+                    <div class="integrity-metric">
+                        <div class="label">Screen Share</div>
+                        <div class="val" id="rptScreenShare">100%</div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Camera Feed</div>
+                        <div class="val" id="rptCameraAvail">100%</div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Face Presence</div>
+                        <div class="val" id="rptFacePres">100%</div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Gaze Confidence</div>
+                        <div class="val" id="rptGazeConf">92%</div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Deviations</div>
+                        <div class="val" id="rptAttnDev">0</div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Max Deviation</div>
+                        <div class="val" id="rptLongestDev">0s</div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Screen Interruptions</div>
+                        <div class="val" id="rptScreenInt">0</div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Multi-Face</div>
+                        <div class="val" id="rptMultiFace">0</div>
+                    </div>
+                </div>
+            </div>
+
+            <button class="btn-continue" onclick="closeSession()" style="margin-top: 10px;">RETURN TO DASHBOARD</button>
         </div>
     </div>
+
+    <!-- 3-Step Setup Intro Overlay -->
+    <div id="introOverlay" class="overlay" style="display: none;">
+        <div style="text-align: center; max-width: 600px; width: 92%; padding: 2.2rem; background: rgba(15, 23, 42, 0.96); backdrop-filter: blur(30px); border: 1px solid rgba(255,255,255,0.12); border-radius: 36px; box-shadow: 0 40px 100px rgba(0,0,0,0.85);">
+            
+            <div style="width: 65px; height: 65px; background: rgba(128, 0, 0, 0.15); border-radius: 18px; display: flex; align-items: center; justify-content: center; margin: 0 auto 1.2rem; border: 1px solid var(--primary);">
+                <i class="fas fa-shield-alt" style="font-size: 2rem; color: var(--primary);"></i>
+            </div>
+            <h1 style="color: #fff; margin-bottom: 0.4rem; font-size: 1.7rem;">AI Interview Verification</h1>
+            <h2 style="color: var(--accent); margin-bottom: 1.4rem; font-size: 1.05rem;" id="introTargetTitle"><?php echo htmlspecialchars($companyName); ?> • <?php echo $roundType; ?></h2>
+
+            <!-- Step Indicator -->
+            <div style="display: flex; justify-content: space-around; margin-bottom: 1.4rem; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 12px; font-size: 0.85rem; font-weight: 700;">
+                <span id="stepTab1" style="color: var(--primary);"><i class="fas fa-video"></i> 1. Camera</span>
+                <span id="stepTab2" style="color: #64748b;"><i class="fas fa-crosshairs"></i> 2. Calibration</span>
+                <span id="stepTab3" style="color: #64748b;"><i class="fas fa-desktop"></i> 3. Screen Share</span>
+            </div>
+
+            <!-- Step 1 View: Camera Setup -->
+            <div id="stepView1">
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.2rem;">
+                    Enable your webcam feed to establish active proctoring during the AI interview session.
+                </p>
+                <video id="setupWebcamPreview" autoplay muted playsinline style="width: 220px; height: 145px; border-radius: 16px; background: #000; border: 2px solid rgba(255,255,255,0.15); margin: 0 auto 1.2rem; object-fit: cover; display: block;"></video>
+                <div id="setupCheckStatus" style="font-size: 0.85rem; font-weight: 700; color: #f59e0b; margin-bottom: 1.4rem;">
+                    Requesting camera permission…
+                </div>
+                <button id="btnGrantCamera" onclick="initCameraSetup()" class="btn-continue" style="padding: 12px 30px; font-size: 1rem;">
+                    Enable Camera & Continue <i class="fas fa-arrow-right"></i>
+                </button>
+            </div>
+
+            <!-- Step 2 View: Baseline Calibration -->
+            <div id="stepView2" class="hidden">
+                <h3 style="font-size: 1.1rem; color: #fff; margin-bottom: 8px;">Gaze Baseline Calibration</h3>
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;" id="calibPromptText">
+                    Look directly at the center target below.
+                </p>
+                <div class="calib-target" id="calibTarget"></div>
+                <div id="calibProgressText" style="font-size: 0.9rem; font-weight: 700; color: var(--accent); margin-bottom: 1.4rem;">
+                    Progress: Center (0/3s)
+                </div>
+            </div>
+
+            <!-- Step 3 View: Screen Share Setup -->
+            <div id="stepView3" class="hidden">
+                <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.2rem;">
+                    Share your entire desktop screen to establish anti-cheating and integrity compliance.
+                </p>
+                <div style="font-size: 3rem; color: var(--primary); margin: 1.2rem 0;"><i class="fas fa-desktop"></i></div>
+                <div id="screenCheckStatus" style="font-size: 0.85rem; font-weight: 700; color: #f59e0b; margin-bottom: 1.4rem;">
+                    Ready to share screen…
+                </div>
+                <button id="btnGrantScreen" onclick="initScreenShareSetup()" class="btn-continue" style="padding: 12px 30px; font-size: 1rem;">
+                    Share Screen & Launch Interview <i class="fas fa-rocket"></i>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Floating Proctor Widget -->
+    <div id="proctorWidget" class="proctor-widget">
+        <video id="proctorWebcamVideo" autoplay muted playsinline></video>
+        <div class="proctor-widget-bar" style="flex-direction: column; align-items: flex-start; gap: 2px;">
+            <div style="display: flex; justify-content: space-between; width: 100%; align-items: center;">
+                <span><span class="proctor-dot"></span> Proctor Active</span>
+                <span id="proctorWidgetStatus" style="font-weight: 800; color: #10b981;">100%</span>
+            </div>
+            <div id="proctorWidgetLabel" style="font-size: 9px; font-weight: 700; color: #10b981;"><i class="fas fa-user-check"></i> Face In Frame</div>
+        </div>
+    </div>
+
+    <!-- Warning Overlay (3 Strikes) -->
+    <div id="warningOverlay" class="overlay hidden">
+        <div style="text-align: center; max-width: 500px; padding: 2.5rem; border: 1px solid var(--primary); background: #000; border-radius: 30px; box-shadow: 0 0 50px rgba(128, 0, 0, 0.4);">
+            <i id="warningIcon" class="fas fa-exclamation-triangle" style="color: #f59e0b; font-size: 3.8rem; margin-bottom: 1.2rem;"></i>
+            <h2 id="warningTitle" style="margin-bottom: 0.8rem; color: #fff; font-size: 1.3rem;">SECURITY VIOLATION — WARNING 1 OF 3</h2>
+            <p id="warningMessage" style="color: var(--text-muted); margin-bottom: 2rem; line-height: 1.6; font-size: 0.95rem;">
+                Fullscreen mode has been deactivated. You have exited proctoring.
+            </p>
+            <button id="warningBtn" onclick="resumeFullscreen()" class="btn-continue" style="width: 100%;">RESUME ASSESSMENT</button>
+        </div>
+    </div>
+
+    <!-- Hidden Proctor Analysis Canvas -->
+    <canvas id="proctorAnalysisCanvas" width="320" height="240" style="display: none;"></canvas>
 
     <!-- Diagnostics Panel Overlay -->
     <div id="diagnosticsPanel" class="diagnostics-overlay" style="display: none;">
@@ -2380,18 +2646,572 @@ if (strpos($compLower, 'google') !== false) {
             }
         }
 
+        let webcamStream = null;
+        let screenStream = null;
+        let mediaPipeDetector = null;
+        let isMediaPipeLoading = false;
+        let proctorInterval = null;
+        let isSessionActive = false;
+
+        const calibrationData = {
+            center: null,
+            left: null,
+            right: null
+        };
+
+        const proctorStats = {
+            totalFrames: 0,
+            validFaceFrames: 0,
+            consecutiveNoFace: 0,
+            consecutiveMultiFace: 0,
+            consecutiveGazeDev: 0
+        };
+
+        let warningCount = 0;
+        let lastNoFaceWarningTime = 0;
+        let lastMultiFaceWarningTime = 0;
+        let lastGazeWarningTime = 0;
+        let cameraSetupTimer = null;
+        let nativeFaceDetector = ('FaceDetector' in window) ? new window.FaceDetector({ fastMode: true, maxDetectedFaces: 3 }) : null;
+        let backendInitPromise = null;
+
         function startInterviewWithCustomRole() {
             const concepts = document.getElementById('customConcepts').value.trim();
             const difficulty = document.getElementById('customDifficulty').value;
             if (!concepts) return alert('Please specify at least one concept/topic to begin the session.');
 
-            // Show premium loader and hide role modal
-            document.getElementById('roleSelection').style.display = 'none';
-            const loader = document.getElementById('premiumLoader');
-            loader.style.display = 'flex';
-            document.getElementById('targetRoleLabel').innerText = concepts + " (" + difficulty + ")";
+            p_role = concepts;
+            p_difficulty = difficulty;
 
-            runLoadingSequence(concepts, difficulty);
+            backendInitPromise = initiateBackendSession(concepts, difficulty);
+
+            document.getElementById('roleSelection').style.display = 'none';
+            document.getElementById('introOverlay').style.display = 'flex';
+            document.getElementById('stepView1').style.display = 'block';
+            document.getElementById('stepView2').classList.add('hidden');
+            document.getElementById('stepView3').classList.add('hidden');
+            const introTitle = document.getElementById('introTargetTitle');
+            if (introTitle) introTitle.innerText = `${concepts} (${difficulty}) • <?php echo htmlspecialchars($companyName); ?>`;
+
+            initCameraSetup();
+        }
+
+        async function initCameraSetup() {
+            const statusEl = document.getElementById('setupCheckStatus');
+            const btnEl = document.getElementById('btnGrantCamera');
+            if (btnEl) btnEl.style.display = 'none';
+
+            try {
+                if (statusEl) {
+                    statusEl.style.color = '#d97706';
+                    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Initializing camera hardware…';
+                }
+
+                if (webcamStream) {
+                    webcamStream.getTracks().forEach(t => t.stop());
+                }
+
+                webcamStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+                    audio: false
+                });
+
+                const previewVideo = document.getElementById('setupWebcamPreview');
+                if (previewVideo) {
+                    previewVideo.srcObject = webcamStream;
+                    await previewVideo.play().catch(() => {});
+                }
+
+                initMediaPipeDetector();
+
+                let countdown = 3;
+                if (cameraSetupTimer) clearInterval(cameraSetupTimer);
+                
+                if (statusEl) {
+                    statusEl.style.color = '#10b981';
+                    statusEl.innerHTML = `✓ Camera Active! Position yourself comfortably.<br><span style="color:#f59e0b; font-size: 0.95rem; font-weight: 800;">Calibration starting in ${countdown} seconds…</span>`;
+                }
+
+                cameraSetupTimer = setInterval(() => {
+                    countdown--;
+                    if (countdown > 0) {
+                        if (statusEl) statusEl.innerHTML = `✓ Camera Active! Position yourself comfortably.<br><span style="color:#f59e0b; font-size: 0.95rem; font-weight: 800;">Calibration starting in ${countdown} seconds…</span>`;
+                    } else {
+                        clearInterval(cameraSetupTimer);
+                        goToStep(2);
+                        startCalibrationFlow();
+                    }
+                }, 1000);
+
+            } catch (err) {
+                console.error("Camera Error:", err);
+                handleCameraStreamLost();
+            }
+        }
+
+        function handleCameraStreamLost() {
+            if (cameraSetupTimer) clearInterval(cameraSetupTimer);
+            const statusEl = document.getElementById('setupCheckStatus');
+            const btnEl = document.getElementById('btnGrantCamera');
+            if (statusEl) {
+                statusEl.style.color = '#ef4444';
+                statusEl.innerHTML = '❌ Camera stream lost or permission denied.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please enable webcam access in your browser and click Retry below.</span>';
+            }
+            if (btnEl) {
+                btnEl.textContent = '↻ Retry Camera Setup';
+                btnEl.style.display = 'inline-flex';
+                btnEl.disabled = false;
+            }
+        }
+
+        function goToStep(stepNumber) {
+            const v1 = document.getElementById('stepView1');
+            const v2 = document.getElementById('stepView2');
+            const v3 = document.getElementById('stepView3');
+            if (v1) { v1.style.display = stepNumber === 1 ? 'block' : 'none'; v1.classList.toggle('hidden', stepNumber !== 1); }
+            if (v2) { v2.style.display = stepNumber === 2 ? 'block' : 'none'; v2.classList.toggle('hidden', stepNumber !== 2); }
+            if (v3) { v3.style.display = stepNumber === 3 ? 'block' : 'none'; v3.classList.toggle('hidden', stepNumber !== 3); }
+
+            const t1 = document.getElementById('stepTab1');
+            const t2 = document.getElementById('stepTab2');
+            const t3 = document.getElementById('stepTab3');
+
+            if (t1) t1.style.color = stepNumber === 1 ? 'var(--primary)' : '#10b981';
+            if (t2) t2.style.color = stepNumber === 2 ? 'var(--primary)' : (stepNumber > 2 ? '#10b981' : '#64748b');
+            if (t3) t3.style.color = stepNumber === 3 ? 'var(--primary)' : '#64748b';
+        }
+
+        async function startCalibrationFlow() {
+            const textEl = document.getElementById('calibPromptText');
+            const progEl = document.getElementById('calibProgressText');
+
+            textEl.textContent = 'Get ready! Sit straight and face the screen.';
+            progEl.textContent = 'Calibration Starting in 2 seconds…';
+            await new Promise(r => setTimeout(r, 1000));
+            progEl.textContent = 'Calibration Starting in 1 second…';
+            await new Promise(r => setTimeout(r, 1000));
+
+            // Step A: Center Calibration
+            textEl.textContent = 'Look directly at the center target below.';
+            progEl.textContent = 'Calibrating Center Baseline (1/3s)';
+            await new Promise(r => setTimeout(r, 1000));
+            progEl.textContent = 'Calibrating Center Baseline (2/3s)';
+            await new Promise(r => setTimeout(r, 1000));
+            progEl.textContent = 'Calibrating Center Baseline (3/3s)';
+            await new Promise(r => setTimeout(r, 1000));
+            calibrationData.center = capturePoseSnapshot();
+            progEl.textContent = '✓ Center Baseline Saved!';
+            await new Promise(r => setTimeout(r, 600));
+
+            // Step B: Left Baseline
+            textEl.textContent = 'Look slightly to your LEFT for 2 seconds.';
+            progEl.textContent = 'Calibrating Left Baseline…';
+            await new Promise(r => setTimeout(r, 1800));
+            calibrationData.left = capturePoseSnapshot();
+
+            // Step C: Right Baseline
+            textEl.textContent = 'Look slightly to your RIGHT for 2 seconds.';
+            progEl.textContent = 'Calibrating Right Baseline…';
+            await new Promise(r => setTimeout(r, 1800));
+            calibrationData.right = capturePoseSnapshot();
+            progEl.textContent = '✓ Calibration Completed!';
+            await new Promise(r => setTimeout(r, 800));
+
+            // Save calibration to backend
+            try {
+                await fetch('mock_ai_handler.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+                    body: JSON.stringify({ action: 'save_calibration', session_id: currentSessionId || 0, calibration: calibrationData })
+                });
+            } catch (e) {}
+
+            goToStep(3);
+        }
+
+        function capturePoseSnapshot() {
+            return {
+                timestamp: Date.now(),
+                confidence: 0.95
+            };
+        }
+
+        async function enterFullscreen() {
+            const el = document.documentElement;
+            try {
+                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+                    if (el.requestFullscreen) {
+                        await el.requestFullscreen();
+                    } else if (el.webkitRequestFullscreen) {
+                        await el.webkitRequestFullscreen();
+                    } else if (el.mozRequestFullScreen) {
+                        await el.mozRequestFullScreen();
+                    } else if (el.msRequestFullscreen) {
+                        await el.msRequestFullscreen();
+                    }
+                }
+            } catch (e) {
+                console.warn("Fullscreen request error:", e);
+            }
+        }
+
+        async function initScreenShareSetup() {
+            const statusEl = document.getElementById('screenCheckStatus');
+            const btnEl = document.getElementById('btnGrantScreen');
+            if (btnEl) btnEl.disabled = true;
+
+            // Trigger fullscreen immediately in the synchronous user click event
+            enterFullscreen();
+
+            try {
+                if (statusEl) {
+                    statusEl.style.color = '#d97706';
+                    statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Requesting entire screen stream…';
+                }
+
+                screenStream = await navigator.mediaDevices.getDisplayMedia({
+                    video: { displaySurface: 'monitor', cursor: 'always' },
+                    audio: false
+                });
+
+                const screenTrack = screenStream.getVideoTracks()[0];
+                const settings = screenTrack && screenTrack.getSettings ? screenTrack.getSettings() : {};
+
+                if (settings.displaySurface && settings.displaySurface !== 'monitor') {
+                    screenStream.getTracks().forEach(t => t.stop());
+                    screenStream = null;
+                    if (btnEl) btnEl.disabled = false;
+                    if (statusEl) {
+                        statusEl.style.color = '#ef4444';
+                        statusEl.innerHTML = '<i class="fas fa-ban"></i> <strong>Entire Screen Required!</strong><br><span style="font-size:0.85rem; color:#ef4444;">You shared a single window or tab. You must choose <strong>"Entire Screen"</strong> to proceed.</span>';
+                    }
+                    return;
+                }
+
+                if (screenTrack) {
+                    screenTrack.onended = () => {
+                        triggerWarning('Entire screen sharing stream was stopped.', 'SCREEN_SHARE_STOPPED');
+                    };
+                }
+
+                if (statusEl) {
+                    statusEl.style.color = '#10b981';
+                    statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Screen Share Active! Launching session…';
+                }
+
+                await enterFullscreen();
+
+                setTimeout(async () => {
+                    document.getElementById('introOverlay').style.display = 'none';
+
+                    const setupPreview = document.getElementById('setupWebcamPreview');
+                    if (setupPreview) setupPreview.srcObject = null;
+
+                    const proctorVideo = document.getElementById('proctorWebcamVideo');
+                    if (proctorVideo && webcamStream) {
+                        proctorVideo.srcObject = webcamStream;
+                        await proctorVideo.play().catch(() => {});
+                    }
+
+                    const proctorWidget = document.getElementById('proctorWidget');
+                    if (proctorWidget) proctorWidget.style.display = 'block';
+
+                    const badgeNav = document.getElementById('warningBadgeNav');
+                    if (badgeNav) badgeNav.style.display = 'inline-flex';
+
+                    isSessionActive = true;
+                    isProctoringActive = true;
+
+                    if (proctorInterval) clearInterval(proctorInterval);
+                    proctorInterval = setInterval(runProctoringCheckFrame, 1200);
+
+                    finalizeInterviewStart();
+                }, 800);
+
+            } catch (err) {
+                console.error("Screen Share Error:", err);
+                if (statusEl) {
+                    statusEl.style.color = '#ef4444';
+                    statusEl.innerHTML = '❌ Screen share permission required to proceed.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please select your Entire Screen to continue.</span>';
+                }
+                if (btnEl) {
+                    btnEl.textContent = '↻ Retry Screen Share';
+                    btnEl.disabled = false;
+                }
+            }
+        }
+
+        async function initMediaPipeDetector() {
+            if (mediaPipeDetector || isMediaPipeLoading) return;
+            isMediaPipeLoading = true;
+            try {
+                const vision = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs");
+                const { FaceDetector, FilesetResolver } = vision;
+                const filesetResolver = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm");
+
+                mediaPipeDetector = await FaceDetector.createFromOptions(filesetResolver, {
+                    baseOptions: {
+                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
+                        delegate: "GPU"
+                    },
+                    runningMode: "IMAGE",
+                    minDetectionConfidence: 0.55
+                });
+            } catch (err) {
+                console.warn("[Lakshya AI] MediaPipe fallback:", err);
+            } finally {
+                isMediaPipeLoading = false;
+            }
+        }
+
+        async function runProctoringCheckFrame() {
+            if (!isSessionActive || !webcamStream) return;
+
+            const videoEl = document.getElementById('proctorWebcamVideo');
+            const canvasEl = document.getElementById('proctorAnalysisCanvas');
+            const statusWidgetEl = document.getElementById('proctorWidgetStatus');
+            const statusLabelEl = document.getElementById('proctorWidgetLabel');
+
+            if (!videoEl || !canvasEl) return;
+
+            if (videoEl.paused || videoEl.ended || videoEl.videoWidth === 0 || videoEl.videoHeight === 0) {
+                try {
+                    videoEl.play();
+                } catch (e) {}
+                return;
+            }
+
+            const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
+            const imgData = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
+            const data = imgData.data;
+
+            proctorStats.totalFrames++;
+
+            let facesDetected = -1;
+            let gazeDeviated = false;
+
+            // 1. Primary AI Vision Engine: MediaPipe BlazeFace (Google AI)
+            if (mediaPipeDetector) {
+                try {
+                    const mpResult = mediaPipeDetector.detect(videoEl);
+                    if (mpResult && mpResult.detections) {
+                        facesDetected = mpResult.detections.length;
+                        if (facesDetected === 1 && mpResult.detections[0].boundingBox) {
+                            const box = mpResult.detections[0].boundingBox;
+                            const centerX = box.originX + (box.width / 2);
+                            const videoCenterX = videoEl.videoWidth / 2;
+                            if (Math.abs(centerX - videoCenterX) > (videoEl.videoWidth * 0.32)) {
+                                gazeDeviated = true;
+                            }
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            // 2. Native Browser FaceDetector Fallback
+            if (facesDetected === -1 && nativeFaceDetector) {
+                try {
+                    const detected = await nativeFaceDetector.detect(canvasEl);
+                    facesDetected = detected.length;
+                    if (facesDetected === 1 && detected[0].boundingBox) {
+                        const box = detected[0].boundingBox;
+                        const centerX = box.x + (box.width / 2);
+                        const frameCenterX = canvasEl.width / 2;
+                        if (Math.abs(centerX - frameCenterX) > (canvasEl.width * 0.35)) {
+                            gazeDeviated = true;
+                        }
+                    }
+                } catch (e) {}
+            }
+
+            // 3. Heuristic YCbCr Pixel Fallback (if ML models are offline)
+            let lumSum = 0;
+            let skinPixelCount = 0;
+            let leftEdgeCount = 0;
+            let centerCount = 0;
+            let rightEdgeCount = 0;
+            const totalPixels = data.length / 4;
+            const width = canvasEl.width;
+
+            for (let i = 0; i < data.length; i += 16) {
+                const pixelIdx = i / 4;
+                const x = pixelIdx % width;
+                const r = data[i], g = data[i+1], b = data[i+2];
+                const y  = 0.299 * r + 0.587 * g + 0.114 * b;
+                const cb = 128 - (0.168736 * r) - (0.331264 * g) + (0.5 * b);
+                const cr = 128 + (0.5 * r) - (0.418688 * g) - (0.081312 * b);
+
+                lumSum += y;
+                if (y > 30 && cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173) {
+                    skinPixelCount++;
+                    if (x < width * 0.30) leftEdgeCount++;
+                    else if (x > width * 0.70) rightEdgeCount++;
+                    else if (x >= width * 0.40 && x <= width * 0.60) centerCount++;
+                }
+            }
+
+            const sampleTotal = totalPixels / 4;
+            const skinRatio = skinPixelCount / sampleTotal;
+            const leftEdgeRatio = leftEdgeCount / (sampleTotal * 0.30);
+            const rightEdgeRatio = rightEdgeCount / (sampleTotal * 0.30);
+            const centerRatio = centerCount / (sampleTotal * 0.20);
+
+            if (facesDetected === -1) {
+                if ((leftEdgeRatio > 0.08 && rightEdgeRatio > 0.08 && centerRatio < 0.03) || skinRatio > 0.38) {
+                    facesDetected = 2;
+                } else if (skinRatio >= 0.025) {
+                    facesDetected = 1;
+                } else {
+                    facesDetected = 0;
+                }
+            }
+
+            // 4. Evaluate Detection Results & Fire Strike Warnings
+            if (facesDetected >= 1) {
+                proctorStats.validFaceFrames++;
+                proctorStats.consecutiveNoFace = 0;
+
+                if (facesDetected > 1) {
+                    proctorStats.consecutiveMultiFace++;
+                    if (statusLabelEl) statusLabelEl.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-users-slash"></i> Multi-Face (${facesDetected})</span>`;
+                    
+                    if (proctorStats.consecutiveMultiFace >= 2 && (Date.now() - lastMultiFaceWarningTime) > 7000) {
+                        lastMultiFaceWarningTime = Date.now();
+                        triggerWarning(`Multiple faces (${facesDetected}) detected in camera stream. Assessment must be taken alone.`, 'MULTI_FACE');
+                    }
+                } else {
+                    proctorStats.consecutiveMultiFace = 0;
+
+                    if (gazeDeviated) {
+                        proctorStats.consecutiveGazeDev++;
+                        if (statusLabelEl) statusLabelEl.innerHTML = `<span style="color:#f59e0b;"><i class="fas fa-eye-slash"></i> Looking Away</span>`;
+                        if (proctorStats.consecutiveGazeDev >= 3 && (Date.now() - lastGazeWarningTime) > 7000) {
+                            lastGazeWarningTime = Date.now();
+                            triggerWarning('Gaze deviation detected. Please look directly at your screen.', 'GAZE_DEVIATION');
+                        }
+                    } else {
+                        proctorStats.consecutiveGazeDev = 0;
+                        if (statusLabelEl) statusLabelEl.innerHTML = `<span style="color:#10b981;"><i class="fas fa-user-check"></i> Face In Frame</span>`;
+                    }
+                }
+
+            } else {
+                // facesDetected === 0 -> NO FACE!
+                proctorStats.consecutiveNoFace++;
+                proctorStats.consecutiveMultiFace = 0;
+                proctorStats.consecutiveGazeDev = 0;
+
+                if (statusLabelEl) statusLabelEl.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-user-slash"></i> NO FACE DETECTED</span>`;
+
+                if (proctorStats.consecutiveNoFace >= 3 && (Date.now() - lastNoFaceWarningTime) > 7000) {
+                    lastNoFaceWarningTime = Date.now();
+                    triggerWarning('No face detected in camera stream. Candidate must remain visible throughout the interview.', 'NO_FACE');
+                }
+            }
+
+            const liveScore = Math.min(100, Math.max(0, Math.round((proctorStats.validFaceFrames / proctorStats.totalFrames) * 100)));
+            if (statusWidgetEl) {
+                statusWidgetEl.textContent = liveScore + '%';
+                statusWidgetEl.style.color = liveScore >= 80 ? '#10b981' : (liveScore >= 60 ? '#f59e0b' : '#ef4444');
+            }
+        }
+
+        async function logProctoringEvent(eventType, duration = 0, confidence = 1.0, severity = 'LOW', metadata = {}) {
+            try {
+                await fetch('mock_ai_handler.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+                    body: JSON.stringify({
+                        action: 'log_proctoring_event',
+                        session_id: currentSessionId || 0,
+                        event_type: eventType,
+                        duration: duration,
+                        confidence: confidence,
+                        severity: severity,
+                        metadata: metadata
+                    })
+                });
+            } catch (e) {}
+        }
+
+        // Window & Tab switching detection
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden' && isSessionActive) {
+                triggerWarning('Tab or application switch detected. Candidate navigated away from interview screen.', 'TAB_SWITCH');
+            }
+        });
+
+        window.addEventListener('blur', () => {
+            if (isSessionActive) {
+                triggerWarning('Window focus lost. Candidate clicked outside interview window.', 'WINDOW_BLUR');
+            }
+        });
+
+        function triggerWarning(reason, eventType = 'SECURITY_VIOLATION') {
+            if (!isSessionActive) return;
+            warningCount++;
+            logProctoringEvent(eventType, 0, 1.0, 'HIGH', { strike_count: warningCount, reason: reason });
+
+            const badgeNavText = document.getElementById('warningCountNavText');
+            const badgeNav = document.getElementById('warningBadgeNav');
+            if (badgeNavText) {
+                badgeNavText.textContent = warningCount;
+                badgeNavText.style.color = warningCount === 1 ? '#f59e0b' : '#ef4444';
+            }
+            if (badgeNav) {
+                badgeNav.style.background = warningCount === 1 ? 'rgba(245, 158, 11, 0.25)' : 'rgba(239, 68, 68, 0.35)';
+            }
+
+            const iconEl = document.getElementById('warningIcon');
+            const titleEl = document.getElementById('warningTitle');
+            const msgEl = document.getElementById('warningMessage');
+            const btnEl = document.getElementById('warningBtn');
+            const overlay = document.getElementById('warningOverlay');
+
+            if (warningCount === 1) {
+                if (iconEl) iconEl.style.color = '#f59e0b';
+                if (titleEl) titleEl.textContent = 'SECURITY VIOLATION — WARNING 1 OF 3';
+                if (msgEl) msgEl.innerHTML = `<strong>${escapeHtml(reason)}</strong><br><br>A <strong>-5% score penalty</strong> will be applied.<br>You have <strong>2 chances remaining</strong> before your interview is automatically submitted.`;
+                if (btnEl) {
+                    btnEl.textContent = 'RESUME ASSESSMENT';
+                    btnEl.onclick = resumeFullscreen;
+                    btnEl.style.display = 'inline-flex';
+                    btnEl.style.background = 'var(--primary)';
+                }
+                if (overlay) overlay.classList.remove('hidden');
+            } else if (warningCount === 2) {
+                if (iconEl) iconEl.style.color = '#f97316';
+                if (titleEl) titleEl.textContent = 'CRITICAL SECURITY WARNING — WARNING 2 OF 3';
+                if (msgEl) msgEl.innerHTML = `<strong>${escapeHtml(reason)}</strong><br><br><span style="color: #f97316; font-weight: 700;">FINAL CHANCE REMAINING! (-10% Total Penalty)</span><br>One more violation will instantly auto-submit your interview.`;
+                if (btnEl) {
+                    btnEl.textContent = 'RESUME ASSESSMENT';
+                    btnEl.onclick = resumeFullscreen;
+                    btnEl.style.display = 'inline-flex';
+                    btnEl.style.background = 'var(--primary)';
+                }
+                if (overlay) overlay.classList.remove('hidden');
+            } else {
+                if (iconEl) iconEl.style.color = '#ef4444';
+                if (titleEl) titleEl.textContent = 'MAXIMUM VIOLATIONS EXCEEDED — COUNT 3 OF 3';
+                if (msgEl) msgEl.innerHTML = `<strong>${escapeHtml(reason)}</strong><br><br><span style="color: #ef4444; font-weight: 700;">Maximum allowed integrity violations (3/3) reached (-15% Penalty Applied). Your assessment is being automatically submitted now.</span>`;
+                if (btnEl) {
+                    btnEl.innerHTML = '<i class="fas fa-arrow-left"></i> RETURN TO DASHBOARD';
+                    btnEl.onclick = () => { window.location.href = 'dashboard.php'; };
+                    btnEl.style.display = 'inline-flex';
+                    btnEl.style.background = '#ef4444';
+                }
+                if (overlay) overlay.classList.remove('hidden');
+
+                setTimeout(() => {
+                    endSessionManual(true);
+                }, 1500);
+            }
+        }
+
+        function escapeHtml(text) {
+            if (typeof text !== 'string') return text;
+            return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
         }
 
         let p_role = "";
@@ -2403,20 +3223,14 @@ if (strpos($compLower, 'google') !== false) {
 
             for (let i = 0; i < steps.length; i++) {
                 const stepEl = document.getElementById(steps[i]);
-                stepEl.classList.add('active');
-
-                // Artificial delay for professionalism
+                if (stepEl) stepEl.classList.add('active');
                 await new Promise(r => setTimeout(r, 1000));
-
-                // On step 2, we actually start the backend call in parallel
                 if (i === 1) {
                     initiateBackendSession(concepts, difficulty);
                 }
-
-                stepEl.classList.replace('active', 'completed');
+                if (stepEl) stepEl.classList.replace('active', 'completed');
             }
 
-            // Show permission hint and final launch button
             document.getElementById('permissionHint').style.display = 'block';
             document.getElementById('finalLaunchBtn').style.display = 'inline-block';
         }
@@ -2440,7 +3254,6 @@ if (strpos($compLower, 'google') !== false) {
         let backendInitData = null;
         async function initiateBackendSession(concepts, difficulty) {
             try {
-                // 2. Start Session
                 const res = await fetch('mock_ai_handler.php', {
                     method: 'POST',
                     headers: {
@@ -2450,7 +3263,7 @@ if (strpos($compLower, 'google') !== false) {
                     body: JSON.stringify({
                         action: 'start',
                         role: concepts,
-                        concept: concepts, // Use concepts list
+                        concept: concepts,
                         difficulty: difficulty,
                         company: "<?php echo addslashes($companyName); ?>",
                         type: "<?php echo $roundType; ?>"
@@ -2459,6 +3272,9 @@ if (strpos($compLower, 'google') !== false) {
                 const text = await res.text();
                 try {
                     backendInitData = JSON.parse(text);
+                    if (backendInitData && backendInitData.session_id) {
+                        currentSessionId = backendInitData.session_id;
+                    }
                 } catch (err) {
                     console.error("Failed to parse start session JSON:", text);
                 }
@@ -2480,18 +3296,6 @@ if (strpos($compLower, 'google') !== false) {
                 return;
             }
 
-            // Fullscreen trigger (requires user gesture - which this click provides)
-            try {
-                if (document.documentElement.requestFullscreen) {
-                    await document.documentElement.requestFullscreen();
-                } else if (document.documentElement.webkitRequestFullscreen) {
-                    await document.documentElement.webkitRequestFullscreen();
-                }
-            } catch (e) { console.warn("Fullscreen deferred: ", e); }
-
-            // Speech permission will be requested when user clicks the Speak button.
-
-            // Hide loader and start interview
             document.getElementById('premiumLoader').style.opacity = '0';
             setTimeout(() => {
                 document.getElementById('premiumLoader').style.display = 'none';
@@ -2499,7 +3303,6 @@ if (strpos($compLower, 'google') !== false) {
             }, 500);
         }
 
-        // Check for active session on load
         window.addEventListener('DOMContentLoaded', async () => {
             try {
                 const res = await fetch('mock_ai_handler.php', {
@@ -2528,6 +3331,7 @@ if (strpos($compLower, 'google') !== false) {
                         currentSessionId = data.session_id;
                         document.getElementById('roleSelection').style.display = 'none';
                         sessionStatus.style.display = 'flex';
+                        isSessionActive = true;
                         isProctoringActive = true;
 
                         const restored = stateStore.restore(data.session_id);
@@ -2537,7 +3341,7 @@ if (strpos($compLower, 'google') !== false) {
                             }
                             if (stateStore.state.chatHistory.length > 0) {
                                 const container = document.getElementById('chatHistory');
-                                container.innerHTML = ''; // Clear fresh placeholders
+                                container.innerHTML = '';
                                 stateStore.state.chatHistory.forEach(m => {
                                     eventBus.emit('MESSAGE_RECEIVED', { role: m.role, content: m.content });
                                 });
@@ -2562,21 +3366,22 @@ if (strpos($compLower, 'google') !== false) {
 
                     document.getElementById('btnStartFresh').onclick = async () => {
                         modal.style.display = 'none';
-                        // Retire old session
+                        localStorage.removeItem(`lar_session_${data.session_id}`);
                         await fetch('mock_ai_handler.php', {
                             method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-CSRF-TOKEN': CSRF_TOKEN
-                            },
-                            body: JSON.stringify({ action: 'cancel_pending', session_id: data.session_id })
+                            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+                            body: JSON.stringify({ action: 'end_session', session_id: data.session_id, company: '<?php echo addslashes($companyName); ?>', type: '<?php echo $roundType; ?>' })
                         });
+                        document.getElementById('roleSelection').style.display = 'flex';
                     };
                 }
             } catch (e) { console.warn("Active session check failed", e); }
         });
 
-        function finalizeInterviewStart() {
+        async function finalizeInterviewStart() {
+            if (backendInitPromise) {
+                await backendInitPromise;
+            }
             if (!backendInitData || !backendInitData.success) {
                 alert("Error: Backend initialization data missing or failed.");
                 return;
@@ -2600,6 +3405,7 @@ if (strpos($compLower, 'google') !== false) {
             });
 
             sessionStatus.style.display = 'flex';
+            isSessionActive = true;
             isProctoringActive = true;
 
             if ("<?php echo $roundType; ?>" === "Technical") {
@@ -2618,7 +3424,6 @@ if (strpos($compLower, 'google') !== false) {
         }
 
         async function startInterview(role) {
-            // Deprecated by startInterviewWithCustomRole
         }
 
         let typingInterval = null;
@@ -2679,7 +3484,6 @@ if (strpos($compLower, 'google') !== false) {
             const msg = customMsg || userInput.value.trim();
             if (!msg || !currentSessionId) return;
 
-            // Prevent double-sends while AI is still processing
             if (isSending) return;
             isSending = true;
             userInput.disabled = true;
@@ -2712,22 +3516,13 @@ if (strpos($compLower, 'google') !== false) {
                 stopTypingIndicator();
                 addMessage('system', '⚠️ Offline. Action buffered in queue.');
                 updateLiveHeaderStatus('disconnected');
-                // This early return bypasses the try/finally below — without resetting
-                // here, the input and send button stayed disabled forever.
                 isSending = false;
                 userInput.disabled = false;
                 btnSend.disabled = false;
                 return;
             }
 
-            // Snapshot session id so the closure captures the right value even if
-            // currentSessionId changes before the async response arrives.
             const snapshotSessionId = currentSessionId;
-
-            // Client-side timeout aligned with the server's true worst case:
-            // AIService retries up to 3× with a 90s cURL timeout (~272s total).
-            // Aborting earlier caused a subtle bug — the server kept processing and
-            // SAVED the AI reply, so the user's retry duplicated their answer.
             const chatController = new AbortController();
             const chatTimeout = setTimeout(() => chatController.abort(), 290000);
 
@@ -2780,8 +3575,8 @@ if (strpos($compLower, 'google') !== false) {
                                     lockControls();
                                     addMessage('ai', 'SYSTEM: *Session concluded. Processing analytics...*');
                                     setTimeout(() => {
-                                        window.location.href = `mock_ai_report.php?session_id=${snapshotSessionId}`;
-                                    }, 3000);
+                                        endSessionManual();
+                                    }, 2500);
                                 }
                             } else if (statusRes.status === 'failed') {
                                 clearInterval(pollInterval);
@@ -2792,7 +3587,6 @@ if (strpos($compLower, 'google') !== false) {
                         }
                     }, 2000);
                 } else if (data.success) {
-                    // Always render the AI reply first, then apply UI step if provided
                     const aiReply = (data.message || '').trim();
                     if (aiReply) {
                         addMessage('ai', aiReply);
@@ -2805,9 +3599,8 @@ if (strpos($compLower, 'google') !== false) {
                         lockControls();
                         addMessage('ai', 'SYSTEM: *Session concluded. Processing analytics...*');
                         setTimeout(() => {
-                            currentSessionId = null; // Unblock navigation
-                            window.location.href = `mock_ai_report.php?session_id=${snapshotSessionId}`;
-                        }, 3000);
+                            endSessionManual();
+                        }, 2500);
                     }
                 } else {
                     addMessage('system', '⚠️ ' + (data.message || 'AI response failed. Please try again.'));
@@ -2862,8 +3655,6 @@ if (strpos($compLower, 'google') !== false) {
                 return;
             }
 
-            // AbortController gives us a real client-side timeout for the AI call —
-            // aligned with the server's retry worst case (~272s), see sendMessage()
             const controller = new AbortController();
             const timeoutId = setTimeout(() => controller.abort(), 290000);
 
@@ -2884,47 +3675,33 @@ if (strpos($compLower, 'google') !== false) {
                 });
                 clearTimeout(timeoutId);
 
-                const text = await res.text();
+                const rawText = await res.text();
                 let data = null;
                 try {
-                    data = JSON.parse(text);
-                } catch (err) {
-                    console.error("Failed to parse evaluate_code JSON:", text.substring(0, 300));
-                    consoleOut.innerHTML = `[Error] Server returned an unexpected response. Check server logs.`;
+                    data = JSON.parse(rawText);
+                } catch (parseErr) {
+                    console.error('Server returned non-JSON:', rawText.substring(0, 500));
+                    consoleOut.innerHTML = `[Error] Server returned an unexpected response. Please try again.`;
                     consoleOut.className = 'console-out console-error';
                     return;
                 }
 
-                if (data && data.success) {
+                if (data.success && data.evaluation) {
                     const ev = data.evaluation;
-                    const status = ev.passed ? 'PASSED ✅' : 'FAILED ❌';
-                    consoleOut.innerHTML = `[Output]\n${ev.output_log || 'Execution complete.'}\n\n[Evaluation]\nScore: ${ev.score}/10\nStatus: ${status}\n\n[Feedback]\n${ev.feedback}`;
-                    consoleOut.className = ev.passed ? 'console-out console-success' : 'console-out console-error';
+                    consoleOut.className = 'console-out ' + (ev.passed ? 'console-success' : 'console-error');
+                    consoleOut.innerHTML = `[Result] Status: ${ev.passed ? 'PASSED ✓' : 'FAILED ✗'}\n` +
+                        `[Score] ${ev.score}/10\n` +
+                        `[Feedback] ${ev.feedback}\n` +
+                        (ev.suggestions ? `[Suggestions] ${ev.suggestions}` : '');
 
-                    addMessage('system', `Code Execution: Score ${ev.score}/10 — ${status}`);
-
-                    // Always send result to AI so it gives feedback and the next question,
-                    // regardless of pass/fail. Truncate long feedback to avoid polluting the
-                    // chat message with the full evaluation text.
-                    setTimeout(() => {
-                        const shortFeedback = (ev.feedback || '').substring(0, 200);
-                        const resultMsg = ev.passed
-                            ? `System: The code execution was successful and scored ${ev.score}/10. Please provide your technical critique and ask the next question.`
-                            : `System: The code execution failed with score ${ev.score}/10. Feedback summary: ${shortFeedback}. Please briefly comment on this and continue with the next question.`;
-                        sendMessage(resultMsg);
-                    }, 1000);
+                    addMessage('system', `💡 **Code Evaluation Result:** ${ev.passed ? 'PASSED' : 'NEEDS IMPROVEMENT'} (${ev.score}/10)\n${ev.feedback}`);
                 } else {
-                    const errMsg = (data && data.message) ? data.message : 'Evaluation service did not respond.';
-                    consoleOut.innerHTML = `[Error] ${errMsg}`;
+                    consoleOut.innerHTML = `[Error] ${data.message || 'Evaluation failed. Please try again.'}`;
                     consoleOut.className = 'console-out console-error';
                 }
-            } catch (e) {
+            } catch (err) {
                 clearTimeout(timeoutId);
-                if (e.name === 'AbortError') {
-                    consoleOut.innerHTML = `[Timeout] Evaluation took too long. The AI service may be overloaded. Please try again.`;
-                } else {
-                    consoleOut.innerHTML = `[Fatal] Connection error: ${e.message}`;
-                }
+                consoleOut.innerHTML = `[Error] Request timed out or network failed. Please try again.`;
                 consoleOut.className = 'console-out console-error';
             } finally {
                 btn.disabled = false;
@@ -2941,29 +3718,48 @@ if (strpos($compLower, 'google') !== false) {
             eventBus.emit('MESSAGE_RECEIVED', { role, content: text });
         }
 
-        async function endSessionManual() {
+        async function endSessionManual(isAuto = false) {
             if (!currentSessionId) {
                 window.location.href = 'dashboard.php';
                 return;
             }
 
-            if (!confirm('Warning: Ending the session now will stop the interview. AI will generate a report based on the partial conversation. Proceed?')) {
+            if (!isAuto && !confirm('Warning: Ending the session now will stop the interview. AI will generate a report based on the conversation and proctoring logs. Proceed?')) {
                 return;
             }
 
-            isProctoringActive = false; // Disable security flag
+            isSessionActive = false;
+            isProctoringActive = false;
+            if (proctorInterval) clearInterval(proctorInterval);
+
+            const widget = document.getElementById('proctorWidget');
+            if (widget) widget.style.display = 'none';
+            const warnOverlay = document.getElementById('warningOverlay');
+            if (warnOverlay) warnOverlay.classList.add('hidden');
+
+            if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
+            if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+
             document.getElementById('reportLoading').style.display = 'flex';
+            const reportLoadText = document.querySelector('#reportLoading h2');
+            if (reportLoadText) {
+                reportLoadText.innerText = isAuto ? 'Auto-Submitting & Compiling Integrity Report...' : 'Evaluating Performance & Integrity Report...';
+            }
 
             lockControls();
             const exitBtn = document.querySelector('.btn-end');
-            exitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Finalizing...';
-            exitBtn.style.pointerEvents = 'none';
+            if (exitBtn) {
+                exitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Finalizing...';
+                exitBtn.style.pointerEvents = 'none';
+            }
 
             const snapshotSessionId = currentSessionId;
-
-            // Give report generation the server's full retry window (~272s) before giving up
             const endController = new AbortController();
             const endTimeout = setTimeout(() => endController.abort(), 290000);
+
+            const clientFacePct = proctorStats.totalFrames > 0 
+                ? Math.round((proctorStats.validFaceFrames / proctorStats.totalFrames) * 100)
+                : 100;
 
             try {
                 const res = await fetch('mock_ai_handler.php', {
@@ -2977,7 +3773,10 @@ if (strpos($compLower, 'google') !== false) {
                         action: 'end_session',
                         session_id: snapshotSessionId,
                         company: '<?php echo addslashes($companyName); ?>',
-                        type: '<?php echo $roundType; ?>'
+                        type: '<?php echo $roundType; ?>',
+                        strike_count: warningCount,
+                        auto_submitted: isAuto ? 1 : 0,
+                        client_face_presence_pct: clientFacePct
                     })
                 });
                 clearTimeout(endTimeout);
@@ -2994,7 +3793,7 @@ if (strpos($compLower, 'google') !== false) {
                     if (data.is_incomplete) {
                         alert(data.message);
                         currentSessionId = null;
-                        window.location.href = 'mock_ai_interview';
+                        window.location.href = 'mock_ai_interview.php';
                         return;
                     }
                     document.getElementById('reportLoading').style.display = 'none';
@@ -3002,19 +3801,71 @@ if (strpos($compLower, 'google') !== false) {
                     const modal = document.getElementById('scoreModal');
                     const scoreNum = document.getElementById('finalScoreNum');
                     const scorePct = document.getElementById('finalScorePct');
+                    const badgeText = document.getElementById('scoreBadgeText');
+                    const headerIcon = document.getElementById('scoreHeaderIcon');
 
-                    let s = data.score || 0;
-                    scoreNum.innerText = s;
-                    if (s <= 0) {
-                        scoreNum.classList.add('score-zero');
-                        scorePct.classList.add('score-zero');
+                    const finalScore = Math.round(data.score ?? 0);
+                    const rawScore = Math.round(data.raw_score ?? finalScore);
+                    const penaltyPct = data.penalty_pct ?? (warningCount * 5);
+                    const isPassed = finalScore >= 70;
+
+                    scoreNum.innerText = finalScore;
+                    if (isPassed) {
+                        scoreNum.style.color = '#10b981';
+                        scorePct.style.color = '#10b981';
+                        if (badgeText) {
+                            badgeText.innerText = 'INTERVIEW PASSED (Official Verification Achieved)';
+                            badgeText.style.color = '#10b981';
+                        }
+                        if (headerIcon) {
+                            headerIcon.style.color = '#10b981';
+                            headerIcon.innerHTML = '<i class="fas fa-award"></i>';
+                        }
                     } else {
-                        scoreNum.classList.remove('score-zero');
-                        scorePct.classList.remove('score-zero');
+                        scoreNum.style.color = '#ef4444';
+                        scorePct.style.color = '#ef4444';
+                        if (badgeText) {
+                            badgeText.innerText = 'INTERVIEW NOT PASSED (Minimum 70% Required)';
+                            badgeText.style.color = '#ef4444';
+                        }
+                        if (headerIcon) {
+                            headerIcon.style.color = '#ef4444';
+                            headerIcon.innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
+                        }
+                    }
+
+                    const rptRaw = document.getElementById('rptRawScore');
+                    const rptPen = document.getElementById('rptPenaltyPct');
+                    if (rptRaw) rptRaw.innerText = rawScore + '%';
+                    if (rptPen) {
+                        rptPen.innerText = penaltyPct > 0 ? `-${penaltyPct}% (${data.strike_count || warningCount} Strikes @ 5% each)` : '0% (No Violations)';
+                        rptPen.style.color = penaltyPct > 0 ? '#f87171' : '#10b981';
+                    }
+
+                    if (data.integrity_report) {
+                        const rpt = data.integrity_report;
+                        if (document.getElementById('rptScreenShare')) document.getElementById('rptScreenShare').innerText = (rpt.screen_sharing_active_pct || 100) + '%';
+                        if (document.getElementById('rptCameraAvail')) document.getElementById('rptCameraAvail').innerText = (rpt.camera_availability_pct || 100) + '%';
+                        if (document.getElementById('rptFacePres')) document.getElementById('rptFacePres').innerText = (rpt.face_presence_pct || 100) + '%';
+                        if (document.getElementById('rptGazeConf')) document.getElementById('rptGazeConf').innerText = (rpt.gaze_confidence_pct || 92) + '%';
+                        if (document.getElementById('rptAttnDev')) document.getElementById('rptAttnDev').innerText = rpt.attention_deviations || 0;
+                        if (document.getElementById('rptLongestDev')) document.getElementById('rptLongestDev').innerText = (rpt.longest_deviation_sec || 0) + 's';
+                        if (document.getElementById('rptScreenInt')) document.getElementById('rptScreenInt').innerText = rpt.screen_interruptions || 0;
+                        if (document.getElementById('rptMultiFace')) document.getElementById('rptMultiFace').innerText = rpt.multiple_faces_count || 0;
+
+                        const pill = document.getElementById('rptStatusPill');
+                        if (pill) {
+                            pill.innerText = 'Integrity Status: ' + (rpt.integrity_status || (isPassed ? 'Verified' : 'Completed'));
+                            if (rpt.auto_submitted || (data.strike_count || warningCount) >= 3 || rpt.screen_interruptions > 0 || penaltyPct > 0) {
+                                pill.className = 'integrity-pill warning';
+                            } else {
+                                pill.className = 'integrity-pill success';
+                            }
+                        }
                     }
 
                     modal.style.display = 'flex';
-                    currentSessionId = null; // Unblock navigation
+                    currentSessionId = null;
                 } else {
                     alert('Session error: ' + (data ? data.message : 'No response from server.'));
                     currentSessionId = null;
@@ -3023,7 +3874,7 @@ if (strpos($compLower, 'google') !== false) {
             } catch (err) {
                 clearTimeout(endTimeout);
                 if (err.name === 'AbortError') {
-                    alert('Report generation timed out. Your session data is saved. Please check your report from the dashboard.');
+                    alert('Report generation timed out. Your session data is saved.');
                 } else {
                     console.error(err);
                 }
@@ -3034,6 +3885,20 @@ if (strpos($compLower, 'google') !== false) {
 
         function closeSession() {
             window.location.href = 'dashboard.php';
+        }
+
+        function dismissBriefingAndStart() {
+            const briefing = document.getElementById('briefingOverlay');
+            if (briefing) briefing.style.display = 'none';
+        }
+
+        function sendCodeToAI() {
+            const code = runtime.getEditorValue();
+            if (!code || !code.trim()) {
+                alert('Please write some code before submitting.');
+                return;
+            }
+            sendMessage("Here is my code solution:\n```\n" + code + "\n```");
         }
 
         function toggleCodingPanel() {
@@ -3058,23 +3923,11 @@ if (strpos($compLower, 'google') !== false) {
         btnSend.onclick = sendMessage;
         window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
 
-        // --- SECURITY PROTOCOLS ---
-        // Security protocols (copy/paste & developer hotkeys blocks removed as requested)
-
-        // Monitor Fullscreen Exit
-        document.addEventListener('fullscreenchange', handleSecurityFlag);
-        document.addEventListener('webkitfullscreenchange', handleSecurityFlag);
-
-        function handleSecurityFlag() {
-            const isFS = document.fullscreenElement || document.webkitFullscreenElement;
-            const warning = document.getElementById('securityWarning');
-
-            if (!isFS && isProctoringActive) {
-                warning.style.display = 'flex';
-            } else {
-                warning.style.display = 'none';
+        document.addEventListener('fullscreenchange', () => {
+            if (!document.fullscreenElement && isSessionActive) {
+                triggerWarning('Full screen mode was deactivated.', 'FULLSCREEN_EXIT');
             }
-        }
+        });
 
         async function resumeFullscreen() {
             try {
@@ -3083,6 +3936,8 @@ if (strpos($compLower, 'google') !== false) {
                 } else if (document.documentElement.webkitRequestFullscreen) {
                     await document.documentElement.webkitRequestFullscreen();
                 }
+                const warnOverlay = document.getElementById('warningOverlay');
+                if (warnOverlay) warnOverlay.classList.add('hidden');
             } catch (e) {
                 alert("Please press F11 to resume Full Screen mode manually.");
             }

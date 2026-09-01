@@ -10,24 +10,31 @@ $userId = getUserId();
 $fullName = getFullName();
 
 $internshipModel = new Internship();
-$internships = $internshipModel->getPortalInternships(); // Only show internships from this portal
 
+// Global Stats (for cards) - we need all items for this or separate queries
+// Instead of fetching all internships into memory, let's just do quick queries for stats
+$db = getDB();
+$activeCount = $db->query("SELECT COUNT(*) FROM internships WHERE status = 'Active' AND created_by IS NOT NULL")->fetchColumn();
+$totalCount = $db->query("SELECT COUNT(*) FROM internships WHERE created_by IS NOT NULL")->fetchColumn();
+$appCount = $db->query("SELECT COUNT(*) FROM internship_applications ia JOIN internships i ON ia.internship_id = i.id WHERE i.created_by IS NOT NULL")->fetchColumn();
 
 $stats = [
-    'active' => 0,
-    'total_applications' => 0,
-    'total_internships' => count($internships)
+    'active' => $activeCount,
+    'total_applications' => $appCount,
+    'total_internships' => $totalCount
 ];
+
+// Pagination logic
+$page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
+$perPage = 10;
+$paginatedData = $internshipModel->getPortalInternshipsPaginated($page, $perPage);
+$internships = $paginatedData['items'];
+$pagination = $paginatedData['pagination'];
 
 foreach ($internships as &$i) {
     if ($i['status'] === 'Active' && strtotime($i['application_deadline']) < strtotime('today')) {
-        $i['status'] = 'Ended';
+        $i['status'] = 'Ended'; // Virtual status for display
     }
-
-    if ($i['status'] === 'Active') {
-        $stats['active']++;
-    }
-    $stats['total_applications'] += $i['application_count'];
 }
 unset($i);
 ?>
@@ -391,6 +398,52 @@ unset($i);
             margin-bottom: 2rem;
         }
 
+        /* Pagination Styles */
+        .pagination-wrapper {
+            margin-top: 2rem;
+            display: flex;
+            justify-content: center;
+            border-top: 1px solid var(--border-color);
+            padding-top: 1.5rem;
+        }
+
+        .pagination {
+            display: flex;
+            list-style: none;
+            padding: 0;
+            margin: 0;
+            gap: 0.5rem;
+        }
+
+        .pagination a {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0.5rem 1rem;
+            min-width: 2rem;
+            height: 2.5rem;
+            border-radius: var(--radius-md);
+            text-decoration: none;
+            color: var(--text-muted);
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+            gap: 0.5rem;
+        }
+
+        .pagination a:hover {
+            background: #f1f5f9;
+            color: var(--text-main);
+        }
+
+        .pagination a.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+            box-shadow: 0 4px 6px rgba(128, 0, 0, 0.15);
+        }
+
         @media (max-width: 1024px) {
             .container { padding: 2rem 1rem; }
             .header-section { flex-direction: column; align-items: flex-start; gap: 1.5rem; }
@@ -549,6 +602,29 @@ else: ?>
                             </tbody>
                         </table>
                     </div>
+                    
+                    <?php if ($pagination['total_pages'] > 1): ?>
+                        <div class="pagination-wrapper">
+                            <ul class="pagination">
+                                <?php if ($pagination['has_prev']): ?>
+                                    <li><a href="?page=<?php echo $pagination['current_page'] - 1; ?>"><i class="fas fa-chevron-left"></i> Previous</a></li>
+                                <?php endif; ?>
+                                
+                                <?php for ($p = 1; $p <= $pagination['total_pages']; $p++): ?>
+                                    <li>
+                                        <a href="?page=<?php echo $p; ?>" class="<?php echo $p == $pagination['current_page'] ? 'active' : ''; ?>">
+                                            <?php echo $p; ?>
+                                        </a>
+                                    </li>
+                                <?php endfor; ?>
+                                
+                                <?php if ($pagination['has_next']): ?>
+                                    <li><a href="?page=<?php echo $pagination['current_page'] + 1; ?>">Next <i class="fas fa-chevron-right"></i></a></li>
+                                <?php endif; ?>
+                            </ul>
+                        </div>
+                    <?php endif; ?>
+                    
                 <?php
 endif; ?>
             </div>

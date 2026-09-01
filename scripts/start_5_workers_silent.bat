@@ -13,9 +13,10 @@ echo command = "php src\Workers\AIWorker.php" >> "%VBS_FILE%"
 :: Kill any existing workers first
 powershell -Command "$workers = Get-CimInstance Win32_Process -Filter \"Name='php.exe' AND CommandLine LIKE '%%AIWorker.php%%'\"; if ($workers) { $workers | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } }" >nul 2>&1
 
-:: Launch 5 workers with separate log files to prevent Windows write locks, allowing all 5 to run in parallel
+:: Launch 5 workers with separate log files and a 1-minute (60,000 ms) startup stagger
 for /L %%i in (1,1,5) do (
-    echo WshShell.Run "cmd /c php src\Workers\AIWorker.php >> logs\ai_worker_%%i.log 2>&1", 0 >> "%VBS_FILE%"
+    echo WshShell.Run "cmd /c php src\Workers\AIWorker.php %%i >> logs\ai_worker_%%i.log 2>&1", 0 >> "%VBS_FILE%"
+    echo WScript.Sleep 60000 >> "%VBS_FILE%"
 )
 echo Set WshShell = Nothing >> "%VBS_FILE%"
 

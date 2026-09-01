@@ -643,6 +643,33 @@ try {
             <div
                 style="display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 16px; padding: 20px 0 5px;">
 
+                <!-- General Platform Announcement -->
+                <div
+                    style="grid-column: 1 / -1; display: flex; flex-direction: column; background: #fffbeb; padding: 18px 24px; border-radius: 16px; border: 1px solid #fef3c7; border-left: 5px solid #800000; gap: 12px;">
+                    <div style="display: flex; align-items: center; justify-content: space-between; width: 100%;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div
+                                style="width: 42px; height: 42px; background: #fde68a; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #800000; font-size: 1.15rem;">
+                                <i class="fas fa-bullhorn"></i></div>
+                            <div>
+                                <div style="font-weight: 800; font-size: 1rem; color: #1e293b;">General Student Announcement</div>
+                                <div style="font-size: 0.8rem; color: #64748b;">Broad message displayed to all students at the top of their dashboard</div>
+                            </div>
+                        </div>
+                        <label class="switch">
+                            <input type="checkbox" onchange="toggleAI('general_portal_announcement_status', this)" <?php echo ($settings['general_portal_announcement_status'] ?? 'enabled') === 'enabled' ? 'checked' : ''; ?>>
+                            <span class="slider"></span>
+                        </label>
+                    </div>
+                    <div style="display: flex; align-items: flex-start; gap: 10px; border-top: 1px solid rgba(128, 0, 0, 0.12); padding-top: 10px;">
+                        <textarea 
+                               placeholder="Type a general announcement for all students (e.g. platform updates, campus drive deadlines, exam schedules)..." 
+                               onchange="updateAnnouncement('general_portal_announcement', this, true)"
+                               style="flex: 1; font-size: 0.85rem; padding: 8px 12px; border: 1px solid #fde68a; border-radius: 10px; background: #fff; outline: none; font-family: inherit; resize: vertical; min-height: 48px; height: 48px; max-height: 140px;"><?php echo htmlspecialchars($settings['general_portal_announcement'] ?? '', ENT_QUOTES, 'UTF-8'); ?></textarea>
+                        <i class="fas fa-bullhorn" style="font-size: 0.9rem; color: #800000; cursor: help; margin-top: 10px;" title="Saved automatically when clicking outside"></i>
+                    </div>
+                </div>
+
                 <!-- Mock AI -->
                 <div
                     style="display: flex; flex-direction: column; background: #fff7ed; padding: 16px 20px; border-radius: 16px; border: 1px solid #fed7aa; gap: 10px;">
@@ -1100,7 +1127,7 @@ try {
             }
         }
 
-        async function updateAnnouncement(key, el) {
+        async function updateAnnouncement(key, el, isExactKey = false) {
             const message = el.value;
             const parent = el.parentElement;
             const icon = parent.querySelector('i');
@@ -1111,7 +1138,8 @@ try {
             
             try {
                 const formData = new FormData();
-                formData.append('key', key + '_message');
+                const settingKey = isExactKey ? key : (key + '_message');
+                formData.append('key', settingKey);
                 formData.append('value', message);
                 formData.append('action', 'update_setting');
 
@@ -1129,13 +1157,13 @@ try {
                         icon.style.color = '';
                     }, 2000);
                 } else {
-                    alert('Error saving announcement: ' + data.message);
-                    icon.className = originalClass;
+                    icon.className = 'fas fa-exclamation-triangle';
                     icon.style.color = '#ef4444';
+                    alert('Error saving announcement: ' + data.message);
                 }
             } catch (e) {
-                console.error('Announcement save network error', e);
-                icon.className = originalClass;
+                console.error('Announcement update error', e);
+                icon.className = 'fas fa-exclamation-triangle';
                 icon.style.color = '#ef4444';
             }
         }

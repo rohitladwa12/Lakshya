@@ -3244,6 +3244,109 @@ $dailyQuote = $_SESSION['grind_quote'];
                     <?php
                 endif; ?>
 
+                <!-- AI Feature & General Announcements Pop-up Modal -->
+                <?php
+                $activeAIAnnouncements = getActiveAIFeatureAnnouncements();
+                if (!empty($activeAIAnnouncements)):
+                    $announcementHash = md5(json_encode($activeAIAnnouncements));
+                ?>
+                <div id="announcementPopModal" class="announcement-pop-overlay" data-user-id="<?php echo $userId; ?>" data-ann-id="<?php echo $announcementHash; ?>" style="display: none; position: fixed; inset: 0; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); z-index: 99999; align-items: center; justify-content: center; padding: 16px; opacity: 0; transition: opacity 0.25s ease;">
+                    <div class="announcement-pop-content" style="background: #ffffff; width: 100%; max-width: 580px; border-radius: 16px; box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.2); border: 1px solid #e2e8f0; overflow: hidden; animation: annSlideUp 0.25s ease-out; max-height: 85vh; display: flex; flex-direction: column;">
+                        
+                        <!-- Clean Header -->
+                        <div style="padding: 20px 24px 16px; border-bottom: 1px solid #f1f5f9; display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;">
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <div style="width: 38px; height: 38px; background: #fff5f5; border: 1px solid #fee2e2; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #800000; font-size: 1.1rem; flex-shrink: 0;">
+                                    <i class="fas fa-bullhorn"></i>
+                                </div>
+                                <div>
+                                    <h3 style="margin: 0; font-size: 1.15rem; font-weight: 700; color: #0f172a;">Platform Announcement</h3>
+                                    <p style="margin: 2px 0 0; font-size: 0.8rem; color: #64748b;">Important updates from Lakshya administration</p>
+                                </div>
+                            </div>
+                            <button onclick="dismissAnnouncementModal('<?php echo $announcementHash; ?>')" style="background: transparent; border: none; color: #94a3b8; width: 32px; height: 32px; border-radius: 8px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-size: 1.25rem; transition: color 0.15s;" title="Close">
+                                &times;
+                            </button>
+                        </div>
+
+                        <!-- Body with Clean Content -->
+                        <div style="padding: 20px 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 14px; flex: 1;">
+                            <?php foreach ($activeAIAnnouncements as $ann): ?>
+                                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid <?php echo $ann['color']; ?>; border-radius: 10px; padding: 14px 16px;">
+                                    <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px;">
+                                        <span style="font-size: 0.72rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: <?php echo $ann['color']; ?>; background: #ffffff; padding: 2px 8px; border-radius: 4px; border: 1px solid #e2e8f0;">
+                                            <i class="<?php echo $ann['icon']; ?>" style="margin-right: 4px;"></i> <?php echo htmlspecialchars($ann['name']); ?>
+                                        </span>
+                                        <?php if (!empty($ann['link'])): ?>
+                                            <a href="<?php echo $ann['link']; ?>" onclick="dismissAnnouncementModal('<?php echo $announcementHash; ?>')" style="font-size: 0.78rem; font-weight: 600; color: <?php echo $ann['color']; ?>; text-decoration: none; display: inline-flex; align-items: center; gap: 4px;">
+                                                View Feature <i class="fas fa-arrow-right" style="font-size: 0.68rem;"></i>
+                                            </a>
+                                        <?php endif; ?>
+                                    </div>
+                                    <div style="font-size: 0.88rem; font-weight: 400; color: #334155; line-height: 1.6;"><?php echo formatAnnouncementText($ann['message']); ?></div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+
+                        <!-- Clean Footer -->
+                        <div style="padding: 14px 24px; background: #ffffff; border-top: 1px solid #f1f5f9; display: flex; align-items: center; justify-content: space-between;">
+                            <span style="font-size: 0.78rem; color: #94a3b8;">
+                                <i class="fas fa-check" style="color: #10b981; margin-right: 4px;"></i> Won't appear again after closing
+                            </span>
+                            <button onclick="dismissAnnouncementModal('<?php echo $announcementHash; ?>')" style="background: #800000; color: #ffffff; border: none; padding: 8px 24px; border-radius: 8px; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: background 0.15s ease;">
+                                Got it
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <style>
+                @keyframes annSlideUp {
+                    from {
+                        opacity: 0;
+                        transform: translateY(12px) scale(0.98);
+                    }
+                    to {
+                        opacity: 1;
+                        transform: translateY(0) scale(1);
+                    }
+                }
+                </style>
+
+                <script>
+                document.addEventListener('DOMContentLoaded', () => {
+                    const pop = document.getElementById('announcementPopModal');
+                    if (pop) {
+                        const annId = pop.getAttribute('data-ann-id');
+                        const uid = pop.getAttribute('data-user-id') || 'guest';
+                        const storageKey = 'lakshya_ann_seen_user_' + uid + '_' + annId;
+                        if (annId && !localStorage.getItem(storageKey)) {
+                            pop.style.display = 'flex';
+                            setTimeout(() => {
+                                pop.style.opacity = '1';
+                            }, 50);
+                        }
+                    }
+                });
+
+                function dismissAnnouncementModal(annId) {
+                    const pop = document.getElementById('announcementPopModal');
+                    const uid = pop ? (pop.getAttribute('data-user-id') || 'guest') : 'guest';
+                    if (annId) {
+                        try {
+                            localStorage.setItem('lakshya_ann_seen_user_' + uid + '_' + annId, 'true');
+                        } catch(e) {}
+                    }
+                    if (pop) {
+                        pop.style.opacity = '0';
+                        setTimeout(() => {
+                            pop.style.display = 'none';
+                        }, 250);
+                    }
+                }
+                </script>
+                <?php endif; ?>
+
                 <!-- Hero Banner -->
                 <div class="hero-banner">
                     <div class="hero-content">

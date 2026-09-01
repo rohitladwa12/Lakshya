@@ -835,7 +835,7 @@ $pageTitle = "Leaderboard | Lakshya";
                                 ${isMe ? '<span class="px-2 py-0.5 bg-[#800000] text-white text-[9px] rounded-full font-black uppercase tracking-wider">You</span>' : ''}
                                 ${s.rank === 1 ? '<span class="crown-glow">👑</span>' : ''}
                             </div>
-                            <div class="text-[11px] text-slate-400 uppercase tracking-wider font-semibold mt-0.5 truncate">${s.discipline} · ${s.institution}</div>
+                            <div class="text-[11px] text-slate-400 uppercase tracking-wider font-semibold mt-0.5 truncate">${s.discipline} · ${s.institution}${s.sem ? ` · Sem ${s.sem}` : ''}</div>
                         </div>
                     </div>
                     <div class="col-span-3 text-right">
@@ -885,7 +885,7 @@ $pageTitle = "Leaderboard | Lakshya";
                             </div>
 
                             <div class="font-black text-slate-800 text-lg md:text-xl outfit mb-1 truncate px-2">${s.name}</div>
-                            <div class="text-[10px] text-slate-400 mb-6 truncate uppercase font-extrabold tracking-[0.15em] opacity-80">${s.discipline}</div>
+                            <div class="text-[10px] text-slate-400 mb-6 truncate uppercase font-extrabold tracking-[0.15em] opacity-80">${s.discipline}${s.sem ? ` · Sem ${s.sem}` : ''}</div>
 
                             <div class="p-5 rounded-[28px] bg-gradient-to-br from-white to-slate-50/50 border border-slate-100 shadow-inner">
                                 <div class="text-4xl font-black outfit text-slate-900 tracking-tighter">${s.total}</div>
@@ -947,7 +947,7 @@ $pageTitle = "Leaderboard | Lakshya";
             fallbackSpan.textContent = student.name.charAt(0).toUpperCase();
             drawerAvatarEl.appendChild(fallbackSpan);
             document.getElementById('drawer-name').textContent = student.name;
-            document.getElementById('drawer-dept').textContent = `${student.discipline} · ${student.institution}`;
+            document.getElementById('drawer-dept').textContent = `${student.discipline} · ${student.institution}${student.sem ? ` · Sem ${student.sem}` : ''}`;
             document.getElementById('drawer-score').textContent = student.total;
             document.getElementById('drawer-rank').textContent = `#${student.rank}`;
 

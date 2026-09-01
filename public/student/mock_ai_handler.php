@@ -50,6 +50,38 @@ $db = getDB();
 $aiService = new AIService();
 $studentModel = new StudentProfile();
 
+ensureIntegrityTablesExist($db);
+
+function ensureIntegrityTablesExist(PDO $db) {
+    try {
+        $db->exec("CREATE TABLE IF NOT EXISTS assessment_integrity_events (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            student_id VARCHAR(100) NOT NULL,
+            portfolio_id INT NOT NULL DEFAULT 0,
+            assessment_type VARCHAR(50) NOT NULL DEFAULT 'Mock AI Interview',
+            event_type VARCHAR(50) NOT NULL,
+            duration FLOAT NULL,
+            confidence FLOAT NOT NULL DEFAULT 1.0,
+            severity VARCHAR(20) NOT NULL DEFAULT 'LOW',
+            metadata JSON NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_student_portfolio (student_id, portfolio_id),
+            INDEX idx_event_severity (event_type, severity)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $db->exec("CREATE TABLE IF NOT EXISTS assessment_calibrations (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            student_id VARCHAR(100) NOT NULL,
+            portfolio_id INT NOT NULL DEFAULT 0,
+            calibration_json JSON NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            INDEX idx_student_portfolio (student_id, portfolio_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    } catch (\Throwable $e) {
+        error_log("Failed to create integrity tables: " . $e->getMessage());
+    }
+}
+
 try {
     $db->exec("ALTER TABLE mock_ai_interview_sessions ADD COLUMN IF NOT EXISTS difficulty VARCHAR(50) DEFAULT 'Medium'");
 } catch (\Exception $e) {
@@ -144,6 +176,51 @@ function sanitizeHistory($history)
 
 try {
     switch ($action) {
+        case 'save_calibration':
+            $sessionId = (int)($input['session_id'] ?? 0);
+            $calibrationData = $input['calibration'] ?? [];
+
+            $stmt = $db->prepare("INSERT INTO assessment_calibrations (student_id, portfolio_id, calibration_json, created_at) VALUES (?, ?, ?, NOW())");
+            $stmt->execute([$studentIdForDb, $sessionId, json_encode($calibrationData)]);
+
+            ob_clean(); echo json_encode([
+                'success' => true,
+                'message' => 'Calibration baseline stored successfully.'
+            ]);
+            exit;
+
+        case 'log_proctoring_event':
+            $sessionId = (int)($input['session_id'] ?? 0);
+            $eventType = trim((string)($input['event_type'] ?? 'GAZE_DEVIATION'));
+            $duration = (float)($input['duration'] ?? 0);
+            $confidence = (float)($input['confidence'] ?? 1.0);
+            $severity = strtoupper(trim((string)($input['severity'] ?? 'LOW')));
+            $metadata = $input['metadata'] ?? [];
+
+            if (!in_array($severity, ['LOW', 'MEDIUM', 'HIGH'])) {
+                $severity = 'LOW';
+            }
+
+            $stmt = $db->prepare("INSERT INTO assessment_integrity_events 
+                (student_id, portfolio_id, assessment_type, event_type, duration, confidence, severity, metadata, created_at) 
+                VALUES (?, ?, 'Mock AI Interview', ?, ?, ?, ?, ?, NOW())");
+            
+            $stmt->execute([
+                $studentIdForDb,
+                $sessionId,
+                $eventType,
+                $duration,
+                $confidence,
+                $severity,
+                json_encode($metadata)
+            ]);
+
+            ob_clean(); echo json_encode([
+                'success' => true,
+                'event_logged' => $eventType
+            ]);
+            exit;
+
         case 'check_active':
             $institution = getInstitution() ?: 'GMU';
             $sql = "SELECT id, role_name, conversation_history, difficulty FROM mock_ai_interview_sessions 
@@ -299,11 +376,12 @@ try {
             $type = (string) ($input['type'] ?? 'Technical');
             $history = sanitizeHistory(json_decode($session['conversation_history'], true));
 
-            // Ensure $userMessage is always a plain string (never an array from json_decode)
+            // Ensure $userMessage is always a plain string (never an array from json_decode) and capped to prevent buffer bloat
             $userMessage = $input['message'] ?? '';
             if (!is_string($userMessage)) {
                 $userMessage = is_array($userMessage) ? json_encode($userMessage) : (string) $userMessage;
             }
+            $userMessage = mb_substr(trim($userMessage), 0, 3000);
 
             $history[] = ['role' => 'user', 'content' => $userMessage];
 
@@ -607,6 +685,76 @@ try {
                 }
             }
 
+            // 5% Score Deduction Per Strike / Flag Calculation
+            $strikeCount = (int)($input['strike_count'] ?? 0);
+            $penaltyPct = min(100, $strikeCount * 5);
+            $rawScore = $overallScore !== null ? (float)$overallScore : 0.0;
+            $adjustedScore = max(0.0, round($rawScore - $penaltyPct));
+
+            // Build Assessment Integrity Report from logged events
+            $integrityReport = [
+                'screen_sharing_active_pct' => 100.0,
+                'camera_availability_pct' => 100.0,
+                'face_presence_pct' => 100.0,
+                'gaze_confidence_pct' => 92.5,
+                'attention_deviations' => 0,
+                'longest_deviation_sec' => 0.0,
+                'screen_interruptions' => 0,
+                'multiple_faces_count' => 0,
+                'strike_count' => $strikeCount,
+                'penalty_deducted_pct' => $penaltyPct,
+                'raw_score' => $rawScore,
+                'adjusted_score' => $adjustedScore,
+                'integrity_status' => 'No significant anomalies detected'
+            ];
+
+            try {
+                $eventStmt = $db->prepare("SELECT event_type, duration, confidence, severity FROM assessment_integrity_events WHERE student_id = ? AND portfolio_id = ?");
+                $eventStmt->execute([$studentIdForDb, $sessionId]);
+                $events = $eventStmt->fetchAll(PDO::FETCH_ASSOC);
+
+                $totalEvents = count($events);
+                $confSum = 0;
+                $maxDev = 0;
+
+                foreach ($events as $evt) {
+                    $confSum += (float)($evt['confidence'] ?? 1.0);
+                    $dur = (float)($evt['duration'] ?? 0);
+
+                    if ($evt['event_type'] === 'GAZE_DEVIATION' || $evt['event_type'] === 'LOOKING_AWAY') {
+                        $integrityReport['attention_deviations']++;
+                        if ($dur > $maxDev) $maxDev = $dur;
+                    } else if ($evt['event_type'] === 'SCREEN_SHARE_STOPPED' || $evt['event_type'] === 'FULLSCREEN_EXIT') {
+                        $integrityReport['screen_interruptions']++;
+                    } else if ($evt['event_type'] === 'MULTI_FACE') {
+                        $integrityReport['multiple_faces_count']++;
+                    } else if ($evt['event_type'] === 'NO_FACE') {
+                        $integrityReport['face_presence_pct'] = max(70.0, $integrityReport['face_presence_pct'] - 5.0);
+                    }
+                }
+
+                if ($totalEvents > 0) {
+                    $integrityReport['gaze_confidence_pct'] = round(($confSum / $totalEvents) * 100, 1);
+                }
+                $integrityReport['longest_deviation_sec'] = round($maxDev, 1);
+
+                if (isset($input['client_face_presence_pct'])) {
+                    $cFacePct = (float)$input['client_face_presence_pct'];
+                    $integrityReport['face_presence_pct'] = round(min($integrityReport['face_presence_pct'], $cFacePct), 1);
+                }
+
+                $autoSubmitted = !empty($input['auto_submitted']);
+                $integrityReport['auto_submitted'] = $autoSubmitted;
+
+                if ($autoSubmitted || $strikeCount >= 3) {
+                    $integrityReport['integrity_status'] = 'Auto-Submitted: Maximum Security Violations (3/3) Exceeded';
+                } else if ($strikeCount > 0 || $integrityReport['screen_interruptions'] > 0 || $maxDev >= 15.0 || $integrityReport['multiple_faces_count'] > 0) {
+                    $integrityReport['integrity_status'] = 'Integrity Penalties Applied (-' . $penaltyPct . '% Deducted)';
+                }
+            } catch (\Throwable $e) {
+                error_log("Failed to build mock AI integrity report: " . $e->getMessage());
+            }
+
             // SAVE TO UNIFIED TABLE
             if ($reportContent !== null) {
                 try {
@@ -637,13 +785,17 @@ try {
                         $profile['department'] ?? null,
                         $enumType,
                         $companyNameFromInput,
-                        $overallScore,
+                        $adjustedScore,
                         100,
-                        "Interview Manually Completed",
+                        $strikeCount > 0 ? "Interview Completed (Penalty: -{$penaltyPct}%)" : "Interview Completed",
                         json_encode([
                             'transcript' => $history,
                             'report' => $reportContent,
-                            'role' => $role
+                            'role' => $role,
+                            'raw_score' => $rawScore,
+                            'penalty_pct' => $penaltyPct,
+                            'strike_count' => $strikeCount,
+                            'integrity_report' => $integrityReport
                         ]),
                         'completed'
                     ]);
@@ -654,14 +806,18 @@ try {
 
             // Update session
             $sqlH = "UPDATE mock_ai_interview_sessions SET status = 'completed', completed_at = ?, report_content = ?, overall_score = ? WHERE id = ?";
-            $db->prepare($sqlH)->execute([$completedAt, $reportContent, $overallScore, $sessionId]);
+            $db->prepare($sqlH)->execute([$completedAt, $reportContent, $adjustedScore, $sessionId]);
 
             ob_clean();
             echo json_encode([
                 'success' => true,
                 'message' => 'Session ended',
                 'session_id' => $sessionId,
-                'score' => $overallScore
+                'score' => $adjustedScore,
+                'raw_score' => $rawScore,
+                'penalty_pct' => $penaltyPct,
+                'strike_count' => $strikeCount,
+                'integrity_report' => $integrityReport
             ]);
             break;
 

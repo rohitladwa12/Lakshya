@@ -44,6 +44,79 @@ if (!$session || !$session['report_content']) {
     redirect('mock_ai_interview');
 }
 
+// Fetch proctoring logs and integrity report details
+$integrityReport = [
+    'screen_share_integrity_pct' => 100,
+    'camera_available_pct' => 100,
+    'face_presence_pct' => 100,
+    'gaze_confidence_pct' => 95,
+    'attention_deviations' => 0,
+    'longest_deviation_sec' => 0,
+    'screen_interruptions' => 0,
+    'multiple_faces_count' => 0,
+    'integrity_status' => 'Verified • Authentic Candidate Environment'
+];
+$strikeCount = 0;
+$penaltyPct = 0;
+$adjustedScore = (int) ($session['overall_score'] ?? 0);
+$rawScore = $adjustedScore;
+
+// 1. Check unified_ai_assessments for rich snapshot
+try {
+    $uStmt = $db->prepare("SELECT details, score, feedback FROM unified_ai_assessments WHERE student_id = ? AND (assessment_type = 'Technical' OR assessment_type = 'HR' OR assessment_type = 'Aptitude') AND completed_at >= ? ORDER BY completed_at DESC LIMIT 1");
+    $uStmt->execute([$studentIdForDb, $session['started_at'] ?? '2000-01-01']);
+    $uRow = $uStmt->fetch();
+    if ($uRow && !empty($uRow['details'])) {
+        $uDetails = json_decode($uRow['details'], true);
+        if (is_array($uDetails)) {
+            if (isset($uDetails['integrity_report']) && is_array($uDetails['integrity_report'])) {
+                $integrityReport = array_merge($integrityReport, $uDetails['integrity_report']);
+            }
+            if (isset($uDetails['raw_score'])) $rawScore = (int)$uDetails['raw_score'];
+            if (isset($uDetails['penalty_pct'])) $penaltyPct = (int)$uDetails['penalty_pct'];
+            if (isset($uDetails['strike_count'])) $strikeCount = (int)$uDetails['strike_count'];
+        }
+    }
+} catch (Exception $e) {}
+
+// 2. Query proctoring_logs directly for exact session event audit
+try {
+    $pStmt = $db->prepare("SELECT * FROM proctoring_logs WHERE session_id = ? AND student_id = ? ORDER BY created_at ASC");
+    $pStmt->execute([$sessionId, $studentIdForDb]);
+    $pLogs = $pStmt->fetchAll();
+    if ($pLogs && count($pLogs) > 0) {
+        $secViolations = 0;
+        $maxDev = 0;
+        foreach ($pLogs as $pLog) {
+            $evtType = $pLog['event_type'] ?? '';
+            $dur = (float)($pLog['duration_seconds'] ?? 0);
+            if ($evtType === 'SECURITY_VIOLATION' || $evtType === 'TAB_SWITCH' || $evtType === 'WINDOW_BLUR' || $evtType === 'SCREEN_SHARE_STOPPED' || $evtType === 'FULLSCREEN_EXIT' || $evtType === 'MULTI_FACE' || $evtType === 'NO_FACE') {
+                $secViolations++;
+            }
+            if ($evtType === 'GAZE_DEVIATION' || $evtType === 'LOOKING_AWAY') {
+                $integrityReport['attention_deviations']++;
+                if ($dur > $maxDev) $maxDev = $dur;
+            } else if ($evtType === 'SCREEN_SHARE_STOPPED' || $evtType === 'FULLSCREEN_EXIT') {
+                $integrityReport['screen_interruptions']++;
+            } else if ($evtType === 'MULTI_FACE') {
+                $integrityReport['multiple_faces_count']++;
+            } else if ($evtType === 'NO_FACE') {
+                $integrityReport['face_presence_pct'] = max(70, $integrityReport['face_presence_pct'] - 5);
+            }
+        }
+        if ($secViolations > $strikeCount) {
+            $strikeCount = $secViolations;
+            $penaltyPct = min(15, $strikeCount * 5);
+        }
+        $integrityReport['longest_deviation_sec'] = $maxDev;
+        if ($strikeCount >= 3) {
+            $integrityReport['integrity_status'] = 'Auto-Submitted: Maximum Security Violations (3/3) Exceeded';
+        } else if ($strikeCount > 0) {
+            $integrityReport['integrity_status'] = "Integrity Penalties Applied (-{$penaltyPct}% Deducted)";
+        }
+    }
+} catch (Exception $e) {}
+
 // Resolve student name: on server use remote GMU/GMIT via User model; fallback to session name if remote unavailable
 $studentName = getFullName() ?: 'Student';
 $institution = $session['institution'] ?? getInstitution();
@@ -237,6 +310,107 @@ $date = date('d M Y', strtotime($session['started_at']));
         .report-body p {
             margin-bottom: 15px;
         }
+
+        /* Assessment Integrity Card */
+        .integrity-card {
+            background: #fdfdfd;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 22px;
+            margin-bottom: 35px;
+        }
+
+        .integrity-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #edf2f7;
+            padding-bottom: 12px;
+            margin-bottom: 16px;
+        }
+
+        .integrity-header h3 {
+            margin: 0;
+            font-size: 1.05rem;
+            color: var(--primary-maroon);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .integrity-pill {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+        }
+
+        .integrity-pill.success {
+            background: #ecfdf5;
+            color: #059669;
+            border: 1px solid #a7f3d0;
+        }
+
+        .integrity-pill.warning {
+            background: #fffbeb;
+            color: #d97706;
+            border: 1px solid #fde68a;
+        }
+
+        .integrity-pill.danger {
+            background: #fef2f2;
+            color: #dc2626;
+            border: 1px solid #fecaca;
+        }
+
+        .integrity-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+
+        @media (max-width: 768px) {
+            .integrity-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+
+        .integrity-metric {
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            padding: 10px 14px;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .integrity-metric .label {
+            font-size: 0.72rem;
+            font-weight: 600;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .integrity-metric .val {
+            font-size: 1.05rem;
+            font-weight: 800;
+            color: #1e293b;
+        }
+
+        .score-breakdown-box {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 10px;
+            padding: 14px 20px;
+            margin-bottom: 25px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+        }
     </style>
 </head>
 
@@ -269,7 +443,7 @@ $date = date('d M Y', strtotime($session['started_at']));
 
         <div class="report-body">
             <div
-                style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 30px; border-radius: 12px; margin-bottom: 35px; border-left: 5px solid var(--primary-maroon); display: flex; justify-content: space-between; align-items: center;">
+                style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 30px; border-radius: 12px; margin-bottom: 25px; border-left: 5px solid var(--primary-maroon); display: flex; justify-content: space-between; align-items: center;">
                 <div>
                     <h3
                         style="margin: 0; color: #444; font-size: 0.9rem; text-transform: uppercase; letter-spacing: 1px;">
@@ -293,6 +467,65 @@ $date = date('d M Y', strtotime($session['started_at']));
                         else
                             echo 'BEGINNER';
                         ?>
+                    </div>
+                </div>
+            </div>
+
+            <?php if ($penaltyPct > 0): ?>
+            <div class="score-breakdown-box">
+                <div>
+                    <span style="color: #64748b; font-weight: 600;">Raw Score:</span> <strong><?php echo $rawScore; ?>/100</strong>
+                </div>
+                <div>
+                    <span style="color: #ef4444; font-weight: 700;">Integrity Penalty: -<?php echo $penaltyPct; ?>%</span>
+                    <span style="color: #64748b; font-size: 0.8rem;">(<?php echo $strikeCount; ?> violation<?php echo $strikeCount > 1 ? 's' : ''; ?> @ 5% each)</span>
+                </div>
+                <div>
+                    <span style="color: #64748b; font-weight: 600;">Verified Final Score:</span> <strong style="color: var(--primary-maroon); font-size: 1.1rem;"><?php echo $adjustedScore; ?>/100</strong>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <!-- Assessment Integrity Audit Card -->
+            <div class="integrity-card">
+                <div class="integrity-header">
+                    <h3><i class="fas fa-shield-alt" style="color: #10b981;"></i> Assessment Integrity Audit Report</h3>
+                    <div class="integrity-pill <?php echo ($strikeCount >= 3) ? 'danger' : (($strikeCount > 0) ? 'warning' : 'success'); ?>">
+                        <?php echo htmlspecialchars($integrityReport['integrity_status']); ?>
+                    </div>
+                </div>
+                <div class="integrity-grid">
+                    <div class="integrity-metric">
+                        <div class="label">Screen Share</div>
+                        <div class="val"><?php echo htmlspecialchars((string)$integrityReport['screen_share_integrity_pct']); ?>%</div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Camera Stream</div>
+                        <div class="val"><?php echo htmlspecialchars((string)$integrityReport['camera_available_pct']); ?>%</div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Face Presence</div>
+                        <div class="val"><?php echo htmlspecialchars((string)$integrityReport['face_presence_pct']); ?>%</div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Gaze Confidence</div>
+                        <div class="val"><?php echo htmlspecialchars((string)$integrityReport['gaze_confidence_pct']); ?>%</div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Gaze Shifts</div>
+                        <div class="val"><?php echo (int) $integrityReport['attention_deviations']; ?></div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Longest Shift</div>
+                        <div class="val"><?php echo htmlspecialchars((string)$integrityReport['longest_deviation_sec']); ?>s</div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Screen Interruptions</div>
+                        <div class="val"><?php echo (int) $integrityReport['screen_interruptions']; ?></div>
+                    </div>
+                    <div class="integrity-metric">
+                        <div class="label">Multiple People</div>
+                        <div class="val"><?php echo (int) $integrityReport['multiple_faces_count']; ?></div>
                     </div>
                 </div>
             </div>

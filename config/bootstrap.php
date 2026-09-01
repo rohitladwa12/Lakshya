@@ -73,7 +73,11 @@ if (php_sapi_name() !== 'cli') {
             'student_drive_test_handler.php',
             'certification_viva_handler.php',
             'project_viva_handler.php',
-            'skill_verification_handler.php'
+            'skill_verification_handler.php',
+            'resume_builder_handler.php',
+            'resume_handler.php',
+            'resume_handler',
+            'portfolio_handler.php'
         ];
         
         // Skip CSRF check for HOD Portal SSO when MENTOR_ID or emp_id is passed
