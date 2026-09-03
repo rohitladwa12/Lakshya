@@ -372,35 +372,35 @@ class StudentIntelligenceService {
                 $scenarioInstruction = " Frame the questions within a professional corporate or technical workspace context (e.g., explaining technical concepts to stakeholders, handling communication conflicts in engineering teams, professional email/communication etiquette in corporate environments, or technical HR scenario behavior).";
             }
 
-            $systemPrompt = "You are a Senior Professional Examiner. Generate exactly 5 highly challenging multiple choice questions (MCQs) on the topic: '{$topic}'.{$scenarioInstruction}
-            CRITICAL RULES FOR ACCURACY:
-            1. You must solve the question yourself step-by-step in the 'step_by_step_derivation' field before deciding the options or the answer.
+            $systemPrompt = "You are a Senior Professional Examiner. Generate exactly 5 challenging multiple choice questions (MCQs) on the topic: '{$topic}'.{$scenarioInstruction}
+            CRITICAL RULES FOR ACCURACY & FAST RESPONSE:
+            1. Solve the question step-by-step in 'step_by_step_derivation' (1 concise sentence).
             2. The correct answer MUST be mathematically, logically, and factually correct.
-            3. Read the question carefully to identify exactly what is being asked (e.g., if the question asks for 'girls', the correct answer must be the number of girls, not the number of boys). Ensure the answer index points to the value of the requested variable.
-            4. The correct answer MUST be present as one of the choices in the 'options' array.
-            5. The 'answer' index (0, 1, 2, or 3) MUST point exactly to the correct answer in the 'options' array.
-            6. Never generate a question where the correct answer is missing, incorrect, or closest-guess.
+            3. The correct answer MUST be present in 'options' and 'answer' index (0-3) MUST point directly to it.
+            4. Keep 'explanation' clear and brief (1-2 sentences). Do not write multi-paragraph text.
 
-            You must return a response strictly formatted as a valid JSON array of objects, where each object matches the following structure:
-            [
-              {
-                \"question\": \"The question text\",
-                \"step_by_step_derivation\": \"Solve the question step-by-step with formulas and intermediate values to ensure 100% accuracy. Decide the correct answer based on this derivation.\",
-                \"options\": [\"Option A\", \"Option B\", \"Option C\", \"Option D\"],
-                \"answer\": 0, // Integer index (0 to 3) representing the correct option
-                \"explanation\": \"Detailed explanation of why the correct option is right and others are wrong.\"
-              }
-            ]
-            Ensure the output is pure JSON without any surrounding markdown wraps.";
+            Format: Return a JSON object with a 'questions' array:
+            {
+              \"questions\": [
+                {
+                  \"question\": \"Question text\",
+                  \"step_by_step_derivation\": \"1-sentence logical solution\",
+                  \"options\": [\"Opt A\", \"Opt B\", \"Opt C\", \"Opt D\"],
+                  \"answer\": 0,
+                  \"explanation\": \"1-sentence explanation\"
+                }
+              ]
+            }";
 
             $messages = [
                 ['role' => 'system', 'content' => $systemPrompt],
-                ['role' => 'user', 'content' => "Generate 5 MCQ questions on: $topic"]
+                ['role' => 'user', 'content' => "Generate 5 MCQ questions on: $topic. Output JSON."]
             ];
 
             $aiResponse = $this->ai->callAPI($messages, [
                 'audit_method' => __FUNCTION__,
-                'response_format' => ['type' => 'json_object']
+                'response_format' => ['type' => 'json_object'],
+                'max_tokens' => 1500
             ]);
 
             if (!$aiResponse['success'] || empty($aiResponse['parsed'])) {

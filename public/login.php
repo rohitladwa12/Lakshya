@@ -78,7 +78,20 @@ if (isPost()) {
     $username = clean(post('username'));
     $password = post('password');
 
-    if (empty($username) || empty($password)) {
+    $clientIp = $_SERVER['REMOTE_ADDR'] ?? 'unknown';
+    $ipRateKey = "login_ip_" . md5($clientIp);
+    $userRateKey = "login_user_" . md5(strtolower($username));
+
+    $lockoutSeconds = 0;
+    if (!checkRateLimit($ipRateKey, 10, 60)) {
+        $lockoutSeconds = getRateLimitTTL($ipRateKey, 60);
+        $error = 'Too many login attempts from your IP address. Please wait <strong id="timer-count">' . $lockoutSeconds . '</strong> seconds before trying again.';
+        trackActivity('login_blocked', "Rate limit exceeded for IP: $clientIp");
+    } elseif (!empty($username) && !checkRateLimit($userRateKey, 5, 60)) {
+        $lockoutSeconds = getRateLimitTTL($userRateKey, 60);
+        $error = 'Too many login attempts for this account. Please wait <strong id="timer-count">' . $lockoutSeconds . '</strong> seconds before trying again.';
+        trackActivity('login_blocked', "Rate limit exceeded for username: $username");
+    } elseif (empty($username) || empty($password)) {
         $error = 'Please enter your credentials.';
     } else {
         $userModel = new User();
@@ -869,7 +882,7 @@ if (isPost()) {
         <?php elseif ($error): ?>
             <div class="alert alert-error">
                 <i class="fas fa-circle-exclamation"></i>
-                <span><?php echo htmlspecialchars($error); ?></span>
+                <span><?php echo $error; ?></span>
             </div>
         <?php endif; ?>
 
@@ -950,6 +963,48 @@ if (isPost()) {
                 loginBtn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Authenticating...';
             });
         });
+    }
+
+    // Real-Time Rate Limit Lockout Countdown Timer
+    const lockoutRemaining = <?php echo (int)($lockoutSeconds ?? 0); ?>;
+    if (lockoutRemaining > 0) {
+        let remaining = lockoutRemaining;
+        const timerCount = document.getElementById('timer-count');
+        const usernameInput = document.getElementById('username');
+
+        if (loginBtn) {
+            loginBtn.disabled = true;
+            loginBtn.style.opacity = '0.6';
+            loginBtn.style.cursor = 'not-allowed';
+            loginBtn.innerHTML = '<i class="fas fa-lock"></i> Locked (' + remaining + 's)';
+        }
+        if (usernameInput) usernameInput.disabled = true;
+        if (passwordInput) passwordInput.disabled = true;
+
+        const countdownInterval = setInterval(() => {
+            remaining--;
+            if (timerCount) {
+                timerCount.textContent = remaining;
+            }
+            if (loginBtn) {
+                loginBtn.innerHTML = '<i class="fas fa-lock"></i> Locked (' + remaining + 's)';
+            }
+            if (remaining <= 0) {
+                clearInterval(countdownInterval);
+                if (loginBtn) {
+                    loginBtn.disabled = false;
+                    loginBtn.style.opacity = '1';
+                    loginBtn.style.cursor = 'pointer';
+                    loginBtn.innerHTML = 'Sign In <i class="fas fa-arrow-right" style="font-size:0.75rem;"></i>';
+                }
+                if (usernameInput) usernameInput.disabled = false;
+                if (passwordInput) passwordInput.disabled = false;
+                const alertError = document.querySelector('.alert-error');
+                if (alertError) {
+                    alertError.style.display = 'none';
+                }
+            }
+        }, 1000);
     }
 </script>
 

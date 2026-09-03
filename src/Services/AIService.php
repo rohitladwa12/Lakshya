@@ -1355,44 +1355,37 @@ DIFFICULTY CALIBRATION (Level: $level):
 - Intermediate: Best practices, common libraries, debugging.
 - Expert/Advanced: Architectural patterns, edge cases, internals.
 
-CRITICAL RULES FOR ACCURACY:
-1. You must solve the question yourself step-by-step in the 'step_by_step_derivation' field before deciding the options or the answer index.
+CRITICAL RULES FOR ACCURACY & SPEED:
+1. Solve step-by-step in 'step_by_step_derivation' (1 concise sentence).
 2. The correct answer MUST be mathematically, logically, and factually correct.
-3. Read the question carefully to identify exactly what is being asked (e.g. if the question asks for 'girls', the correct answer must be the number of girls, not the number of boys). Ensure the answer index points to the value of the requested variable.
-4. The correct answer MUST be present as one of the choices in the 'options' array.
-5. The 'answer' index (0, 1, 2, or 3) MUST point exactly to the correct answer in the 'options' array.
-6. Never generate a question where the correct answer is missing, incorrect, or closest-guess.
+3. The correct answer MUST be present in 'options' and 'answer' index (0-3) MUST point directly to it.
+4. Keep 'explanation' concise (1 sentence).
 
 Format: Return a JSON object with a 'questions' array.
 Each question object MUST follow this EXACT structure:
 {
     \"question\": \"The clear question text here\",
-    \"step_by_step_derivation\": \"Solve the question step-by-step with formulas and intermediate values to ensure 100% accuracy. Decide the correct answer based on this derivation.\",
+    \"step_by_step_derivation\": \"1-sentence logical derivation\",
     \"options\": [\"Option A\", \"Option B\", \"Option C\", \"Option D\"], 
-    \"answer\": 0, // 0-3
-    \"explanation\": \"Brief clear explanation\"
+    \"answer\": 0,
+    \"explanation\": \"1-sentence clear explanation\"
 }";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
-            ['role' => 'user', 'content' => "Generate a 10-question verification quiz for '$skill' at the $level level."]
+            ['role' => 'user', 'content' => "Generate a 10-question verification quiz for '$skill' at the $level level. Output JSON."]
         ];
 
         $response = $this->callAPI($messages, [
             'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object'],
-            'max_tokens' => 3000
+            'max_tokens' => 2000
         ]);
 
         if ($response['success']) {
-            $data = json_decode($response['content'], true);
+            $data = is_array($response['parsed']) ? $response['parsed'] : json_decode($response['content'], true);
             $rawQuestions = $data['questions'] ?? [];
 
-            // Apply self-correction verification pass
-            $corrected = $this->selfCorrectQuestions($rawQuestions);
-            if (!empty($corrected) && is_array($corrected)) {
-                $rawQuestions = $corrected;
-            }
             $rawQuestions = $this->normalizeMCQAnswers($rawQuestions);
 
             return [

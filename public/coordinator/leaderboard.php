@@ -50,13 +50,13 @@ if ($inst_filter === 'gmu') {
     $coordFilters['institution'] = INSTITUTION_GMIT;
 }
 
-// Enforce coordinator semester scope (Only Semesters 5, 6, 7, 8 are eligible)
+// Enforce coordinator semester scope (Semesters 3, 4, 5, 6, 7, 8 are eligible)
 if ($sem_filter > 0) {
-    // If specific semester selected, must be within 5-8
-    $coordFilters['semesters'] = [max(5, min(8, $sem_filter))];
+    // If specific semester selected, must be within 3-8
+    $coordFilters['semesters'] = [max(3, min(8, $sem_filter))];
 } else {
-    // If "Any" selected, default to the whole 5-8 range
-    $coordFilters['semesters'] = [5, 6, 7, 8];
+    // If "Any" selected, default to the whole 3-8 range
+    $coordFilters['semesters'] = [3, 4, 5, 6, 7, 8];
 }
 
 // Map advanced performance filters from session

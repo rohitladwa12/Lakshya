@@ -66,7 +66,7 @@ $aiReports = $officerModel->getUnifiedAIReports($reportFilters);
 $aiReports = array_filter($aiReports, function($r) use ($sem_filter) {
     $s = (int)($r['current_sem'] ?? 0);
     if ($sem_filter) return $s === $sem_filter;
-    return in_array($s, [5, 6, 7, 8]);
+    return in_array($s, [3, 4, 5, 6, 7, 8]);
 });
 
 function findStudentReportsVC($usn) {
@@ -121,7 +121,7 @@ $combinedDetails = "
 
 $where_clauses = ["asa.registered = 1"];
 $params = [];
-$targetSems = $sem_filter ? [$sem_filter] : [5, 6, 7, 8];
+$targetSems = $sem_filter ? [$sem_filter] : [3, 4, 5, 6, 7, 8];
 $targetSemsPh = implode(',', $targetSems);
 
 if (!$instFilter) {

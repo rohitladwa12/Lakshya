@@ -21,7 +21,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap"
         rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" crossorigin="anonymous" referrerpolicy="no-referrer">
 
     <!-- Schema.org JSON-LD Structured Data for SEO -->
     <script type="application/ld+json">
@@ -52,9 +52,9 @@
     </script>
 
     <!-- Animation Libraries (load before body) -->
-    <script src="https://cdn.jsdelivr.net/npm/@studio-freight/lenis@1.0.42/dist/lenis.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@studio-freight/lenis@1.0.42/dist/lenis.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
 
     <style>
         /* ============================================
@@ -66,6 +66,11 @@
             margin: 0;
             padding: 0;
             box-sizing: border-box;
+        }
+
+        a, button, .btn, .nav__toggle, .mobile-link, .story__dot, input, select, textarea {
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
         }
 
         :root {
@@ -2179,6 +2184,8 @@
                 duration: 1.15,
                 easing: t => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
                 smoothWheel: true,
+                smoothTouch: false, // Native touch scroll on mobile for fast INP < 200ms
+                syncTouch: false
             });
 
             // Sync Lenis RAF with GSAP ticker
@@ -2188,7 +2195,7 @@
             // ─── Navbar scroll state ─────────────────────────────────────────────────
             const navbar = document.getElementById('navbar');
             lenis.on('scroll', ({ scroll }) => {
-                navbar.classList.toggle('scrolled', scroll > 60);
+                if (navbar) navbar.classList.toggle('scrolled', scroll > 60);
             });
 
             // ─── Mobile menu ─────────────────────────────────────────────────────────
@@ -2205,16 +2212,18 @@
                 menuOpen ? lenis.stop() : lenis.start();
             }
 
-            if (navToggle) navToggle.addEventListener('click', toggleMenu);
-            if (mobileMenuClose) mobileMenuClose.addEventListener('click', toggleMenu);
+            if (navToggle) navToggle.addEventListener('click', toggleMenu, { passive: true });
+            if (mobileMenuClose) mobileMenuClose.addEventListener('click', toggleMenu, { passive: true });
             document.querySelectorAll('.mobile-link').forEach(l => l.addEventListener('click', () => {
                 if (menuOpen) toggleMenu();
-            }));
+            }, { passive: true }));
 
-            // ─── Lenis anchor scrolling ───────────────────────────────────────────────
+            // ─── Lenis / Native anchor scrolling ──────────────────────────────────────
             document.querySelectorAll('a[href^="#"]').forEach(a => {
                 a.addEventListener('click', e => {
-                    const target = document.querySelector(a.getAttribute('href'));
+                    const href = a.getAttribute('href');
+                    if (!href || href === '#') return;
+                    const target = document.querySelector(href);
                     if (target) {
                         e.preventDefault();
                         lenis.scrollTo(target, { offset: -72, duration: 1.4 });
@@ -2248,13 +2257,14 @@
                     y: 0,
                     x: 0,
                     scale: 1,
-                    duration: options.duration || 0.9,
+                    duration: options.duration || 0.8,
                     ease: options.ease || 'power2.out',
                     stagger: options.stagger || 0,
                     scrollTrigger: {
                         trigger: options.trigger || selector,
-                        start: options.start || 'top 82%',
-                        toggleActions: 'play none none reset',
+                        start: options.start || 'top 85%',
+                        toggleActions: 'play none none none',
+                        once: true,
                         ...(options.st || {}),
                     }
                 });
@@ -2263,10 +2273,6 @@
             // ─── Stats — animated counters ────────────────────────────────────────────
             reveal('.stats .gsap-up', { stagger: 0.1, duration: 0.7, start: 'top 85%' });
 
-            // Animated number counters + bar trigger
-            document.querySelectorAll('.stat[data-count]').forEach(el => {
-                // Use intersection observer so it fires once when visible
-            });
             document.querySelectorAll('.stat').forEach(el => {
                 const numEl = el.querySelector('.stat__number');
                 const target = numEl ? parseInt(numEl.dataset.count) : 0;
@@ -2281,7 +2287,7 @@
                         el.classList.add('in-view');
                         gsap.to({ val: 0 }, {
                             val: target,
-                            duration: 1.8,
+                            duration: 1.5,
                             ease: 'power2.out',
                             onUpdate() {
                                 numEl.textContent = Math.round(this.targets()[0].val) + suffix;
@@ -2291,22 +2297,20 @@
                 });
             });
 
-            // ─── Features header ──────────────────────────────────────────────────────
+            // ─── Features header & grid cards ────────────────────────────────────────
             reveal('.features .gsap-fade', { trigger: '.features', start: 'top 80%' });
-            // Feature header text (the two .gsap-up elements in features__header)
             gsap.to('.features__header .gsap-up', {
-                opacity: 1, y: 0, duration: 0.9, ease: 'power2.out', stagger: 0.15,
-                scrollTrigger: { trigger: '.features__header', start: 'top 80%', toggleActions: 'play none none reset' }
+                opacity: 1, y: 0, duration: 0.8, ease: 'power2.out', stagger: 0.15,
+                scrollTrigger: { trigger: '.features__header', start: 'top 80%', toggleActions: 'play none none none', once: true }
             });
 
-            // ─── Features grid cards ─────────────────────────────────────────────────
             gsap.to('.features__grid .gsap-up', {
-                opacity: 1, y: 0, duration: 0.75, ease: 'power2.out', stagger: 0.1,
-                scrollTrigger: { trigger: '.features__grid', start: 'top 78%', toggleActions: 'play none none reset' }
+                opacity: 1, y: 0, duration: 0.7, ease: 'power2.out', stagger: 0.08,
+                scrollTrigger: { trigger: '.features__grid', start: 'top 80%', toggleActions: 'play none none none', once: true }
             });
 
             // ─── CTA section ─────────────────────────────────────────────────────────
-            reveal('.cta-section .gsap-up', { trigger: '.cta-section', duration: 1, start: 'top 75%' });
+            reveal('.cta-section .gsap-up', { trigger: '.cta-section', duration: 0.8, start: 'top 80%' });
 
             // ─── PINNED STORY SECTION ─────────────────────────────────────────────────
             const steps = document.querySelectorAll('.story__step');
@@ -2320,7 +2324,9 @@
             // Set step 0 visible initially
             gsap.set('#step-0', { opacity: 1, pointerEvents: 'auto' });
 
-            // Build a scroll-scrubbed timeline that cycles through steps
+            let lastIdx = -1;
+            let lastPct = -1;
+
             const storyTl = gsap.timeline({
                 scrollTrigger: {
                     trigger: '.story',
@@ -2331,16 +2337,21 @@
                         const progress = self.progress;
                         const raw = progress * (nSteps - 1) * 1.15;
                         const idx = Math.min(Math.floor(raw + 0.3), nSteps - 1);
+                        const pct = Math.round(progress * 100);
 
-                        // Update dots
-                        dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+                        // Only mutate DOM when step index actually changes
+                        if (idx !== lastIdx) {
+                            lastIdx = idx;
+                            dots.forEach((d, i) => d.classList.toggle('active', i === idx));
+                            if (numDisplay) numDisplay.textContent = stepLabels[idx];
+                            if (bgNum) bgNum.textContent = stepLabels[idx];
+                        }
 
-                        // Update left-panel gold number
-                        if (numDisplay) numDisplay.textContent = stepLabels[idx];
-                        if (bgNum) bgNum.textContent = stepLabels[idx];
-
-                        // Update progress bar
-                        if (progressBar) progressBar.style.width = (progress * 100) + '%';
+                        // Only mutate progress bar width when percentage changes
+                        if (pct !== lastPct) {
+                            lastPct = pct;
+                            if (progressBar) progressBar.style.width = pct + '%';
+                        }
                     }
                 }
             });
@@ -2357,8 +2368,7 @@
                         });
             }
 
-
-            // ─── ScrollTrigger.refresh after Lenis is set up ─────────────────────────
+            // ─── Refresh ScrollTrigger ───────────────────────────────────────────────
             ScrollTrigger.refresh();
 
         })();

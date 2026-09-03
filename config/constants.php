@@ -280,8 +280,8 @@ if (!function_exists('getCoordinatorDisciplineFilters')) {
         if (in_array($dept, ['BCA', 'BCOM', 'BBA', 'BSC', 'LLB'])) {
             return [1, 2, 3, 4, 5, 6];
         }
-        // Engineering (4 years / 8 semesters) - show 3rd and 4th year
-        return [5, 6, 7, 8];
+        // Engineering (4 years / 8 semesters) - Semesters 3, 4, 5, 6, 7, 8
+        return [3, 4, 5, 6, 7, 8];
     }
 }
 ?>

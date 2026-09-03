@@ -489,8 +489,8 @@ class User extends Model {
                                 return ['success' => false, 'message' => 'Login restricted to Semesters 3-6 for GMU UG (3-Year) students.'];
                             }
                         } else {
-                            if ($sem < 5 || $sem > 8) {
-                                return ['success' => false, 'message' => 'Login restricted to Semesters 5-8 for GMU UG students.'];
+                            if ($sem < 3 || $sem > 8) {
+                                return ['success' => false, 'message' => 'Login restricted to Semesters 3-8 for GMU UG students.'];
                             }
                         }
                     }

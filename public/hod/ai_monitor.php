@@ -240,10 +240,10 @@ if (empty($startDate) || empty($endDate)) {
 $startDateTimeStr = $startDate . ' 00:00:00';
 $endDateTimeStr = $endDate . ' 23:59:59';
 
-// 2. Fetch all department students for semesters 5, 6, 7, 8 matching filters
+// 2. Fetch all department students for semesters 3, 4, 5, 6, 7, 8 matching filters
 require_once __DIR__ . '/../../src/Models/StudentProfile.php';
 $studentModel = new StudentProfile();
-$semester_filter = [5, 6, 7, 8];
+$semester_filter = [3, 4, 5, 6, 7, 8];
 $discipline_filters = getCoordinatorDisciplineFilters($department);
 
 $coordFilters = [

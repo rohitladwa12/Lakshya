@@ -59,13 +59,13 @@ while ($row = $stmt->fetch()) {
     $loginCounts[$row['user_id']] = (int)$row['login_count'];
 }
 
-// 2. Fetch local GMIT student USNs who are in semesters 5, 6, 7, 8
-$gmitSemUsns = $db->query("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE semester IN (5, 6, 7, 8) AND is_current = 1")->fetchAll(PDO::FETCH_COLUMN);
+// 2. Fetch local GMIT student USNs who are in semesters 3, 4, 5, 6, 7, 8
+$gmitSemUsns = $db->query("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE semester IN (3, 4, 5, 6, 7, 8) AND is_current = 1")->fetchAll(PDO::FETCH_COLUMN);
 
 // Keep track of processed USNs to avoid duplicates
 $processedUsns = [];
 
-// 3. Stream GMIT students (filtered by semesters 5, 6, 7, 8)
+// 3. Stream GMIT students (filtered by semesters 3, 4, 5, 6, 7, 8)
 if ($selectedInst === 'ALL' || $selectedInst === 'GMIT') {
     $gmit = getDB('gmit');
     if ($gmit && !empty($gmitSemUsns)) {
@@ -97,11 +97,11 @@ if ($selectedInst === 'ALL' || $selectedInst === 'GMIT') {
     }
 }
 
-// 4. Stream GMU students (filtered by semesters 5, 6, 7, 8)
+// 4. Stream GMU students (filtered by semesters 3, 4, 5, 6, 7, 8)
 if ($selectedInst === 'ALL' || $selectedInst === 'GMU') {
     $gmu = getDB('gmu');
     if ($gmu) {
-        $stmtGmu = $gmu->query("SELECT DISTINCT usn, name, discipline FROM ad_student_approved WHERE sem IN (5, 6, 7, 8) AND usn IS NOT NULL AND usn != '' ORDER BY name ASC");
+        $stmtGmu = $gmu->query("SELECT DISTINCT usn, name, discipline FROM ad_student_approved WHERE sem IN (3, 4, 5, 6, 7, 8) AND usn IS NOT NULL AND usn != '' ORDER BY name ASC");
         while ($row = $stmtGmu->fetch()) {
             $usn = trim($row['usn']);
             if (empty($usn) || isset($processedUsns[$usn])) continue;

@@ -33,18 +33,18 @@ class Admin extends Model {
         $sql = "SELECT COUNT(DISTINCT student_id) as count FROM job_applications WHERE status = 'Selected'";
         $stats['placed_students'] = $this->queryOne($sql)['count'] ?? 0;
         
-        // Total Students across institutions (Filtered strictly to current Semesters 5-8 senior cohorts!)
+        // Total Students across institutions (Filtered to Semesters 3-8 eligible cohorts)
         try {
-            // GMIT Seniors from local semester mapping table
-            $gmitSems = $this->queryOne("SELECT COUNT(DISTINCT student_id) as count FROM student_sem_sgpa WHERE semester IN (5, 6, 7, 8) AND is_current = 1")['count'] ?? 524;
+            // GMIT Students from local semester mapping table
+            $gmitSems = $this->queryOne("SELECT COUNT(DISTINCT student_id) as count FROM student_sem_sgpa WHERE semester IN (3, 4, 5, 6, 7, 8) AND is_current = 1")['count'] ?? 524;
         } catch (Throwable $e) { 
             $gmitSems = 524; 
         }
 
         try {
-            // GMU Seniors from remote database
+            // GMU Students from remote database
             $gmuDB = getDB('gmu');
-            $gmuSems = ($gmuDB) ? $gmuDB->query("SELECT COUNT(DISTINCT usn) FROM ad_student_approved WHERE sem IN (5, 6, 7, 8)")->fetchColumn() : 419;
+            $gmuSems = ($gmuDB) ? $gmuDB->query("SELECT COUNT(DISTINCT usn) FROM ad_student_approved WHERE sem IN (3, 4, 5, 6, 7, 8)")->fetchColumn() : 419;
         } catch (Throwable $e) { 
             $gmuSems = 419; 
         }

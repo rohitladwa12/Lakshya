@@ -76,16 +76,16 @@ $deptLabel = ($deptGmu !== $deptGmit) ? $deptGmu . ' (GMU) & ' . $deptGmit . ' (
 require_once __DIR__ . '/../../src/Models/StudentProfile.php';
 $studentModel = new StudentProfile();
 
-// Fetch overall strength for Sem 5, 6, 7, 8
+// Fetch overall strength for Sem 3, 4, 5, 6, 7, 8
 $overallFilters = [
     'discipline' => $discipline_filters,
-    'semesters' => [5, 6, 7, 8]
+    'semesters' => [3, 4, 5, 6, 7, 8]
 ];
 $totalStudents5to8 = $studentModel->getTotalAcademicStrength($overallFilters);
 
 // Breakdown for each semester
 $semBreakdown = [];
-foreach ([5, 6, 7, 8] as $sem) {
+foreach ([3, 4, 5, 6, 7, 8] as $sem) {
     $semFilters = [
         'discipline' => $discipline_filters,
         'semesters' => [$sem]

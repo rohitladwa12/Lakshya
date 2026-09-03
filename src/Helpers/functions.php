@@ -128,6 +128,24 @@ function checkRateLimit($key, $limit = 5, $seconds = 60) {
 }
 
 /**
+ * Get remaining TTL (seconds) for a rate-limited key
+ */
+function getRateLimitTTL($key, $default = 60) {
+    try {
+        $redisHelper = \App\Helpers\RedisHelper::getInstance();
+        if (!$redisHelper->isConnected()) return $default;
+
+        $redis = $redisHelper->getClient();
+        $fullKey = "rate_limit:" . $key;
+        $ttl = $redis->ttl($fullKey);
+        
+        return ($ttl > 0) ? (int)$ttl : $default;
+    } catch (\Exception $e) {
+        return $default;
+    }
+}
+
+/**
  * Time ago format
  */
 function timeAgo($datetime) {
