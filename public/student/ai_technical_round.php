@@ -1124,16 +1124,11 @@ if ($driveId > 0) {
                 try {
                     result = await response.json();
                 } catch (jsonErr) {
-                    const rawText = await responseClone.text();
-                    console.error('Failed to parse JSON response:', jsonErr, 'Raw response:', rawText);
-                    alert("Server returned an invalid response. Error: " + rawText.substring(0, 300));
-                    return { success: false };
+                    return { success: false, message: 'Server communication error.' };
                 }
                 return result;
             } catch (e) {
-                console.error(e);
-                alert("Connection Error");
-                return { success: false };
+                return { success: false, message: 'Connection Error' };
             }
         }
 
@@ -1161,7 +1156,7 @@ if ($driveId > 0) {
             }
         }
         function updateState(msg, type) {
-            console.log(`[State Update] ${type}: ${msg}`);
+            // State update handled internally
         }
     </script>
 </body>

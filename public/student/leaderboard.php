@@ -422,13 +422,16 @@ $pageTitle = "Leaderboard | Lakshya";
         }
         #info-modal.open { display: flex; opacity: 1; }
         .info-card {
-            background: rgba(255, 255, 255, 0.95);
-            width: 100%; max-width: 600px;
+            background: rgba(255, 255, 255, 0.98);
+            width: 100%; max-width: 680px;
+            max-height: 88vh;
+            overflow-y: auto;
             border-radius: 32px;
-            box-shadow: 0 40px 100px rgba(0,0,0,0.2);
-            overflow: hidden;
+            box-shadow: 0 40px 100px rgba(0,0,0,0.25);
             animation: modalSlideUp 0.5s cubic-bezier(0.19, 1, 0.22, 1);
         }
+        .info-card::-webkit-scrollbar { width: 6px; }
+        .info-card::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         @keyframes modalSlideUp {
             from { transform: translateY(40px); opacity: 0; }
             to { transform: translateY(0); opacity: 1; }
@@ -641,63 +644,205 @@ $pageTitle = "Leaderboard | Lakshya";
     <!-- How it Works Modal -->
     <div id="info-modal" onclick="closeInfoModal(event)">
         <div class="info-card" onclick="event.stopPropagation()">
-            <div class="info-header text-slate-900">
+            <div class="info-header text-slate-900 pb-2 border-b border-slate-100">
                 <button class="info-close" onclick="closeInfoModal(event)">
                     <i class="fas fa-times"></i>
                 </button>
-                <div class="flex justify-center mb-4">
-                    <div class="w-16 h-16 bg-[#800000] rounded-2xl flex items-center justify-center text-white text-2xl shadow-lg ring-4 ring-red-50">
-                        <i class="fas fa-brain"></i>
+                <div class="flex justify-center mb-2">
+                    <div class="w-12 h-12 bg-[#800000] rounded-2xl flex items-center justify-center text-white text-xl shadow-lg ring-4 ring-red-50">
+                        <i class="fas fa-trophy"></i>
                     </div>
                 </div>
-                <h2 class="text-2xl font-black outfit leading-tight">Leaderboard Scoring</h2>
-                <p class="text-slate-400 text-xs font-bold uppercase tracking-widest mt-2">Dynamic Ranking Algorithm</p>
+                <h2 class="text-2xl font-black outfit leading-tight text-slate-900">How Leaderboard Points Work</h2>
+                <p class="text-slate-400 text-[11px] font-bold uppercase tracking-widest mt-0.5">Fair, Competitive & Transparent</p>
+                
+                <!-- Tab Selector -->
+                <div class="flex items-center justify-center p-1 bg-slate-100 rounded-xl mt-3 max-w-sm mx-auto">
+                    <button type="button" id="tab-btn-rules" onclick="switchInfoTab('rules')" class="flex-1 py-1.5 px-3 text-xs font-black outfit rounded-lg transition-all bg-white text-[#800000] shadow-sm">
+                        <i class="fas fa-calculator mr-1"></i> Scoring Rules
+                    </button>
+                    <button type="button" id="tab-btn-examples" onclick="switchInfoTab('examples')" class="flex-1 py-1.5 px-3 text-xs font-black outfit rounded-lg transition-all text-slate-500 hover:text-slate-800">
+                        <i class="fas fa-users-viewfinder mr-1"></i> Real Examples & Data
+                    </button>
+                </div>
             </div>
-            <div class="info-body">
-                <div class="scoring-grid">
-                    <div class="scoring-card primary">
-                        <div class="text-[10px] font-black text-[#800000] uppercase tracking-wider mb-2">AI Pillars</div>
-                        <div class="text-3xl font-black outfit text-slate-800">70<span class="text-sm ml-0.5 text-[#800000] opacity-50">%</span></div>
-                        <p class="text-[10px] text-slate-500 font-bold mt-2 uppercase">Tech · Apt · HR</p>
+
+            <div class="info-body space-y-4 pt-4">
+                <!-- TAB 1: RULES & WEIGHTS -->
+                <div id="info-tab-rules" class="space-y-4">
+                    <!-- Score Breakdown Grid -->
+                    <div class="scoring-grid !mb-0">
+                        <div class="scoring-card primary">
+                            <div class="text-[10px] font-black text-[#800000] uppercase tracking-wider mb-1">AI Assessment Score</div>
+                            <div class="text-3xl font-black outfit text-slate-800">70<span class="text-sm ml-0.5 text-[#800000] opacity-60">%</span></div>
+                            <p class="text-[10px] text-slate-500 font-bold mt-1 uppercase">Tech (45%) · Apt (30%) · HR (25%)</p>
+                        </div>
+                        <div class="scoring-card">
+                            <div class="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-1">Portfolio Score</div>
+                            <div class="text-3xl font-black outfit text-slate-800">30<span class="text-sm ml-0.5 opacity-40">%</span></div>
+                            <p class="text-[10px] text-slate-500 font-bold mt-1 uppercase">Skills · Projects</p>
+                        </div>
                     </div>
-                    <div class="scoring-card">
-                        <div class="text-[10px] font-black text-slate-500 uppercase tracking-wider mb-2">Portfolio</div>
-                        <div class="text-3xl font-black outfit text-slate-800">30<span class="text-sm ml-0.5 opacity-30">%</span></div>
-                        <p class="text-[10px] text-slate-500 font-bold mt-2 uppercase">Skills · Projects</p>
+
+                    <!-- Practice Safe Shield Callout -->
+                    <div class="p-3.5 bg-emerald-50 rounded-2xl border border-emerald-100 flex items-start gap-3">
+                        <div class="w-8 h-8 rounded-xl bg-emerald-500 text-white flex items-center justify-center text-sm shrink-0 shadow-sm mt-0.5">
+                            <i class="fas fa-shield-halved"></i>
+                        </div>
+                        <div>
+                            <h4 class="text-xs font-black text-emerald-900 uppercase tracking-wider">Practice With Confidence (Top-3 Mastery)</h4>
+                            <p class="text-[12px] text-emerald-700 font-medium mt-0.5 leading-relaxed">
+                                Taking more mocks and practice tests <b>never reduces your score</b>. Your rank uses your <b>Top 3 Best Performances</b> (50% Best + 30% 2nd + 20% 3rd). A lower practice attempt will never drag your rank down!
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Difficulty Tiers -->
+                    <div class="bg-slate-50 rounded-2xl p-3.5 border border-slate-100">
+                        <h4 class="text-xs font-black text-slate-800 uppercase tracking-wider mb-2.5 flex items-center gap-2">
+                            <i class="fas fa-layer-group text-[#800000]"></i>
+                            Difficulty Tiers & Score Ceilings
+                        </h4>
+                        <div class="grid grid-cols-3 gap-2 text-center text-xs">
+                            <div class="bg-white p-2.5 rounded-xl border border-slate-100 shadow-sm">
+                                <span class="inline-block px-2 py-0.5 bg-slate-100 text-slate-600 font-bold rounded-md text-[10px] uppercase">Easy</span>
+                                <div class="font-black outfit text-slate-800 text-base mt-1">Max 60</div>
+                                <span class="text-[10px] text-slate-400 font-medium">0.60x Multiplier</span>
+                            </div>
+                            <div class="bg-white p-2.5 rounded-xl border border-slate-100 shadow-sm">
+                                <span class="inline-block px-2 py-0.5 bg-blue-50 text-blue-600 font-bold rounded-md text-[10px] uppercase">Medium</span>
+                                <div class="font-black outfit text-slate-800 text-base mt-1">Max 80</div>
+                                <span class="text-[10px] text-slate-400 font-medium">0.80x Multiplier</span>
+                            </div>
+                            <div class="bg-white p-2.5 rounded-xl border border-amber-200 bg-amber-50/30 shadow-sm">
+                                <span class="inline-block px-2 py-0.5 bg-amber-100 text-amber-700 font-bold rounded-md text-[10px] uppercase">Hard / Mock</span>
+                                <div class="font-black outfit text-[#800000] text-base mt-1">Max 100</div>
+                                <span class="text-[10px] text-amber-600 font-medium">1.00x Full Merit</span>
+                            </div>
+                        </div>
+                        <p class="text-[11px] text-slate-500 font-medium mt-2 italic text-center">
+                            To enter the 80–100 Top Tier, you must tackle Hard mocks and AI technical interviews.
+                        </p>
+                    </div>
+
+                    <!-- Rules List -->
+                    <div class="bg-slate-50 rounded-2xl p-3.5 border border-slate-100">
+                        <h4 class="text-xs font-black text-slate-800 uppercase tracking-wider mb-2 flex items-center gap-2">
+                            <i class="fas fa-list-check text-blue-500"></i>
+                            Bonus & Retention Rules
+                        </h4>
+                        <ul class="text-[12px] text-slate-600 space-y-2 font-medium">
+                            <li class="flex items-start gap-2">
+                                <span class="w-4 h-4 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-[9px] shrink-0 mt-0.5"><i class="fas fa-plus"></i></span>
+                                <span><b>Consistency Bonus:</b> Earn up to <b>+5 bonus points</b> by taking regular assessments (diminishing curve to prevent farming).</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="w-4 h-4 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-[9px] shrink-0 mt-0.5"><i class="fas fa-briefcase"></i></span>
+                                <span><b>Portfolio:</b> +2 pts per verified Skill (max 50) & +5 pts per verified Project (max 50).</span>
+                            </li>
+                            <li class="flex items-start gap-2">
+                                <span class="w-4 h-4 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-[9px] shrink-0 mt-0.5"><i class="fas fa-hourglass-half"></i></span>
+                                <span><b>Active Retention:</b> Active within 7 days = 100% score. Inactive >7 days gradually loses 10%/week. Taking any test immediately restores your standing!</span>
+                            </li>
+                        </ul>
                     </div>
                 </div>
 
-                <div class="bg-slate-50 rounded-3xl p-6 border border-slate-100">
-                    <h4 class="text-sm font-black text-slate-800 uppercase tracking-wider mb-4 flex items-center gap-2">
-                        <i class="fas fa-circle-check text-green-500"></i>
-                        Scoring & Verification Rules
-                    </h4>
-                    <ul class="text-[13px] text-slate-600 font-medium space-y-4 leading-relaxed">
-                        <li class="flex items-start gap-3">
-                            <span class="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-[10px] shrink-0 mt-0.5"><i class="fas fa-check"></i></span>
-                            <span>Each verified <b>Skill</b> adds 2 points (max 50)</span>
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <span class="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-[10px] shrink-0 mt-0.5"><i class="fas fa-check"></i></span>
-                            <span>Each verified <b>Project</b> adds 5 points (max 50)</span>
-                        </li>
-                        <li class="flex items-start gap-3 p-3 bg-red-50 rounded-2xl border border-red-100">
-                            <span class="w-5 h-5 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-[10px] shrink-0 mt-0.5"><i class="fas fa-clock"></i></span>
-                            <span class="text-red-700 font-bold">Inactivity Decay: Lose 1 point for every 24 hours of inactivity between assessments. Consistency is key!</span>
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <span class="w-5 h-5 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-[10px] shrink-0 mt-0.5"><i class="fas fa-check"></i></span>
-                            <span><b>Assessment Difficulty Multipliers:</b> Low (0.4x), Medium (0.9x), High (1.0x). Attempts completed before July 14 retain their original scores (1.0x).</span>
-                        </li>
-                        <li class="flex items-start gap-3">
-                            <span class="w-5 h-5 rounded-full bg-slate-200 text-slate-500 flex items-center justify-center text-[10px] shrink-0 mt-0.5"><i class="fas fa-info"></i></span>
-                            <span class="text-slate-500 font-semibold italic">Important: Only verified items contribute to your score.</span>
-                        </li>
-                    </ul>
+                <!-- TAB 2: EXAMPLES & CASE STUDIES -->
+                <div id="info-tab-examples" class="space-y-3.5 hidden">
+                    <!-- Example 1: Active Practicer -->
+                    <div class="p-3.5 bg-emerald-50/70 rounded-2xl border border-emerald-100">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <div class="flex items-center gap-2">
+                                <span class="w-6 h-6 rounded-lg bg-emerald-500 text-white flex items-center justify-center text-xs font-bold"><i class="fas fa-user-check"></i></span>
+                                <h4 class="text-xs font-black text-emerald-950 uppercase tracking-wider">Rahul (Active Practicer)</h4>
+                            </div>
+                            <span class="text-xs font-black outfit text-emerald-800 px-2 py-0.5 bg-emerald-100 rounded-md">Score: 73.8 pts</span>
+                        </div>
+                        <p class="text-[11px] text-slate-600 leading-relaxed">
+                            <b>Test History:</b> 3 Hard Tech mocks (95%, 90%, 85%) + 4 lower experimental practice attempts (40%, 50%, 60%, 45%).<br>
+                            <b>Result:</b> Top 3 scores [95, 90, 85] are counted ($91.5$ Tech). The 4 low practice runs are <b>ignored</b>. Practice never hurt his score!
+                        </p>
+                    </div>
+
+                    <!-- Example 2: Easy Spammer -->
+                    <div class="p-3.5 bg-rose-50/70 rounded-2xl border border-rose-100">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <div class="flex items-center gap-2">
+                                <span class="w-6 h-6 rounded-lg bg-rose-500 text-white flex items-center justify-center text-xs font-bold"><i class="fas fa-ban"></i></span>
+                                <h4 class="text-xs font-black text-rose-950 uppercase tracking-wider">Priya (Easy Test Spammer)</h4>
+                            </div>
+                            <span class="text-xs font-black outfit text-rose-800 px-2 py-0.5 bg-rose-100 rounded-md">Score: 49.9 pts</span>
+                        </div>
+                        <p class="text-[11px] text-slate-600 leading-relaxed">
+                            <b>Test History:</b> 30 Easy quizzes completed with 100%.<br>
+                            <b>Result:</b> Easy tests are capped at 60 max. Even with 30 tests, score cannot exceed <b>49.9 pts</b>. Gated from Top 10 until Hard mocks are tackled!
+                        </p>
+                    </div>
+
+                    <!-- Example 3: Inactive Student -->
+                    <div class="p-3.5 bg-amber-50/70 rounded-2xl border border-amber-100">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <div class="flex items-center gap-2">
+                                <span class="w-6 h-6 rounded-lg bg-amber-500 text-white flex items-center justify-center text-xs font-bold"><i class="fas fa-clock-rotate-left"></i></span>
+                                <h4 class="text-xs font-black text-amber-950 uppercase tracking-wider">Amit (1-Hit Inactive Student)</h4>
+                            </div>
+                            <span class="text-xs font-black outfit text-amber-800 px-2 py-0.5 bg-amber-100 rounded-md">Score: 20.2 pts</span>
+                        </div>
+                        <p class="text-[11px] text-slate-600 leading-relaxed">
+                            <b>Test History:</b> 1 Hard mock (92%) taken 3 weeks ago, 0 Aptitude/HR, inactive for 21 days.<br>
+                            <b>Result:</b> 1 attempt has provisional factor (0.85x) + 20% decay (2 weeks inactive past 7-day grace @ 10%/week). Drops to 20.2 pts. Cannot park at #1 without active practice.
+                        </p>
+                    </div>
+
+                    <!-- Example 4: Top Performer -->
+                    <div class="p-3.5 bg-purple-50/70 rounded-2xl border border-purple-100">
+                        <div class="flex items-center justify-between mb-1.5">
+                            <div class="flex items-center gap-2">
+                                <span class="w-6 h-6 rounded-lg bg-[#800000] text-white flex items-center justify-center text-xs font-bold"><i class="fas fa-award"></i></span>
+                                <h4 class="text-xs font-black text-purple-950 uppercase tracking-wider">Ananya (Top Performer)</h4>
+                            </div>
+                            <span class="text-xs font-black outfit text-purple-800 px-2 py-0.5 bg-purple-100 rounded-md">Score: 84.6 pts</span>
+                        </div>
+                        <p class="text-[11px] text-slate-600 leading-relaxed">
+                            <b>Test History:</b> 3+ Hard Tech, Aptitude & HR mocks + 15 verified skills + 6 verified projects + Active this week.<br>
+                            <b>Result:</b> Balanced excellence across all 3 pillars + portfolio unlocks the elite 80–90+ rank band!
+                        </p>
+                    </div>
+
+                    <!-- Comparison Table -->
+                    <div class="overflow-x-auto rounded-xl border border-slate-200">
+                        <table class="w-full text-left text-[11px]">
+                            <thead class="bg-slate-100 text-slate-700 font-bold uppercase text-[10px]">
+                                <tr>
+                                    <th class="p-2">Student Scenario</th>
+                                    <th class="p-2 text-center text-rose-600">Old System</th>
+                                    <th class="p-2 text-center text-emerald-700">New System</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100 text-slate-600 font-medium">
+                                <tr>
+                                    <td class="p-2 font-bold">Active Practicer (extra mocks)</td>
+                                    <td class="p-2 text-center text-rose-600 font-bold">54.2 ❌ (dropped)</td>
+                                    <td class="p-2 text-center text-emerald-700 font-bold">73.8 ✅ (safe)</td>
+                                </tr>
+                                <tr>
+                                    <td class="p-2 font-bold">Spamming 30 Easy Tests</td>
+                                    <td class="p-2 text-center text-rose-600 font-bold">85.0+ ❌ (inflated)</td>
+                                    <td class="p-2 text-center text-emerald-700 font-bold">49.9 🔒 (capped)</td>
+                                </tr>
+                                <tr>
+                                    <td class="p-2 font-bold">1-Hit Inactive (3 weeks ago)</td>
+                                    <td class="p-2 text-center text-rose-600 font-bold">64.4 ❌ (stayed #1)</td>
+                                    <td class="p-2 text-center text-emerald-700 font-bold">24.2 ⏳ (decayed)</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
                 
-                <button onclick="closeInfoModal(event)" class="w-full mt-6 bg-[#800000] text-white py-4 rounded-2xl font-black outfit text-sm hover:opacity-90 transition shadow-lg">
-                    Understood
+                <button onclick="closeInfoModal(event)" class="w-full bg-[#800000] text-white py-3.5 rounded-2xl font-black outfit text-sm hover:opacity-95 transition shadow-lg mt-1">
+                    Got it, Let's Climb!
                 </button>
             </div>
         </div>
@@ -713,6 +858,25 @@ $pageTitle = "Leaderboard | Lakshya";
             const modal = document.getElementById('info-modal');
             modal.classList.remove('open');
             setTimeout(() => modal.style.display = 'none', 400);
+        }
+
+        function switchInfoTab(tab) {
+            const rulesTab = document.getElementById('info-tab-rules');
+            const examplesTab = document.getElementById('info-tab-examples');
+            const btnRules = document.getElementById('tab-btn-rules');
+            const btnExamples = document.getElementById('tab-btn-examples');
+
+            if (tab === 'rules') {
+                rulesTab.classList.remove('hidden');
+                examplesTab.classList.add('hidden');
+                btnRules.className = 'flex-1 py-1.5 px-3 text-xs font-black outfit rounded-lg transition-all bg-white text-[#800000] shadow-sm';
+                btnExamples.className = 'flex-1 py-1.5 px-3 text-xs font-black outfit rounded-lg transition-all text-slate-500 hover:text-slate-800';
+            } else {
+                rulesTab.classList.add('hidden');
+                examplesTab.classList.remove('hidden');
+                btnExamples.className = 'flex-1 py-1.5 px-3 text-xs font-black outfit rounded-lg transition-all bg-white text-[#800000] shadow-sm';
+                btnRules.className = 'flex-1 py-1.5 px-3 text-xs font-black outfit rounded-lg transition-all text-slate-500 hover:text-slate-800';
+            }
         }
 
         let currentView = 'local';

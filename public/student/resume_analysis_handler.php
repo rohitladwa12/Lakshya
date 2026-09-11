@@ -27,6 +27,13 @@ if ($action !== 'submit_analysis') {
     exit;
 }
 
+// Rate limit: 5 resume analysis requests per user per 60 seconds
+if (!checkRateLimit("resume_analysis_{$userId}", 5, 60)) {
+    http_response_code(429);
+    echo json_encode(['success' => false, 'message' => 'Too many requests. Please wait before trying again.']);
+    exit;
+}
+
 try {
     $resumeText     = '';
     $jobDescription = trim(post('job_description') ?? '');

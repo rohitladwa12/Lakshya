@@ -83,7 +83,7 @@
             --white: #ffffff;
             --off-white: #f7f7f5;
             --text: #111111;
-            --text-muted: #6b7280;
+            --text-muted: #4b5563; /* WCAG AAA 7.0:1 contrast */
             --border: rgba(0, 0, 0, 0.08);
             --glass: rgba(255, 255, 255, 0.06);
             --glass-border: rgba(255, 255, 255, 0.12);
@@ -95,6 +95,53 @@
             --shadow-lg: 0 24px 60px rgba(0, 0, 0, 0.14);
             --speed: 0.4s;
             --ease: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* Skip to content link for keyboard accessibility */
+        .skip-link {
+            position: absolute;
+            top: -100px;
+            left: 16px;
+            background: var(--maroon);
+            color: var(--white);
+            padding: 12px 20px;
+            font-size: 0.9rem;
+            font-weight: 700;
+            border-radius: var(--radius-sm);
+            z-index: 9999;
+            text-decoration: none;
+            box-shadow: var(--shadow-md);
+            transition: top 0.2s ease;
+        }
+
+        .skip-link:focus,
+        .skip-link:focus-visible {
+            top: 16px;
+            outline: 3px solid var(--gold);
+            outline-offset: 3px;
+        }
+
+        /* Site-wide visible focus rings and active states */
+        :focus-visible {
+            outline: 2px solid var(--gold);
+            outline-offset: 3px;
+        }
+
+        a:focus-visible,
+        button:focus-visible,
+        .btn:focus-visible,
+        .nav__cta:focus-visible,
+        .nav__toggle:focus-visible,
+        .story__dot:focus-visible {
+            outline: 2px solid var(--gold);
+            outline-offset: 3px;
+        }
+
+        .btn:active,
+        .nav__cta:active,
+        .nav__mobile-close:active,
+        .mobile-cta:active {
+            transform: scale(0.97);
         }
 
         html {
@@ -140,90 +187,90 @@
             box-sizing: border-box;
         }
 
-        /* The pill itself */
+        /* The pill itself — adjusted to 54px for comfortable 44px touch targets */
         .nav__pill {
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 0;
-            height: 50px;
+            height: 54px;
             max-width: 100%;
-            background: rgba(13, 4, 4, 0.75);
+            background: rgba(13, 4, 4, 0.85);
             backdrop-filter: blur(20px);
             -webkit-backdrop-filter: blur(20px);
-            border: 1px solid rgba(255, 255, 255, 0.12);
+            border: 1px solid rgba(255, 255, 255, 0.15);
             border-radius: 100px;
-            padding: 0 6px 0 16px;
+            padding: 0 6px 0 18px;
             pointer-events: all;
             transition: background 0.3s ease, border-color 0.3s ease, box-shadow 0.3s ease;
-            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.08);
             box-sizing: border-box;
         }
 
         /* Scrolled: slightly more opaque, subtle gold tint border */
         .nav.scrolled .nav__pill {
-            background: rgba(8, 2, 2, 0.88);
-            border-color: rgba(212, 175, 55, 0.22);
-            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(212, 175, 55, 0.08);
+            background: rgba(8, 2, 2, 0.92);
+            border-color: rgba(212, 175, 55, 0.3);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(212, 175, 55, 0.1);
         }
 
         /* Logo */
         .nav__logo {
             display: inline-flex;
             align-items: center;
-            gap: 7px;
-            font-size: 0.88rem;
+            gap: 8px;
+            font-size: 0.92rem;
             font-weight: 900;
             letter-spacing: 0.12em;
             color: var(--white);
             text-decoration: none;
             white-space: nowrap;
-            padding-right: 14px;
-            border-right: 1px solid rgba(255, 255, 255, 0.1);
-            margin-right: 4px;
+            padding-right: 16px;
+            border-right: 1px solid rgba(255, 255, 255, 0.15);
+            margin-right: 6px;
             flex-shrink: 0;
+            min-height: 44px;
         }
 
         .nav__logo-dot {
-            width: 6px;
-            height: 6px;
+            width: 7px;
+            height: 7px;
             border-radius: 50%;
             background: var(--gold);
-            box-shadow: 0 0 7px rgba(212, 175, 55, 0.7);
+            box-shadow: 0 0 8px rgba(212, 175, 55, 0.8);
             flex-shrink: 0;
             animation: pulse 2.5s ease-in-out infinite;
         }
 
         @keyframes pulse {
-
-            0%,
-            100% {
+            0%, 100% {
                 box-shadow: 0 0 7px rgba(212, 175, 55, 0.7);
             }
-
             50% {
                 box-shadow: 0 0 14px rgba(212, 175, 55, 1);
             }
         }
 
-        /* Nav links */
+        /* Nav links — 44px minimum hit area */
         .nav__links {
             display: flex;
             align-items: center;
-            gap: 0;
+            gap: 2px;
             list-style: none;
             margin: 0;
             padding: 0;
         }
 
         .nav__links li a {
-            display: block;
-            font-size: 0.8rem;
+            display: inline-flex;
+            align-items: center;
+            font-size: 0.85rem;
             font-weight: 600;
             letter-spacing: 0.02em;
-            color: rgba(255, 255, 255, 0.6);
+            color: rgba(255, 255, 255, 0.75);
             text-decoration: none;
-            padding: 8px 12px;
+            padding: 0 14px;
+            min-height: 44px;
             border-radius: 50px;
             transition: all 0.22s ease;
             white-space: nowrap;
@@ -231,25 +278,28 @@
 
         .nav__links li a:hover {
             color: var(--white);
-            background: rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.12);
         }
 
         /* Divider before actions */
         .nav__sep {
             width: 1px;
-            height: 18px;
-            background: rgba(255, 255, 255, 0.12);
+            height: 20px;
+            background: rgba(255, 255, 255, 0.15);
             margin: 0 8px;
             flex-shrink: 0;
         }
 
         /* Demo link */
         .nav__demo {
-            font-size: 0.78rem;
+            font-size: 0.82rem;
             font-weight: 600;
-            color: rgba(255, 255, 255, 0.4);
+            color: rgba(255, 255, 255, 0.7);
             text-decoration: none;
-            padding: 8px 12px;
+            padding: 0 12px;
+            min-height: 44px;
+            display: inline-flex;
+            align-items: center;
             border-radius: 50px;
             transition: all 0.22s ease;
             white-space: nowrap;
@@ -257,42 +307,45 @@
 
         .nav__demo:hover {
             color: var(--white);
+            background: rgba(255, 255, 255, 0.1);
         }
 
         /* Right actions cluster inside pill */
         .nav__actions {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
             flex-shrink: 0;
         }
 
-        /* CTA button */
+        /* CTA button — meets Apple HIG 44px minimum touch target */
         .nav__cta {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            font-size: 0.78rem;
+            justify-content: center;
+            gap: 7px;
+            font-size: 0.85rem;
             font-weight: 700;
-            padding: 0 16px;
-            height: 34px;
+            padding: 0 20px;
+            height: 44px;
+            min-height: 44px;
             border-radius: 50px;
             background: var(--gold);
             color: #1a0808 !important;
             text-decoration: none;
-            letter-spacing: 0.04em;
+            letter-spacing: 0.03em;
             transition: all 0.22s ease;
-            box-shadow: 0 2px 10px rgba(212, 175, 55, 0.35);
+            box-shadow: 0 2px 12px rgba(212, 175, 55, 0.4);
             flex-shrink: 0;
         }
 
         .nav__cta:hover {
             background: var(--gold-light);
-            box-shadow: 0 4px 18px rgba(212, 175, 55, 0.5);
+            box-shadow: 0 4px 18px rgba(212, 175, 55, 0.55);
             transform: translateY(-1px);
         }
 
-        /* Mobile hamburger — inside pill */
+        /* Mobile hamburger — 44×44px Apple HIG compliant target */
         .nav__toggle {
             display: none;
             flex-direction: column;
@@ -300,31 +353,33 @@
             justify-content: center;
             gap: 4px;
             cursor: pointer;
-            width: 36px;
-            height: 36px;
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
+            min-height: 44px;
             border-radius: 50%;
-            background: rgba(255, 255, 255, 0.06);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(255, 255, 255, 0.08);
+            border: 1px solid rgba(255, 255, 255, 0.15);
             z-index: 1010;
             flex-shrink: 0;
             transition: all 0.2s ease;
         }
 
         .nav__toggle:hover {
-            background: rgba(255, 255, 255, 0.12);
+            background: rgba(255, 255, 255, 0.16);
         }
 
         .nav__toggle span {
             display: block;
-            width: 16px;
-            height: 1.5px;
-            background: rgba(255, 255, 255, 0.85);
+            width: 18px;
+            height: 2px;
+            background: rgba(255, 255, 255, 0.9);
             border-radius: 2px;
             transition: all 0.3s ease;
         }
 
         .nav__toggle.open span:nth-child(1) {
-            transform: translateY(5.5px) rotate(45deg);
+            transform: translateY(6px) rotate(45deg);
         }
 
         .nav__toggle.open span:nth-child(2) {
@@ -332,7 +387,7 @@
         }
 
         .nav__toggle.open span:nth-child(3) {
-            transform: translateY(-5.5px) rotate(-45deg);
+            transform: translateY(-6px) rotate(-45deg);
         }
 
         /* Full-screen dark mobile menu */
@@ -340,7 +395,7 @@
             display: none;
             position: fixed;
             inset: 0;
-            background: rgba(13, 4, 4, 0.97);
+            background: rgba(13, 4, 4, 0.98);
             backdrop-filter: blur(25px);
             -webkit-backdrop-filter: blur(25px);
             z-index: 1005;
@@ -362,6 +417,8 @@
             right: 20px;
             width: 44px;
             height: 44px;
+            min-width: 44px;
+            min-height: 44px;
             border-radius: 50%;
             background: rgba(255, 255, 255, 0.08);
             border: 1px solid rgba(255, 255, 255, 0.15);
@@ -393,24 +450,28 @@
             letter-spacing: 0.14em;
             color: var(--white);
             margin-bottom: 24px;
-            opacity: 0.7;
+            opacity: 0.85;
         }
 
         .nav__mobile-menu a {
             font-size: 1.6rem;
             font-weight: 800;
-            color: rgba(255, 255, 255, 0.8);
+            color: rgba(255, 255, 255, 0.88);
             text-decoration: none;
             letter-spacing: -0.02em;
-            padding: 10px 24px;
+            padding: 12px 24px;
+            min-height: 44px;
             border-radius: 14px;
             transition: all 0.2s ease;
             text-align: center;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
         }
 
         .nav__mobile-menu a:hover {
             color: var(--white);
-            background: rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.1);
         }
 
         .nav__mobile-menu .mobile-cta {
@@ -420,6 +481,7 @@
             background: var(--gold);
             color: #1a0808 !important;
             padding: 14px 36px;
+            min-height: 48px;
             border-radius: 50px;
             box-shadow: 0 4px 20px rgba(212, 175, 55, 0.4);
         }
@@ -441,6 +503,7 @@
             .nav__pill {
                 width: 100%;
                 max-width: 100%;
+                height: 54px;
                 padding: 0 6px 0 14px;
             }
 
@@ -448,7 +511,7 @@
                 border-right: none;
                 padding-right: 0;
                 margin-right: 0;
-                font-size: 0.85rem;
+                font-size: 0.88rem;
             }
 
             .nav__links,
@@ -462,9 +525,10 @@
             }
 
             .nav__cta {
-                padding: 0 12px;
-                height: 32px;
-                font-size: 0.72rem;
+                padding: 0 16px;
+                height: 44px;
+                min-height: 44px;
+                font-size: 0.82rem;
             }
 
             /* Prevent any mobile background bleeding / right white space */
@@ -483,15 +547,19 @@
 
         @media (max-width: 360px) {
             .nav__logo {
-                font-size: 0.78rem;
+                font-size: 0.82rem;
             }
             .nav__cta {
-                padding: 0 10px;
-                font-size: 0.68rem;
+                padding: 0 12px;
+                height: 44px;
+                min-height: 44px;
+                font-size: 0.78rem;
             }
             .nav__toggle {
-                width: 32px;
-                height: 32px;
+                width: 44px;
+                height: 44px;
+                min-width: 44px;
+                min-height: 44px;
             }
         }
 
@@ -559,10 +627,10 @@
             background: var(--glass);
             border: 1px solid var(--glass-border);
             border-radius: 50px;
-            font-size: 0.78rem;
+            font-size: 0.82rem;
             font-weight: 600;
             color: var(--gold-light);
-            letter-spacing: 0.08em;
+            letter-spacing: 0.05em;
             text-transform: uppercase;
             margin-bottom: 28px;
         }
@@ -577,13 +645,10 @@
         }
 
         @keyframes pulse {
-
-            0%,
-            100% {
+            0%, 100% {
                 opacity: 1;
                 transform: scale(1);
             }
-
             50% {
                 opacity: 0.5;
                 transform: scale(0.8);
@@ -612,7 +677,6 @@
             0% {
                 background-position: 0% center;
             }
-
             100% {
                 background-position: 200% center;
             }
@@ -621,7 +685,7 @@
         .hero__sub {
             font-size: clamp(1rem, 2vw, 1.2rem);
             font-weight: 400;
-            color: rgba(255, 255, 255, 0.6);
+            color: rgba(255, 255, 255, 0.85); /* High contrast readable */
             line-height: 1.8;
             max-width: 600px;
             margin: 0 auto 40px;
@@ -637,11 +701,13 @@
         .btn {
             display: inline-flex;
             align-items: center;
+            justify-content: center;
             gap: 8px;
             font-family: inherit;
-            font-size: 0.925rem;
+            font-size: 0.95rem;
             font-weight: 700;
             padding: 14px 30px;
+            min-height: 48px;
             border-radius: 50px;
             border: none;
             cursor: pointer;
@@ -662,13 +728,13 @@
 
         .btn--ghost {
             background: transparent;
-            border: 1.5px solid rgba(255, 255, 255, 0.25);
-            color: rgba(255, 255, 255, 0.85);
+            border: 1.5px solid rgba(255, 255, 255, 0.4);
+            color: #ffffff;
         }
 
         .btn--ghost:hover {
-            border-color: rgba(255, 255, 255, 0.6);
-            background: rgba(255, 255, 255, 0.06);
+            border-color: rgba(255, 255, 255, 0.85);
+            background: rgba(255, 255, 255, 0.1);
             transform: translateY(-2px);
         }
 
@@ -682,16 +748,16 @@
             flex-direction: column;
             align-items: center;
             gap: 8px;
-            color: rgba(255, 255, 255, 0.3);
-            font-size: 0.72rem;
-            letter-spacing: 0.12em;
+            color: rgba(255, 255, 255, 0.75);
+            font-size: 0.8rem;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
         }
 
         .hero__scroll-line {
             width: 1px;
             height: 48px;
-            background: linear-gradient(to bottom, rgba(212, 175, 55, 0.6), transparent);
+            background: linear-gradient(to bottom, rgba(212, 175, 55, 0.8), transparent);
             animation: scrollLine 2s ease-in-out infinite;
         }
 
@@ -700,16 +766,13 @@
                 transform: scaleY(0);
                 transform-origin: top;
             }
-
             50% {
                 transform: scaleY(1);
                 transform-origin: top;
             }
-
             51% {
                 transform-origin: bottom;
             }
-
             100% {
                 transform: scaleY(0);
                 transform-origin: bottom;
@@ -787,8 +850,8 @@
         }
 
         .stats__intro {
-            font-size: 0.925rem;
-            color: var(--text-muted);
+            font-size: 0.95rem;
+            color: #374151; /* WCAG AAA high contrast */
             line-height: 1.85;
             max-width: 340px;
         }
@@ -826,11 +889,11 @@
         }
 
         .stat__icon {
-            font-size: 1.1rem;
+            font-size: 1.25rem;
             margin-bottom: 20px;
             display: block;
             color: var(--maroon);
-            opacity: 0.5;
+            opacity: 0.75;
         }
 
         .stat__number {
@@ -850,11 +913,11 @@
         }
 
         .stat__label {
-            font-size: 0.78rem;
+            font-size: 0.82rem;
             font-weight: 700;
-            letter-spacing: 0.12em;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
-            color: var(--text-muted);
+            color: #4b5563; /* High contrast */
         }
 
         .stat__bar {
@@ -871,7 +934,7 @@
             width: 100%;
         }
 
-        /* Ticker tape */
+        /* Ticker tape — WCAG AA compliant contrast > 5.2:1 */
         .stats__ticker {
             border-top: 1px solid rgba(0, 0, 0, 0.07);
             padding: 22px 0;
@@ -890,24 +953,23 @@
             align-items: center;
             gap: 24px;
             padding: 0 40px;
-            font-size: 0.72rem;
+            font-size: 0.82rem;
             font-weight: 700;
-            letter-spacing: 0.15em;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
-            color: rgba(0, 0, 0, 0.2);
+            color: #4b5563; /* Clear contrast */
         }
 
         .stats__ticker-item::after {
             content: '·';
             font-size: 1rem;
-            color: rgba(128, 0, 0, 0.25);
+            color: #9ca3af;
         }
 
         @keyframes ticker {
             from {
                 transform: translateX(0);
             }
-
             to {
                 transform: translateX(-50%);
             }
@@ -923,9 +985,9 @@
 
         .section-label {
             display: inline-block;
-            font-size: 0.72rem;
+            font-size: 0.82rem;
             font-weight: 700;
-            letter-spacing: 0.15em;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
             color: var(--maroon);
             margin-bottom: 16px;
@@ -942,7 +1004,7 @@
 
         .section-sub {
             font-size: 1.05rem;
-            color: var(--text-muted);
+            color: #4b5563;
             line-height: 1.8;
             max-width: 540px;
         }
@@ -962,29 +1024,12 @@
         }
 
         /* Bento layout spans */
-        .fc:nth-child(1) {
-            grid-column: span 3;
-        }
-
-        .fc:nth-child(2) {
-            grid-column: span 3;
-        }
-
-        .fc:nth-child(3) {
-            grid-column: span 2;
-        }
-
-        .fc:nth-child(4) {
-            grid-column: span 2;
-        }
-
-        .fc:nth-child(5) {
-            grid-column: span 2;
-        }
-
-        .fc:nth-child(6) {
-            grid-column: span 6;
-        }
+        .fc:nth-child(1) { grid-column: span 3; }
+        .fc:nth-child(2) { grid-column: span 3; }
+        .fc:nth-child(3) { grid-column: span 2; }
+        .fc:nth-child(4) { grid-column: span 2; }
+        .fc:nth-child(5) { grid-column: span 2; }
+        .fc:nth-child(6) { grid-column: span 6; }
 
         /* ── Feature Card Base ── */
         .fc {
@@ -1054,13 +1099,13 @@
             top: 28px;
             right: 28px;
             font-size: 2.2rem;
-            opacity: 0.15;
+            opacity: 0.25;
             user-select: none;
             line-height: 1;
         }
 
         .fc--light .fc__visual {
-            opacity: 0.1;
+            opacity: 0.15;
             color: var(--text);
         }
 
@@ -1071,19 +1116,19 @@
 
         .fc--gold .fc__visual {
             color: var(--gold);
-            opacity: 0.2;
+            opacity: 0.35;
         }
 
-        /* Accent chip */
+        /* Accent chip — comfortable font size & contrast */
         .fc__chip {
             display: inline-flex;
             align-items: center;
             gap: 6px;
-            font-size: 0.68rem;
+            font-size: 0.8rem;
             font-weight: 700;
-            letter-spacing: 0.12em;
+            letter-spacing: 0.05em;
             text-transform: uppercase;
-            padding: 4px 10px;
+            padding: 5px 12px;
             border-radius: 50px;
             margin-bottom: 18px;
             width: fit-content;
@@ -1092,12 +1137,12 @@
         .fc--dark .fc__chip,
         .fc--maroon .fc__chip,
         .fc--wide .fc__chip {
-            background: rgba(255, 255, 255, 0.08);
-            color: rgba(255, 255, 255, 0.55);
+            background: rgba(255, 255, 255, 0.12);
+            color: rgba(255, 255, 255, 0.9);
         }
 
         .fc--gold .fc__chip {
-            background: rgba(212, 175, 55, 0.15);
+            background: rgba(212, 175, 55, 0.2);
             color: var(--gold-light);
         }
 
@@ -1128,7 +1173,7 @@
         }
 
         .fc__desc {
-            font-size: 0.88rem;
+            font-size: 0.92rem;
             line-height: 1.75;
             position: relative;
             z-index: 1;
@@ -1139,11 +1184,11 @@
         .fc--maroon .fc__desc,
         .fc--gold .fc__desc,
         .fc--wide .fc__desc {
-            color: rgba(255, 255, 255, 0.5);
+            color: rgba(255, 255, 255, 0.82); /* High contrast */
         }
 
         .fc--light .fc__desc {
-            color: var(--text-muted);
+            color: #4b5563;
         }
 
         /* Gold accent line on light card */
@@ -1181,14 +1226,12 @@
         }
 
         .fc--wide .fc__big-label {
-            font-size: 0.8rem;
+            font-size: 0.85rem;
             font-weight: 600;
-            letter-spacing: 0.08em;
+            letter-spacing: 0.05em;
             text-transform: uppercase;
-            color: rgba(255, 255, 255, 0.3);
+            color: rgba(255, 255, 255, 0.75);
             margin-top: 6px;
-        }
-
         }
 
         /* ============================================
@@ -1240,7 +1283,7 @@
             font-weight: 900;
             letter-spacing: -0.08em;
             line-height: 1;
-            color: rgba(255, 255, 255, 0.015);
+            color: rgba(255, 255, 255, 0.025);
             user-select: none;
             pointer-events: none;
             transition: opacity 0.6s ease;
@@ -1266,11 +1309,11 @@
         }
 
         .story__num-label {
-            font-size: 0.72rem;
+            font-size: 0.82rem;
             font-weight: 700;
-            letter-spacing: 0.2em;
+            letter-spacing: 0.1em;
             text-transform: uppercase;
-            color: rgba(255, 255, 255, 0.25);
+            color: rgba(255, 255, 255, 0.75);
             margin-top: 12px;
         }
 
@@ -1312,9 +1355,9 @@
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            font-size: 0.72rem;
+            font-size: 0.82rem;
             font-weight: 700;
-            letter-spacing: 0.14em;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
             color: var(--gold);
             margin-bottom: 28px;
@@ -1338,8 +1381,8 @@
         }
 
         .story__step-text {
-            font-size: 1rem;
-            color: rgba(255, 255, 255, 0.45);
+            font-size: 1.05rem;
+            color: rgba(255, 255, 255, 0.85); /* High contrast readable */
             line-height: 1.85;
             max-width: 440px;
         }
@@ -1350,7 +1393,7 @@
             margin-bottom: 28px;
             display: block;
             color: var(--gold);
-            opacity: 0.7;
+            opacity: 0.85;
         }
 
         /* Progress bar at bottom */
@@ -1371,37 +1414,56 @@
             transition: width 0.1s linear;
         }
 
-        /* Right sidebar dots */
+        /* Right sidebar dots — minimum 44px tap target */
         .story__dots {
             position: absolute;
-            right: 28px;
+            right: 20px;
             top: 50%;
             transform: translateY(-50%);
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 4px;
             z-index: 20;
         }
 
         .story__dot {
-            width: 5px;
-            height: 5px;
-            border-radius: 50%;
-            background: rgba(255, 255, 255, 0.15);
-            transition: all 0.4s var(--ease);
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
+            min-height: 44px;
+            background: transparent;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
             cursor: pointer;
+            padding: 0;
+            border-radius: 50%;
+            transition: all 0.2s ease;
         }
 
-        .story__dot.active {
+        .story__dot-inner {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.25);
+            transition: all 0.3s var(--ease);
+            pointer-events: none;
+        }
+
+        .story__dot.active .story__dot-inner {
             background: var(--gold);
-            transform: scale(1.8);
-            box-shadow: 0 0 8px rgba(212, 175, 55, 0.5);
+            transform: scale(2);
+            box-shadow: 0 0 10px rgba(212, 175, 55, 0.7);
+        }
+
+        .story__dot:hover .story__dot-inner {
+            background: var(--gold-light);
+            transform: scale(1.5);
         }
 
         .story__scroll-space {
             height: 400vh;
-        }
-
         }
 
         /* ============================================
@@ -1447,7 +1509,7 @@
 
         .cta-section p {
             font-size: 1.05rem;
-            color: var(--text-muted);
+            color: #4b5563;
             line-height: 1.8;
             margin-bottom: 40px;
         }
@@ -1483,27 +1545,31 @@
         }
 
         .footer__brand-sub {
-            font-size: 0.875rem;
-            color: rgba(255, 255, 255, 0.4);
+            font-size: 0.9rem;
+            color: rgba(255, 255, 255, 0.75);
             line-height: 1.7;
         }
 
         .footer__col h4 {
-            font-size: 0.78rem;
+            font-size: 0.82rem;
             font-weight: 700;
-            letter-spacing: 0.12em;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
-            color: rgba(255, 255, 255, 0.35);
+            color: rgba(255, 255, 255, 0.8);
             margin-bottom: 20px;
         }
 
         .footer__col a {
             display: block;
-            font-size: 0.9rem;
-            color: rgba(255, 255, 255, 0.55);
+            font-size: 0.92rem;
+            color: rgba(255, 255, 255, 0.75);
             text-decoration: none;
             margin-bottom: 12px;
             transition: color 0.2s;
+            padding: 4px 0;
+            min-height: 36px;
+            display: flex;
+            align-items: center;
         }
 
         .footer__col a:hover {
@@ -1514,8 +1580,8 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            font-size: 0.825rem;
-            color: rgba(255, 255, 255, 0.25);
+            font-size: 0.85rem;
+            color: rgba(255, 255, 255, 0.7);
         }
 
         .footer__bottom .footer__gold {
@@ -1599,7 +1665,7 @@
             }
 
             .hero__badge {
-                font-size: 0.72rem;
+                font-size: 0.78rem;
                 padding: 5px 14px;
                 margin-bottom: 20px;
             }
@@ -1610,7 +1676,7 @@
             }
 
             .hero__sub {
-                font-size: 0.95rem;
+                font-size: 0.98rem;
                 line-height: 1.7;
                 margin-bottom: 30px;
             }
@@ -1649,7 +1715,7 @@
             }
 
             .stats__intro {
-                font-size: 0.88rem;
+                font-size: 0.92rem;
                 line-height: 1.65;
             }
 
@@ -1666,7 +1732,7 @@
             }
 
             .stat__label {
-                font-size: 0.7rem;
+                font-size: 0.78rem;
             }
 
             /* Features Section Mobile */
@@ -1684,7 +1750,7 @@
             }
 
             .section-sub {
-                font-size: 0.92rem;
+                font-size: 0.95rem;
             }
 
             .features__grid {
@@ -1707,7 +1773,7 @@
             }
 
             .fc__desc {
-                font-size: 0.85rem;
+                font-size: 0.9rem;
             }
 
             .fc--wide {
@@ -1752,12 +1818,12 @@
             }
 
             .story__step-text {
-                font-size: 0.92rem;
+                font-size: 0.98rem;
                 line-height: 1.7;
             }
 
             .story__dots {
-                right: 14px;
+                right: 10px;
             }
 
             /* CTA Mobile */
@@ -1770,7 +1836,7 @@
             }
 
             .cta-section p {
-                font-size: 0.92rem;
+                font-size: 0.95rem;
                 margin-bottom: 30px;
             }
 
@@ -1816,18 +1882,78 @@
                 font-size: 2.3rem;
             }
         }
+
+        /* ============================================
+           PREFERS-REDUCED-MOTION (APPLE HIG & ACCESSIBILITY)
+        ============================================ */
+        @media (prefers-reduced-motion: reduce) {
+            *,
+            *::before,
+            *::after {
+                animation-duration: 0.01ms !important;
+                animation-iteration-count: 1 !important;
+                transition-duration: 0.01ms !important;
+                scroll-behavior: auto !important;
+            }
+
+            .hero__title .hero__highlight,
+            .story__num-display {
+                animation: none !important;
+                background-size: 100% !important;
+            }
+
+            .stats__ticker-track {
+                animation: none !important;
+            }
+
+            .nav__logo-dot,
+            .hero__badge::before {
+                animation: none !important;
+            }
+
+            .hero__scroll-line {
+                animation: none !important;
+            }
+
+            .gsap-fade,
+            .gsap-up,
+            .gsap-up-sm,
+            .gsap-left,
+            .gsap-scale {
+                opacity: 1 !important;
+                transform: none !important;
+            }
+
+            .story__step {
+                position: relative !important;
+                opacity: 1 !important;
+                pointer-events: auto !important;
+            }
+
+            .story__sticky {
+                position: relative !important;
+                height: auto !important;
+            }
+
+            .story__scroll-space {
+                display: none !important;
+            }
+        }
     </style>
 </head>
 
 <body>
 
+    <!-- Skip link for keyboard accessibility (Apple HIG & WCAG) -->
+    <a href="#home" class="skip-link">Skip to main content</a>
+
     <!-- ============ NAVIGATION ============ -->
-    <nav class="nav" id="navbar">
+    <nav class="nav" id="navbar" aria-label="Main Navigation">
         <div class="nav__pill">
 
             <!-- Logo -->
-            <a href="#" class="nav__logo">
-                <span class="nav__logo-dot"></span>
+            <a href="#" class="nav__logo" aria-label="LAKSHYA Homepage">
+                <span class="nav__logo-dot" aria-hidden="true"></span>
                 LAKSHYA
             </a>
 
@@ -1839,43 +1965,40 @@
             </ul>
 
             <!-- Divider -->
-            <div class="nav__sep"></div>
-
-            <!-- Try Demo 
-        <a href="login?demo=1" class="nav__demo mobile-link">Try Demo</a> -->
+            <div class="nav__sep" aria-hidden="true"></div>
 
             <!-- Actions -->
             <div class="nav__actions">
-                <a href="login" class="nav__cta mobile-link">
-                    Login <i class="fas fa-arrow-right" style="font-size:0.65rem;"></i>
+                <a href="login" class="nav__cta mobile-link" aria-label="Sign in to Lakshya">
+                    Login <i class="fas fa-arrow-right" style="font-size:0.75rem;" aria-hidden="true"></i>
                 </a>
-                <div class="nav__toggle" id="navToggle" aria-label="Menu">
+                <button class="nav__toggle" id="navToggle" aria-label="Open Navigation Menu" type="button">
                     <span></span><span></span><span></span>
-                </div>
+                </button>
             </div>
 
         </div>
     </nav>
 
     <!-- Mobile Menu -->
-    <div class="nav__mobile-menu" id="mobileMenu">
-        <button class="nav__mobile-close" id="mobileMenuClose" aria-label="Close menu">
-            <i class="fas fa-times"></i>
+    <div class="nav__mobile-menu" id="mobileMenu" aria-hidden="true">
+        <button class="nav__mobile-close" id="mobileMenuClose" aria-label="Close menu" type="button">
+            <i class="fas fa-times" aria-hidden="true"></i>
         </button>
         <div class="nav__mobile-brand">
-            <span class="nav__logo-dot"></span> LAKSHYA
+            <span class="nav__logo-dot" aria-hidden="true"></span> LAKSHYA
         </div>
         <a href="#about" class="mobile-link">Stats</a>
         <a href="#features" class="mobile-link">Features</a>
         <a href="#story" class="mobile-link">How It Works</a>
-        <a href="login" class="mobile-cta mobile-link">Sign In / Login <i class="fas fa-arrow-right"></i></a>
+        <a href="login" class="mobile-cta mobile-link">Sign In / Login <i class="fas fa-arrow-right" aria-hidden="true"></i></a>
     </div>
 
     <!-- ============ HERO ============ -->
     <section class="hero" id="home">
-        <div class="hero__grid"></div>
-        <div class="hero__orb hero__orb--1"></div>
-        <div class="hero__orb hero__orb--2"></div>
+        <div class="hero__grid" aria-hidden="true"></div>
+        <div class="hero__orb hero__orb--1" aria-hidden="true"></div>
+        <div class="hero__orb hero__orb--2" aria-hidden="true"></div>
 
         <div class="hero__inner">
             <div class="hero__badge gsap-fade">GM University · Placement Portal</div>
@@ -1888,7 +2011,7 @@
             </p>
             <div class="hero__actions gsap-up">
                 <a href="login" class="btn btn--primary">
-                    Get Started <i class="fas fa-arrow-right"></i>
+                    Get Started <i class="fas fa-arrow-right" aria-hidden="true"></i>
                 </a>
                 <a href="#features" class="btn btn--ghost">
                     Explore Features
@@ -1896,7 +2019,7 @@
             </div>
         </div>
 
-        <div class="hero__scroll">
+        <div class="hero__scroll" aria-hidden="true">
             <div class="hero__scroll-line"></div>
             <span>Scroll</span>
         </div>
@@ -1920,33 +2043,33 @@
             <!-- Stats grid -->
             <div class="stats__grid">
                 <div class="stat gsap-up">
-                    <i class="stat__icon fas fa-user-graduate"></i>
+                    <i class="stat__icon fas fa-user-graduate" aria-hidden="true"></i>
                     <div class="stat__number" data-count="1000" data-suffix="+">1000+</div>
                     <div class="stat__label">Students Placed</div>
-                    <div class="stat__bar"></div>
+                    <div class="stat__bar" aria-hidden="true"></div>
                 </div>
                 <div class="stat gsap-up">
-                    <i class="stat__icon fas fa-building"></i>
+                    <i class="stat__icon fas fa-building" aria-hidden="true"></i>
                     <div class="stat__number" data-count="100" data-suffix="+">100+</div>
                     <div class="stat__label">Partner Companies</div>
-                    <div class="stat__bar"></div>
+                    <div class="stat__bar" aria-hidden="true"></div>
                 </div>
                 <div class="stat gsap-up">
-                    <i class="stat__icon fas fa-chart-line"></i>
+                    <i class="stat__icon fas fa-chart-line" aria-hidden="true"></i>
                     <div class="stat__number" data-count="95" data-suffix="%">95%</div>
                     <div class="stat__label">Placement Rate</div>
-                    <div class="stat__bar"></div>
+                    <div class="stat__bar" aria-hidden="true"></div>
                 </div>
                 <div class="stat gsap-up">
-                    <i class="stat__icon fas fa-indian-rupee-sign"></i>
+                    <i class="stat__icon fas fa-indian-rupee-sign" aria-hidden="true"></i>
                     <div class="stat__number" data-count="10" data-suffix=" LPA">10 LPA</div>
                     <div class="stat__label">Average Package</div>
-                    <div class="stat__bar"></div>
+                    <div class="stat__bar" aria-hidden="true"></div>
                 </div>
             </div>
 
             <!-- Ticker tape -->
-            <div class="stats__ticker">
+            <div class="stats__ticker" aria-hidden="true">
                 <div class="stats__ticker-track">
                     <span class="stats__ticker-item">TCS</span>
                     <span class="stats__ticker-item">Infosys</span>
@@ -1991,7 +2114,7 @@
 
             <!-- Card 1: AI Interview — dark -->
             <div class="fc fc--dark gsap-up">
-                <div class="fc__visual"><i class="fas fa-robot"></i></div>
+                <div class="fc__visual" aria-hidden="true"><i class="fas fa-robot"></i></div>
                 <div class="fc__chip">AI-Powered</div>
                 <h3 class="fc__title">AI Mock Interviews &<br>Interview Coach</h3>
                 <p class="fc__desc">Practice with our AI trained on 500+ real placement patterns. Get instant, honest
@@ -2000,7 +2123,7 @@
 
             <!-- Card 2: Aptitude — maroon gradient -->
             <div class="fc fc--maroon gsap-up">
-                <div class="fc__visual"><i class="fas fa-pen-to-square"></i></div>
+                <div class="fc__visual" aria-hidden="true"><i class="fas fa-pen-to-square"></i></div>
                 <div class="fc__chip">Adaptive</div>
                 <h3 class="fc__title">Smart Aptitude Tests &<br>Company Practice</h3>
                 <p class="fc__desc">Company-specific aptitude, verbal, and reasoning tests. Difficulty adjusts in real
@@ -2009,7 +2132,7 @@
 
             <!-- Card 3: Jobs — light -->
             <div class="fc fc--light gsap-up">
-                <div class="fc__visual"><i class="fas fa-briefcase"></i></div>
+                <div class="fc__visual" aria-hidden="true"><i class="fas fa-briefcase"></i></div>
                 <div class="fc__chip">Verified</div>
                 <h3 class="fc__title">Internship & Placement Opportunities</h3>
                 <p class="fc__desc">Browse 100+ verified listings. Apply in one click using your Lakshya resume.</p>
@@ -2017,7 +2140,7 @@
 
             <!-- Card 4: Analytics — light -->
             <div class="fc fc--light gsap-up">
-                <div class="fc__visual"><i class="fas fa-chart-bar"></i></div>
+                <div class="fc__visual" aria-hidden="true"><i class="fas fa-chart-bar"></i></div>
                 <div class="fc__chip">Real-time</div>
                 <h3 class="fc__title">Placement Performance Analytics</h3>
                 <p class="fc__desc">See exactly where you stand — readiness score, weak areas, and improvement over
@@ -2026,7 +2149,7 @@
 
             <!-- Card 5: Career Roadmaps — gold dark -->
             <div class="fc fc--gold gsap-up">
-                <div class="fc__visual"><i class="fas fa-bullseye"></i></div>
+                <div class="fc__visual" aria-hidden="true"><i class="fas fa-bullseye"></i></div>
                 <div class="fc__chip">Personalized</div>
                 <h3 class="fc__title">Personalized Career Roadmaps</h3>
                 <p class="fc__desc">AI-curated learning paths built for your target role. No guesswork, just a clear
@@ -2058,8 +2181,8 @@
 
             <!-- LEFT PANEL: step counter -->
             <div class="story__left">
-                <div class="story__left-grid"></div>
-                <div class="story__bg-num" id="storyBgNum">01</div>
+                <div class="story__left-grid" aria-hidden="true"></div>
+                <div class="story__bg-num" id="storyBgNum" aria-hidden="true">01</div>
                 <div class="story__left-meta">
                     <div class="story__num-display" id="storyNumDisplay">01</div>
                     <div class="story__num-label">of 04 steps</div>
@@ -2070,7 +2193,7 @@
             <div class="story__right" id="storyRight">
 
                 <div class="story__step" id="step-0">
-                    <i class="story__step-icon fas fa-id-card"></i>
+                    <i class="story__step-icon fas fa-id-card" aria-hidden="true"></i>
                     <div class="story__step-tag">Step 01</div>
                     <h2 class="story__step-title">Create your profile.</h2>
                     <p class="story__step-text">Sign up with your university credentials. Your academic data, skills,
@@ -2078,7 +2201,7 @@
                 </div>
 
                 <div class="story__step" id="step-1">
-                    <i class="story__step-icon fas fa-robot"></i>
+                    <i class="story__step-icon fas fa-robot" aria-hidden="true"></i>
                     <div class="story__step-tag">Step 02</div>
                     <h2 class="story__step-title">Train with AI.</h2>
                     <p class="story__step-text">Practice aptitude tests and mock interviews powered by real company
@@ -2086,7 +2209,7 @@
                 </div>
 
                 <div class="story__step" id="step-2">
-                    <i class="story__step-icon fas fa-briefcase"></i>
+                    <i class="story__step-icon fas fa-briefcase" aria-hidden="true"></i>
                     <div class="story__step-tag">Step 03</div>
                     <h2 class="story__step-title">Apply with confidence.</h2>
                     <p class="story__step-text">Browse curated opportunities matched to your placement score and skill
@@ -2094,24 +2217,24 @@
                 </div>
 
                 <div class="story__step" id="step-3">
-                    <i class="story__step-icon fas fa-trophy"></i>
+                    <i class="story__step-icon fas fa-trophy" aria-hidden="true"></i>
                     <div class="story__step-tag">Step 04</div>
                     <h2 class="story__step-title">Land your offer.</h2>
                     <p class="story__step-text">Track every application, get interview reminders, and celebrate your
                         placement. We'll be there every step of the way.</p>
                 </div>
 
-                <!-- Progress dots (inside right panel, right edge) -->
-                <div class="story__dots" id="storyDots">
-                    <div class="story__dot active" data-index="0"></div>
-                    <div class="story__dot" data-index="1"></div>
-                    <div class="story__dot" data-index="2"></div>
-                    <div class="story__dot" data-index="3"></div>
+                <!-- Progress dots (interactive buttons, min 44×44px hit target) -->
+                <div class="story__dots" id="storyDots" role="tablist" aria-label="Story steps navigation">
+                    <button class="story__dot active" data-index="0" aria-label="Go to Step 1: Create profile" type="button"><span class="story__dot-inner"></span></button>
+                    <button class="story__dot" data-index="1" aria-label="Go to Step 2: Train with AI" type="button"><span class="story__dot-inner"></span></button>
+                    <button class="story__dot" data-index="2" aria-label="Go to Step 3: Apply with confidence" type="button"><span class="story__dot-inner"></span></button>
+                    <button class="story__dot" data-index="3" aria-label="Go to Step 4: Land your offer" type="button"><span class="story__dot-inner"></span></button>
                 </div>
             </div>
 
             <!-- Bottom progress bar -->
-            <div class="story__progress-track">
+            <div class="story__progress-track" aria-hidden="true">
                 <div class="story__progress-bar" id="storyProgressBar"></div>
             </div>
 
@@ -2126,7 +2249,7 @@
             <h2>Your next chapter<br>starts here.</h2>
             <p>Join thousands of GM University students who have already landed their dream jobs through Lakshya.</p>
             <a href="login" class="btn btn--primary" style="font-size:1rem; padding:16px 40px;">
-                Get Started Free <i class="fas fa-arrow-right"></i>
+                Get Started Free <i class="fas fa-arrow-right" aria-hidden="true"></i>
             </a>
         </div>
     </section>
@@ -2160,13 +2283,13 @@
                     <a href="tel:+918310793613">+91 8310793613</a>
                     <a href="tel:+919901191487">+91 9901191487</a>
                     <p
-                        style="font-size: 0.72rem; color: var(--gold); margin-top: 12px; font-weight: 800; letter-spacing: 0.08em; opacity: 0.8;">
+                        style="font-size: 0.78rem; color: var(--gold); margin-top: 12px; font-weight: 800; letter-spacing: 0.08em; opacity: 0.95;">
                         ANY QUERIES CALL US</p>
                 </div>
             </div>
             <div class="footer__bottom">
                 <span>© 2026 LAKSHYA — GM University. All rights reserved.</span>
-                <span>Built with <span class="footer__gold">♥</span> for students.</span>
+                <span>Built with <span class="footer__gold" aria-label="love">♥</span> for students.</span>
             </div>
         </div>
     </footer>
@@ -2176,27 +2299,39 @@
         (function () {
             'use strict';
 
+            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
             // ─── Register ScrollTrigger ───────────────────────────────────────────────
             gsap.registerPlugin(ScrollTrigger);
 
-            // ─── Lenis smooth scroll ─────────────────────────────────────────────────
-            const lenis = new Lenis({
-                duration: 1.15,
-                easing: t => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
-                smoothWheel: true,
-                smoothTouch: false, // Native touch scroll on mobile for fast INP < 200ms
-                syncTouch: false
-            });
+            // ─── Lenis smooth scroll (only if reduced motion is false) ─────────────────
+            let lenis = null;
+            if (!prefersReducedMotion && typeof Lenis !== 'undefined') {
+                lenis = new Lenis({
+                    duration: 1.15,
+                    easing: t => Math.min(1, 1.001 - Math.pow(2, -10 * t)),
+                    smoothWheel: true,
+                    smoothTouch: false, // Native touch scroll on mobile for fast INP < 200ms
+                    syncTouch: false
+                });
 
-            // Sync Lenis RAF with GSAP ticker
-            gsap.ticker.add(time => lenis.raf(time * 1000));
-            gsap.ticker.lagSmoothing(0);
+                // Sync Lenis RAF with GSAP ticker
+                gsap.ticker.add(time => lenis.raf(time * 1000));
+                gsap.ticker.lagSmoothing(0);
+            }
 
             // ─── Navbar scroll state ─────────────────────────────────────────────────
             const navbar = document.getElementById('navbar');
-            lenis.on('scroll', ({ scroll }) => {
-                if (navbar) navbar.classList.toggle('scrolled', scroll > 60);
-            });
+            const onScrollHandler = () => {
+                const scrollY = lenis ? lenis.scroll : window.scrollY;
+                if (navbar) navbar.classList.toggle('scrolled', scrollY > 60);
+            };
+
+            if (lenis) {
+                lenis.on('scroll', onScrollHandler);
+            } else {
+                window.addEventListener('scroll', onScrollHandler, { passive: true });
+            }
 
             // ─── Mobile menu ─────────────────────────────────────────────────────────
             const navToggle = document.getElementById('navToggle');
@@ -2206,10 +2341,18 @@
 
             function toggleMenu() {
                 menuOpen = !menuOpen;
-                if (navToggle) navToggle.classList.toggle('open', menuOpen);
-                if (mobileMenu) mobileMenu.classList.toggle('open', menuOpen);
+                if (navToggle) {
+                    navToggle.classList.toggle('open', menuOpen);
+                    navToggle.setAttribute('aria-expanded', menuOpen ? 'true' : 'false');
+                }
+                if (mobileMenu) {
+                    mobileMenu.classList.toggle('open', menuOpen);
+                    mobileMenu.setAttribute('aria-hidden', menuOpen ? 'false' : 'true');
+                }
                 document.body.style.overflow = menuOpen ? 'hidden' : '';
-                menuOpen ? lenis.stop() : lenis.start();
+                if (lenis) {
+                    menuOpen ? lenis.stop() : lenis.start();
+                }
             }
 
             if (navToggle) navToggle.addEventListener('click', toggleMenu, { passive: true });
@@ -2226,11 +2369,29 @@
                     const target = document.querySelector(href);
                     if (target) {
                         e.preventDefault();
-                        lenis.scrollTo(target, { offset: -72, duration: 1.4 });
+                        if (lenis) {
+                            lenis.scrollTo(target, { offset: -72, duration: 1.4 });
+                        } else {
+                            const offsetTop = target.getBoundingClientRect().top + window.scrollY - 72;
+                            window.scrollTo({ top: offsetTop, behavior: prefersReducedMotion ? 'auto' : 'smooth' });
+                        }
                         if (menuOpen) toggleMenu();
                     }
                 });
             });
+
+            if (prefersReducedMotion) {
+                // If user prefers reduced motion, reveal everything immediately
+                gsap.set('.gsap-fade, .gsap-up, .gsap-up-sm, .gsap-left, .gsap-scale', { opacity: 1, y: 0, x: 0, scale: 1 });
+                document.querySelectorAll('.stat').forEach(el => {
+                    el.classList.add('in-view');
+                    const numEl = el.querySelector('.stat__number');
+                    if (numEl && numEl.dataset.count) {
+                        numEl.textContent = numEl.dataset.count + (numEl.dataset.suffix || '');
+                    }
+                });
+                return;
+            }
 
             // ─── Hero entrance timeline ───────────────────────────────────────────────
             const heroTl = gsap.timeline({ delay: 0.1, defaults: { ease: 'power3.out' } });
@@ -2367,6 +2528,25 @@
                             onReverseComplete() { this.targets()[0].style.pointerEvents = 'none'; }
                         });
             }
+
+            // ─── Wire up story dot navigation ─────────────────────────────────────────
+            dots.forEach(dot => {
+                dot.addEventListener('click', () => {
+                    const targetIndex = parseInt(dot.dataset.index);
+                    if (isNaN(targetIndex)) return;
+                    const storyEl = document.querySelector('.story');
+                    if (!storyEl) return;
+                    const storyTop = window.scrollY + storyEl.getBoundingClientRect().top;
+                    const storyHeight = storyEl.offsetHeight - window.innerHeight;
+                    const targetScroll = storyTop + (storyHeight * (targetIndex / (nSteps - 1)));
+                    
+                    if (lenis) {
+                        lenis.scrollTo(targetScroll, { duration: 1.2 });
+                    } else {
+                        window.scrollTo({ top: targetScroll, behavior: 'smooth' });
+                    }
+                });
+            });
 
             // ─── Refresh ScrollTrigger ───────────────────────────────────────────────
             ScrollTrigger.refresh();

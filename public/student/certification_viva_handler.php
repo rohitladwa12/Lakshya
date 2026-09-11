@@ -23,6 +23,13 @@ $input = json_decode(file_get_contents('php://input'), true) ?: [];
 $input = array_merge($input, $_POST);
 $action = $input['action'] ?? '';
 
+// Rate limit: 10 viva AI requests per user per 60 seconds
+if (!checkRateLimit("cert_viva_api_{$userId}", 10, 60)) {
+    http_response_code(429);
+    echo json_encode(['success' => false, 'message' => 'Too many requests. Please wait before trying again.']);
+    exit;
+}
+
 try {
     switch ($action) {
         case 'generate_viva':

@@ -27,6 +27,14 @@ $username = getUsername();
 $studentIdForDb = getStudentIdForAssessment();
 $institution = $_SESSION['institution'] ?? 'GMU';
 
+// Rate limit: 15 skill verification requests per user per 60 seconds
+if (!checkRateLimit("skill_verify_{$userId}", 15, 60)) {
+    http_response_code(429);
+    ob_clean();
+    echo json_encode(['success' => false, 'message' => 'Too many requests. Please wait before trying again.']);
+    exit;
+}
+
 require_once __DIR__ . '/../../src/Services/AIService.php';
 $aiService = new AIService();
 $db = getDB();

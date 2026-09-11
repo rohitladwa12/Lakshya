@@ -90,7 +90,6 @@ class LeaderboardService
             // Pillar Processing
             $pillars = self::calculatePillars($scores, $mocks, $tasks);
 
-            // AI Score with Strict Hybrid Model (Weighted + Square-Count Penalty)
             $attemptedCount = 0;
             if ($pillars['aptitude'] > 0)
                 $attemptedCount++;
@@ -99,18 +98,27 @@ class LeaderboardService
             if ($pillars['hr'] > 0)
                 $attemptedCount++;
 
-            $weightedScore = ($pillars['technical'] * 0.5) + ($pillars['aptitude'] * 0.25) + ($pillars['hr'] * 0.25);
-            $squarePenalty = pow($attemptedCount / 3.0, 3);
-            $assessmentScore = $weightedScore * $squarePenalty;
+            // AI Assessment Score (45% Technical + 30% Aptitude + 25% HR)
+            $assessmentScore = ($pillars['technical'] * 0.45) + ($pillars['aptitude'] * 0.30) + ($pillars['hr'] * 0.25);
 
-            // Portfolio Score
+            // Portfolio Score (Max 100: Verified Skills up to 50 + Verified Projects up to 50)
             $pS = $port['Skill'] ?? 0;
             $pP = $port['Project'] ?? 0;
-            $portfolioScore = min(50, $pS * 1) + min(50, $pP * 2);
+            $portfolioScore = min(50, $pS * 2) + min(50, $pP * 5);
 
-            // Final Total Points
-            $rawTotal = ($assessmentScore * 0.7) + ($portfolioScore * 0.3);
-            $totalScore = $rawTotal;
+            // Base Total (70% AI Assessments + 30% Portfolio)
+            $baseTotal = ($assessmentScore * 0.70) + ($portfolioScore * 0.30);
+
+            // Activity / Consistency Bonus (Diminishing returns, strictly capped at +5.0 max)
+            $totalAttempts = count($scores) + count($mocks) + count($tasks);
+            $activityBonus = ($totalAttempts > 0) ? (5.0 * (1.0 - exp(-$totalAttempts / 8.0))) : 0.0;
+
+            // Inactivity Decay (0% if active within 7 days; -10%/week after, max -50%)
+            $inactivityDecay = self::calculateInactivityDecay($tStamps);
+
+            // Final Total Points (Capped strictly at 100.0)
+            $finalScore = ($baseTotal + $activityBonus) * (1.0 - $inactivityDecay);
+            $totalScore = min(100.0, max(0.0, round($finalScore, 1)));
 
             // Academic History (for filtering and display)
             $history = $academicHistory[$lowUsn] ?? ($academicHistory[$lowAadhar] ?? []);
@@ -236,18 +244,23 @@ class LeaderboardService
 
     private static function fetchUnifiedScores($usnList)
     {
-        $stmt = getDB()->query("SELECT usn, assessment_type, AVG(max_score) as avg_score 
-                                FROM (
-                                    SELECT usn, company_name, assessment_type, MAX(score) as max_score
-                                    FROM unified_ai_assessments 
-                                    WHERE usn IN ($usnList) AND status = 'completed' 
-                                    GROUP BY usn, company_name, assessment_type
-                                ) as sub
-                                GROUP BY usn, assessment_type");
+        $stmt = getDB()->query("SELECT usn, student_id, assessment_type, score, total_marks, company_name, completed_at, started_at 
+                                FROM unified_ai_assessments 
+                                WHERE (usn IN ($usnList) OR student_id IN ($usnList)) AND status = 'completed'");
         $scores = [];
         while ($row = $stmt->fetch()) {
-            $type = trim($row['assessment_type']);
-            $scores[strtolower($row['usn'])][$type] = (float) $row['avg_score'];
+            $usnKey = strtolower($row['usn'] ?: $row['student_id']);
+            $score = (float) $row['score'];
+            $totalMarks = (float) ($row['total_marks'] ?? 100);
+            if ($totalMarks > 0 && $totalMarks != 100) {
+                $score = ($score / $totalMarks) * 100.0;
+            }
+            $scores[$usnKey][] = [
+                'type' => trim($row['assessment_type']),
+                'score' => $score,
+                'company_name' => $row['company_name'] ?? '',
+                'completed_at' => $row['completed_at'] ?: $row['started_at']
+            ];
         }
         return $scores;
     }
@@ -425,105 +438,136 @@ class LeaderboardService
         $timestamps = [];
 
         // 1. Unified Assessments
-        $stmt = $db->query("SELECT usn, started_at FROM unified_ai_assessments WHERE usn IN ($usnList) AND status = 'completed' ORDER BY started_at ASC");
+        $stmt = $db->query("SELECT usn, student_id, started_at, completed_at FROM unified_ai_assessments WHERE (usn IN ($usnList) OR student_id IN ($usnList)) AND status = 'completed'");
         while ($row = $stmt->fetch()) {
-            $timestamps[strtolower($row['usn'])][] = strtotime($row['started_at']);
+            $key = strtolower($row['usn'] ?: $row['student_id']);
+            $ts = strtotime($row['completed_at'] ?: $row['started_at']);
+            if ($ts > 0) {
+                $timestamps[$key][] = $ts;
+            }
         }
 
         // 2. Mock Interviews
-        $stmt = $db->query("SELECT student_id as usn, started_at FROM mock_ai_interview_sessions WHERE student_id IN ($usnList) AND status = 'completed' ORDER BY started_at ASC");
+        $stmt = $db->query("SELECT student_id as usn, started_at, completed_at FROM mock_ai_interview_sessions WHERE student_id IN ($usnList) AND status = 'completed'");
         while ($row = $stmt->fetch()) {
-            $timestamps[strtolower($row['usn'])][] = strtotime($row['started_at']);
+            $key = strtolower($row['usn']);
+            $ts = strtotime($row['completed_at'] ?: $row['started_at']);
+            if ($ts > 0) {
+                $timestamps[$key][] = $ts;
+            }
+        }
+
+        // 3. Task Completions
+        $stmt = $db->query("SELECT student_id as usn, completed_at FROM task_completions WHERE student_id IN ($usnList)");
+        while ($row = $stmt->fetch()) {
+            $key = strtolower($row['usn']);
+            $ts = strtotime($row['completed_at']);
+            if ($ts > 0) {
+                $timestamps[$key][] = $ts;
+            }
         }
 
         return $timestamps;
     }
 
-    private static function calculateInactivityPenalty($userTimestamps)
+    private static function calculateInactivityDecay($userTimestamps)
     {
-        if (empty($userTimestamps))
-            return 0;
-
-        sort($userTimestamps);
-        $penalty = 0;
-        $oneDay = 86400;
-        $policyStartDate = strtotime('2026-04-30 00:00:00'); // Penalty starts today
-
-        // Calculate historical gaps, but only those occurring after the policy start date
-        for ($i = 0; $i < count($userTimestamps) - 1; $i++) {
-            $gapStart = max($policyStartDate, $userTimestamps[$i]);
-            $gapEnd = $userTimestamps[$i + 1];
-
-            if ($gapEnd > $gapStart) {
-                $gap = $gapEnd - $gapStart;
-                if ($gap > $oneDay) {
-                    $penalty += floor($gap / $oneDay);
-                }
-            }
+        if (empty($userTimestamps)) {
+            return 0.0;
         }
 
-        // Calculate current gap since last activity, relative to policy start
-        $lastActivity = max($policyStartDate, end($userTimestamps));
-        $currentGap = time() - $lastActivity;
+        $latestActivity = max($userTimestamps);
+        $daysInactive = floor((time() - $latestActivity) / 86400);
 
-        if ($currentGap > $oneDay) {
-            $penalty += floor($currentGap / $oneDay);
+        // 7-day grace period: 0% decay
+        if ($daysInactive <= 7) {
+            return 0.0;
         }
 
-        return $penalty;
+        // Beyond 7 days: 10% decay per week of inactivity, capped at 50% maximum
+        $weeksInactive = ($daysInactive - 7) / 7.0;
+        return min(0.50, $weeksInactive * 0.10);
     }
 
-    private static function applyDifficultyWeight($score, $difficulty, $completedAt)
+    public static function applyDifficultyWeight($score, $difficulty = '', $context = '')
     {
-        $completedTimestamp = strtotime($completedAt);
-        $policyStartDate = strtotime('2026-07-14 00:00:00'); // Applied from today onwards
-
-        if ($completedTimestamp < $policyStartDate) {
-            return (float) $score;
-        }
-
         $diff = strtolower(trim((string) $difficulty));
-        if ($diff === 'low') {
-            return (float) $score * 0.4;
+        
+        // Explicit difficulty ratings
+        if ($diff === 'low' || $diff === 'easy') {
+            return min(60.0, (float) $score * 0.60);
         }
-        if ($diff === 'medium') {
-            return (float) $score * 0.9;
+        if ($diff === 'medium' || $diff === 'intermediate') {
+            return min(80.0, (float) $score * 0.80);
         }
-        if ($diff === 'high') {
-            return (float) $score * 1.0;
+        if ($diff === 'high' || $diff === 'hard' || $diff === 'expert' || $diff === 'advanced') {
+            return min(100.0, (float) $score * 1.00);
         }
-        return (float) $score;
+
+        // Contextual fallback: AI Mock Interviews & Project Defenses are rated High (1.0x, max 100)
+        if (stripos($context, 'defense') !== false || stripos($context, 'interview') !== false) {
+            return min(100.0, (float) $score * 1.00);
+        }
+
+        // Standard assessments default to Medium tier (0.80x, max 80)
+        return min(80.0, (float) $score * 0.80);
+    }
+
+    public static function calculatePillarScore(array $scores)
+    {
+        if (empty($scores)) {
+            return 0.0;
+        }
+
+        // Sort descending: best scores first
+        rsort($scores, SORT_NUMERIC);
+        $count = count($scores);
+
+        if ($count === 1) {
+            // 1 Attempt: Provisional rating (85% confidence factor)
+            return round($scores[0] * 0.85, 1);
+        }
+        if ($count === 2) {
+            // 2 Attempts: 65% best + 35% second best
+            return round(($scores[0] * 0.65) + ($scores[1] * 0.35), 1);
+        }
+        // 3+ Attempts: Top-3 weighted consistency (50% best, 30% second, 20% third)
+        return round(($scores[0] * 0.50) + ($scores[1] * 0.30) + ($scores[2] * 0.20), 1);
     }
 
     private static function calculatePillars($userScores, $userMocks, $userTasks = [])
     {
         $tempPillars = ['aptitude' => [], 'technical' => [], 'hr' => []];
 
-        // Process Unified
-        foreach ($userScores as $type => $score) {
-            $lType = strtolower($type);
-            if (in_array($lType, ['aptitude', 'cognitive', 'nqt foundation']))
-                $tempPillars['aptitude'][] = $score;
-            elseif (in_array($lType, ['hr', 'behavioral', 'mock hr']))
-                $tempPillars['hr'][] = $score;
-            else
-                $tempPillars['technical'][] = $score;
+        // Process Unified Assessments
+        foreach ($userScores as $u) {
+            $type = strtolower($u['type'] ?? '');
+            $score = (float) ($u['score'] ?? 0);
+            $weightedScore = self::applyDifficultyWeight($score, 'medium', $type);
+
+            if (in_array($type, ['aptitude', 'cognitive', 'nqt foundation'])) {
+                $tempPillars['aptitude'][] = $weightedScore;
+            } elseif (in_array($type, ['hr', 'behavioral', 'mock hr'])) {
+                $tempPillars['hr'][] = $weightedScore;
+            } else {
+                $tempPillars['technical'][] = $weightedScore;
+            }
         }
 
         // Process Assigned Tasks
         foreach ($userTasks as $t) {
-            $type = strtolower($t['task_type']);
-            $score = (float) $t['score'];
+            $type = strtolower($t['task_type'] ?? '');
+            $score = (float) ($t['score'] ?? 0);
             $difficulty = $t['difficulty'] ?? '';
-            $completedAt = $t['completed_at'] ?? '2026-07-13 00:00:00';
-            $weightedScore = self::applyDifficultyWeight($score, $difficulty, $completedAt);
+            $weightedScore = self::applyDifficultyWeight($score, $difficulty, $type);
 
-            if ($type === 'aptitude')
+            if ($type === 'aptitude') {
                 $tempPillars['aptitude'][] = $weightedScore;
-            elseif ($type === 'technical')
+            } elseif ($type === 'technical') {
                 $tempPillars['technical'][] = $weightedScore;
-            elseif ($type === 'hr')
+            } elseif ($type === 'hr') {
                 $tempPillars['hr'][] = $weightedScore;
+            }
         }
 
         // Process Mocks (with sniffing)
@@ -531,43 +575,43 @@ class LeaderboardService
             $report = $m['report_content'] ?? '';
             $role = strtolower($m['role_name'] ?? '');
             $overall = (float) ($m['overall_score'] ?? 0);
-            $difficulty = $m['difficulty'] ?? $m['difficulty_level'] ?? '';
-            $completedAt = $m['completed_at'] ?? $m['started_at'] ?? '2026-07-13 00:00:00';
+            $difficulty = $m['difficulty'] ?? $m['difficulty_level'] ?? 'high';
 
             $foundSection = false;
 
             if (preg_match('/Aptitude:\s*\[?(\d+)\]?\s*\/\s*10/i', $report, $matches)) {
-                $rawScore = (float) $matches[1] * 10;
-                $tempPillars['aptitude'][] = self::applyDifficultyWeight($rawScore, $difficulty, $completedAt);
+                $rawScore = (float) $matches[1] * 10.0;
+                $tempPillars['aptitude'][] = self::applyDifficultyWeight($rawScore, $difficulty, 'aptitude');
                 $foundSection = true;
             }
             if (preg_match('/Technical(?:\s+Proficiency)?:\s*\[?(\d+)\]?\s*\/\s*10/i', $report, $matches)) {
-                $rawScore = (float) $matches[1] * 10;
-                $tempPillars['technical'][] = self::applyDifficultyWeight($rawScore, $difficulty, $completedAt);
+                $rawScore = (float) $matches[1] * 10.0;
+                $tempPillars['technical'][] = self::applyDifficultyWeight($rawScore, $difficulty, 'technical');
                 $foundSection = true;
             }
             if (preg_match('/HR:\s*\[?(\d+)\]?\s*\/\s*10/i', $report, $matches)) {
-                $rawScore = (float) $matches[1] * 10;
-                $tempPillars['hr'][] = self::applyDifficultyWeight($rawScore, $difficulty, $completedAt);
+                $rawScore = (float) $matches[1] * 10.0;
+                $tempPillars['hr'][] = self::applyDifficultyWeight($rawScore, $difficulty, 'hr');
                 $foundSection = true;
             }
 
             if (!$foundSection) {
                 $context = $role . ' ' . strip_tags($report);
-                $weightedScore = self::applyDifficultyWeight($overall, $difficulty, $completedAt);
-                if (preg_match('/aptitude|quant|logical|nqt/i', $context))
+                $weightedScore = self::applyDifficultyWeight($overall, $difficulty, $context);
+                if (preg_match('/aptitude|quant|logical|nqt/i', $context)) {
                     $tempPillars['aptitude'][] = $weightedScore;
-                elseif (preg_match('/hr|behavioral|culture|managerial/i', $context))
+                } elseif (preg_match('/hr|behavioral|culture|managerial/i', $context)) {
                     $tempPillars['hr'][] = $weightedScore;
-                else
+                } else {
                     $tempPillars['technical'][] = $weightedScore;
+                }
             }
         }
 
         return [
-            'aptitude' => !empty($tempPillars['aptitude']) ? array_sum($tempPillars['aptitude']) / count($tempPillars['aptitude']) : 0,
-            'technical' => !empty($tempPillars['technical']) ? array_sum($tempPillars['technical']) / count($tempPillars['technical']) : 0,
-            'hr' => !empty($tempPillars['hr']) ? array_sum($tempPillars['hr']) / count($tempPillars['hr']) : 0,
+            'aptitude' => self::calculatePillarScore($tempPillars['aptitude']),
+            'technical' => self::calculatePillarScore($tempPillars['technical']),
+            'hr' => self::calculatePillarScore($tempPillars['hr']),
         ];
     }
 }

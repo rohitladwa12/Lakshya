@@ -619,9 +619,7 @@ $fullName = getFullName();
                 try {
                     data = await response.json();
                 } catch (jsonErr) {
-                    const rawText = await responseClone.text();
-                    console.error('JSON parse failed:', jsonErr, 'Raw:', rawText);
-                    showLoadError('Server error: ' + rawText.substring(0, 300));
+                    showLoadError('Unable to load assessment questions. Please refresh.');
                     return;
                 }
                 if (data.success && data.job_id) {

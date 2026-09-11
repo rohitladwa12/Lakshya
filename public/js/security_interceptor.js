@@ -3,16 +3,13 @@
  * Automatically attaches CSRF tokens to all fetch, AJAX requests, and traditional HTML POST forms.
  */
 (function() {
-    console.log("Lakshya Security: Hardening Interceptor...");
-    
     const token = (window.CSRF_TOKEN) ? window.CSRF_TOKEN : null;
     
     if (!token) {
-        console.error("Lakshya Security: CRITICAL - CSRF_TOKEN not found!");
         return;
     }
 
-    // 1. Intercept 'fetch' using a more robust getter/setter approach
+    // 1. Intercept 'fetch' using a robust getter/setter approach
     const nativeFetch = window.fetch;
     
     Object.defineProperty(window, 'fetch', {
@@ -20,8 +17,6 @@
         enumerable: true,
         get: function() {
             return function(resource, config) {
-                console.log("Lakshya Security: Intercepted fetch to", resource);
-                
                 // If it's a Request object, handle it
                 if (resource instanceof Request) {
                     if (resource.method.toUpperCase() === 'POST') {
@@ -32,7 +27,6 @@
 
                 // If it's a URL string
                 if (config && config.method && config.method.toUpperCase() === 'POST') {
-                    console.log("Lakshya Security: !!! ATTACHED TOKEN TO POST !!!");
                     if (!config.headers) config.headers = {};
                     
                     // Add to Headers
@@ -44,12 +38,10 @@
 
                     // Add to Body
                     if (config.body instanceof FormData) {
-                        console.log("Lakshya Security: Appending to FormData");
                         if (!config.body.has('csrf_token')) {
                             config.body.append('csrf_token', token);
                         }
                     } else if (typeof config.body === 'string') {
-                        console.log("Lakshya Security: Appending to String Body");
                         const trimmed = config.body.trim();
                         const isJson = trimmed.startsWith('{') || trimmed.startsWith('[');
                         if (isJson) {
@@ -59,16 +51,13 @@
                                     parsed.csrf_token = token;
                                     config.body = JSON.stringify(parsed);
                                 }
-                            } catch (e) {
-                                console.warn("Lakshya Security: Failed parsing JSON body to inject csrf_token", e);
-                            }
+                            } catch (e) {}
                         } else {
                             if (!config.body.includes('csrf_token=')) {
                                 config.body += (config.body ? '&' : '') + 'csrf_token=' + encodeURIComponent(token);
                             }
                         }
                     } else if (!config.body) {
-                        console.log("Lakshya Security: Creating Body");
                         config.body = 'csrf_token=' + encodeURIComponent(token);
                         if (!(config.headers instanceof Headers)) {
                             config.headers['Content-Type'] = 'application/x-www-form-urlencoded';
@@ -76,8 +65,6 @@
                             config.headers.set('Content-Type', 'application/x-www-form-urlencoded');
                         }
                     }
-                } else {
-                    console.log("Lakshya Security: Non-POST request, bypassing attachment.");
                 }
                 return nativeFetch(resource, config);
             };
@@ -111,7 +98,6 @@
                 input.name = 'csrf_token';
                 input.value = token;
                 form.appendChild(input);
-                console.log("Lakshya Security: Injected CSRF token into form", form);
             }
         });
     };
@@ -140,7 +126,7 @@
     });
     observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
 
-    // 4. Intercept programmatic HTMLFormElement.prototype.submit() (fires synchronously before navigation)
+    // 4. Intercept programmatic HTMLFormElement.prototype.submit()
     const nativeSubmit = HTMLFormElement.prototype.submit;
     HTMLFormElement.prototype.submit = function() {
         if (this.getAttribute('method')?.toUpperCase() === 'POST' || this.method?.toUpperCase() === 'POST') {
@@ -150,13 +136,12 @@
                 input.name = 'csrf_token';
                 input.value = token;
                 this.appendChild(input);
-                console.log("Lakshya Security: Injected CSRF token on programmatic submit() call");
             }
         }
         return nativeSubmit.apply(this, arguments);
     };
 
-    // 5. Intercept standard submit events (fallback for standard buttons/enter submit)
+    // 5. Intercept standard submit events
     document.addEventListener('submit', function(event) {
         const form = event.target;
         if (form.getAttribute('method')?.toUpperCase() === 'POST' || form.method?.toUpperCase() === 'POST') {
@@ -166,10 +151,7 @@
                 input.name = 'csrf_token';
                 input.value = token;
                 form.appendChild(input);
-                console.log("Lakshya Security: Injected CSRF token on submit event");
             }
         }
     }, true);
-
-    console.log("Lakshya Security: Interceptor Lock Active.");
 })();

@@ -113,17 +113,24 @@ try {
                 // Handle Photo (Compulsory)
                 if (isset($_FILES['file_upload_photo']) && $_FILES['file_upload_photo']['error'] === UPLOAD_ERR_OK) {
                     $file = $_FILES['file_upload_photo'];
+                    
+                    // Max 5MB size limit
+                    if ($file['size'] > 5 * 1024 * 1024) {
+                        echo json_encode(['success' => false, 'message' => 'Profile Photo exceeds maximum allowed size (5MB).']);
+                        exit;
+                    }
+
                     $mime = mime_content_type($file['tmp_name']);
                     if (strpos($mime, 'image') === false) {
                         echo json_encode(['success' => false, 'message' => 'Profile Photo must be an image.']);
                         exit;
                     }
                     $ext = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
-                    if (!in_array($ext, ['jpg', 'jpeg', 'png'])) {
-                        echo json_encode(['success' => false, 'message' => 'Profile Photo must be a JPG or PNG file.']);
+                    if (!in_array($ext, ['jpg', 'jpeg', 'png', 'webp'])) {
+                        echo json_encode(['success' => false, 'message' => 'Profile Photo must be a JPG, PNG, or WEBP file.']);
                         exit;
                     }
-                    $filename = $username . '_intro_photo_' . time() . '.' . $ext;
+                    $filename = preg_replace('/[^a-zA-Z0-9_-]/', '', $username) . '_intro_photo_' . time() . '.' . $ext;
                     if (move_uploaded_file($file['tmp_name'], $photoDir . $filename)) {
                         $data['attachment_path'] = 'uploads/profile photos/' . $filename;
                     }
@@ -135,6 +142,13 @@ try {
                 // Handle Video (Compulsory)
                 if (isset($_FILES['file_upload_video']) && $_FILES['file_upload_video']['error'] === UPLOAD_ERR_OK) {
                     $file = $_FILES['file_upload_video'];
+                    
+                    // Max 15MB size limit
+                    if ($file['size'] > 15 * 1024 * 1024) {
+                        echo json_encode(['success' => false, 'message' => 'Intro Video exceeds maximum allowed size (15MB).']);
+                        exit;
+                    }
+
                     $mime = mime_content_type($file['tmp_name']);
                     if (strpos($mime, 'video') === false) {
                         echo json_encode(['success' => false, 'message' => 'Intro Video must be a video file.']);
@@ -145,7 +159,7 @@ try {
                         echo json_encode(['success' => false, 'message' => 'Intro Video must be a valid video format (MP4, AVI, MOV, WEBM).']);
                         exit;
                     }
-                    $filename = $username . '_intro_video_' . time() . '.' . $ext;
+                    $filename = preg_replace('/[^a-zA-Z0-9_-]/', '', $username) . '_intro_video_' . time() . '.' . $ext;
                     if (move_uploaded_file($file['tmp_name'], $videoDir . $filename)) {
                         $data['attachment_path_2'] = 'uploads/self intro video/' . $filename; // Store video in path 2
                     }
@@ -163,12 +177,18 @@ try {
                 if (isset($_FILES['certificate_files'])) {
                     foreach ($_FILES['certificate_files']['tmp_name'] as $key => $tmpName) {
                         if ($_FILES['certificate_files']['error'][$key] === UPLOAD_ERR_OK) {
+                            $size = $_FILES['certificate_files']['size'][$key] ?? 0;
+                            if ($size > 10 * 1024 * 1024) continue; // Skip files > 10MB
+
                             $name = $_FILES['certificate_files']['name'][$key];
                             $ext = strtolower(pathinfo($name, PATHINFO_EXTENSION));
                             
-                            if (!in_array($ext, ['pdf', 'jpg', 'jpeg', 'png'])) continue; // skip invalid files
+                            if (!in_array($ext, ['pdf', 'jpg', 'jpeg', 'png', 'webp'])) continue; // skip invalid files
                             
-                            $filename = $username . '_cert_' . time() . '_' . $key . '.' . $ext;
+                            $mime = mime_content_type($tmpName);
+                            if (strpos($mime, 'image') === false && strpos($mime, 'pdf') === false) continue;
+
+                            $filename = preg_replace('/[^a-zA-Z0-9_-]/', '', $username) . '_cert_' . time() . '_' . $key . '.' . $ext;
                             if (move_uploaded_file($tmpName, $uploadDir . $filename)) {
                                 $paths[] = 'uploads/certificates/' . $filename;
                             }

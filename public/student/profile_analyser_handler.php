@@ -16,6 +16,13 @@ require_once __DIR__ . '/../../src/Services/AIService.php';
 
 header('Content-Type: application/json');
 
+// Rate limit: 5 profile analysis AI requests per user per 60 seconds
+if (!checkRateLimit("profile_analyser_{$userId}", 5, 60)) {
+    http_response_code(429);
+    echo json_encode(['success' => false, 'message' => 'Too many requests. Please wait before trying again.']);
+    exit;
+}
+
 try {
     require_once __DIR__ . '/../../src/Models/AIAnalysisCache.php';
     $studentModel = new StudentProfile();

@@ -17,6 +17,15 @@ ob_start();
 
 header('Content-Type: application/json');
 
+$userId = getUserId();
+// Rate limit: 10 NQT aptitude requests per user per 60 seconds
+if (!checkRateLimit("nqt_aptitude_{$userId}", 10, 60)) {
+    http_response_code(429);
+    ob_clean();
+    echo json_encode(['success' => false, 'message' => 'Too many requests. Please wait before trying again.']);
+    exit;
+}
+
 try {
     $db = getDB();
     switch ($action) {

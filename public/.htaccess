@@ -40,4 +40,43 @@ DirectoryIndex index.php
 <IfModule mod_headers.c>
     Header set X-Robots-Tag "index, follow"
     Header set X-Content-Type-Options "nosniff"
+    Header set X-Frame-Options "SAMEORIGIN"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+    Header set Permissions-Policy "geolocation=(), microphone=(self), camera=()"
+</IfModule>
+
+# ─── Block Common Attack Scanners & Vulnerability Probes ───────────────────────
+<IfModule mod_rewrite.c>
+    # Block requests with null bytes in URI (common in path traversal attacks)
+    RewriteCond %{QUERY_STRING} (\%00|%00|\x00) [NC]
+    RewriteRule .* - [F,L]
+
+    # Block shell/code injection patterns in query strings
+    RewriteCond %{QUERY_STRING} (union.*select|select.*from|insert.*into|drop.*table|exec\() [NC]
+    RewriteRule .* - [F,L]
+
+    # Block common vulnerability scanner user agents
+    RewriteCond %{HTTP_USER_AGENT} (nikto|sqlmap|nmap|masscan|zgrab|dirbuster|gobuster|wfuzz|acunetix|nessus|openvas|burpsuite|havij|metasploit|w3af|hydra|medusa) [NC]
+    RewriteRule .* - [F,L]
+
+    # Block requests with no User-Agent (automated crawlers/scrapers)
+    RewriteCond %{HTTP_USER_AGENT} ^-?$
+    RewriteRule .* - [F,L]
+
+    # Block requests for config/env files that should never be public
+    RewriteRule \.(env|git|htpasswd|gitignore|bak|sql|swp|log|ini|conf)$ - [F,L]
+</IfModule>
+
+# ─── Request Size Limits (prevent oversized payload DoS) ────────────────────────
+<IfModule mod_php.c>
+    php_value upload_max_filesize 10M
+    php_value post_max_size 12M
+    php_value max_execution_time 120
+    php_value memory_limit 256M
+</IfModule>
+<IfModule mod_php8.c>
+    php_value upload_max_filesize 10M
+    php_value post_max_size 12M
+    php_value max_execution_time 120
+    php_value memory_limit 256M
 </IfModule>

@@ -748,11 +748,11 @@ if (isset($filters['export']) && $section === 'details') {
             $resC = $stmtC->fetchColumn();
             if ($resC) $currentSem = $resC;
         }
-        echo "<td>{$s['institution']}</td><td>{$s['usn']}</td><td>{$s['name']}</td><td>{$currentSem}</td><td>{$s['aadhar']}</td><td>{$s['faculty']}</td><td>{$s['discipline']}</td><td>{$s['programme']}</td>";
-        echo "<td>{$s['father_name']}</td><td>{$s['mother_name']}</td><td>{$s['parent_mobile']}</td>";
+        echo "<td>{$s['institution']}</td><td style=\"mso-number-format:'\@';\">{$s['usn']}</td><td>{$s['name']}</td><td>{$currentSem}</td><td style=\"mso-number-format:'\@';\">{$s['aadhar']}</td><td>{$s['faculty']}</td><td>{$s['discipline']}</td><td>{$s['programme']}</td>";
+        echo "<td>{$s['father_name']}</td><td>{$s['mother_name']}</td><td style=\"mso-number-format:'\@';\">{$s['parent_mobile']}</td>";
         echo "<td>{$count}</td>";
         foreach ($sgpaData as $val) echo "<td>" . ($val !== null ? number_format($val, 2) : '-') . "</td>";
-        echo "<td>" . ($s['puc_percentage'] ?? '-') . "</td><td>" . ($s['sslc_percentage'] ?? '-') . "</td><td>{$s['student_mobile']}</td><td>{$s['email_id']}</td><td>" . ($resumeLink !== 'No Resume' ? "<a href=\"" . htmlspecialchars($resumeLink) . "\">" . htmlspecialchars($resumeLink) . "</a>" : "No Resume") . "</td>";
+        echo "<td>" . ($s['puc_percentage'] ?? '-') . "</td><td>" . ($s['sslc_percentage'] ?? '-') . "</td><td style=\"mso-number-format:'\@';\">{$s['student_mobile']}</td><td>{$s['email_id']}</td><td>" . ($resumeLink !== 'No Resume' ? "<a href=\"" . htmlspecialchars($resumeLink) . "\">" . htmlspecialchars($resumeLink) . "</a>" : "No Resume") . "</td>";
         echo "</tr>";
     }
 

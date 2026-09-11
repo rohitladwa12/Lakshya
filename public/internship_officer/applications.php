@@ -23,6 +23,7 @@ $applications = $applicationModel->getByInternship($internshipId);
 
 // Handle Excel Export
 if (isset($_GET['export']) && $_GET['export'] === 'excel') {
+    if (ob_get_length()) ob_clean();
     header('Content-Type: text/csv; charset=utf-8');
     header('Content-Disposition: attachment; filename="internship_applications_' . date('Y-m-d_His') . '.csv"');
     
@@ -31,81 +32,92 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
     // Add BOM for Excel UTF-8 support
     fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
     
-    // Determine the maximum semester with actual data across all students
-    $maxSemester = 0;
-    foreach ($applications as $app) {
-        $semSgpa = $app['sem_sgpa_all'] ?? [];
-        for ($i = 8; $i >= 1; $i--) {
-            // Skip null, empty, and 0.00 values
-            if (isset($semSgpa[$i]) && $semSgpa[$i] !== null && $semSgpa[$i] !== '' && floatval($semSgpa[$i]) > 0) {
-                $maxSemester = max($maxSemester, $i);
-                break;
-            }
-        }
-    }
-    
-    // If no semester data found, don't add semester columns
-    $hasSemesterData = ($maxSemester > 0);
-    
-    // CSV Headers
-    $headers = [
-        'Sl No', 'Name', 'Student ID', 'Institution', 'Course', 'Branch', 'Current Sem'
-    ];
-    
-    // Only add semester columns if there's data
-    if ($hasSemesterData) {
-        for ($i = 1; $i <= $maxSemester; $i++) {
-            $headers[] = "Sem $i SGPA";
-        }
-    }
-    
-    $headers = array_merge($headers, ['Company', 'Role', 'Applied On', 'Status', 'Email', 'Phone', 'Resume Link']);
-    fputcsv($output, $headers);
-    
-    // CSV Data
-    $slNo = 1;
-    foreach ($applications as $app) {
-        $row = [
-            $slNo++,
-            $app['student_name'] ?? 'Unknown',
-            $app['student_id'] ?? 'N/A',
-            $app['institution'] ?? 'N/A',
-            $app['course'] ?? 'N/A',
-            $app['branch'] ?? 'N/A',
-            $app['sem'] ?? 'N/A'
-        ];
-        
-        // Add semester SGPAs only if there's data
-        if ($hasSemesterData) {
-            $semSgpa = $app['sem_sgpa_all'] ?? array_fill(1, 8, null);
-            for ($i = 1; $i <= $maxSemester; $i++) {
-                // Skip null, empty, and 0.00 values
+    try {
+        // Determine the maximum semester with actual data across all students
+        $maxSemester = 0;
+        foreach ($applications as $app) {
+            $semSgpa = $app['sem_sgpa_all'] ?? [];
+            for ($i = 8; $i >= 1; $i--) {
                 if (isset($semSgpa[$i]) && $semSgpa[$i] !== null && $semSgpa[$i] !== '' && floatval($semSgpa[$i]) > 0) {
-                    $row[] = number_format($semSgpa[$i], 2);
-                } else {
-                    $row[] = '-';
+                    $maxSemester = max($maxSemester, $i);
+                    break;
                 }
             }
         }
         
-        $studentUsn = $app['student_id'] ?? ($app['usn'] ?? '');
-        $resumeFile = UPLOADS_PATH . '/resumes/Student_Resumes/' . strtoupper($studentUsn) . '_Resume.pdf';
-        $hasResume = !empty($app['resume_path']) || file_exists($resumeFile);
+        $hasSemesterData = ($maxSemester > 0);
         
-        $token = function_exists('generateResumeToken') ? generateResumeToken($studentUsn) : '';
-        $resumeUrl = APP_URL . '/student/view_resume.php?usn=' . urlencode($studentUsn) . ($token ? '&token=' . $token : '');
-        $resumeLink = $hasResume ? '=HYPERLINK("' . $resumeUrl . '", "View Resume")' : 'No Resume';
-        $row = array_merge($row, [
-            $internship['company_name'],
-            $internship['internship_title'],
-            date('d M Y h:i A', strtotime($app['applied_at'])),
-            $app['status'],
-            $app['email'] ?? 'N/A',
-            $app['phone'] ?? 'N/A',
-            $resumeLink
-        ]);
+        // CSV Headers
+        $headers = [
+            'Sl No', 'Name', 'Student ID', 'Institution', 'Course', 'Branch', 'Current Sem'
+        ];
         
-        fputcsv($output, $row);
+        if ($hasSemesterData) {
+            for ($i = 1; $i <= $maxSemester; $i++) {
+                $headers[] = "Sem $i SGPA";
+            }
+        }
+        
+        $headers = array_merge($headers, ['Company', 'Role', 'Applied On', 'Status', 'Email', 'Phone', 'Resume Link']);
+        fputcsv($output, $headers);
+        
+        // CSV Data
+        $slNo = 1;
+        foreach ($applications as $app) {
+            $studentUsn = trim((string)($app['student_id'] ?? ($app['usn'] ?? 'N/A')));
+            $usnFormatted = ($studentUsn !== 'N/A') ? '="' . $studentUsn . '"' : 'N/A';
+
+            $row = [
+                $slNo++,
+                $app['student_name'] ?? 'Unknown',
+                $usnFormatted,
+                $app['institution'] ?? 'N/A',
+                $app['course'] ?? 'N/A',
+                $app['branch'] ?? 'N/A',
+                $app['sem'] ?? 'N/A'
+            ];
+            
+            if ($hasSemesterData) {
+                $semSgpa = $app['sem_sgpa_all'] ?? array_fill(1, 8, null);
+                for ($i = 1; $i <= $maxSemester; $i++) {
+                    if (isset($semSgpa[$i]) && $semSgpa[$i] !== null && $semSgpa[$i] !== '' && floatval($semSgpa[$i]) > 0) {
+                        $row[] = number_format($semSgpa[$i], 2);
+                    } else {
+                        $row[] = '-';
+                    }
+                }
+            }
+            
+            $resumeFile = UPLOADS_PATH . '/resumes/Student_Resumes/' . strtoupper($studentUsn) . '_Resume.pdf';
+            $hasResume = !empty($app['resume_path']) || file_exists($resumeFile);
+            
+            $token = function_exists('generateResumeToken') ? generateResumeToken($studentUsn) : '';
+            $resumeUrl = APP_URL . '/student/view_resume.php?usn=' . urlencode($studentUsn) . ($token ? '&token=' . $token : '');
+            $resumeLink = $hasResume ? '=HYPERLINK("' . $resumeUrl . '", "View Resume")' : 'No Resume';
+            
+            // Format phone number to prevent scientific notation (e.g. 9.19876E+11) in Excel
+            $rawPhone = trim((string)($app['phone'] ?? ''));
+            if (!empty($rawPhone) && $rawPhone !== 'N/A' && $rawPhone !== '-') {
+                $cleanPhone = preg_replace('/[^0-9+]/', '', $rawPhone);
+                $phoneFormatted = '="' . $cleanPhone . '"';
+            } else {
+                $phoneFormatted = 'N/A';
+            }
+
+            $row = array_merge($row, [
+                $internship['company_name'] ?? 'N/A',
+                $internship['internship_title'] ?? 'N/A',
+                !empty($app['applied_at']) ? date('d M Y h:i A', strtotime($app['applied_at'])) : 'N/A',
+                $app['status'] ?? 'Applied',
+                $app['email'] ?? 'N/A',
+                $phoneFormatted,
+                $resumeLink
+            ]);
+            
+            fputcsv($output, $row);
+        }
+    } catch (\Throwable $e) {
+        error_log("Internship Export Error: " . $e->getMessage());
     }
     
     fclose($output);
