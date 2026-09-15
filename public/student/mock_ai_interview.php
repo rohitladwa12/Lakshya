@@ -2708,13 +2708,29 @@ if (strpos($compLower, 'google') !== false) {
                 }
 
                 if (webcamStream) {
-                    webcamStream.getTracks().forEach(t => t.stop());
+                    try { webcamStream.getTracks().forEach(t => t.stop()); } catch(e){}
                 }
 
-                webcamStream = await navigator.mediaDevices.getUserMedia({
-                    video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
-                    audio: false
-                });
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    if (window.isSecureContext === false) {
+                        throw new Error("INSECURE_CONTEXT");
+                    }
+                    throw new Error("MEDIA_NOT_SUPPORTED");
+                }
+
+                try {
+                    webcamStream = await navigator.mediaDevices.getUserMedia({
+                        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+                        audio: false
+                    });
+                } catch (firstErr) {
+                    console.warn("Primary camera constraints failed, attempting fallback...", firstErr);
+                    // Fallback to basic video stream if high-res or facingMode fails
+                    webcamStream = await navigator.mediaDevices.getUserMedia({
+                        video: true,
+                        audio: false
+                    });
+                }
 
                 const previewVideo = document.getElementById('setupWebcamPreview');
                 if (previewVideo) {
@@ -2745,17 +2761,34 @@ if (strpos($compLower, 'google') !== false) {
 
             } catch (err) {
                 console.error("Camera Error:", err);
-                handleCameraStreamLost();
+                handleCameraStreamLost(err);
             }
         }
 
-        function handleCameraStreamLost() {
+        function handleCameraStreamLost(err = null) {
             if (cameraSetupTimer) clearInterval(cameraSetupTimer);
             const statusEl = document.getElementById('setupCheckStatus');
             const btnEl = document.getElementById('btnGrantCamera');
+            
+            let errMsg = '❌ Camera stream lost or permission denied.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please enable webcam access in your browser and click Retry below.</span>';
+
+            if (err) {
+                if (err.message === 'INSECURE_CONTEXT') {
+                    errMsg = '❌ Camera blocked: Insecure Context.<br><span style="font-size:0.8rem; font-weight:600; color:#ef4444;">Browsers require HTTPS or localhost for camera access. Please use https:// or access via localhost.</span>';
+                } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                    errMsg = '❌ Camera permission was denied.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Click the 🔒 icon in your browser address bar, allow Camera access, and click Retry.</span>';
+                } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+                    errMsg = '❌ No camera device detected.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please plug in a webcam and click Retry below.</span>';
+                } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+                    errMsg = '❌ Camera is currently in use.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Another app (Zoom, Teams, or another tab) is using the webcam. Please close it and click Retry.</span>';
+                } else if (err.name === 'SecurityError') {
+                    errMsg = '❌ Camera access restricted by security policy.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Permissions policy or browser configuration is blocking camera access.</span>';
+                }
+            }
+
             if (statusEl) {
                 statusEl.style.color = '#ef4444';
-                statusEl.innerHTML = '❌ Camera stream lost or permission denied.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please enable webcam access in your browser and click Retry below.</span>';
+                statusEl.innerHTML = errMsg;
             }
             if (btnEl) {
                 btnEl.textContent = '↻ Retry Camera Setup';

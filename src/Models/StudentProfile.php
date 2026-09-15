@@ -519,14 +519,9 @@ class StudentProfile extends Model {
                 ) latest ON ad.usn = latest.usn AND ad.SL_NO = latest.max_sl
                 LEFT JOIN {$gmuPrefix}users u ON u.USER_NAME = ad.usn AND u.STATUS = 'ACTIVE'
                 UNION ALL
-                SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.course, ad.discipline, ad.academic_year, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as NAME, u.MOBILE_NO, IFNULL(u.ENQUIRY_NO, 0) as user_sl_no, '" . INSTITUTION_GMIT . "' as institution, 0 as sem, ad.aadhar, u.PHOTO as PHOTO
+                SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.course, ad.discipline, ad.academic_year, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as NAME, IFNULL(u.MOBILE_NO, ad.student_mobile) as MOBILE_NO, IFNULL(u.ENQUIRY_NO, ad.enquiry_no) as user_sl_no, '" . INSTITUTION_GMIT . "' as institution, 0 as sem, ad.aadhar, u.PHOTO as PHOTO
                 FROM {$gmitPrefix}ad_student_details ad
-                LEFT JOIN {$gmitPrefix}users u ON (
-                    (u.USER_NAME = ad.usn AND ad.usn != '') 
-                    OR (u.USER_NAME = ad.student_id AND ad.student_id != '') 
-                    OR (u.AADHAR = ad.aadhar AND ad.aadhar != '' AND ad.aadhar IS NOT NULL) 
-                    OR (u.ENQUIRY_NO = ad.enquiry_no AND ad.enquiry_no != 0 AND ad.enquiry_no IS NOT NULL)
-                ) AND u.STATUS = 'ACTIVE'";
+                LEFT JOIN {$gmitPrefix}users u ON u.USER_NAME = ad.student_id AND u.STATUS = 'ACTIVE'";
         
         $sql = "SELECT * FROM ({$sql}) as combined WHERE 1=1";
                 
@@ -728,15 +723,9 @@ class StudentProfile extends Model {
                     FROM {$gmuPrefix}ad_student_approved ad
                     LEFT JOIN {$gmuPrefix}users u ON u.USER_NAME = ad.usn AND u.STATUS = 'ACTIVE'
                     UNION ALL
-                    SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.name, ad.discipline, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as user_name, IFNULL(u.ENQUIRY_NO, 0) as user_sl_no, u.MOBILE_NO, ad.course, ad.academic_year, '" . INSTITUTION_GMIT . "' as institution, 0 as sem, u.PHOTO as PHOTO
+                    SELECT IFNULL(NULLIF(ad.usn, ''), ad.student_id) as usn, ad.name, ad.discipline, IFNULL(u.USER_NAME, IFNULL(NULLIF(ad.usn, ''), ad.student_id)) as USER_NAME, IFNULL(u.NAME, ad.name) as user_name, IFNULL(u.ENQUIRY_NO, 0) as user_sl_no, IFNULL(u.MOBILE_NO, ad.student_mobile) as MOBILE_NO, ad.course, ad.academic_year, '" . INSTITUTION_GMIT . "' as institution, 0 as sem, u.PHOTO as PHOTO
                     FROM {$gmitPrefix}ad_student_details ad
-                    LEFT JOIN {$gmitPrefix}users u ON (
-                        (u.USER_NAME = ad.usn AND ad.usn != '') 
-                        OR (u.USER_NAME = ad.student_id AND ad.student_id != '') 
-                        OR (u.AADHAR = ad.aadhar_no AND ad.aadhar_no != '' AND ad.aadhar_no IS NOT NULL) 
-                        OR (u.AADHAR = ad.aadhar AND ad.aadhar != '' AND ad.aadhar IS NOT NULL) 
-                        OR (u.ENQUIRY_NO = ad.enquiry_no AND ad.enquiry_no != 0 AND ad.enquiry_no IS NOT NULL)
-                    ) AND u.STATUS = 'ACTIVE'
+                    LEFT JOIN {$gmitPrefix}users u ON u.USER_NAME = ad.student_id AND u.STATUS = 'ACTIVE'
                 ) as combined
                 WHERE (name LIKE ? OR usn LIKE ? OR USER_NAME LIKE ?)";
         $params = [$searchTerm, $searchTerm, $searchTerm];

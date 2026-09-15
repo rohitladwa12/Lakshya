@@ -671,8 +671,6 @@ if (!empty($studentIds)) {
             -webkit-font-smoothing: antialiased;
         }
         
-        .navbar-spacer { height: 70px; }
-        
         .main-content { 
             max-width: 1280px;
             margin: 0 auto;

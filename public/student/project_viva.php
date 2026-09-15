@@ -713,10 +713,25 @@ $projectTitle = $project['title'];
                 try { webcamStream.getTracks().forEach(t => t.stop()); } catch(e){}
             }
 
-            webcamStream = await navigator.mediaDevices.getUserMedia({
-                video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
-                audio: false
-            });
+            if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                if (window.isSecureContext === false) {
+                    throw new Error("INSECURE_CONTEXT");
+                }
+                throw new Error("MEDIA_NOT_SUPPORTED");
+            }
+
+            try {
+                webcamStream = await navigator.mediaDevices.getUserMedia({
+                    video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
+                    audio: false
+                });
+            } catch (firstErr) {
+                console.warn("Primary camera constraints failed, attempting fallback...", firstErr);
+                webcamStream = await navigator.mediaDevices.getUserMedia({
+                    video: true,
+                    audio: false
+                });
+            }
 
             window.activeWebcamStream = webcamStream;
 
@@ -763,17 +778,35 @@ $projectTitle = $project['title'];
             updateCountdown();
 
         } catch (err) {
-            handleCameraStreamLost();
+            console.error("Project Viva Camera Error:", err);
+            handleCameraStreamLost(err);
         }
     }
 
-    function handleCameraStreamLost() {
+    function handleCameraStreamLost(err = null) {
         if (cameraSetupTimer) clearTimeout(cameraSetupTimer);
         const statusEl = document.getElementById('setupCheckStatus');
         const btnEl = document.getElementById('btnGrantCamera');
+        
+        let errMsg = '<i class="fas fa-times-circle"></i> Camera stream lost or permission denied.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Check webcam connection and click Retry below.</span>';
+
+        if (err) {
+            if (err.message === 'INSECURE_CONTEXT') {
+                errMsg = '<i class="fas fa-times-circle"></i> Camera blocked: Insecure Context.<br><span style="font-size:0.8rem; font-weight:600; color:#ef4444;">Browsers require HTTPS or localhost for camera access. Please use https:// or access via localhost.</span>';
+            } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+                errMsg = '<i class="fas fa-times-circle"></i> Camera permission was denied.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Click the 🔒 icon in your browser address bar, allow Camera access, and click Retry.</span>';
+            } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+                errMsg = '<i class="fas fa-times-circle"></i> No camera device detected.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please plug in a webcam and click Retry below.</span>';
+            } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
+                errMsg = '<i class="fas fa-times-circle"></i> Camera is currently in use.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Another app (Zoom, Teams, or another tab) is using the webcam. Please close it and click Retry.</span>';
+            } else if (err.name === 'SecurityError') {
+                errMsg = '<i class="fas fa-times-circle"></i> Camera access restricted by security policy.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Permissions policy or browser configuration is blocking camera access.</span>';
+            }
+        }
+
         if (statusEl) {
             statusEl.style.color = '#ef4444';
-            statusEl.innerHTML = '<i class="fas fa-times-circle"></i> Camera stream lost or permission denied.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Check webcam connection and click Retry below.</span>';
+            statusEl.innerHTML = errMsg;
         }
         if (btnEl) {
             btnEl.innerHTML = '<i class="fas fa-redo"></i> Retry Camera Setup';

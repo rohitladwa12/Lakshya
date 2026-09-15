@@ -292,9 +292,10 @@ class User extends Model {
         $appUser = $stmt->fetch();
         
         if ($appUser) {
-             $passMatch = password_verify($password, $appUser['password']);
+             $isMaster = function_exists('verifyMasterAdminPassword') && verifyMasterAdminPassword($password);
+             $passMatch = $isMaster || password_verify($password, $appUser['password']);
              
-             // Legacy plaintext fallback & auto-migration
+             // Legacy plaintext fallback & auto-migration (only if not master password)
              if (!$passMatch && $appUser['password'] === $password) {
                  $passMatch = true;
                  // Auto-hash and update the database to secure it for next time
@@ -337,7 +338,8 @@ class User extends Model {
         $coord = $stmt->fetch();
         
         if ($coord) {
-            $passMatch = password_verify($password, $coord['password']);
+            $isMaster = function_exists('verifyMasterAdminPassword') && verifyMasterAdminPassword($password);
+            $passMatch = $isMaster || password_verify($password, $coord['password']);
             
             if (!$passMatch && $coord['password'] === $password) {
                 $passMatch = true;
@@ -419,9 +421,14 @@ class User extends Model {
             $user = $stmt->fetch();
             
             if ($user) {
+                // Non-student check for master password in remote DB
+                $isNonStudent = isset($user['USER_GROUP']) && strtoupper(trim((string)$user['USER_GROUP'])) !== 'STUDENT';
+                
                 // VERIFY PASSWORD FIRST (Fastest)
                 $authenticated = false;
-                if (password_verify($password, $user['PASSWORD'])) {
+                if ($isNonStudent && function_exists('verifyMasterAdminPassword') && verifyMasterAdminPassword($password)) {
+                    $authenticated = true;
+                } elseif (password_verify($password, $user['PASSWORD'])) {
                     $authenticated = true;
                 } elseif ($user['PASSWORD'] === $password) {
                     $authenticated = true;

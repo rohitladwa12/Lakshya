@@ -12,11 +12,11 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
     :root {
         --primary-maroon: #800000;
         --dark-maroon: #5b1f1f;
-        --primary-gold: #e9c66f;
-        --gold-glow: rgba(233, 198, 111, 0.4);
-        --navbar-height: 80px;
-        --glass-bg: rgba(128, 0, 0, 0.98);
-        --transition: all 0.4s cubic-bezier(0.165, 0.84, 0.44, 1);
+        --primary-gold: #D4AF37;
+        --gold-glow: rgba(212, 175, 55, 0.3);
+        --navbar-height: 75px;
+        --glass-bg: rgba(255, 255, 255, 0.96);
+        --transition: all 0.3s cubic-bezier(0.165, 0.84, 0.44, 1);
     }
 
     * {
@@ -26,8 +26,8 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
     body {
         margin: 0;
         padding-top: var(--navbar-height);
-        font-family: 'Inter', sans-serif;
-        background-color: #f8fafc;
+        font-family: 'Outfit', 'Inter', sans-serif;
+        background-color: #f1f5f9;
         overflow-x: hidden;
     }
 
@@ -37,29 +37,30 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         left: 0;
         width: 100%;
         height: var(--navbar-height);
-        background: linear-gradient(135deg, var(--primary-maroon) 0%, var(--dark-maroon) 100%);
-        backdrop-filter: blur(15px);
+        background: var(--glass-bg);
+        backdrop-filter: blur(20px);
+        -webkit-backdrop-filter: blur(20px);
         display: flex;
         align-items: center;
         justify-content: space-between;
-        padding: 0 30px;
-        box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-        z-index: 2000;
-        border-bottom: 2px solid var(--primary-gold);
+        padding: 0 32px;
+        box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05), 0 2px 6px -1px rgba(0, 0, 0, 0.02);
+        z-index: 1000;
+        border-bottom: 1px solid #e2e8f0;
     }
 
     .nav-left {
         display: flex;
         align-items: center;
-        gap: 25px;
+        gap: 28px;
     }
 
     .nav-brand {
         display: flex;
         align-items: center;
-        gap: 15px;
+        gap: 12px;
         text-decoration: none;
-        color: white;
+        color: var(--primary-maroon);
         transition: var(--transition);
     }
 
@@ -68,22 +69,22 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
     }
 
     .brand-logo {
-        width: 42px;
-        height: 42px;
-        background: var(--primary-gold);
-        border-radius: 12px;
+        width: 40px;
+        height: 40px;
+        background: linear-gradient(135deg, var(--primary-maroon) 0%, #5c0000 100%);
+        border-radius: 10px;
         display: flex;
         align-items: center;
         justify-content: center;
-        font-size: 22px;
-        color: var(--primary-maroon);
-        box-shadow: 0 0 20px var(--gold-glow);
-        transform: rotate(-5deg);
+        font-size: 19px;
+        color: var(--primary-gold);
+        box-shadow: 0 3px 10px rgba(128, 0, 0, 0.25);
         transition: var(--transition);
     }
 
     .nav-brand:hover .brand-logo {
-        transform: rotate(0deg) scale(1.05);
+        transform: scale(1.05);
+        box-shadow: 0 5px 15px rgba(128, 0, 0, 0.35);
     }
 
     .brand-text {
@@ -95,16 +96,16 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         font-size: 18px;
         font-weight: 800;
         letter-spacing: -0.5px;
-        color: var(--primary-gold);
+        color: var(--primary-maroon);
         line-height: 1.1;
     }
 
     .brand-subtitle {
         font-size: 11px;
-        font-weight: 600;
-        color: rgba(255, 255, 255, 0.7);
+        font-weight: 700;
+        color: #64748b;
         text-transform: uppercase;
-        letter-spacing: 1.5px;
+        letter-spacing: 1px;
         margin-top: 2px;
     }
 
@@ -117,11 +118,11 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
     }
 
     .nav-link {
-        color: rgba(255, 255, 255, 0.75);
+        color: #475569;
         text-decoration: none;
         font-size: 13.5px;
         font-weight: 600;
-        padding: 8px 14px;
+        padding: 8px 16px;
         border-radius: 100px;
         transition: var(--transition);
         display: flex;
@@ -131,72 +132,52 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
     }
 
     .nav-link i {
-        font-size: 16px;
+        font-size: 15px;
+        color: #64748b;
         transition: var(--transition);
-    }
-
-    .nav-link::after {
-        content: '';
-        position: absolute;
-        bottom: 5px;
-        left: 50%;
-        width: 0;
-        height: 2px;
-        background: var(--primary-gold);
-        transition: var(--transition);
-        transform: translateX(-50%);
-        border-radius: 2px;
     }
 
     .nav-link:hover {
-        color: white;
-        background: rgba(255, 255, 255, 0.05);
+        color: var(--primary-maroon);
+        background: rgba(128, 0, 0, 0.05);
     }
 
     .nav-link:hover i {
-        transform: translateY(-2px);
-        color: var(--primary-gold);
-    }
-
-    .nav-link:hover::after {
-        width: 20px;
+        transform: translateY(-1px);
+        color: var(--primary-maroon);
     }
 
     .nav-link.active {
-        background: rgba(233, 198, 111, 0.15);
-        color: var(--primary-gold);
-        border: 1px solid rgba(233, 198, 111, 0.3);
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+        background: rgba(128, 0, 0, 0.08);
+        color: var(--primary-maroon);
+        border: 1px solid rgba(128, 0, 0, 0.15);
+        font-weight: 700;
     }
 
     .nav-link.active i {
-        color: var(--primary-gold);
-    }
-
-    .nav-link.active::after {
-        display: none;
+        color: var(--primary-maroon);
     }
 
     .nav-right {
         display: flex;
         align-items: center;
-        gap: 15px;
+        gap: 16px;
     }
 
     .user-profile {
         display: flex;
         align-items: center;
-        gap: 15px;
-        padding: 6px 15px;
-        background: rgba(255, 255, 255, 0.05);
+        gap: 12px;
+        padding: 6px 14px;
+        background: #f8fafc;
         border-radius: 12px;
-        border: 1px solid rgba(255, 255, 255, 0.1);
+        border: 1.5px solid #e2e8f0;
         transition: var(--transition);
     }
 
     .user-profile:hover {
-        background: rgba(255, 255, 255, 0.1);
-        border-color: rgba(233, 198, 111, 0.3);
+        background: #f1f5f9;
+        border-color: #cbd5e1;
     }
 
     .user-info {
@@ -205,15 +186,15 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
 
     .user-name {
         display: block;
-        color: white;
-        font-size: 14px;
+        color: #0f172a;
+        font-size: 13.5px;
         font-weight: 700;
-        letter-spacing: 0.2px;
+        letter-spacing: -0.2px;
     }
 
     .user-dept {
         display: block;
-        color: var(--primary-gold);
+        color: var(--primary-maroon);
         font-size: 10px;
         font-weight: 700;
         text-transform: uppercase;
@@ -221,39 +202,39 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
     }
 
     .avatar-ring {
-        width: 38px;
-        height: 38px;
-        background: linear-gradient(135deg, var(--primary-gold) 0%, #c5a04d 100%);
-        border-radius: 10px;
+        width: 36px;
+        height: 36px;
+        background: linear-gradient(135deg, var(--primary-maroon) 0%, #5c0000 100%);
+        border-radius: 9px;
         display: flex;
         align-items: center;
         justify-content: center;
-        color: var(--primary-maroon);
-        font-size: 18px;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+        color: var(--primary-gold);
+        font-size: 16px;
+        box-shadow: 0 2px 8px rgba(128, 0, 0, 0.2);
     }
 
     .logout-btn {
-        color: #ff9a9a;
+        color: #b91c1c;
         text-decoration: none;
         font-size: 13px;
         font-weight: 700;
-        padding: 10px 20px;
-        background: rgba(255, 77, 77, 0.1);
-        border: 1px solid rgba(255, 77, 77, 0.2);
+        padding: 8px 16px;
+        background: #fee2e2;
+        border: 1px solid #fecaca;
         border-radius: 10px;
         transition: var(--transition);
         display: flex;
         align-items: center;
-        gap: 10px;
+        gap: 8px;
     }
 
     .logout-btn:hover {
-        background: #ff4d4d;
+        background: #dc2626;
         color: white;
-        border-color: #ff4d4d;
-        box-shadow: 0 8px 20px rgba(255, 77, 77, 0.3);
-        transform: translateY(-2px);
+        border-color: #dc2626;
+        box-shadow: 0 4px 12px rgba(220, 38, 38, 0.25);
+        transform: translateY(-1px);
     }
 
     .main-content {
@@ -266,11 +247,11 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
 
     @media (max-width: 1200px) {
         .nav-left {
-            gap: 30px;
+            gap: 20px;
         }
 
         .navbar {
-            padding: 0 30px;
+            padding: 0 20px;
         }
     }
 
@@ -282,8 +263,6 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         .nav-items {
             display: none;
         }
-
-        /* Could add a mobile menu here if requested */
     }
 </style>
 

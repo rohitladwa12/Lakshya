@@ -1069,7 +1069,7 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
         /* ===== PRINT STYLES ===== */
         @media print {
             /* Hide everything UI-related */
-            nav, .navbar-spacer, .back-link, .filter-tabs, .no-print,
+            nav, .back-link, .filter-tabs, .no-print,
             button, .btn-primary, .task-card, .tasks-grid,
             .page-header, .stats-grid, .btn-edit-deadline, .task-details-concepts {
                 display: none !important;
@@ -1185,8 +1185,6 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
 
 <body>
     <?php include __DIR__ . '/includes/navbar.php'; ?>
-
-    <div class="navbar-spacer"></div>
 
     <div class="container">
         <?php if (isset($_SESSION['success_message'])): ?>

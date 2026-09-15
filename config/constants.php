@@ -255,8 +255,8 @@ if (!function_exists('getCoordinatorDisciplineFilters')) {
             return ['ISE', 'IS'];
         }
 
-        if ($dept === 'CSE') {
-            return ['CSE', 'CS', 'DIP CSE'];
+        if ($dept === 'CSE' || $dept === 'COMPUTER SCIENCE AND ENGINEERING' || $dept === 'COMPUTER SCIENCE & ENGINEERING') {
+            return ['CSE', 'CS', 'DIP CSE', 'COMPUTER SCIENCE AND ENGINEERING', 'COMPUTER SCIENCE & ENGINEERING'];
         }
 
         if (isset($map[$dept])) {

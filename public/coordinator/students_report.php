@@ -323,101 +323,8 @@ function buildInClauseCoord($column, $values, &$params) {
 $gmuPrefix = DB_GMU_PREFIX;
 $gmitPrefix = DB_GMIT_PREFIX;
 
-$combinedApproved = "
-    (SELECT usn, name, aadhar, faculty, school, programme, course, discipline, year, sem, sgpa, registered, usn as student_id_map, '" . INSTITUTION_GMU . "' as institution FROM {$gmuPrefix}ad_student_approved
-     UNION ALL
-     SELECT IFNULL(NULLIF(usn, ''), student_id) as usn, name, aadhar, college as faculty, college as school, programme, course, discipline, 0 as year, 0 as sem, 0.0 as sgpa, 1 as registered, student_id as student_id_map, '" . INSTITUTION_GMIT . "' as institution FROM {$gmitPrefix}ad_student_details)
-";
-
-$combinedDetails = "
-    (SELECT usn, student_id, gender, dob, student_mobile, parent_mobile, father_name, mother_name, email_id, puc_percentage, sslc_percentage, category, district, taluk, state, regular_lateral
-     FROM {$gmuPrefix}ad_student_details
-     UNION ALL
-     SELECT usn, student_id, gender, dob, student_mobile, parent_mobile, father_name, mother_name, email_id, puc_percentage, sslc_percentage, category, district, taluk, state, regular_lateral
-     FROM {$gmitPrefix}ad_student_details)
-";
-
-$where_clauses = []; // No registered filter — students in latest sem are always valid
-$params = [];
-
-if ($instFilter) {
-    $where_clauses[] = "asa.institution = ?";
-    $params[] = $instFilter;
-}
-
-if ($search) {
-    $where_clauses[] = "(asa.usn LIKE ? OR asa.name LIKE ? OR asa.aadhar LIKE ? OR asd.student_mobile LIKE ? OR asd.parent_mobile LIKE ? OR asd.father_name LIKE ? OR asd.email_id LIKE ?)";
-    for ($k = 0; $k < 7; $k++) {
-        $params[] = "%$search%";
-    }
-}
-
-if ($discipline_filter_sql = buildInClauseCoord("asa.discipline", $discipline_filter, $params)) {
-    $where_clauses[] = $discipline_filter_sql;
-}
-
-// 10th and 12th Percentage Filters
-if ($min_puc > 0) {
-    $where_clauses[] = "CAST(NULLIF(asd.puc_percentage, '') AS DECIMAL(5,2)) >= ?";
-    $params[] = $min_puc;
-}
-if ($min_sslc > 0) {
-    $where_clauses[] = "CAST(NULLIF(asd.sslc_percentage, '') AS DECIMAL(5,2)) >= ?";
-    $params[] = $min_sslc;
-}
-
-// Gender Filter
-if ($gender_filter === 'M' || $gender_filter === 'F') {
-    $where_clauses[] = "asd.gender LIKE ?";
-    $params[] = $gender_filter . '%';
-}
-
-// Portfolio Verification Status Filter
-if ($portfolio_filter === 'verified') {
-    $stmtVer = $localDB->query("SELECT DISTINCT student_id FROM student_portfolio WHERE is_verified = 1");
-    $verIds = $stmtVer ? $stmtVer->fetchAll(PDO::FETCH_COLUMN) : [];
-    if (!empty($verIds)) {
-        $phVer = implode(',', array_fill(0, count($verIds), '?'));
-        $where_clauses[] = "asa.usn IN ($phVer)";
-        $params = array_merge($params, $verIds);
-    } else {
-        $where_clauses[] = "1=0";
-    }
-} elseif ($portfolio_filter === 'unverified') {
-    $stmtVer = $localDB->query("SELECT DISTINCT student_id FROM student_portfolio WHERE is_verified = 1");
-    $verIds = $stmtVer ? $stmtVer->fetchAll(PDO::FETCH_COLUMN) : [];
-    if (!empty($verIds)) {
-        $phVer = implode(',', array_fill(0, count($verIds), '?'));
-        $where_clauses[] = "asa.usn NOT IN ($phVer)";
-        $params = array_merge($params, $verIds);
-    }
-}
-
-// Freeze Status Filter
-if ($freeze_filter === 'frozen') {
-    $stmtFrz = $localDB->query("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE freezed = 1");
-    $frzIds = $stmtFrz ? $stmtFrz->fetchAll(PDO::FETCH_COLUMN) : [];
-    if (!empty($frzIds)) {
-        $phFrz = implode(',', array_fill(0, count($frzIds), '?'));
-        $where_clauses[] = "asa.usn IN ($phFrz)";
-        $params = array_merge($params, $frzIds);
-    } else {
-        $where_clauses[] = "1=0";
-    }
-} elseif ($freeze_filter === 'active') {
-    $stmtFrz = $localDB->query("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE freezed = 1");
-    $frzIds = $stmtFrz ? $stmtFrz->fetchAll(PDO::FETCH_COLUMN) : [];
-    if (!empty($frzIds)) {
-        $phFrz = implode(',', array_fill(0, count($frzIds), '?'));
-        $where_clauses[] = "asa.usn NOT IN ($phFrz)";
-        $params = array_merge($params, $frzIds);
-    }
-}
-
-// Semester eligibility
-$sem_placeholders = implode(',', array_fill(0, count($semester_filter), '?'));
-
 // 1. GMIT active USNs in selected semesters
+$sem_placeholders = implode(',', array_fill(0, count($semester_filter), '?'));
 $stmtLocal = $localDB->prepare("
     SELECT DISTINCT s.student_id
     FROM student_sem_sgpa s
@@ -442,61 +349,22 @@ if (!empty($gmitUsnsRaw)) {
         $stmtRef->execute(array_merge($gmitUsnsRaw, $gmitUsnsRaw, $gmitUsnsRaw, $gmitUsnsRaw));
         $mapped = $stmtRef->fetchAll(PDO::FETCH_ASSOC);
         foreach ($mapped as $m) {
-            if ($m['usn']) $gmitUsns[] = $m['usn'];
-            if ($m['student_id']) $gmitUsns[] = $m['student_id'];
+            if (!empty($m['usn'])) $gmitUsns[] = $m['usn'];
+            if (!empty($m['student_id'])) $gmitUsns[] = $m['student_id'];
         }
         $gmitUsns = array_values(array_unique($gmitUsns));
     }
 }
 
-// 2. GMU semester matching rule
-$gmuCurrentSql = "asa.usn IN (
-    SELECT cur_rows.usn
-    FROM {$gmuPrefix}ad_student_approved cur_rows
-    JOIN (
-        SELECT usn, MAX(sem) AS current_sem
-        FROM {$gmuPrefix}ad_student_approved
-        GROUP BY usn
-    ) cur ON cur.usn = cur_rows.usn AND cur_rows.sem = cur.current_sem
-    WHERE cur_rows.sem IN ($sem_placeholders)
-)";
-
-if (!$instFilter) {
-    foreach ($semester_filter as $s_val) $params[] = $s_val;
-    if (!empty($gmitUsns)) {
-        $placeholders = implode(',', array_fill(0, count($gmitUsns), '?'));
-        $where_clauses[] = "((asa.institution = '" . INSTITUTION_GMU . "' AND $gmuCurrentSql) OR (asa.institution = '" . INSTITUTION_GMIT . "' AND asa.usn IN ($placeholders)))";
-        $params = array_merge($params, $gmitUsns);
-    } else {
-        $where_clauses[] = "(asa.institution = '" . INSTITUTION_GMU . "' AND $gmuCurrentSql)";
-    }
-} else {
-    if ($instFilter === INSTITUTION_GMU) {
-        $where_clauses[] = $gmuCurrentSql;
-        foreach ($semester_filter as $s_val) $params[] = $s_val;
-    } else {
-        if (!empty($gmitUsns)) {
-            $placeholders = implode(',', array_fill(0, count($gmitUsns), '?'));
-            $where_clauses[] = "asa.usn IN ($placeholders)";
-            $params = array_merge($params, $gmitUsns);
-        } else {
-            $where_clauses[] = "1=0";
-        }
-    }
-}
-
-// 3. Fully Advanced & Universal SGPA Filter (Checks local student_sem_sgpa + remote DB)
+// 2. Advanced & Universal SGPA Filter (Checks local student_sem_sgpa + remote DB)
+$qualifyingSgpaIds = null;
 if ($min_sgpa > 0 || $max_sgpa > 0) {
     $qualifyingSgpaIds = [];
-    
     if ($sgpa_mode === 'avg') {
-        // Cumulative CGPA / Average SGPA
-        $havingLocal = [];
-        $havingParamsLocal = [];
+        $havingLocal = []; $havingParamsLocal = [];
         if ($min_sgpa > 0) { $havingLocal[] = "AVG(sgpa) >= ?"; $havingParamsLocal[] = $min_sgpa; }
         if ($max_sgpa > 0) { $havingLocal[] = "AVG(sgpa) <= ?"; $havingParamsLocal[] = $max_sgpa; }
         $hLocalSql = implode(" AND ", $havingLocal);
-        
         $stmtLSgpa = $localDB->prepare("SELECT student_id FROM student_sem_sgpa WHERE sgpa > 0 GROUP BY student_id HAVING $hLocalSql");
         $stmtLSgpa->execute($havingParamsLocal);
         $localIds = $stmtLSgpa->fetchAll(PDO::FETCH_COLUMN);
@@ -504,104 +372,60 @@ if ($min_sgpa > 0 || $max_sgpa > 0) {
         $stmtGSgpa = $db->prepare("SELECT usn FROM {$gmuPrefix}ad_student_approved WHERE sgpa > 0 GROUP BY usn HAVING $hLocalSql");
         $stmtGSgpa->execute($havingParamsLocal);
         $gmuIds = $stmtGSgpa->fetchAll(PDO::FETCH_COLUMN);
-        
         $qualifyingSgpaIds = array_values(array_unique(array_merge($localIds, $gmuIds)));
-        
     } elseif (strpos($sgpa_mode, 'sem_') === 0) {
-        // Specific Semester (Sem 1 to 8)
         $semTarget = (int)str_replace('sem_', '', $sgpa_mode);
-        $condsL = ["semester = ?", "sgpa > 0"];
-        $pL = [$semTarget];
+        $condsL = ["semester = ?", "sgpa > 0"]; $pL = [$semTarget];
         if ($min_sgpa > 0) { $condsL[] = "sgpa >= ?"; $pL[] = $min_sgpa; }
         if ($max_sgpa > 0) { $condsL[] = "sgpa <= ?"; $pL[] = $max_sgpa; }
         $cSqlL = implode(" AND ", $condsL);
-
         $stmtLSgpa = $localDB->prepare("SELECT student_id FROM student_sem_sgpa WHERE $cSqlL");
         $stmtLSgpa->execute($pL);
         $localIds = $stmtLSgpa->fetchAll(PDO::FETCH_COLUMN);
 
-        $condsG = ["sem = ?", "sgpa > 0"];
-        $pG = [$semTarget];
+        $condsG = ["sem = ?", "sgpa > 0"]; $pG = [$semTarget];
         if ($min_sgpa > 0) { $condsG[] = "sgpa >= ?"; $pG[] = $min_sgpa; }
         if ($max_sgpa > 0) { $condsG[] = "sgpa <= ?"; $pG[] = $max_sgpa; }
         $cSqlG = implode(" AND ", $condsG);
-
         $stmtGSgpa = $db->prepare("SELECT usn FROM {$gmuPrefix}ad_student_approved WHERE $cSqlG");
         $stmtGSgpa->execute($pG);
         $gmuIds = $stmtGSgpa->fetchAll(PDO::FETCH_COLUMN);
-
         $qualifyingSgpaIds = array_values(array_unique(array_merge($localIds, $gmuIds)));
 
-        // DIPLOMA / LATERAL ENTRY CONSIDERATION:
-        // Diploma students start directly in 2nd year (Sem 3) and have NO Sem 1 or Sem 2 SGPA.
-        // When filtering by Sem 1 or Sem 2, evaluate them on their starting degree semester (Sem 3 SGPA) or Diploma aggregate percentage!
         if ($semTarget === 1 || $semTarget === 2) {
-            // 1. GMU Diploma students whose Sem 3 SGPA meets criteria
-            $condsDipG = ["cur.sem = 3", "cur.sgpa > 0"];
-            $pDipG = [];
+            $condsDipG = ["cur.sem = 3", "cur.sgpa > 0"]; $pDipG = [];
             if ($min_sgpa > 0) { $condsDipG[] = "cur.sgpa >= ?"; $pDipG[] = $min_sgpa; }
             if ($max_sgpa > 0) { $condsDipG[] = "cur.sgpa <= ?"; $pDipG[] = $max_sgpa; }
             $cSqlDipG = implode(" AND ", $condsDipG);
-
-            $stmtDipG = $db->prepare("
-                SELECT DISTINCT cur.usn 
-                FROM {$gmuPrefix}ad_student_approved cur
-                LEFT JOIN {$gmuPrefix}ad_student_details det ON cur.usn = det.usn
-                WHERE (det.regular_lateral = 'LATERAL' OR cur.usn NOT IN (
-                    SELECT DISTINCT usn FROM {$gmuPrefix}ad_student_approved WHERE sem IN (1, 2) AND sgpa > 0
-                ))
-                AND $cSqlDipG
-            ");
+            $stmtDipG = $db->prepare("SELECT DISTINCT cur.usn FROM {$gmuPrefix}ad_student_approved cur LEFT JOIN {$gmuPrefix}ad_student_details det ON cur.usn = det.usn WHERE (det.regular_lateral = 'LATERAL' OR cur.usn NOT IN (SELECT DISTINCT usn FROM {$gmuPrefix}ad_student_approved WHERE sem IN (1, 2) AND sgpa > 0)) AND $cSqlDipG");
             $stmtDipG->execute($pDipG);
             $dipGmuIds = $stmtDipG->fetchAll(PDO::FETCH_COLUMN);
 
-            // 2. GMIT / Local Diploma students whose Sem 3 SGPA in student_sem_sgpa meets criteria
-            $condsDipL = ["s.semester = 3", "s.sgpa > 0"];
-            $pDipL = [];
+            $condsDipL = ["s.semester = 3", "s.sgpa > 0"]; $pDipL = [];
             if ($min_sgpa > 0) { $condsDipL[] = "s.sgpa >= ?"; $pDipL[] = $min_sgpa; }
             if ($max_sgpa > 0) { $condsDipL[] = "s.sgpa <= ?"; $pDipL[] = $max_sgpa; }
             $cSqlDipL = implode(" AND ", $condsDipL);
-
-            $stmtDipL = $localDB->prepare("
-                SELECT DISTINCT s.student_id 
-                FROM student_sem_sgpa s
-                WHERE s.student_id NOT IN (
-                    SELECT DISTINCT student_id FROM student_sem_sgpa WHERE semester IN (1, 2) AND sgpa > 0
-                )
-                AND $cSqlDipL
-            ");
+            $stmtDipL = $localDB->prepare("SELECT DISTINCT s.student_id FROM student_sem_sgpa s WHERE s.student_id NOT IN (SELECT DISTINCT student_id FROM student_sem_sgpa WHERE semester IN (1, 2) AND sgpa > 0) AND $cSqlDipL");
             $stmtDipL->execute($pDipL);
             $dipLocIds = $stmtDipL->fetchAll(PDO::FETCH_COLUMN);
 
-            // 3. Also check Diploma percentage in puc_percentage for lateral students (e.g. 7.5 SGPA ~ 75%)
             if ($min_sgpa > 0) {
-                $minPct = $min_sgpa * 10;
-                $maxPct = ($max_sgpa > 0) ? $max_sgpa * 10 : 100;
-                $stmtDipPctGmu = $db->prepare("
-                    SELECT usn FROM {$gmuPrefix}ad_student_details 
-                    WHERE regular_lateral = 'LATERAL' AND puc_percentage >= ? AND puc_percentage <= ?
-                ");
+                $minPct = $min_sgpa * 10; $maxPct = ($max_sgpa > 0) ? $max_sgpa * 10 : 100;
+                $stmtDipPctGmu = $db->prepare("SELECT usn FROM {$gmuPrefix}ad_student_details WHERE regular_lateral = 'LATERAL' AND puc_percentage >= ? AND puc_percentage <= ?");
                 $stmtDipPctGmu->execute([$minPct, $maxPct]);
                 $dipPctGmuIds = $stmtDipPctGmu->fetchAll(PDO::FETCH_COLUMN);
 
-                $db_gmit = getDB('gmit');
-                $dipPctGmitIds = [];
+                $db_gmit = getDB('gmit'); $dipPctGmitIds = [];
                 if ($db_gmit) {
-                    $stmtDipPctGmit = $db_gmit->prepare("
-                        SELECT IFNULL(NULLIF(usn, ''), student_id) FROM ad_student_details 
-                        WHERE regular_lateral LIKE '%LATERAL%' AND puc_percentage >= ? AND puc_percentage <= ?
-                    ");
+                    $stmtDipPctGmit = $db_gmit->prepare("SELECT IFNULL(NULLIF(usn, ''), student_id) FROM ad_student_details WHERE regular_lateral LIKE '%LATERAL%' AND puc_percentage >= ? AND puc_percentage <= ?");
                     $stmtDipPctGmit->execute([$minPct, $maxPct]);
                     $dipPctGmitIds = $stmtDipPctGmit->fetchAll(PDO::FETCH_COLUMN);
                 }
                 $qualifyingSgpaIds = array_values(array_unique(array_merge($qualifyingSgpaIds, $dipPctGmuIds, $dipPctGmitIds)));
             }
-
             $qualifyingSgpaIds = array_values(array_unique(array_merge($qualifyingSgpaIds, $dipGmuIds, $dipLocIds)));
         }
-
     } elseif ($sgpa_mode === 'all_sems') {
-        // Cleared all available semesters with >= min_sgpa (Diploma students evaluated on their available Sem 3+ semesters)
         $stmtLSgpa = $localDB->prepare("SELECT student_id FROM student_sem_sgpa WHERE sgpa > 0 GROUP BY student_id HAVING MIN(sgpa) >= ?");
         $stmtLSgpa->execute([$min_sgpa]);
         $localIds = $stmtLSgpa->fetchAll(PDO::FETCH_COLUMN);
@@ -609,51 +433,23 @@ if ($min_sgpa > 0 || $max_sgpa > 0) {
         $stmtGSgpa = $db->prepare("SELECT usn FROM {$gmuPrefix}ad_student_approved WHERE sgpa > 0 GROUP BY usn HAVING MIN(sgpa) >= ?");
         $stmtGSgpa->execute([$min_sgpa]);
         $gmuIds = $stmtGSgpa->fetchAll(PDO::FETCH_COLUMN);
-
         $qualifyingSgpaIds = array_values(array_unique(array_merge($localIds, $gmuIds)));
-
     } else {
-        // 'latest' / Current Semester SGPA (Default)
-        $condsL = ["s.sgpa > 0"];
-        $pL = [];
+        $condsL = ["s.sgpa > 0"]; $pL = [];
         if ($min_sgpa > 0) { $condsL[] = "s.sgpa >= ?"; $pL[] = $min_sgpa; }
         if ($max_sgpa > 0) { $condsL[] = "s.sgpa <= ?"; $pL[] = $max_sgpa; }
         $cSqlL = implode(" AND ", $condsL);
-
-        $stmtLSgpa = $localDB->prepare("
-            SELECT DISTINCT s.student_id 
-            FROM student_sem_sgpa s 
-            JOIN (
-                SELECT student_id, MAX(semester) as max_sem 
-                FROM student_sem_sgpa 
-                WHERE sgpa > 0 
-                GROUP BY student_id
-            ) m ON s.student_id = m.student_id AND s.semester = m.max_sem 
-            WHERE $cSqlL
-        ");
+        $stmtLSgpa = $localDB->prepare("SELECT DISTINCT s.student_id FROM student_sem_sgpa s JOIN (SELECT student_id, MAX(semester) as max_sem FROM student_sem_sgpa WHERE sgpa > 0 GROUP BY student_id) m ON s.student_id = m.student_id AND s.semester = m.max_sem WHERE $cSqlL");
         $stmtLSgpa->execute($pL);
         $localIds = $stmtLSgpa->fetchAll(PDO::FETCH_COLUMN);
 
-        $condsG = ["cur_rows.sgpa > 0"];
-        $pG = [];
+        $condsG = ["cur_rows.sgpa > 0"]; $pG = [];
         if ($min_sgpa > 0) { $condsG[] = "cur_rows.sgpa >= ?"; $pG[] = $min_sgpa; }
         if ($max_sgpa > 0) { $condsG[] = "cur_rows.sgpa <= ?"; $pG[] = $max_sgpa; }
         $cSqlG = implode(" AND ", $condsG);
-
-        $stmtGSgpa = $db->prepare("
-            SELECT DISTINCT cur_rows.usn 
-            FROM {$gmuPrefix}ad_student_approved cur_rows 
-            JOIN (
-                SELECT usn, MAX(sem) as max_sem 
-                FROM {$gmuPrefix}ad_student_approved 
-                WHERE sgpa > 0 
-                GROUP BY usn
-            ) cur ON cur_rows.usn = cur.usn AND cur_rows.sem = cur.max_sem 
-            WHERE $cSqlG
-        ");
+        $stmtGSgpa = $db->prepare("SELECT DISTINCT cur_rows.usn FROM {$gmuPrefix}ad_student_approved cur_rows JOIN (SELECT usn, MAX(sem) as max_sem FROM {$gmuPrefix}ad_student_approved WHERE sgpa > 0 GROUP BY usn) cur ON cur_rows.usn = cur.usn AND cur_rows.sem = cur.max_sem WHERE $cSqlG");
         $stmtGSgpa->execute($pG);
         $gmuIds = $stmtGSgpa->fetchAll(PDO::FETCH_COLUMN);
-
         $qualifyingSgpaIds = array_values(array_unique(array_merge($localIds, $gmuIds)));
     }
 
@@ -670,61 +466,181 @@ if ($min_sgpa > 0 || $max_sgpa > 0) {
             }
             $expandedSgpaIds = array_values(array_unique($expandedSgpaIds));
         }
-        $phQual = implode(',', array_fill(0, count($expandedSgpaIds), '?'));
-        $where_clauses[] = "(asa.usn IN ($phQual) OR asa.student_id_map IN ($phQual))";
-        $params = array_merge($params, $expandedSgpaIds, $expandedSgpaIds);
-    } else {
-        $where_clauses[] = "1=0";
+        $qualifyingSgpaIds = $expandedSgpaIds;
     }
 }
+
+// Portfolio & Freeze IDs
+$verIds = null;
+if ($portfolio_filter === 'verified' || $portfolio_filter === 'unverified') {
+    $stmtVer = $localDB->query("SELECT DISTINCT student_id FROM student_portfolio WHERE is_verified = 1");
+    $verIds = $stmtVer ? $stmtVer->fetchAll(PDO::FETCH_COLUMN) : [];
+}
+
+$frzIds = null;
+if ($freeze_filter === 'frozen' || $freeze_filter === 'active') {
+    $stmtFrz = $localDB->query("SELECT DISTINCT student_id FROM student_sem_sgpa WHERE freezed = 1");
+    $frzIds = $stmtFrz ? $stmtFrz->fetchAll(PDO::FETCH_COLUMN) : [];
+}
+
+// Build GMU Queries
+$gmuWhere = []; $gmuParams = [];
+if ($search !== '') {
+    $gmuWhere[] = "(asa.usn LIKE ? OR asa.name LIKE ? OR asa.aadhar LIKE ? OR asd.student_mobile LIKE ? OR asd.parent_mobile LIKE ? OR asd.father_name LIKE ? OR asd.email_id LIKE ?)";
+    for ($k = 0; $k < 7; $k++) $gmuParams[] = "%$search%";
+}
+if ($discSql = buildInClauseCoord("asa.discipline", $discipline_filter, $gmuParams)) { $gmuWhere[] = $discSql; }
+if ($min_puc > 0) { $gmuWhere[] = "CAST(NULLIF(asd.puc_percentage, '') AS DECIMAL(5,2)) >= ?"; $gmuParams[] = $min_puc; }
+if ($min_sslc > 0) { $gmuWhere[] = "CAST(NULLIF(asd.sslc_percentage, '') AS DECIMAL(5,2)) >= ?"; $gmuParams[] = $min_sslc; }
+if ($gender_filter === 'M' || $gender_filter === 'F') { $gmuWhere[] = "asd.gender LIKE ?"; $gmuParams[] = $gender_filter . '%'; }
+
+if ($portfolio_filter === 'verified') {
+    if (!empty($verIds)) { $gmuWhere[] = buildInClauseCoord("asa.usn", $verIds, $gmuParams); } else { $gmuWhere[] = "1=0"; }
+} elseif ($portfolio_filter === 'unverified') {
+    if (!empty($verIds)) { $ph = implode(',', array_fill(0, count($verIds), '?')); $gmuWhere[] = "asa.usn NOT IN ($ph)"; foreach ($verIds as $v) $gmuParams[] = $v; }
+}
+
+if ($freeze_filter === 'frozen') {
+    if (!empty($frzIds)) { $gmuWhere[] = buildInClauseCoord("asa.usn", $frzIds, $gmuParams); } else { $gmuWhere[] = "1=0"; }
+} elseif ($freeze_filter === 'active') {
+    if (!empty($frzIds)) { $ph = implode(',', array_fill(0, count($frzIds), '?')); $gmuWhere[] = "asa.usn NOT IN ($ph)"; foreach ($frzIds as $f) $gmuParams[] = $f; }
+}
+
+if ($qualifyingSgpaIds !== null) {
+    if (!empty($qualifyingSgpaIds)) { $gmuWhere[] = buildInClauseCoord("asa.usn", $qualifyingSgpaIds, $gmuParams); } else { $gmuWhere[] = "1=0"; }
+}
+
+$gmuWhere[] = "asa.usn IN (
+    SELECT cur_rows.usn
+    FROM {$gmuPrefix}ad_student_approved cur_rows
+    JOIN (
+        SELECT usn, MAX(sem) AS current_sem
+        FROM {$gmuPrefix}ad_student_approved
+        GROUP BY usn
+    ) cur ON cur.usn = cur_rows.usn AND cur_rows.sem = cur.current_sem
+    WHERE cur_rows.sem IN ($sem_placeholders)
+)";
+foreach ($semester_filter as $s_val) $gmuParams[] = $s_val;
+
+// Build GMIT Queries
+$gmitWhere = []; $gmitParams = [];
+if ($search !== '') {
+    $gmitWhere[] = "(asd.usn LIKE ? OR asd.name LIKE ? OR asd.student_id LIKE ? OR asd.aadhar LIKE ? OR asd.student_mobile LIKE ? OR asd.parent_mobile LIKE ? OR asd.father_name LIKE ? OR asd.email_id LIKE ?)";
+    for ($k = 0; $k < 8; $k++) $gmitParams[] = "%$search%";
+}
+if ($discSqlGmit = buildInClauseCoord("asd.discipline", $discipline_filter, $gmitParams)) { $gmitWhere[] = $discSqlGmit; }
+if ($min_puc > 0) { $gmitWhere[] = "CAST(NULLIF(asd.puc_percentage, '') AS DECIMAL(5,2)) >= ?"; $gmitParams[] = $min_puc; }
+if ($min_sslc > 0) { $gmitWhere[] = "CAST(NULLIF(asd.sslc_percentage, '') AS DECIMAL(5,2)) >= ?"; $gmitParams[] = $min_sslc; }
+if ($gender_filter === 'M' || $gender_filter === 'F') { $gmitWhere[] = "asd.gender LIKE ?"; $gmitParams[] = $gender_filter . '%'; }
+
+if ($portfolio_filter === 'verified') {
+    if (!empty($verIds)) { $gmitWhere[] = buildInClauseCoord("IFNULL(NULLIF(asd.usn, ''), asd.student_id)", $verIds, $gmitParams); } else { $gmitWhere[] = "1=0"; }
+} elseif ($portfolio_filter === 'unverified') {
+    if (!empty($verIds)) { $ph = implode(',', array_fill(0, count($verIds), '?')); $gmitWhere[] = "IFNULL(NULLIF(asd.usn, ''), asd.student_id) NOT IN ($ph)"; foreach ($verIds as $v) $gmitParams[] = $v; }
+}
+
+if ($freeze_filter === 'frozen') {
+    if (!empty($frzIds)) { $gmitWhere[] = buildInClauseCoord("IFNULL(NULLIF(asd.usn, ''), asd.student_id)", $frzIds, $gmitParams); } else { $gmitWhere[] = "1=0"; }
+} elseif ($freeze_filter === 'active') {
+    if (!empty($frzIds)) { $ph = implode(',', array_fill(0, count($frzIds), '?')); $gmitWhere[] = "IFNULL(NULLIF(asd.usn, ''), asd.student_id) NOT IN ($ph)"; foreach ($frzIds as $f) $gmitParams[] = $f; }
+}
+
+if ($qualifyingSgpaIds !== null) {
+    if (!empty($qualifyingSgpaIds)) { $gmitWhere[] = buildInClauseCoord("IFNULL(NULLIF(asd.usn, ''), asd.student_id)", $qualifyingSgpaIds, $gmitParams); } else { $gmitWhere[] = "1=0"; }
+}
+
+if (!empty($gmitUsns)) {
+    $gmitWhere[] = buildInClauseCoord("IFNULL(NULLIF(asd.usn, ''), asd.student_id)", $gmitUsns, $gmitParams);
+} else {
+    $gmitWhere[] = "1=0";
+}
+
+$gmuWhereSql = !empty($gmuWhere) ? "WHERE " . implode(" AND ", $gmuWhere) : "";
+$gmitWhereSql = !empty($gmitWhere) ? "WHERE " . implode(" AND ", $gmitWhere) : "";
+
+$gmuSubQuery = "
+    SELECT asa.usn, MAX(asa.name) as name, asa.aadhar, MAX(asa.faculty) as faculty, MAX(asa.school) as school,
+           MAX(asa.programme) as programme, MAX(asa.course) as course, MAX(asa.discipline) as discipline,
+           MAX(asd.gender) as gender, MAX(asd.dob) as dob, MAX(asd.student_mobile) as student_mobile, MAX(asd.parent_mobile) as parent_mobile,
+           MAX(asd.father_name) as father_name, MAX(asd.mother_name) as mother_name,
+           MAX(asd.email_id) as email_id, MAX(asd.puc_percentage) as puc_percentage, MAX(asd.sslc_percentage) as sslc_percentage,
+           MAX(asd.category) as category, MAX(asd.district) as district, MAX(asd.taluk) as taluk, MAX(asd.state) as state,
+           MAX(asd.regular_lateral) as regular_lateral, '" . INSTITUTION_GMU . "' as institution,
+           MAX(asa.sem) as sem
+    FROM {$gmuPrefix}ad_student_approved asa
+    LEFT JOIN {$gmuPrefix}ad_student_details asd ON asa.usn = asd.usn
+    $gmuWhereSql
+    GROUP BY asa.usn, asa.aadhar
+";
+
+$gmitSubQuery = "
+    SELECT IFNULL(NULLIF(asd.usn, ''), asd.student_id) as usn, MAX(asd.name) as name, asd.aadhar, MAX(asd.college) as faculty, MAX(asd.college) as school,
+           MAX(asd.programme) as programme, MAX(asd.course) as course, MAX(asd.discipline) as discipline,
+           MAX(asd.gender) as gender, MAX(asd.dob) as dob, MAX(asd.student_mobile) as student_mobile, MAX(asd.parent_mobile) as parent_mobile,
+           MAX(asd.father_name) as father_name, MAX(asd.mother_name) as mother_name,
+           MAX(asd.email_id) as email_id, MAX(asd.puc_percentage) as puc_percentage, MAX(asd.sslc_percentage) as sslc_percentage,
+           MAX(asd.category) as category, MAX(asd.district) as district, MAX(asd.taluk) as taluk, MAX(asd.state) as state,
+           MAX(asd.regular_lateral) as regular_lateral, '" . INSTITUTION_GMIT . "' as institution,
+           0 as sem
+    FROM {$gmitPrefix}ad_student_details asd
+    $gmitWhereSql
+    GROUP BY asd.student_id, asd.usn, asd.aadhar
+";
 
 // Sorting Order
 $orderBySql = "name ASC";
 switch ($sort_by) {
     case 'name_desc': $orderBySql = "name DESC"; break;
-    case 'usn_asc': $orderBySql = "asa.usn ASC"; break;
-    case 'usn_desc': $orderBySql = "asa.usn DESC"; break;
-    case 'puc_desc': $orderBySql = "CAST(NULLIF(MAX(asd.puc_percentage), '') AS DECIMAL(5,2)) DESC"; break;
-    case 'sslc_desc': $orderBySql = "CAST(NULLIF(MAX(asd.sslc_percentage), '') AS DECIMAL(5,2)) DESC"; break;
+    case 'usn_asc': $orderBySql = "usn ASC"; break;
+    case 'usn_desc': $orderBySql = "usn DESC"; break;
+    case 'puc_desc': $orderBySql = "CAST(NULLIF(puc_percentage, '') AS DECIMAL(5,2)) DESC"; break;
+    case 'sslc_desc': $orderBySql = "CAST(NULLIF(sslc_percentage, '') AS DECIMAL(5,2)) DESC"; break;
     default: $orderBySql = "name ASC"; break;
 }
 
-$where_sql = implode(" AND ", $where_clauses);
+if ($instFilter === INSTITUTION_GMU) {
+    $countQueryOpt = "SELECT COUNT(*) FROM ($gmuSubQuery) count_tbl";
+    $detailsQueryOpt = "$gmuSubQuery ORDER BY $orderBySql LIMIT $limit OFFSET $offset";
+    $exportQueryOpt = "$gmuSubQuery ORDER BY $orderBySql";
+    $countParamsOpt = $gmuParams;
+    $detailsParamsOpt = $gmuParams;
+} elseif ($instFilter === INSTITUTION_GMIT) {
+    $countQueryOpt = "SELECT COUNT(*) FROM ($gmitSubQuery) count_tbl";
+    $detailsQueryOpt = "$gmitSubQuery ORDER BY $orderBySql LIMIT $limit OFFSET $offset";
+    $exportQueryOpt = "$gmitSubQuery ORDER BY $orderBySql";
+    $countParamsOpt = $gmitParams;
+    $detailsParamsOpt = $gmitParams;
+} else {
+    $countQueryOpt = "SELECT COUNT(*) FROM ($gmuSubQuery UNION ALL $gmitSubQuery) count_tbl";
+    $detailsQueryOpt = "SELECT * FROM ($gmuSubQuery UNION ALL $gmitSubQuery) combined_tbl ORDER BY $orderBySql LIMIT $limit OFFSET $offset";
+    $exportQueryOpt = "SELECT * FROM ($gmuSubQuery UNION ALL $gmitSubQuery) combined_tbl ORDER BY $orderBySql";
+    $countParamsOpt = array_merge($gmuParams, $gmitParams);
+    $detailsParamsOpt = array_merge($gmuParams, $gmitParams);
+}
 
-$count_query = "
-    SELECT COUNT(DISTINCT asa.usn) 
-    FROM {$combinedApproved} asa
-    LEFT JOIN {$combinedDetails} asd ON ( (asa.usn = asd.student_id AND asa.institution = '" . INSTITUTION_GMIT . "') OR (asa.usn = asd.usn AND asa.institution = '" . INSTITUTION_GMU . "') )
-    WHERE $where_sql
-";
-$stmt = $db->prepare($count_query);
-$stmt->execute($params);
+$stmt = $db->prepare($countQueryOpt);
+$stmt->execute($countParamsOpt);
 $total_records = (int)$stmt->fetchColumn();
 $total_pages = max(1, (int)ceil($total_records / $limit));
 if ($page > $total_pages) {
     $page = $total_pages;
     $offset = ($page - 1) * $limit;
+    if ($instFilter === INSTITUTION_GMU) {
+        $detailsQueryOpt = "$gmuSubQuery ORDER BY $orderBySql LIMIT $limit OFFSET $offset";
+    } elseif ($instFilter === INSTITUTION_GMIT) {
+        $detailsQueryOpt = "$gmitSubQuery ORDER BY $orderBySql LIMIT $limit OFFSET $offset";
+    } else {
+        $detailsQueryOpt = "SELECT * FROM ($gmuSubQuery UNION ALL $gmitSubQuery) combined_tbl ORDER BY $orderBySql LIMIT $limit OFFSET $offset";
+    }
 }
 
 if (isset($filters['export']) && $section === 'details') {
     SessionFilterHelper::updateFilters($pageId, ['export' => null]);
     header('Content-Type: application/vnd.ms-excel');
     header('Content-Disposition: attachment; filename="student_details_report_'.date('Y-m-d').'.xls"');
-    $query = "
-        SELECT asa.usn, MAX(asa.name) as name, asa.aadhar, MAX(asa.faculty) as faculty, MAX(asa.discipline) as discipline,
-        MAX(asa.programme) as programme, MAX(asd.puc_percentage) as puc_percentage, MAX(asd.sslc_percentage) as sslc_percentage,
-        MAX(asd.student_mobile) as student_mobile, MAX(asd.parent_mobile) as parent_mobile, MAX(asd.father_name) as father_name,
-        MAX(asd.mother_name) as mother_name, MAX(asd.email_id) as email_id, MAX(asa.institution) as institution,
-        MAX(asa.sem) as sem
-        FROM {$combinedApproved} asa
-        LEFT JOIN {$combinedDetails} asd ON ( (asa.usn = asd.student_id AND asa.institution = '" . INSTITUTION_GMIT . "') OR (asa.usn = asd.usn AND asa.institution = '" . INSTITUTION_GMU . "') )
-        WHERE $where_sql
-        GROUP BY asa.usn, asa.aadhar, asa.institution
-        ORDER BY $orderBySql
-    ";
-    $stmt = $db->prepare($query);
-    $stmt->execute($params);
-    $all_students = $stmt->fetchAll();
+    $stmtExp = $db->prepare($exportQueryOpt);
+    $stmtExp->execute($detailsParamsOpt);
+    $all_students = $stmtExp->fetchAll();
     echo '<table border="1">';
     echo '<tr><th>Institution</th><th>USN</th><th>Name</th><th>Sem</th><th>Aadhar</th><th>Faculty</th><th>Discipline</th><th>Programme</th><th>Father</th><th>Mother</th><th>Parent Mobile</th>';
     echo '<th>Applied Jobs</th>';
@@ -760,26 +676,9 @@ if (isset($filters['export']) && $section === 'details') {
     exit;
 }
 
-$details_query = "
-    SELECT asa.usn, MAX(asa.name) as name, asa.aadhar, MAX(asa.faculty) as faculty, MAX(asa.school) as school,
-    MAX(asa.programme) as programme, MAX(asa.course) as course, MAX(asa.discipline) as discipline,
-    MAX(asd.gender) as gender, MAX(asd.dob) as dob, MAX(asd.student_mobile) as student_mobile, MAX(asd.parent_mobile) as parent_mobile,
-    MAX(asd.father_name) as father_name, MAX(asd.mother_name) as mother_name,
-    MAX(asd.email_id) as email_id, MAX(asd.puc_percentage) as puc_percentage, MAX(asd.sslc_percentage) as sslc_percentage,
-    MAX(asd.category) as category, MAX(asd.district) as district, MAX(asd.taluk) as taluk, MAX(asd.state) as state,
-    MAX(asd.regular_lateral) as regular_lateral, asa.institution,
-    MAX(asa.sem) as sem
-    FROM {$combinedApproved} asa
-    LEFT JOIN {$combinedDetails} asd ON ( (asa.usn = asd.student_id AND asa.institution = '" . INSTITUTION_GMIT . "') OR (asa.usn = asd.usn AND asa.institution = '" . INSTITUTION_GMU . "') )
-    WHERE $where_sql
-    GROUP BY asa.usn, asa.aadhar, asa.institution
-    ORDER BY $orderBySql
-    LIMIT $limit OFFSET $offset
-";
-
 try {
-    $stmt = $db->prepare($details_query);
-    $stmt->execute($params);
+    $stmt = $db->prepare($detailsQueryOpt);
+    $stmt->execute($detailsParamsOpt);
     $detailsStudents = $stmt->fetchAll();
 } catch (PDOException $e) {
     error_log("Query Error: " . $e->getMessage());
@@ -1080,7 +979,7 @@ $fullName = getFullName();
         }
         
         /* Modal Professional */
-        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(4px); align-items: center; justify-content: center; z-index: 2000; animation: fadeIn 0.3s; }
+        .modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(15, 23, 42, 0.6); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); align-items: center; justify-content: center; z-index: 3000; animation: fadeIn 0.3s; }
         .modal-content { background: white; width: 95%; max-width: 700px; border-radius: 16px; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); position: relative; display: flex; flex-direction: column; max-height: 90vh; border: 1px solid var(--border-light); }
         .modal-header { padding: 20px 24px; border-bottom: 1px solid var(--border-light); }
         .modal-body { padding: 0 24px 24px; overflow-y: auto; flex: 1; scrollbar-width: thin; scrollbar-color: #cbd5e1 transparent; }

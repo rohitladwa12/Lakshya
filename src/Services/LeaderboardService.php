@@ -56,10 +56,10 @@ class LeaderboardService
         $skillData = self::fetchStudentSkills($allIdList);
         $assessmentTimestamps = self::fetchAssessmentTimestamps($allIdList);
 
-        // Pre-fetch active current semesters from student_sem_sgpa (max semester entered)
+        // Pre-fetch active current semesters from student_sem_sgpa (GMIT students only)
         $semMap = [];
         try {
-            $semRows = getDB()->query("SELECT student_id, MAX(semester) as semester FROM student_sem_sgpa GROUP BY student_id")->fetchAll(\PDO::FETCH_ASSOC);
+            $semRows = getDB()->query("SELECT student_id, MAX(semester) as semester FROM student_sem_sgpa WHERE institution = '" . INSTITUTION_GMIT . "' OR institution IS NULL GROUP BY student_id")->fetchAll(\PDO::FETCH_ASSOC);
             foreach ($semRows as $sr) {
                 $semMap[strtolower(trim($sr['student_id']))] = (int)$sr['semester'];
             }
@@ -129,7 +129,8 @@ class LeaderboardService
             if ($s['institution'] === INSTITUTION_GMIT) {
                 $semVal = $localMaxSem ?: $currentSem;
             } else {
-                $semVal = max($currentSem, $localMaxSem);
+                // For GMU: ad_student_approved is the authoritative source of truth
+                $semVal = $currentSem ?: $localMaxSem;
             }
             if (!$semVal && !empty($history)) {
                 $sems = array_keys($history);
@@ -169,6 +170,12 @@ class LeaderboardService
                 'ai_avg' => round($assessmentScore, 1),
                 'ai_count' => $attemptedCount,
                 'portfolio' => $portfolioScore,
+                'skills_count' => $pS,
+                'projects_count' => $pP,
+                'total_attempts' => $totalAttempts,
+                'activity_bonus' => round($activityBonus, 2),
+                'inactivity_decay_pct' => round($inactivityDecay * 100, 1),
+                'base_total' => round($baseTotal, 1),
                 'total' => round((float) $totalScore, 1)
             ];
         }
@@ -373,7 +380,22 @@ class LeaderboardService
                                 AND student_id IN ($usnList)");
         $skills = [];
         while ($row = $stmt->fetch()) {
-            $skills[strtolower($row['student_id'])][] = $row['title'];
+            $sid = strtolower($row['student_id']);
+            $rawTitle = trim($row['title'] ?? '');
+            if (empty($rawTitle)) continue;
+
+            if (strpos($rawTitle, ',') !== false) {
+                $parts = array_map('trim', explode(',', $rawTitle));
+                foreach ($parts as $p) {
+                    if (!empty($p) && !in_array($p, $skills[$sid] ?? [])) {
+                        $skills[$sid][] = $p;
+                    }
+                }
+            } else {
+                if (!in_array($rawTitle, $skills[$sid] ?? [])) {
+                    $skills[$sid][] = $rawTitle;
+                }
+            }
         }
         return $skills;
     }

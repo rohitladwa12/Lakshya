@@ -42,7 +42,7 @@ DirectoryIndex index.php
     Header set X-Content-Type-Options "nosniff"
     Header set X-Frame-Options "SAMEORIGIN"
     Header set Referrer-Policy "strict-origin-when-cross-origin"
-    Header set Permissions-Policy "geolocation=(), microphone=(self), camera=()"
+    Header set Permissions-Policy "geolocation=(), microphone=(self), camera=(self), display-capture=(self)"
 </IfModule>
 
 # ─── Block Common Attack Scanners & Vulnerability Probes ───────────────────────

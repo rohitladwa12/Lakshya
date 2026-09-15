@@ -15,28 +15,15 @@ $deptLabel = ($deptGmu !== $deptGmit) ? $deptGmu . ' (GMU) & ' . $deptGmit . ' (
 if (!$deptLabel) $deptLabel = 'General Dashboard';
 
 $studentModel = new StudentProfile();
-$semester_filter_all = getCoordinatorSemesterFilters($department) ?: [1, 8];
-// Query actual max sem with students (not theoretical max like 8)
-try {
-    $dbDash = getDB('gmu');
-    $disc_dash = getCoordinatorDisciplineFilters($department);
-    $ph_d = implode(',', array_fill(0, count($disc_dash), '?'));
-    $ph_s = implode(',', array_fill(0, count($semester_filter_all), '?'));
-    $stmtMs = $dbDash->prepare("SELECT MAX(sem) FROM " . DB_GMU_PREFIX . "ad_student_approved WHERE discipline IN ($ph_d) AND sem IN ($ph_s)");
-    $stmtMs->execute(array_merge($disc_dash, $semester_filter_all));
-    $actualMaxSem = (int)($stmtMs->fetchColumn() ?: max($semester_filter_all));
-} catch (Exception $e) {
-    $actualMaxSem = max($semester_filter_all);
-}
-$semester_filter = [$actualMaxSem];
+$semester_filter_all = getCoordinatorSemesterFilters($department) ?: [1, 2, 3, 4, 5, 6, 7, 8];
 $discipline_filters = getCoordinatorDisciplineFilters($department);
 
 $coordFilters = [
     'discipline' => $discipline_filters,
-    'semesters' => $semester_filter
+    'semesters' => $semester_filter_all
 ];
 
-// Use a more inclusive counting method to match the Students Report (Academic Strength)
+// Use all active department semesters to accurately count Total Academic Strength
 $studentCount = $studentModel->getTotalAcademicStrength($coordFilters);
 
 // Fetch recent feedback from department students
@@ -89,8 +76,6 @@ if (!empty($discipline_filters)) {
             color: var(--text-main);
             -webkit-font-smoothing: antialiased;
         }
-        
-        .navbar-spacer { height: 70px; }
         
         .main-content { 
             max-width: 1280px;
@@ -359,7 +344,7 @@ if (!empty($discipline_filters)) {
     <div class="main-content">
         <div class="page-header">
             <h2>Dashboard</h2>
-            <p><?php echo htmlspecialchars($deptLabel); ?> • Semesters <?php echo min($semester_filter) . '-' . max($semester_filter); ?></p>
+            <p><?php echo htmlspecialchars($deptLabel); ?> • Semesters <?php echo min($semester_filter_all) . '-' . max($semester_filter_all); ?></p>
         </div>
 
         <div class="stats-card">

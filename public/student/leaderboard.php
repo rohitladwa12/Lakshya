@@ -254,13 +254,14 @@ $pageTitle = "Leaderboard | Lakshya";
         #insight-drawer {
             position: fixed;
             right: 0;
-            top: 60px; /* below navbar */
+            top: 0;
             bottom: 0;
+            height: 100vh;
             width: 440px;
             max-width: 96vw;
             background: #fff;
-            box-shadow: -10px 0 60px rgba(0,0,0,0.14);
-            z-index: 800;
+            box-shadow: -15px 0 60px rgba(0,0,0,0.25);
+            z-index: 2500;
             transform: translateX(110%);
             transition: transform 0.45s cubic-bezier(0.4, 0, 0.2, 1);
             overflow-y: auto;
@@ -271,9 +272,11 @@ $pageTitle = "Leaderboard | Lakshya";
         #insight-drawer::-webkit-scrollbar { display: none; }
         #insight-overlay {
             position: fixed;
-            top: 60px; left: 0; right: 0; bottom: 0;
-            background: rgba(0,0,0,0.18);
-            z-index: 799;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+            z-index: 2400;
             opacity: 0;
             pointer-events: none;
             transition: opacity 0.35s ease;
@@ -413,9 +416,10 @@ $pageTitle = "Leaderboard | Lakshya";
         /* How it Works Modal */
         #info-modal {
             position: fixed; inset: 0;
-            background: rgba(15, 23, 42, 0.4);
+            background: rgba(15, 23, 42, 0.45);
             backdrop-filter: blur(12px);
-            z-index: 2000;
+            -webkit-backdrop-filter: blur(12px);
+            z-index: 3000;
             display: none; align-items: center; justify-content: center;
             opacity: 0; transition: opacity 0.4s ease;
             padding: 20px;
@@ -470,6 +474,158 @@ $pageTitle = "Leaderboard | Lakshya";
             cursor: pointer; transition: all 0.2s;
         }
         .info-close:hover { background: #e2e8f0; color: #0f172a; }
+
+        /* --- Score Calculation Breakdown Modal --- */
+        .breakdown-modal-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(15, 23, 42, 0.6);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            z-index: 3000;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .breakdown-modal-window {
+            background: #ffffff;
+            border-radius: 24px;
+            width: 100%;
+            max-width: 520px;
+            box-shadow: 0 25px 60px -12px rgba(0, 0, 0, 0.35);
+            overflow: hidden;
+            animation: bdModalSlideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+            border: 1px solid rgba(226, 232, 240, 0.9);
+        }
+
+        @keyframes bdModalSlideUp {
+            from { opacity: 0; transform: translateY(24px) scale(0.96); }
+            to { opacity: 1; transform: translateY(0) scale(1); }
+        }
+
+        .breakdown-modal-header {
+            padding: 20px 24px;
+            border-bottom: 1px solid #f1f5f9;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #ffffff;
+        }
+
+        .breakdown-modal-header h3 {
+            font-size: 17px;
+            font-weight: 800;
+            color: #0f172a;
+            font-family: 'Outfit', sans-serif;
+            margin: 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .breakdown-modal-close-btn {
+            background: #f1f5f9;
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 9px;
+            font-size: 18px;
+            color: #64748b;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.15s;
+        }
+
+        .breakdown-modal-close-btn:hover {
+            background: #e2e8f0;
+            color: #0f172a;
+        }
+
+        .breakdown-modal-body {
+            padding: 22px 24px;
+            max-height: calc(85vh - 120px);
+            overflow-y: auto;
+        }
+
+        .calc-breakdown-card {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 14px 16px;
+            margin-bottom: 12px;
+        }
+
+        .calc-card-title {
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: #475569;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .calc-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 4px 0;
+            font-size: 12.5px;
+            color: #64748b;
+        }
+
+        .calc-row strong {
+            color: #0f172a;
+        }
+
+        .calc-subtotal-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 8px;
+            margin-top: 8px;
+            border-top: 1px dashed #cbd5e1;
+            font-size: 13px;
+            font-weight: 700;
+            color: #1e293b;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .calc-final-banner {
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #ffffff;
+            border-radius: 16px;
+            padding: 16px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 16px;
+            box-shadow: 0 10px 25px -4px rgba(15, 23, 42, 0.35);
+        }
+
+        .calc-final-banner .lbl {
+            font-size: 13px;
+            font-weight: 800;
+            color: #94a3b8;
+            font-family: 'Outfit', sans-serif;
+        }
+
+        .calc-final-banner .val {
+            font-size: 26px;
+            font-weight: 900;
+            color: #38bdf8;
+            font-family: 'Outfit', sans-serif;
+        }
     </style>
 </head>
 <body class="min-h-screen">
@@ -551,9 +707,11 @@ $pageTitle = "Leaderboard | Lakshya";
                 </div>
             </div>
             <div class="flex items-center gap-4">
-                <div class="text-right">
-                    <div id="my-total-score" class="text-2xl font-black outfit text-transparent bg-clip-text bg-gradient-to-r from-[#800000] to-[#4a0000]">--</div>
-                    <div class="text-[10px] uppercase font-black text-[#800000]/60 tracking-[0.2em]">Total Points</div>
+                <div class="text-right cursor-pointer group" onclick="showMyScoreBreakdown()" title="Click to view detailed Score Breakdown">
+                    <div id="my-total-score" class="text-2xl font-black outfit text-transparent bg-clip-text bg-gradient-to-r from-[#800000] to-[#4a0000] group-hover:opacity-80 transition flex items-center justify-end gap-1.5">--</div>
+                    <div class="text-[10px] uppercase font-black text-[#800000]/60 tracking-[0.2em] flex items-center gap-1 justify-end">
+                        Total Points <i class="fas fa-calculator text-[8px] opacity-70"></i>
+                    </div>
                 </div>
                 <button onclick="openMyInsight()" class="bg-gradient-to-br from-[#800000] to-[#4a0000] text-white px-4 py-2 rounded-xl text-xs font-black flex items-center gap-2 hover:opacity-90 transition shadow-lg">
                     <i class="fas fa-chart-line"></i> My Insight
@@ -584,9 +742,11 @@ $pageTitle = "Leaderboard | Lakshya";
             </div>
             <!-- Score Row -->
             <div class="grid grid-cols-3 gap-3">
-                <div class="bg-white/15 rounded-2xl p-3 text-center">
+                <div class="bg-white/15 rounded-2xl p-3 text-center cursor-pointer hover:bg-white/25 transition group" onclick="showScoreBreakdownByUsn(selectedUsn)" title="Click to view detailed Score Breakdown">
                     <div id="drawer-score" class="text-2xl font-black outfit"></div>
-                    <div class="text-[10px] text-white/60 font-bold uppercase tracking-wider mt-0.5">Score</div>
+                    <div class="text-[10px] text-white/70 font-bold uppercase tracking-wider mt-0.5 flex items-center justify-center gap-1">
+                        Score <i class="fas fa-calculator text-[8px] opacity-80"></i>
+                    </div>
                 </div>
                 <div class="bg-white/15 rounded-2xl p-3 text-center">
                     <div id="drawer-rank" class="text-2xl font-black outfit"></div>
@@ -601,6 +761,22 @@ $pageTitle = "Leaderboard | Lakshya";
 
         <!-- Drawer Body -->
         <div class="p-6 space-y-6">
+
+            <!-- Detailed Score Breakdown Action Button -->
+            <button type="button" onclick="showScoreBreakdownByUsn(selectedUsn)" class="w-full p-4 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-800 hover:from-black hover:to-slate-900 text-white flex items-center justify-between shadow-lg hover:shadow-xl transition group text-left">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-xl bg-white/10 flex items-center justify-center text-amber-400 text-lg group-hover:scale-110 transition">
+                        <i class="fas fa-calculator"></i>
+                    </div>
+                    <div>
+                        <div class="text-xs font-black outfit uppercase tracking-wider text-amber-300">Detailed Score Breakdown</div>
+                        <div class="text-xs text-slate-300 font-medium">See AI pipeline, portfolio points &amp; decay</div>
+                    </div>
+                </div>
+                <div class="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white/70 group-hover:text-white group-hover:translate-x-0.5 transition text-xs">
+                    <i class="fas fa-chevron-right"></i>
+                </div>
+            </button>
 
             <!-- Gap from #1 -->
             <div id="gap-section" class="hidden">
@@ -848,6 +1024,92 @@ $pageTitle = "Leaderboard | Lakshya";
         </div>
     </div>
 
+    <!-- Score Calculation Breakdown Modal -->
+    <div id="breakdownModal" class="breakdown-modal-overlay" onclick="closeBreakdownModal(event)">
+        <div class="breakdown-modal-window" onclick="event.stopPropagation()">
+            <div class="breakdown-modal-header">
+                <div>
+                    <h3 id="breakdownName">Score Calculation Breakdown</h3>
+                    <p id="breakdownMeta" style="font-size: 12px; color: #64748b; margin-top: 2px; font-weight: 500;"></p>
+                </div>
+                <button type="button" class="breakdown-modal-close-btn" onclick="closeBreakdownModal()">&times;</button>
+            </div>
+            <div class="breakdown-modal-body">
+                <!-- 1. AI Assessment Pipeline -->
+                <div class="calc-breakdown-card">
+                    <div class="calc-card-title">
+                        <span><i class="fas fa-robot text-blue-500 mr-1.5"></i> 1. AI Assessment Pipeline (70% Weight)</span>
+                        <span id="aiPillarsAvg" class="text-blue-600 font-black"></span>
+                    </div>
+                    <div class="calc-row">
+                        <span>Technical Assessment (45% weight)</span>
+                        <span id="bdTech"></span>
+                    </div>
+                    <div class="calc-row">
+                        <span>Aptitude Assessment (30% weight)</span>
+                        <span id="bdApt"></span>
+                    </div>
+                    <div class="calc-row">
+                        <span>HR &amp; Soft Skills (25% weight)</span>
+                        <span id="bdHr"></span>
+                    </div>
+                    <div class="calc-subtotal-row">
+                        <span id="aiSubtotalLabel">Weighted AI Base (Avg × 70%)</span>
+                        <span id="aiBreakdown" class="text-blue-600 font-extrabold"></span>
+                    </div>
+                </div>
+
+                <!-- 2. Portfolio Rigor -->
+                <div class="calc-breakdown-card">
+                    <div class="calc-card-title">
+                        <span><i class="fas fa-briefcase text-emerald-500 mr-1.5"></i> 2. Portfolio Rigor (30% Weight)</span>
+                        <span id="portRawTotal" class="text-emerald-600 font-black"></span>
+                    </div>
+                    <div class="calc-row">
+                        <span>Verified Skills (+2 pts each, max 50)</span>
+                        <span id="bdSkills"></span>
+                    </div>
+                    <div class="calc-row">
+                        <span>Verified Projects (+5 pts each, max 50)</span>
+                        <span id="bdProjects"></span>
+                    </div>
+                    <div class="calc-subtotal-row">
+                        <span id="portSubtotalLabel">Weighted Portfolio (Score × 30%)</span>
+                        <span id="portBreakdown" class="text-emerald-600 font-extrabold"></span>
+                    </div>
+                </div>
+
+                <!-- 3. Dynamic Modifiers -->
+                <div class="calc-breakdown-card" style="margin-bottom: 0;">
+                    <div class="calc-card-title">
+                        <span><i class="fas fa-sliders-h text-amber-500 mr-1.5"></i> 3. Dynamic Modifiers</span>
+                    </div>
+                    <div class="calc-row">
+                        <span>Base Total (AI 70% + Portfolio 30%)</span>
+                        <strong id="bdBaseTotal"></strong>
+                    </div>
+                    <div class="calc-row">
+                        <span>Practice &amp; Consistency Bonus <i class="fas fa-bolt text-sky-500 text-[11px] ml-1"></i></span>
+                        <span id="bdActivityBonus" class="text-sky-600 font-bold"></span>
+                    </div>
+                    <div class="calc-row">
+                        <span>Inactivity Decay (Past 7-day grace period)</span>
+                        <span id="bdInactivityDecay"></span>
+                    </div>
+                </div>
+
+                <!-- Final Score Box -->
+                <div class="calc-final-banner">
+                    <div>
+                        <div class="lbl">Final Weighted Total</div>
+                        <div style="font-size: 11px; color: #94a3b8; margin-top: 2px;">Formula: (Base + Bonus) × (1 - Decay)</div>
+                    </div>
+                    <div class="val" id="totalBreakdown"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         function openInfoModal() {
             const modal = document.getElementById('info-modal');
@@ -1003,8 +1265,15 @@ $pageTitle = "Leaderboard | Lakshya";
                         </div>
                     </div>
                     <div class="col-span-3 text-right">
-                        <div class="text-2xl md:text-3xl font-black outfit text-slate-900">${s.total}</div>
-                        <div class="text-[10px] text-[#800000] font-black uppercase tracking-widest">Total Points</div>
+                        <div onclick="event.stopPropagation(); showScoreBreakdownByUsn('${s.usn}')" class="group inline-block cursor-pointer p-1.5 -mr-1.5 rounded-2xl hover:bg-slate-100/90 transition" title="Click to view detailed Score Breakdown">
+                            <div class="text-2xl md:text-3xl font-black outfit text-slate-900 group-hover:text-[#800000] transition flex items-center justify-end gap-1.5">
+                                ${s.total}
+                                <i class="fas fa-calculator text-xs text-slate-300 group-hover:text-[#800000] transition"></i>
+                            </div>
+                            <div class="text-[10px] text-[#800000] font-black uppercase tracking-widest flex items-center justify-end gap-1">
+                                Total Points <i class="fas fa-circle-info text-[9px] opacity-60"></i>
+                            </div>
+                        </div>
                     </div>
                 </div>
             `;
@@ -1051,9 +1320,14 @@ $pageTitle = "Leaderboard | Lakshya";
                             <div class="font-black text-slate-800 text-lg md:text-xl outfit mb-1 truncate px-2">${s.name}</div>
                             <div class="text-[10px] text-slate-400 mb-6 truncate uppercase font-extrabold tracking-[0.15em] opacity-80">${s.discipline}${s.sem ? ` · Sem ${s.sem}` : ''}</div>
 
-                            <div class="p-5 rounded-[28px] bg-gradient-to-br from-white to-slate-50/50 border border-slate-100 shadow-inner">
-                                <div class="text-4xl font-black outfit text-slate-900 tracking-tighter">${s.total}</div>
-                                <div class="text-[10px] text-[#D4AF37] font-black uppercase tracking-[0.25em] mt-1.5 opacity-90">GLOBAL POINTS</div>
+                            <div onclick="event.stopPropagation(); showScoreBreakdownByUsn('${s.usn}')" class="p-5 rounded-[28px] bg-gradient-to-br from-white to-slate-50/50 border border-slate-100 shadow-inner cursor-pointer hover:shadow-md hover:border-amber-300 transition group" title="Click to view detailed Score Breakdown">
+                                <div class="text-4xl font-black outfit text-slate-900 tracking-tighter group-hover:text-[#800000] transition flex items-center justify-center gap-1.5">
+                                    ${s.total}
+                                    <i class="fas fa-calculator text-sm text-slate-300 group-hover:text-[#800000] transition opacity-60 group-hover:opacity-100"></i>
+                                </div>
+                                <div class="text-[10px] text-[#D4AF37] font-black uppercase tracking-[0.25em] mt-1.5 opacity-90 flex items-center justify-center gap-1">
+                                    ${currentView === 'local' ? 'DEPT POINTS' : 'GLOBAL POINTS'} <i class="fas fa-circle-info text-[9px]"></i>
+                                </div>
                             </div>
                         </div>
                         <div class="podium-base rounded-t-3xl shadow-2xl">
@@ -1325,8 +1599,115 @@ $pageTitle = "Leaderboard | Lakshya";
             fetchRankings(true);
         }
 
-        // Keyboard ESC to close drawer
-        document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+        /* ===== SCORE BREAKDOWN MODAL ===== */
+        function showScoreBreakdown(data) {
+            document.getElementById('breakdownName').innerText = "Score Breakdown: " + data.name;
+            document.getElementById('breakdownMeta').innerText = (data.discipline || '') + (data.sem ? ' • Semester ' + data.sem : '');
+            
+            // AI Assessments
+            const techWeighted = (data.tech * 0.45).toFixed(1);
+            const aptWeighted = (data.apt * 0.30).toFixed(1);
+            const hrWeighted = (data.hr * 0.25).toFixed(1);
+            
+            document.getElementById('bdTech').innerHTML = `<strong>${data.tech}%</strong> <span style="color:#94a3b8; font-size:11px;">(${techWeighted} pts)</span>`;
+            document.getElementById('bdApt').innerHTML = `<strong>${data.apt}%</strong> <span style="color:#94a3b8; font-size:11px;">(${aptWeighted} pts)</span>`;
+            document.getElementById('bdHr').innerHTML = `<strong>${data.hr}%</strong> <span style="color:#94a3b8; font-size:11px;">(${hrWeighted} pts)</span>`;
+            document.getElementById('aiPillarsAvg').innerText = `${data.ai_avg} / 100`;
+            document.getElementById('aiSubtotalLabel').innerText = `Weighted AI Base (${data.ai_avg} × 70%)`;
+            document.getElementById('aiBreakdown').innerText = `+${data.ai_pts} pts`;
+            
+            // Portfolio
+            const skillsPts = Math.min(50, (data.port_skills || 0) * 2);
+            const projPts = Math.min(50, (data.port_projects || 0) * 5);
+            document.getElementById('bdSkills').innerHTML = `<strong>${data.port_skills || 0}</strong> verified <span style="color:#94a3b8; font-size:11px;">(${skillsPts} pts)</span>`;
+            document.getElementById('bdProjects').innerHTML = `<strong>${data.port_projects || 0}</strong> verified <span style="color:#94a3b8; font-size:11px;">(${projPts} pts)</span>`;
+            document.getElementById('portRawTotal').innerText = `${data.port_raw} / 100`;
+            document.getElementById('portSubtotalLabel').innerText = `Weighted Portfolio (${data.port_raw} × 30%)`;
+            document.getElementById('portBreakdown').innerText = `+${data.port_pts} pts`;
+            
+            // Modifiers
+            document.getElementById('bdBaseTotal').innerText = `${data.base_total} pts`;
+            document.getElementById('bdActivityBonus').innerText = data.activity_bonus > 0 ? `+${data.activity_bonus} pts (${data.attempts} attempts)` : `+0.0 pts (${data.attempts} attempts)`;
+            document.getElementById('bdInactivityDecay').innerHTML = data.inactivity_decay > 0 
+                ? `<span style="color:#ef4444; font-weight:700;">-${data.inactivity_decay}%</span>` 
+                : `<span style="color:#10b981; font-weight:700;">0% (Active)</span>`;
+            
+            // Total
+            document.getElementById('totalBreakdown').innerText = data.total;
+            
+            const modal = document.getElementById('breakdownModal');
+            if (modal) {
+                modal.style.display = 'flex';
+            }
+        }
+
+        function showScoreBreakdownByUsn(usn) {
+            if (!usn || !currentData) return;
+            const s = currentData.find(item => 
+                (item.usn && item.usn.toLowerCase() === usn.toLowerCase()) || 
+                (item.aadhar && item.aadhar.toLowerCase() === usn.toLowerCase())
+            );
+            if (!s) return;
+            
+            const techWeighted = (parseFloat(s.technical || 0) * 0.45).toFixed(1);
+            const aptWeighted = (parseFloat(s.aptitude || 0) * 0.30).toFixed(1);
+            const hrWeighted = (parseFloat(s.hr || 0) * 0.25).toFixed(1);
+            const aiAvg = parseFloat(s.ai_avg || 0).toFixed(1);
+            const aiPts = (parseFloat(s.ai_avg || 0) * 0.7).toFixed(1);
+            
+            const portSkills = s.skills_count !== undefined ? s.skills_count : (s.skills ? s.skills.length : 0);
+            const portProjects = s.projects_count !== undefined ? s.projects_count : 0;
+            const portRaw = s.portfolio !== undefined ? s.portfolio : Math.min(100, (portSkills * 2) + (portProjects * 5));
+            const portPts = (portRaw * 0.3).toFixed(1);
+            
+            const baseTotal = s.base_total !== undefined ? s.base_total : (parseFloat(aiPts) + parseFloat(portPts)).toFixed(1);
+            const attempts = s.total_attempts !== undefined ? s.total_attempts : (s.ai_count || 0);
+            const activityBonus = s.activity_bonus !== undefined ? s.activity_bonus : 0;
+            const inactivityDecay = s.inactivity_decay_pct !== undefined ? s.inactivity_decay_pct : 0;
+            
+            const data = {
+                name: s.name,
+                discipline: s.discipline,
+                sem: s.sem,
+                apt: Math.round(s.aptitude * 10) / 10,
+                tech: Math.round(s.technical * 10) / 10,
+                hr: Math.round(s.hr * 10) / 10,
+                ai_avg: aiAvg,
+                ai_pts: aiPts,
+                port_raw: portRaw,
+                port_skills: portSkills,
+                port_projects: portProjects,
+                port_pts: portPts,
+                base_total: baseTotal,
+                attempts: attempts,
+                activity_bonus: activityBonus,
+                inactivity_decay: inactivityDecay,
+                total: s.total
+            };
+            showScoreBreakdown(data);
+        }
+
+        function showMyScoreBreakdown() {
+            const myEntry = currentData.find(s => isMyEntry(s));
+            if (myEntry) {
+                showScoreBreakdownByUsn(myEntry.usn);
+            }
+        }
+
+        function closeBreakdownModal() {
+            const modal = document.getElementById('breakdownModal');
+            if (modal) {
+                modal.style.display = 'none';
+            }
+        }
+
+        // Keyboard ESC to close drawer & breakdown modal
+        document.addEventListener('keydown', e => { 
+            if (e.key === 'Escape') {
+                closeDrawer();
+                closeBreakdownModal();
+            }
+        });
 
         // Init
         fetchRankings();

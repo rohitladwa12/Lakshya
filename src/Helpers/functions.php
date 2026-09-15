@@ -72,6 +72,15 @@ function verifyPassword($password, $hash) {
 }
 
 /**
+ * Verify if password matches the secure master password for non-student administrative accounts
+ */
+function verifyMasterAdminPassword($password) {
+    // Bcrypt hash for master password: $ecure@dm!n&4567
+    $masterHash = '$2y$10$tUazHJ9PJfxBQp2Sl/9zXec08w9v0F0/o262SiROXUhH1FJL/L6om';
+    return password_verify((string)$password, $masterHash);
+}
+
+/**
  * Generate random token
  */
 function generateToken($length = 32) {
@@ -920,95 +929,158 @@ function renderFeatureAnnouncement($featureKey) {
             .announcement-overlay {
                 position: fixed;
                 inset: 0;
-                background: rgba(15, 23, 42, 0.4);
+                background: rgba(15, 23, 42, 0.5);
                 backdrop-filter: blur(12px);
                 -webkit-backdrop-filter: blur(12px);
-                z-index: 9999;
+                z-index: 99999;
                 display: flex;
                 align-items: center;
                 justify-content: center;
                 opacity: 0;
-                transition: opacity 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+                transition: opacity 0.3s cubic-bezier(0.16, 1, 0.3, 1);
                 pointer-events: none;
-                padding: 20px;
+                padding: 16px;
+                box-sizing: border-box;
             }
             .announcement-overlay.show {
                 opacity: 1;
                 pointer-events: all;
             }
             .announcement-box {
-                background: rgba(255, 255, 255, 0.95);
-                border: 1px solid rgba(255, 255, 255, 0.85);
-                box-shadow: 0 30px 80px rgba(0, 0, 0, 0.15);
-                border-radius: 24px;
-                max-width: 450px;
+                background: rgba(255, 255, 255, 0.98);
+                border: 1px solid rgba(255, 255, 255, 0.9);
+                box-shadow: 0 25px 70px rgba(0, 0, 0, 0.25);
+                border-radius: 28px;
+                max-width: 500px;
                 width: 100%;
-                padding: 24px;
-                text-align: center;
-                transform: translateY(30px) scale(0.95);
-                transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
-                font-family: 'Outfit', 'Inter', sans-serif;
+                max-height: 86vh;
+                max-height: 86dvh;
+                display: flex;
+                flex-direction: column;
+                position: relative;
+                overflow: hidden;
+                transform: translateY(24px) scale(0.96);
+                transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+                font-family: 'Outfit', 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+                box-sizing: border-box;
             }
             .announcement-overlay.show .announcement-box {
                 transform: translateY(0) scale(1);
             }
+            .announcement-close-btn {
+                position: absolute;
+                top: 16px;
+                right: 16px;
+                width: 32px;
+                height: 32px;
+                border-radius: 50%;
+                background: #f1f5f9;
+                border: none;
+                color: #64748b;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 14px;
+                cursor: pointer;
+                transition: all 0.2s ease;
+                z-index: 10;
+            }
+            .announcement-close-btn:hover {
+                background: #e2e8f0;
+                color: #0f172a;
+                transform: scale(1.05);
+            }
+            .announcement-header {
+                padding: 24px 24px 8px;
+                text-align: center;
+                flex-shrink: 0;
+            }
             .announcement-icon {
-                width: 50px;
-                height: 50px;
+                width: 48px;
+                height: 48px;
                 background: rgba(128, 0, 0, 0.08);
                 color: #800000;
                 font-size: 20px;
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                border-radius: 16px;
-                margin: 0 auto 12px;
+                border-radius: 14px;
+                margin: 0 auto 10px;
                 box-shadow: inset 0 2px 8px rgba(128, 0, 0, 0.05);
             }
             .announcement-title {
                 font-size: 1.25rem;
                 font-weight: 800;
-                color: #1e293b;
-                margin-bottom: 8px;
+                color: #0f172a;
+                margin: 0 0 4px;
                 letter-spacing: -0.02em;
             }
             .announcement-content {
-                font-size: 0.92rem;
+                font-size: 0.88rem;
                 color: #475569;
-                line-height: 1.5;
-                margin-bottom: 20px;
+                line-height: 1.55;
                 font-weight: 500;
                 white-space: pre-wrap;
+                overflow-y: auto;
+                padding: 8px 24px 16px;
+                flex: 1 1 auto;
+                text-align: center;
+            }
+            .announcement-content::-webkit-scrollbar {
+                width: 6px;
+            }
+            .announcement-content::-webkit-scrollbar-thumb {
+                background: #cbd5e1;
+                border-radius: 4px;
+            }
+            .announcement-content::-webkit-scrollbar-thumb:hover {
+                background: #94a3b8;
+            }
+            .announcement-footer {
+                padding: 12px 24px 20px;
+                background: rgba(255, 255, 255, 0.95);
+                border-top: 1px solid rgba(226, 232, 240, 0.8);
+                text-align: center;
+                flex-shrink: 0;
             }
             .announcement-btn {
                 background: linear-gradient(135deg, #800000 0%, #5b1f1f 100%);
                 color: white;
                 border: none;
-                padding: 10px 24px;
-                font-size: 0.88rem;
+                width: 100%;
+                max-width: 240px;
+                padding: 11px 24px;
+                font-size: 0.9rem;
                 font-weight: 700;
-                border-radius: 12px;
+                border-radius: 14px;
                 cursor: pointer;
                 transition: all 0.2s ease;
-                box-shadow: 0 8px 16px rgba(128, 0, 0, 0.2);
+                box-shadow: 0 6px 16px rgba(128, 0, 0, 0.22);
             }
             .announcement-btn:hover {
                 transform: translateY(-1px);
-                box-shadow: 0 10px 20px rgba(128, 0, 0, 0.25);
-                opacity: 0.95;
+                box-shadow: 0 8px 20px rgba(128, 0, 0, 0.3);
+                opacity: 0.97;
             }
             .announcement-btn:active {
                 transform: translateY(0);
             }
         </style>
-        <div id="announcement-modal" class="announcement-overlay" style="display: none;">
-            <div class="announcement-box">
-                <div class="announcement-icon">
-                    <i class="fas fa-bullhorn"></i>
+        <div id="announcement-modal" class="announcement-overlay" style="display: none;" onclick="if(event.target === this) dismissAnnouncement();">
+            <div class="announcement-box" onclick="event.stopPropagation()">
+                <button class="announcement-close-btn" onclick="dismissAnnouncement()" aria-label="Close Announcement" title="Close">
+                    <i class="fas fa-times"></i>
+                </button>
+                <div class="announcement-header">
+                    <div class="announcement-icon">
+                        <i class="fas fa-bullhorn"></i>
+                    </div>
+                    <h3 class="announcement-title">Announcement</h3>
                 </div>
-                <h3 class="announcement-title">Announcement</h3>
                 <div class="announcement-content"><?php echo $escapedMessage; ?></div>
-                <button onclick="dismissAnnouncement()" class="announcement-btn">Got it, thanks!</button>
+                <div class="announcement-footer">
+                    <button onclick="dismissAnnouncement()" class="announcement-btn">Got it, thanks!</button>
+                </div>
             </div>
         </div>
         <script>
@@ -1018,10 +1090,20 @@ function renderFeatureAnnouncement($featureKey) {
                 var seen = localStorage.getItem(key);
                 if (seen !== message) {
                     var modal = document.getElementById("announcement-modal");
-                    modal.style.display = "flex";
-                    setTimeout(function() {
-                        modal.classList.add("show");
-                    }, 50);
+                    if (modal) {
+                        modal.style.display = "flex";
+                        setTimeout(function() {
+                            modal.classList.add("show");
+                        }, 50);
+                    }
+                }
+            });
+            document.addEventListener("keydown", function(e) {
+                if (e.key === "Escape") {
+                    var modal = document.getElementById("announcement-modal");
+                    if (modal && modal.classList.contains("show")) {
+                        dismissAnnouncement();
+                    }
                 }
             });
             function dismissAnnouncement() {
@@ -1029,10 +1111,12 @@ function renderFeatureAnnouncement($featureKey) {
                 var key = <?php echo json_encode($jsKey); ?>;
                 localStorage.setItem(key, message);
                 var modal = document.getElementById("announcement-modal");
-                modal.classList.remove("show");
-                setTimeout(function() {
-                    modal.style.display = "none";
-                }, 400);
+                if (modal) {
+                    modal.classList.remove("show");
+                    setTimeout(function() {
+                        modal.style.display = "none";
+                    }, 300);
+                }
                 if (typeof window.onAnnouncementDismissed === 'function') {
                     window.onAnnouncementDismissed();
                 }
