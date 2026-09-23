@@ -685,7 +685,7 @@ $fullName = getFullName();
                         </div>
                         <div class="form-group">
                             <label>Industry Vertical</label>
-                            <input type="text" name="company_sector" id="companySector" class="form-control" placeholder="e.g. SaaS / AI">
+                            <input type="text" name="company_sector" id="companySector" class="form-control" placeholder="e.g. SaaS / AI" maxlength="255">
                         </div>
                         <div class="form-group">
                             <label>Headquarters</label>
@@ -857,7 +857,7 @@ $fullName = getFullName();
 
         const HIERARCHY = {
             'GMIT': {
-                'BE': ['CSE', 'AIML', 'ISE', 'ECE', 'EEE', 'MECH', 'CIVIL'],
+                'BE': ['CSE', 'AIML', 'ISE', 'ECE', 'EEE', 'MECH', 'CIVIL', 'BT'],
                 'MBA': ['MBA'],
                 'MCA': ['MCA']
             },

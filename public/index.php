@@ -7,11 +7,16 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LAKSHYA — Internship & Placement Portal | GM University</title>
     <meta name="google-site-verification" content="gHmW8ge9TTkAZxbUI9hHCRMMCfednoa9ByU0zyWfUAw" />
-    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
+    <link rel="icon" type="image/x-icon" href="<?php echo APP_URL; ?>/favicon.ico">
+    <link rel="icon" type="image/png" sizes="48x48" href="<?php echo APP_URL; ?>/assets/img/favicon-48x48.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="<?php echo APP_URL; ?>/assets/img/favicon-192x192.png">
+    <link rel="apple-touch-icon" href="<?php echo APP_URL; ?>/assets/img/favicon-192x192.png">
     <meta name="description"
         content="GM University's premier platform for internships, placements, AI interview prep, and career development.">
-    <meta name="robots" content="index, follow, max-image-preview:large">
+    <meta name="keywords" content="Lakshya, Lakshya GMU, Lakshya portal, GM University placements, GMIT, AI interview prep, student career portal, campus recruitment">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
     <link rel="canonical" href="https://leap.gmu.ac.in/Lakshya/">
+    <meta property="og:site_name" content="LAKSHYA — GM University">
     <meta property="og:title" content="LAKSHYA — Internship & Placement Portal | GM University">
     <meta property="og:description" content="GM University's premier platform for internships, placements, AI interview prep, and career development.">
     <meta property="og:url" content="https://leap.gmu.ac.in/Lakshya/">
@@ -32,6 +37,7 @@
           "@type": "EducationalOrganization",
           "@id": "https://gmu.ac.in/#organization",
           "name": "GM University",
+          "alternateName": ["GMU", "GMIT"],
           "url": "https://gmu.ac.in/",
           "logo": "https://leap.gmu.ac.in/Lakshya/assets/img/favicon.png",
           "email": "placement@gmu.ac.in",
@@ -41,7 +47,8 @@
           "@type": "WebSite",
           "@id": "https://leap.gmu.ac.in/Lakshya/#website",
           "url": "https://leap.gmu.ac.in/Lakshya/",
-          "name": "LAKSHYA — Internship & Placement Portal | GM University",
+          "name": "LAKSHYA",
+          "alternateName": ["Lakshya Portal", "Lakshya GMU", "Lakshya GM University", "Lakshya Leap"],
           "description": "GM University's premier platform for internships, placements, AI interview prep, and career development.",
           "publisher": {
             "@id": "https://gmu.ac.in/#organization"

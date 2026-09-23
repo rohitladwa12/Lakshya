@@ -1,18 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+        xmlns:image="http://www.google.com/schemas/sitemap-image/1.1">
     <url>
         <loc>https://leap.gmu.ac.in/Lakshya/</loc>
+        <lastmod>2026-09-15</lastmod>
         <changefreq>daily</changefreq>
         <priority>1.0</priority>
+        <image:image>
+            <image:loc>https://leap.gmu.ac.in/Lakshya/assets/img/favicon.png</image:loc>
+            <image:title>LAKSHYA Portal - GM University</image:title>
+            <image:caption>LAKSHYA Student Growth, Internship and Placement Portal</image:caption>
+        </image:image>
     </url>
     <url>
         <loc>https://leap.gmu.ac.in/Lakshya/login</loc>
-        <changefreq>monthly</changefreq>
-        <priority>0.8</priority>
-    </url>
-    <url>
-        <loc>https://leap.gmu.ac.in/Lakshya/public/login.php</loc>
-        <changefreq>monthly</changefreq>
-        <priority>0.8</priority>
+        <lastmod>2026-09-15</lastmod>
+        <changefreq>weekly</changefreq>
+        <priority>0.9</priority>
     </url>
 </urlset>

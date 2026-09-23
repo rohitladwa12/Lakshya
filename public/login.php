@@ -134,22 +134,25 @@ if (isPost()) {
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login — LAKSHYA | GM University</title>
+    <title>LAKSHYA — GM University | Student Career & Placement Portal</title>
     <meta name="google-site-verification" content="gHmW8ge9TTkAZxbUI9hHCRMMCfednoa9ByU0zyWfUAw" />
-    <link rel="icon" type="image/png" href="<?php echo APP_URL; ?>/assets/img/favicon.png">
-    <link rel="shortcut icon" type="image/png" href="<?php echo APP_URL; ?>/assets/img/favicon.png">
-    <link rel="apple-touch-icon" href="<?php echo APP_URL; ?>/assets/img/favicon.png">
-    <meta name="description" content="Login to LAKSHYA Internship & Placement Portal at GM University.">
-    <meta name="robots" content="index, follow, max-image-preview:large">
+    <link rel="icon" type="image/x-icon" href="<?php echo APP_URL; ?>/favicon.ico">
+    <link rel="icon" type="image/png" sizes="48x48" href="<?php echo APP_URL; ?>/assets/img/favicon-48x48.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="<?php echo APP_URL; ?>/assets/img/favicon-192x192.png">
+    <link rel="apple-touch-icon" href="<?php echo APP_URL; ?>/assets/img/favicon-192x192.png">
+    <meta name="description" content="LAKSHYA is GM University's official student career growth, internship, and placement portal. AI interview preparation, verified recruitment drives, skill analytics, and corporate mentorship.">
+    <meta name="keywords" content="Lakshya, Lakshya GMU, Lakshya portal, Lakshya login, GM University Lakshya, GMIT, Lakshya internship, Lakshya placement, AI career portal">
+    <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
     <link rel="canonical" href="https://leap.gmu.ac.in/Lakshya/login">
-    <meta property="og:title" content="Login — LAKSHYA | GM University">
-    <meta property="og:description" content="Login to LAKSHYA Internship & Placement Portal at GM University.">
+    <meta property="og:site_name" content="LAKSHYA — GM University">
+    <meta property="og:title" content="LAKSHYA — GM University | Student Career & Placement Portal">
+    <meta property="og:description" content="Official student career growth, internship, and placement portal at GM University. AI interview prep, verified corporate drives, and skill analytics.">
     <meta property="og:url" content="https://leap.gmu.ac.in/Lakshya/login">
     <meta property="og:type" content="website">
     <meta property="og:image" content="https://leap.gmu.ac.in/Lakshya/assets/img/favicon.png">
-    <meta name="twitter:card" content="summary">
-    <meta name="twitter:title" content="Login — LAKSHYA | GM University">
-    <meta name="twitter:description" content="Login to LAKSHYA Internship & Placement Portal at GM University.">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="LAKSHYA — GM University | Career Portal">
+    <meta name="twitter:description" content="Official student career growth, internship, and placement portal at GM University.">
     <meta name="twitter:image" content="https://leap.gmu.ac.in/Lakshya/assets/img/favicon.png">
 
     <!-- Schema.org JSON-LD Structured Data for SEO & Search Console Favicon -->
@@ -161,29 +164,57 @@ if (isPost()) {
           "@type": "EducationalOrganization",
           "@id": "https://gmu.ac.in/#organization",
           "name": "GM University",
+          "alternateName": ["GMU", "GMIT"],
           "url": "https://gmu.ac.in/",
           "logo": "https://leap.gmu.ac.in/Lakshya/assets/img/favicon.png",
           "email": "placement@gmu.ac.in",
           "telephone": "+918310793613"
         },
         {
+          "@type": "WebSite",
+          "@id": "https://leap.gmu.ac.in/Lakshya/#website",
+          "url": "https://leap.gmu.ac.in/Lakshya/",
+          "name": "LAKSHYA",
+          "alternateName": ["Lakshya Portal", "Lakshya GMU", "Lakshya GM University", "Lakshya Leap"],
+          "publisher": {
+            "@id": "https://gmu.ac.in/#organization"
+          }
+        },
+        {
           "@type": "WebPage",
           "@id": "https://leap.gmu.ac.in/Lakshya/login#webpage",
           "url": "https://leap.gmu.ac.in/Lakshya/login",
-          "name": "Login — LAKSHYA | GM University",
+          "name": "LAKSHYA — GM University | Student Career & Placement Portal",
           "description": "Login to LAKSHYA Internship & Placement Portal at GM University.",
           "isPartOf": {
-            "@type": "WebSite",
-            "@id": "https://leap.gmu.ac.in/Lakshya/#website",
-            "url": "https://leap.gmu.ac.in/Lakshya/",
-            "name": "LAKSHYA — Internship & Placement Portal | GM University",
-            "publisher": {
-              "@id": "https://gmu.ac.in/#organization"
-            }
+            "@id": "https://leap.gmu.ac.in/Lakshya/#website"
           },
           "primaryImageOfPage": {
             "@type": "ImageObject",
             "url": "https://leap.gmu.ac.in/Lakshya/assets/img/favicon.png"
+          },
+          "breadcrumb": {
+            "@type": "BreadcrumbList",
+            "itemListElement": [
+              {
+                "@type": "ListItem",
+                "position": 1,
+                "name": "GM University",
+                "item": "https://gmu.ac.in/"
+              },
+              {
+                "@type": "ListItem",
+                "position": 2,
+                "name": "Lakshya Portal",
+                "item": "https://leap.gmu.ac.in/Lakshya/"
+              },
+              {
+                "@type": "ListItem",
+                "position": 3,
+                "name": "Login",
+                "item": "https://leap.gmu.ac.in/Lakshya/login"
+              }
+            ]
           }
         }
       ]

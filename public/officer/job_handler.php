@@ -33,8 +33,8 @@ switch ($action) {
             }
             $companyData = [
                 'name' => $companyName,
-                'sector' => post('company_sector'),
-                'industry' => post('company_industry') ?: post('company_sector'),
+                'sector' => post('company_sector') ? mb_substr(trim(post('company_sector')), 0, 255) : null,
+                'industry' => (post('company_industry') ?: post('company_sector')) ? mb_substr(trim(post('company_industry') ?: post('company_sector')), 0, 255) : null,
                 'website' => post('company_website') ?: null,
                 'district' => post('company_district') ?: null,
                 'state' => post('company_state') ?: null,

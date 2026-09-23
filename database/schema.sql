@@ -143,7 +143,8 @@ CREATE TABLE student_skills (
 CREATE TABLE companies (
     id INT UNSIGNED PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(255) UNIQUE NOT NULL,
-    industry VARCHAR(100),
+    industry VARCHAR(255),
+    sector VARCHAR(255),
     website VARCHAR(255),
     description TEXT,
     logo_url VARCHAR(255),
