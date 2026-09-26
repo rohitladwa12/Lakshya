@@ -140,6 +140,18 @@ switch ($action) {
                 })(),
                 'eligible_branches' => json_encode($_POST['eligible_branches'] ?? []),
                 'eligible_years' => json_encode($_POST['eligible_years'] ?? []),
+                'eligible_gender' => (function() {
+                    $genders = $_POST['eligible_gender'] ?? [];
+                    if (is_array($genders)) {
+                        $hasMale = in_array('Male', $genders);
+                        $hasFemale = in_array('Female', $genders);
+                        if ($hasMale && !$hasFemale) return 'Male';
+                        if ($hasFemale && !$hasMale) return 'Female';
+                    }
+                    return 'Both';
+                })(),
+                'application_mode' => (post('application_mode') === 'External') ? 'External' : 'Internal',
+                'external_url' => (post('application_mode') === 'External') ? trim(post('external_url')) : null,
                 'custom_fields' => (function() {
                     $labels = $_POST['custom_q_text'] ?? [];
                     $types = $_POST['custom_q_type'] ?? [];

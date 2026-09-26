@@ -79,6 +79,7 @@ if ($driveId > 0) {
     <title>HR Round - <?php echo htmlspecialchars($companyName); ?></title>
     <!-- Resilience & Cache Busting -->
     <script src="resilience.js?v=<?php echo APP_VERSION; ?>"></script>
+    <script src="../js/proctor.js?v=<?php echo APP_VERSION; ?>"></script>
 
     <!-- Fonts & Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
@@ -646,9 +647,11 @@ if ($driveId > 0) {
             </p>
             <input type="text" id="roleInput" placeholder="Specific Role (e.g. Manager)"
                 value="<?php echo htmlspecialchars($roleName); ?>"
-                style="padding: 10px; width: 200px; text-align: center; margin-bottom: 20px; <?php echo $driveId > 0 ? 'display:none;' : ''; ?>">
-            <br>
-            <button onclick="startSession()"
+            <div id="proctor-env-box" style="margin-bottom: 20px; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; text-align: left; font-size: 0.9rem;">
+                <div style="font-weight: 600; color: var(--accent);"><i class="fas fa-shield-alt"></i> AI Proctoring & Video Active</div>
+                <div id="proctor-env-status" style="margin-top: 4px; color: #aaa; font-size: 0.85rem;">Camera & baseline calibration will initialize on start.</div>
+            </div>
+            <button id="btnStartHR" onclick="startSession()"
                 style="padding: 15px 40px; font-size: 1.1rem; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer;">Start
                 Interview</button>
         </div>
@@ -739,6 +742,26 @@ if ($driveId > 0) {
 
     <script>
         window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
+        let proctorEngine = null;
+
+        // Initialize Proctoring Engine
+        try {
+            proctorEngine = new ProctoringEngine({
+                studentId: "<?php echo addslashes(getUsername()); ?>",
+                assessmentId: <?php echo (int)($taskId ?: ($driveId ?: 1)); ?>,
+                assessmentType: 'hr',
+                apiEndpoint: 'proctor_handler.php',
+                onWarning: (data) => {
+                    console.warn("Proctor Warning:", data);
+                },
+                onAutoSubmit: () => {
+                    console.error("Proctor: Assessment auto-terminated due to maximum integrity violations.");
+                    endSession(true);
+                }
+            });
+        } catch (e) {
+            console.error("ProctoringEngine instantiation error:", e);
+        }
     </script>
     <script src="<?php echo APP_URL; ?>/js/security_interceptor.js?v=<?php echo APP_VERSION; ?>"></script>
     <script>
@@ -1218,6 +1241,37 @@ if ($driveId > 0) {
 
         async function startSession() {
             const role = document.getElementById('roleInput').value;
+            const startBtn = document.getElementById('btnStartHR') || document.querySelector('#introOverlay button');
+            const statusEl = document.getElementById('proctor-env-status');
+
+            // 1. Initialize Proctoring & Camera
+            if (proctorEngine) {
+                if (startBtn) startBtn.disabled = true;
+                if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Initializing camera & proctoring session...';
+
+                try {
+                    const camReady = await proctorEngine.init();
+                    if (!camReady) {
+                        if (startBtn) startBtn.disabled = false;
+                        if (statusEl) statusEl.innerHTML = '<span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> Camera access required. Please allow camera in browser and retry.</span>';
+                        return;
+                    }
+
+                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Calibrating posture & identity baseline... (keep face centered)';
+                    const envCheck = await proctorEngine.runEnvCheck();
+                    if (!envCheck.passed) {
+                        if (startBtn) startBtn.disabled = false;
+                        const reason = (envCheck.reasons && envCheck.reasons.length) ? envCheck.reasons.join(' ') : 'Camera calibration failed. Please ensure face is centered and lighting is adequate.';
+                        if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> ${reason}</span>`;
+                        return;
+                    }
+
+                    proctorEngine.start();
+                } catch (pErr) {
+                    console.warn("Proctor init warning:", pErr);
+                }
+            }
+
             document.getElementById('introOverlay').classList.add('hidden');
             if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen().catch(e => e);
 
@@ -1578,8 +1632,12 @@ if ($driveId > 0) {
 
         function stopHealthMonitor() { clearInterval(healthCheckInterval); }
 
-        async function endSession() {
-            if (!confirm("End Interview?")) return;
+        async function endSession(forceAutoSubmit = false) {
+            if (!forceAutoSubmit && !confirm("End Interview?")) return;
+            if (proctorEngine) {
+                try { proctorEngine.stop(); } catch (e) { }
+            }
+            releaseAudioResources();
             // Do NOT enter the terminal ENDED state before the report succeeds —
             // a failure (e.g. minimum-duration check) must leave the session usable.
             transitionTo(State.PROCESSING);

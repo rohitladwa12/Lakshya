@@ -171,12 +171,12 @@ class StudentProfile extends Model {
             $studentIdForSgpa = $username; // USN stored in student_sem_sgpa.student_id for GMIT
 
             $paramsSgpa = [$studentIdForSgpa];
-            $sqlSgpa = "SELECT semester, sgpa, academic_year FROM student_sem_sgpa WHERE (student_id = ?";
+            $sqlSgpa = "SELECT semester, sgpa, academic_year, is_current FROM student_sem_sgpa WHERE (student_id = ?";
             if (!empty($aadhar)) {
                 $sqlSgpa .= " OR student_id = ?";
                 $paramsSgpa[] = $aadhar;
             }
-            $sqlSgpa .= ") AND institution = ? ORDER BY semester DESC";
+            $sqlSgpa .= ") AND institution = ? ORDER BY is_current DESC, semester DESC";
             $paramsSgpa[] = INSTITUTION_GMIT;
 
             $stmtSgpa = $this->db->prepare($sqlSgpa); // LOCAL
@@ -195,6 +195,7 @@ class StudentProfile extends Model {
                 $profile['sgpa'] = $rec['sgpa'];
                 $profile['cgpa'] = $rec['sgpa']; // Individual sem record
                 $profile['academic_year'] = $rec['academic_year'];
+                $profile['is_current'] = $rec['is_current'] ?? 0;
                 
                 // Derive year if missing
                 if (empty($profile['year_of_study']) && !empty($profile['semester'])) {
@@ -394,30 +395,8 @@ class StudentProfile extends Model {
      * Check if student is eligible for job
      */
     public function isEligibleForJob($userId, $jobRequirements) {
-        // Default to strict check if min_cgpa is set
-        if (isset($jobRequirements['min_cgpa']) && $jobRequirements['min_cgpa'] > 0) {
-            $check = $this->isEligibleStrict($userId, $jobRequirements['min_cgpa'], $jobRequirements);
-            return $check['eligible'];
-        }
-        
-        $profile = $this->getByUserId($userId);
-        if (!$profile) return false;
-
-        if (isset($jobRequirements['eligible_courses'])) {
-            $courses = json_decode($jobRequirements['eligible_courses'], true);
-            if ($courses && !in_array($profile['course'], $courses)) {
-                return false;
-            }
-        }
-
-        if (isset($jobRequirements['eligible_years'])) {
-            $years = json_decode($jobRequirements['eligible_years'], true);
-            if ($years && !in_array($profile['year_of_study'], $years)) {
-                return false;
-            }
-        }
-
-        return true;
+        $check = $this->isEligibleStrict($userId, $jobRequirements['min_cgpa'] ?? 0, $jobRequirements);
+        return $check['eligible'];
     }
 
     /**
@@ -493,6 +472,55 @@ class StudentProfile extends Model {
                 if (!$matchFound) {
                     $eligible = false;
                     $reasons[] = "Branch $studentBranch is not eligible (Open to: " . implode(', ', $branches) . ")";
+                }
+            }
+        }
+
+        // --- Gender check: use $profile (GMIT & GMU) ---
+        if (!empty($jobRequirements['eligible_gender'])) {
+            $reqGender = $jobRequirements['eligible_gender'];
+            $allowedGenders = [];
+            if (is_string($reqGender)) {
+                $decoded = json_decode($reqGender, true);
+                if (is_array($decoded)) {
+                    $allowedGenders = $decoded;
+                } else {
+                    $allowedGenders = [$reqGender];
+                }
+            } elseif (is_array($reqGender)) {
+                $allowedGenders = $reqGender;
+            }
+
+            // Determine if male/female are allowed
+            $allowsMale = in_array('Both', $allowedGenders) || in_array('Male', $allowedGenders);
+            $allowsFemale = in_array('Both', $allowedGenders) || in_array('Female', $allowedGenders);
+
+            // If restricted to one gender
+            if ($allowsMale && !$allowsFemale) {
+                $rawGender = $profile['gender'] ?? '';
+                if (empty($rawGender)) {
+                    // Fallback to student_resumes
+                    $stmtRes = $this->db->prepare("SELECT gender FROM student_resumes WHERE student_id = ? OR student_id = ? LIMIT 1");
+                    $stmtRes->execute([$userId, $profile['usn'] ?? '']);
+                    $rawGender = $stmtRes->fetchColumn() ?: '';
+                }
+                $genderChar = strtoupper(substr(trim($rawGender), 0, 1));
+                if ($genderChar !== 'M') {
+                    $eligible = false;
+                    $reasons[] = "This opportunity is open to Male candidates only";
+                }
+            } elseif ($allowsFemale && !$allowsMale) {
+                $rawGender = $profile['gender'] ?? '';
+                if (empty($rawGender)) {
+                    // Fallback to student_resumes
+                    $stmtRes = $this->db->prepare("SELECT gender FROM student_resumes WHERE student_id = ? OR student_id = ? LIMIT 1");
+                    $stmtRes->execute([$userId, $profile['usn'] ?? '']);
+                    $rawGender = $stmtRes->fetchColumn() ?: '';
+                }
+                $genderChar = strtoupper(substr(trim($rawGender), 0, 1));
+                if ($genderChar !== 'F') {
+                    $eligible = false;
+                    $reasons[] = "This opportunity is open to Female candidates only";
                 }
             }
         }
@@ -913,6 +941,32 @@ class StudentProfile extends Model {
             }
             
             $this->db->commit();
+
+            // Invalidate Redis cache and session profile for all student identifiers
+            try {
+                $userModel = new User();
+                $userObj = $userModel->findByUsername($studentId) ?: $userModel->find($studentId, $institution);
+                $idsToClear = [$studentId];
+                if ($userObj) {
+                    if (!empty($userObj['username'])) $idsToClear[] = $userObj['username'];
+                    if (!empty($userObj['aadhar'])) $idsToClear[] = $userObj['aadhar'];
+                    if (!empty($userObj['id'])) $idsToClear[] = $userObj['id'];
+                }
+
+                $proxy = new \App\Services\RemoteDataProxy();
+                $proxy->clearCache($idsToClear, $institution);
+
+                if (session_status() === PHP_SESSION_ACTIVE) {
+                    foreach ($idsToClear as $id) {
+                        unset($_SESSION['student_profile_' . $id]);
+                        unset($_SESSION['student_profile_' . strtoupper((string)$id)]);
+                        unset($_SESSION['student_profile_' . strtolower((string)$id)]);
+                    }
+                }
+            } catch (\Throwable $t) {
+                error_log("saveSGPA cache clear error: " . $t->getMessage());
+            }
+
             return true;
         } catch (Exception $e) {
             $this->db->rollBack();
@@ -921,4 +975,41 @@ class StudentProfile extends Model {
         }
     }
 
+    /**
+     * Check if student has completed and updated their academic profile
+     * (Semester & SGPA history with active semester)
+     */
+    public function hasCompletedAcademicProfile($userId, $institution = null) {
+        $inst = $institution ?: ($_SESSION['institution'] ?? INSTITUTION_GMU);
+        $userModel = new User();
+        $user = $userModel->findByUsername($userId) ?: $userModel->find($userId, $inst);
+        $username = $user['username'] ?? (string)$userId;
+
+        if ($inst === INSTITUTION_GMIT) {
+            $stmt = $this->db->prepare(
+                "SELECT semester, sgpa, is_current FROM student_sem_sgpa 
+                 WHERE (student_id = ? OR UPPER(student_id) = UPPER(?)) AND institution = ?"
+            );
+            $stmt->execute([$username, $username, INSTITUTION_GMIT]);
+            $records = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+            if (empty($records)) {
+                return false;
+            }
+
+            $hasActive = false;
+            foreach ($records as $r) {
+                if ((int)$r['is_current'] === 1 && (int)$r['semester'] > 0) {
+                    $hasActive = true;
+                    break;
+                }
+            }
+            return $hasActive;
+        } else {
+            $history = $this->getAcademicHistory($username, $inst);
+            return !empty($history) && !empty($history[0]['semester']);
+        }
+    }
+
 }
+

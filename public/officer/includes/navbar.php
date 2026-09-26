@@ -7,19 +7,27 @@ $officerName = $_SESSION['user']['full_name'] ?? 'Officer';
 $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
 ?>
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
     :root {
         --brand: #7C0000;
-        --brand-dark: #4A0000;
-        --gold: #C9972C;
+        --brand-hover: #9E0000;
+        --brand-light: #FDF2F2;
+        --gold: #B08D2C;
         --sidebar-w: 260px;
-        --ease-out: cubic-bezier(0.34, 1.56, 0.64, 1);
+        --text-primary: #111827;
+        --text-secondary: #4B5563;
+        --text-muted: #9CA3AF;
+        --border-color: #E5E7EB;
+        --surface-bg: #FFFFFF;
+        --hover-bg: #F3F4F6;
     }
 
     body {
         padding-left: var(--sidebar-w) !important;
         padding-top: 0 !important;
+        background-color: #F8F9FA;
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     }
 
     #o-sidebar {
@@ -28,40 +36,59 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
         left: 0;
         bottom: 0;
         width: var(--sidebar-w);
-        background: linear-gradient(to bottom, var(--brand-dark), var(--brand));
+        background: var(--surface-bg);
         z-index: 1000;
-        box-shadow: 4px 0 24px rgba(0, 0, 0, 0.15);
-        font-family: 'Outfit', sans-serif;
-        border-right: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 1px 0 3px rgba(0, 0, 0, 0.04);
+        border-right: 1px solid var(--border-color);
         display: flex;
         flex-direction: column;
-        padding: 30px 20px;
+        padding: 24px 16px;
         box-sizing: border-box;
     }
 
+    /* Brand Header */
     .o-brand {
         display: flex;
         align-items: center;
         gap: 12px;
-        font-size: 20px;
-        font-weight: 800;
-        color: #fff;
-        letter-spacing: -0.5px;
-        text-transform: uppercase;
-        margin-bottom: 30px;
+        text-decoration: none;
+        margin-bottom: 24px;
+        padding: 0 4px;
     }
 
     .o-brand__icon {
         width: 38px;
         height: 38px;
-        background: linear-gradient(135deg, var(--gold), #f3d283);
+        background: var(--brand);
         border-radius: 10px;
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 18px;
+        color: #FFFFFF;
+        box-shadow: 0 2px 6px rgba(124, 0, 0, 0.2);
+        flex-shrink: 0;
+    }
+
+    .o-brand__text {
+        display: flex;
+        flex-direction: column;
+        line-height: 1.2;
+    }
+
+    .o-brand__title {
+        font-size: 18px;
+        font-weight: 700;
+        color: var(--text-primary);
+        letter-spacing: -0.3px;
+    }
+
+    .o-brand__badge {
+        font-size: 11px;
+        font-weight: 600;
         color: var(--brand);
-        box-shadow: 0 4px 10px rgba(201, 151, 44, 0.3);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
 
     /* Profile Card */
@@ -69,24 +96,25 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 12px;
-        background: rgba(255, 255, 255, 0.05);
-        border: 1px solid rgba(255, 255, 255, 0.08);
-        border-radius: 14px;
-        margin-bottom: 25px;
+        padding: 10px 12px;
+        background: #F9FAFB;
+        border: 1px solid var(--border-color);
+        border-radius: 12px;
+        margin-bottom: 20px;
     }
 
     .o-profile-avatar {
         width: 36px;
         height: 36px;
-        border-radius: 50%;
-        background: rgba(255, 255, 255, 0.1);
+        border-radius: 8px;
+        background: var(--brand-light);
         display: flex;
         align-items: center;
         justify-content: center;
         font-size: 14px;
-        color: #fff;
-        border: 1px solid rgba(255, 255, 255, 0.15);
+        color: var(--brand);
+        font-weight: 700;
+        flex-shrink: 0;
     }
 
     .o-profile-info {
@@ -96,16 +124,16 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
     }
 
     .o-profile-name {
-        color: #fff;
+        color: var(--text-primary);
         font-size: 13px;
-        font-weight: 700;
+        font-weight: 600;
         white-space: nowrap;
         text-overflow: ellipsis;
         overflow: hidden;
     }
 
     .o-profile-role {
-        color: rgba(255, 255, 255, 0.55);
+        color: var(--text-muted);
         font-size: 11px;
         font-weight: 500;
     }
@@ -114,10 +142,12 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
     .o-links {
         display: flex;
         flex-direction: column;
-        gap: 8px;
+        gap: 4px;
         list-style: none;
         margin: 0;
         padding: 0;
+        flex: 1;
+        overflow-y: auto;
     }
 
     .o-links li {
@@ -128,44 +158,50 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
         display: flex;
         align-items: center;
         gap: 12px;
-        padding: 12px 16px;
-        border-radius: 12px;
-        font-size: 14px;
-        font-weight: 600;
-        color: rgba(255, 255, 255, 0.65);
-        transition: all 0.3s var(--ease-out);
+        padding: 10px 12px;
+        border-radius: 8px;
+        font-size: 13.5px;
+        font-weight: 500;
+        color: var(--text-secondary);
+        transition: all 0.15s ease;
         text-decoration: none;
         box-sizing: border-box;
     }
 
     .o-links a i {
-        font-size: 16px;
-        opacity: 0.8;
-        width: 20px;
+        font-size: 15px;
+        width: 18px;
         text-align: center;
+        color: #6B7280;
+        transition: color 0.15s ease;
     }
 
     .o-links a:hover {
-        color: #fff;
-        background: rgba(255, 255, 255, 0.06);
-        transform: translateX(4px);
+        color: var(--text-primary);
+        background: var(--hover-bg);
+    }
+
+    .o-links a:hover i {
+        color: var(--text-primary);
     }
 
     .o-links a.active {
-        background: #fff;
+        background: var(--brand-light);
         color: var(--brand);
-        font-weight: 700;
-        box-shadow: 0 8px 16px rgba(0, 0, 0, 0.1);
+        font-weight: 600;
+        border-left: 3px solid var(--brand);
+        padding-left: 9px;
     }
 
     .o-links a.active i {
-        opacity: 1;
         color: var(--brand);
     }
 
-    /* Logout Container */
+    /* Logout Section */
     .o-logout-container {
         margin-top: auto;
+        padding-top: 16px;
+        border-top: 1px solid var(--border-color);
         width: 100%;
     }
 
@@ -173,15 +209,15 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
         display: flex;
         align-items: center;
         justify-content: center;
-        gap: 10px;
-        padding: 12px 20px;
-        border-radius: 12px;
-        font-size: 14px;
-        font-weight: 700;
-        color: #fff;
-        background: rgba(255, 255, 255, 0.08);
-        border: 1px solid rgba(255, 255, 255, 0.1);
-        transition: all 0.3s ease;
+        gap: 8px;
+        padding: 10px 14px;
+        border-radius: 8px;
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-secondary);
+        background: #F9FAFB;
+        border: 1px solid var(--border-color);
+        transition: all 0.15s ease;
         cursor: pointer;
         text-decoration: none;
         box-sizing: border-box;
@@ -189,17 +225,20 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
     }
 
     .o-logout:hover {
-        background: #ef4444;
-        border-color: #ef4444;
-        box-shadow: 0 8px 24px rgba(239, 68, 68, 0.35);
-        transform: translateY(-2px);
+        background: #FEF2F2;
+        border-color: #FECACA;
+        color: #DC2626;
+    }
+
+    .o-logout i {
+        font-size: 13px;
     }
 
     /* Responsive Design (Mobile / Tablet) */
     @media (max-width: 992px) {
         body {
             padding-left: 0 !important;
-            padding-top: 70px !important;
+            padding-top: 64px !important;
         }
 
         #o-sidebar {
@@ -209,18 +248,19 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
             right: 0;
             bottom: auto;
             width: 100%;
-            height: 70px;
+            height: 64px;
             flex-direction: row;
-            padding: 0 20px;
+            padding: 0 16px;
             align-items: center;
             justify-content: space-between;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
             border-right: none;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            border-bottom: 1px solid var(--border-color);
         }
 
         .o-brand {
             margin-bottom: 0;
+            padding: 0;
         }
 
         .o-profile-card {
@@ -230,28 +270,43 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
         .o-links {
             flex-direction: row;
             align-items: center;
-            gap: 6px;
+            gap: 4px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            flex: initial;
         }
 
         .o-links a {
-            padding: 10px 12px;
-            border-radius: 10px;
-            font-size: 13px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-size: 12.5px;
         }
 
         .o-links a span {
             display: none;
         }
 
+        .o-links a.active {
+            border-left: none;
+            border-bottom: 2px solid var(--brand);
+            padding-left: 10px;
+            padding-bottom: 6px;
+        }
+
         .o-logout-container {
             margin-top: 0;
+            padding-top: 0;
+            border-top: none;
             width: auto;
         }
 
         .o-logout {
-            padding: 10px 16px;
-            border-radius: 10px;
-            font-size: 13px;
+            padding: 8px 12px;
+            font-size: 12px;
+        }
+
+        .o-logout span {
+            display: none;
         }
     }
 </style>
@@ -259,10 +314,14 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
 <nav id="o-sidebar">
-    <div class="o-brand">
+    <!-- Brand / System Title -->
+    <a href="dashboard.php" class="o-brand">
         <div class="o-brand__icon"><i class="fas fa-graduation-cap"></i></div>
-        <span>Lakshya <span style="color: var(--gold); font-weight: 400; font-size: 14px; opacity: 0.8; margin-left: 2px;">Hub</span></span>
-    </div>
+        <div class="o-brand__text">
+            <span class="o-brand__title">Lakshya</span>
+            <span class="o-brand__badge">Placement Admin</span>
+        </div>
+    </a>
 
     <!-- User Profile Details -->
     <div class="o-profile-card">
@@ -271,7 +330,7 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
         </div>
         <div class="o-profile-info">
             <span class="o-profile-name" title="<?php echo htmlspecialchars($officerName); ?>"><?php echo htmlspecialchars($officerName); ?></span>
-            <span class="o-profile-role">Officer (<?php echo htmlspecialchars($officerInstitution); ?>)</span>
+            <span class="o-profile-role">Placement Officer (<?php echo htmlspecialchars($officerInstitution); ?>)</span>
         </div>
     </div>
 
@@ -283,18 +342,18 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
             </a>
         </li>
         <li>
-            <a href="reports.php" class="<?php echo ($currentPage === 'reports.php') ? 'active' : ''; ?>">
-                <i class="fas fa-brain"></i> <span>Intelligence</span>
+            <a href="jobs.php" class="<?php echo ($currentPage === 'jobs.php') ? 'active' : ''; ?>">
+                <i class="fas fa-briefcase"></i> <span>Jobs & Drives</span>
             </a>
         </li>
         <li>
-            <a href="jobs.php" class="<?php echo ($currentPage === 'jobs.php' || $currentPage === 'job_applicants.php') ? 'active' : ''; ?>">
-                <i class="fas fa-briefcase"></i> <span>Jobs</span>
+            <a href="applications.php" class="<?php echo ($currentPage === 'applications.php' || $currentPage === 'job_applicants.php') ? 'active' : ''; ?>">
+                <i class="fas fa-file-signature"></i> <span>Applications</span>
             </a>
         </li>
         <li>
             <a href="campus_drives.php" class="<?php echo ($currentPage === 'campus_drives.php') ? 'active' : ''; ?>">
-                <i class="fas fa-laptop-code"></i> <span>Campus Drive</span>
+                <i class="fas fa-calendar-check"></i> <span>Campus Drives</span>
             </a>
         </li>
         <li>
@@ -302,10 +361,14 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
                 <i class="fas fa-user-check"></i> <span>Attendance</span>
             </a>
         </li>
-        
         <li>
             <a href="upload_placed_students.php" class="<?php echo ($currentPage === 'upload_placed_students.php') ? 'active' : ''; ?>">
-                <i class="fas fa-cloud-arrow-up"></i> <span>Upload</span>
+                <i class="fas fa-cloud-arrow-up"></i> <span>Upload Placed</span>
+            </a>
+        </li>
+        <li>
+            <a href="reports.php" class="<?php echo ($currentPage === 'reports.php') ? 'active' : ''; ?>">
+                <i class="fas fa-chart-line"></i> <span>Intelligence</span>
             </a>
         </li>
         <li>
@@ -317,7 +380,7 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
 
     <!-- Logout -->
     <div class="o-logout-container">
-        <a href="../logout.php" class="o-logout"><i class="fas fa-power-off"></i> Logout</a>
+        <a href="../logout.php" class="o-logout" title="Sign out of Lakshya"><i class="fas fa-sign-out-alt"></i> <span>Logout</span></a>
     </div>
 </nav>
 

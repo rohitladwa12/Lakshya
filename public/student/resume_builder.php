@@ -10,6 +10,8 @@ requireFeature('feature_resume_builder', 'Resume Builder');
 
 $userId   = getUserId();
 $fullName = getFullName();
+$redirectAfterResume = $_SESSION['redirect_after_resume'] ?? '';
+$flashError = Session::flash('error');
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -681,9 +683,15 @@ $fullName = getFullName();
 
 <!-- TOP BAR -->
 <div class="topbar">
+    <?php if ($redirectAfterResume): ?>
+    <button class="tb-btn tb-btn-back" style="background:#800000; color:#fff; border-color:#800000;" onclick="window.location.href='<?php echo htmlspecialchars($redirectAfterResume); ?>'">
+        <i class="fas fa-arrow-left"></i> Return to Opportunity
+    </button>
+    <?php else: ?>
     <button class="tb-btn tb-btn-back" onclick="window.location.href='dashboard.php'">
         <i class="fas fa-arrow-left"></i> Dashboard
     </button>
+    <?php endif; ?>
     <div class="topbar-sep"></div>
     <div class="topbar-brand"><i class="fas fa-file-alt"></i> Resume Builder</div>
     <div class="topbar-sep"></div>
@@ -707,6 +715,13 @@ $fullName = getFullName();
         </button>
     </div>
 </div>
+
+<?php if ($redirectAfterResume): ?>
+<div style="background: linear-gradient(90deg, #800000, #a52a2a); color: white; padding: 10px 24px; display: flex; justify-content: space-between; align-items: center; font-size: 13px; font-weight: 600; box-shadow: 0 2px 8px rgba(0,0,0,0.15); z-index: 100; position: relative;">
+    <span><i class="fas fa-exclamation-circle" style="color: #fde047; margin-right: 8px;"></i> <?php echo htmlspecialchars($flashError ?: 'Please create and save your resume below to complete your application.'); ?></span>
+    <a href="<?php echo htmlspecialchars($redirectAfterResume); ?>" style="color: #fde047; text-decoration: none; font-weight: 700; background: rgba(255,255,255,0.15); padding: 5px 12px; border-radius: 6px; transition: background 0.2s;"><i class="fas fa-arrow-left"></i> Return to Opportunity</a>
+</div>
+<?php endif; ?>
 
 <!-- MAIN LAYOUT -->
 <div class="builder-layout">

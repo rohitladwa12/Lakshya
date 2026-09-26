@@ -43,6 +43,48 @@ class Resume extends Model {
         
         return $resume;
     }
+
+    /**
+     * Check if student has a valid resume (DB record or PDF file on disk)
+     * Accepts single ID or array of IDs (e.g. USN, user_id, Aadhar)
+     */
+    public function hasResume($studentId) {
+        if (empty($studentId)) return false;
+
+        $ids = is_array($studentId) ? $studentId : [$studentId];
+
+        // 1. Check database for valid record
+        foreach ($ids as $id) {
+            $resume = $this->getByStudentId($id);
+            if (!empty($resume) && !empty($resume['full_name'])) {
+                return true;
+            }
+        }
+
+        // 2. Check disk for uploaded / generated PDF file
+        foreach ($ids as $id) {
+            $idStr = trim((string)$id);
+            if (empty($idStr)) continue;
+
+            $variants = array_unique([$idStr, strtoupper($idStr), strtolower($idStr)]);
+            foreach ($variants as $v) {
+                if (defined('UPLOADS_PATH')) {
+                    if (file_exists(UPLOADS_PATH . '/resumes/Student_Resumes/' . $v . '_Resume.pdf') ||
+                        file_exists(UPLOADS_PATH . '/resumes/' . $v . '_Resume.pdf')) {
+                        return true;
+                    }
+                }
+                if (defined('RESUME_UPLOAD_PATH')) {
+                    if (file_exists(RESUME_UPLOAD_PATH . '/Student_Resumes/' . $v . '_Resume.pdf') ||
+                        file_exists(RESUME_UPLOAD_PATH . '/' . $v . '_Resume.pdf')) {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
     
     /**
      * Save or update resume

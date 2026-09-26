@@ -612,7 +612,14 @@ $jobs = $jobModel->getJobsForStudent($userId);
 
                         <div class="card-body">
                             <!-- Type Badge -->
-                            <span class="type-badge"><?php echo htmlspecialchars($job['job_type'] ?: 'Full-Time'); ?></span>
+                            <div style="display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap;">
+                                <span class="type-badge"><?php echo htmlspecialchars($job['job_type'] ?: 'Full-Time'); ?></span>
+                                <?php if (($job['application_mode'] ?? 'Internal') === 'External'): ?>
+                                    <span class="type-badge" style="background:#eff6ff;color:#1e40af;border:1px solid #bfdbfe;">
+                                        <i class="fas fa-external-link-alt"></i> External Portal
+                                    </span>
+                                <?php endif; ?>
+                            </div>
 
                             <!-- Title -->
                             <div class="c-title"><?php echo htmlspecialchars($job['title']); ?></div>
@@ -680,7 +687,11 @@ $jobs = $jobModel->getJobsForStudent($userId);
                             <?php else: ?>
                                 <a href="job_details.php?id=<?php echo $job['id']; ?>" class="btn btn-primary"
                                     onclick="event.stopPropagation()">
-                                    <i class="fas fa-arrow-right"></i> Apply Now
+                                    <?php if (($job['application_mode'] ?? 'Internal') === 'External'): ?>
+                                        <i class="fas fa-globe"></i> Apply on Company Site
+                                    <?php else: ?>
+                                        <i class="fas fa-arrow-right"></i> Apply Now
+                                    <?php endif; ?>
                                 </a>
                             <?php endif; ?>
                         </div>

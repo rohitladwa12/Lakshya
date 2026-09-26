@@ -257,126 +257,149 @@ if (!empty($listToDisplay)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Students List - <?php echo APP_NAME; ?></title>
     <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
     <!-- SheetJS for Excel Export -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         :root {
-            --primary-maroon: #800000;
-            --primary-gold: #D4AF37;
-            --white: #ffffff;
-            --bg-light: #f8fafc;
-            --shadow: 0 4px 20px rgba(0,0,0,0.05);
+            --maroon: #7C0000;
+            --maroon-dark: #5A0000;
+            --maroon-light: #9B1B1B;
+            --gold: #B08D2C;
+            --page-bg: #F8F9FA;
+            --card-bg: #FFFFFF;
+            --border-color: #E5E7EB;
+            --text-primary: #111827;
+            --text-secondary: #4B5563;
+            --text-muted: #9CA3AF;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
         }
         
         * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
-            font-family: 'Outfit', sans-serif;
-            background: var(--bg-light);
-            color: #1e293b;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--page-bg);
+            color: var(--text-primary);
+            padding-top: 0;
+            min-height: 100vh;
         }
         
-        .main-content { padding: 40px; max-width: 1400px; margin: 0 auto; }
+        .main-content { padding: 32px 40px; max-width: 1400px; margin: 0 auto; }
         
-        .page-header { margin-bottom: 30px; display: flex; justify-content: space-between; align-items: flex-end; }
-        .page-header h2 { font-size: 30px; color: var(--primary-maroon); font-weight: 800; margin-bottom: 8px; }
-        .page-header p { color: #64748b; font-size: 15px; display: flex; align-items: center; gap: 8px; }
+        .page-header { 
+            margin-bottom: 24px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: flex-end; 
+            background: var(--card-bg);
+            padding: 24px 30px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+        }
+        .page-header h2 { font-size: 22px; color: var(--maroon); font-weight: 700; margin-bottom: 6px; }
+        .page-header p { color: var(--text-secondary); font-size: 13.5px; display: flex; align-items: center; gap: 8px; }
         
         .back-btn {
-            background-color: white; color: #1e293b; border: 1px solid #e2e8f0;
-            padding: 10px 20px; border-radius: 10px; font-weight: 600; font-size: 14px;
-            text-decoration: none; display: inline-flex; align-items: center; gap: 8px;
+            background-color: var(--card-bg); color: var(--text-secondary); border: 1px solid var(--border-color);
+            padding: 8px 16px; border-radius: var(--radius-sm); font-weight: 600; font-size: 13px;
+            text-decoration: none; display: inline-flex; align-items: center; gap: 6px; transition: all 0.15s ease;
         }
-        .back-btn:hover { background-color: #f1f5f9; }
+        .back-btn:hover { background-color: #F3F4F6; color: var(--text-primary); border-color: #D1D5DB; }
 
         .tabs {
-            display: flex; gap: 15px; margin-bottom: 25px;
+            display: flex; gap: 12px; margin-bottom: 20px;
         }
         
         .tab-btn {
-            padding: 12px 24px; background: white; border: 1px solid #e2e8f0;
-            border-radius: 12px; font-size: 15px; font-weight: 700; color: #64748b;
-            text-decoration: none; display: flex; align-items: center; gap: 10px;
-            box-shadow: var(--shadow); transition: 0.2s;
+            padding: 10px 20px; background: var(--card-bg); border: 1px solid var(--border-color);
+            border-radius: var(--radius-md); font-size: 13.5px; font-weight: 600; color: var(--text-secondary);
+            text-decoration: none; display: flex; align-items: center; gap: 8px;
+            box-shadow: var(--shadow-sm); transition: 0.15s ease;
         }
         
-        .tab-btn:hover { background: #f8fafc; border-color: #cbd5e1; }
+        .tab-btn:hover { background: #F9FAFB; border-color: #D1D5DB; color: var(--text-primary); }
         
         .tab-btn.active {
-            background: var(--primary-maroon); color: white; border-color: var(--primary-maroon);
+            background: var(--maroon); color: #FFFFFF; border-color: var(--maroon);
         }
         
         .tab-badge {
-            background: #f1f5f9; color: #1e293b; padding: 2px 8px; border-radius: 6px; font-size: 12px;
+            background: #F3F4F6; color: var(--text-primary); padding: 2px 8px; border-radius: 9999px; font-size: 11.5px; font-weight: 700;
         }
         
-        .tab-btn.active .tab-badge { background: white; color: var(--primary-maroon); }
+        .tab-btn.active .tab-badge { background: rgba(255, 255, 255, 0.2); color: #FFFFFF; }
 
         .filter-card {
-            background: white; border-radius: 16px; padding: 20px; box-shadow: var(--shadow);
-            margin-bottom: 25px; display: flex; gap: 15px; align-items: center; flex-wrap: wrap;
+            background: var(--card-bg); border-radius: var(--radius-lg); padding: 18px 24px; box-shadow: var(--shadow-sm);
+            margin-bottom: 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; border: 1px solid var(--border-color);
         }
         
         .search-input {
-            flex: 1; padding: 12px 15px; border-radius: 10px; border: 1px solid #e2e8f0;
-            font-size: 14px; font-family: 'Outfit'; outline: none; min-width: 250px;
+            flex: 1; padding: 9px 14px; border-radius: var(--radius-sm); border: 1px solid #D1D5DB;
+            font-size: 13.5px; font-family: inherit; outline: none; min-width: 240px; color: var(--text-primary);
         }
-        .search-input:focus { border-color: var(--primary-maroon); }
+        .search-input:focus { border-color: var(--maroon); box-shadow: 0 0 0 3px rgba(124, 0, 0, 0.12); }
         
         .status-select {
-            padding: 12px 15px; border-radius: 10px; border: 1px solid #e2e8f0;
-            font-size: 14px; font-family: 'Outfit'; outline: none; min-width: 150px;
+            padding: 9px 14px; border-radius: var(--radius-sm); border: 1px solid #D1D5DB;
+            font-size: 13.5px; font-family: inherit; outline: none; min-width: 140px; color: var(--text-primary); background: #FFFFFF;
         }
+        .status-select:focus { border-color: var(--maroon); }
         
         .btn-filter {
-            padding: 12px 24px; background: var(--primary-maroon); color: white;
-            border: none; border-radius: 10px; font-weight: 600; cursor: pointer; transition: 0.2s; text-decoration: none; display: inline-block;
+            padding: 9px 18px; background: var(--maroon); color: #FFFFFF;
+            border: none; border-radius: var(--radius-sm); font-weight: 600; font-size: 13px; cursor: pointer; transition: 0.15s ease; text-decoration: none; display: inline-block;
         }
-        .btn-filter:hover { background: #600000; }
+        .btn-filter:hover { background: var(--maroon-dark); }
         .btn-clear {
-            padding: 12px 24px; background: #f1f5f9; color: #64748b;
-            border: none; border-radius: 10px; font-weight: 600; text-decoration: none; display: inline-block; transition: 0.2s;
+            padding: 9px 18px; background: #F3F4F6; color: var(--text-secondary);
+            border: 1px solid var(--border-color); border-radius: var(--radius-sm); font-weight: 600; font-size: 13px; text-decoration: none; display: inline-block; transition: 0.15s ease;
         }
-        .btn-clear:hover { background: #e2e8f0; color: #1e293b; }
+        .btn-clear:hover { background: #E5E7EB; color: var(--text-primary); }
 
         .table-card {
-            background: white; border-radius: 20px; box-shadow: var(--shadow); overflow: hidden;
+            background: var(--card-bg); border-radius: var(--radius-lg); box-shadow: var(--shadow-sm); overflow: hidden; border: 1px solid var(--border-color);
         }
         
-        table { width: 100%; border-collapse: collapse; text-align: left; }
-        th { padding: 18px 24px; background: #f8fafc; color: #64748b; font-size: 12px; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid #e2e8f0; }
-        td { padding: 20px 24px; border-bottom: 1px solid #f1f5f9; font-size: 14px; vertical-align: middle; }
-        tr:hover td { background: rgba(128, 0, 0, 0.01); }
+        table { width: 100%; border-collapse: separate; border-spacing: 0; text-align: left; }
+        th { padding: 12px 16px; background: #F9FAFB; color: var(--text-secondary); font-size: 11.5px; font-weight: 700; text-transform: uppercase; border-bottom: 1px solid var(--border-color); letter-spacing: 0.04em; }
+        td { padding: 14px 16px; border-bottom: 1px solid var(--border-color); font-size: 13.5px; vertical-align: middle; }
+        tr:hover td { background: #FDFEFE; }
         
-        .stu-name { font-weight: 700; color: #1e293b; font-size: 15px; margin-bottom: 4px; }
-        .stu-usn { font-size: 13px; color: #64748b; font-weight: 600; font-family: monospace; }
+        .stu-name { font-weight: 700; color: var(--text-primary); font-size: 14px; margin-bottom: 2px; }
+        .stu-usn { font-size: 12px; color: var(--text-secondary); font-weight: 600; font-family: monospace; }
         
-        .badge { padding: 6px 12px; border-radius: 10px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        .bg-applied { background: #e0f2fe; color: #0369a1; }
-        .bg-shortlisted { background: #fef08a; color: #854d0e; }
-        .bg-selected { background: #bbf7d0; color: #166534; }
-        .bg-rejected { background: #fecdd3; color: #9f1239; }
-        .bg-unknown { background: #f1f5f9; color: #475569; }
+        .badge { padding: 4px 10px; border-radius: 9999px; font-size: 11.5px; font-weight: 600; text-transform: uppercase; display: inline-block; }
+        .bg-applied { background: #EFF6FF; color: #1D4ED8; border: 1px solid #DBEAFE; }
+        .bg-shortlisted { background: #FEF3C7; color: #B45309; border: 1px solid #FDE68A; }
+        .bg-selected { background: #ECFDF5; color: #047857; border: 1px solid #D1FAE5; }
+        .bg-rejected { background: #FEF2F2; color: #DC2626; border: 1px solid #FEE2E2; }
+        .bg-unknown { background: #F3F4F6; color: #4B5563; border: 1px solid #E5E7EB; }
 
         .btn-action {
-            padding: 10px 20px;
-            border-radius: 10px;
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
             font-size: 13px;
             font-weight: 600;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            transition: all 0.2s;
+            gap: 6px;
+            transition: all 0.15s ease;
             cursor: pointer;
             border: none;
             text-decoration: none;
         }
-        .btn-primary { background: var(--primary-maroon); color: white; }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(128, 0, 0, 0.2); }
-        .btn-excel { background: #10b981; color: white; }
-        .btn-excel:hover { background: #059669; }
+        .btn-primary { background: var(--maroon); color: #FFFFFF; }
+        .btn-primary:hover { background: var(--maroon-dark); }
+        .btn-excel { background: #059669; color: #FFFFFF; }
+        .btn-excel:hover { background: #047857; }
 
         .print-only { display: none; }
         @media print {
@@ -399,7 +422,6 @@ if (!empty($listToDisplay)) {
             .stu-name, .stu-usn { margin: 0 !important; font-size: 10px !important; }
             .badge { background: transparent !important; color: black !important; border: none !important; padding: 0 !important; font-weight: normal !important; }
         }
-
     </style>
 </head>
 <body>

@@ -27,33 +27,141 @@ $fullName = getFullName();
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NQT Analytics – <?php echo APP_NAME; ?></title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        :root {
+            --maroon: #7C0000;
+            --maroon-dark: #5A0000;
+            --maroon-light: #9B1B1B;
+            --gold: #B08D2C;
+            --page-bg: #F8F9FA;
+            --card-bg: #FFFFFF;
+            --border-color: #E5E7EB;
+            --text-primary: #111827;
+            --text-secondary: #4B5563;
+            --text-muted: #9CA3AF;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body { 
+            background: var(--page-bg); 
+            color: var(--text-primary); 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+        }
+
+        .o-page {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 32px 40px;
+        }
+
+        .o-head-banner {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 24px 30px;
+            margin-bottom: 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 16px;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .o-table-wrap {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
+        }
+
+        .o-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+        }
+
+        .o-table th {
+            padding: 12px 16px;
+            text-align: left;
+            font-size: 11.5px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            background: #F9FAFB;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .o-table td {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 13.5px;
+            vertical-align: middle;
+        }
+
+        .o-table tr:hover td { background: #FDFEFE; }
+        .o-table tr:last-child td { border-bottom: none; }
+
+        .o-badge {
+            padding: 3px 8px;
+            border-radius: 9999px;
+            font-size: 11px;
+            font-weight: 600;
+            display: inline-block;
+        }
+
+        .o-badge--blue { background: #EFF6FF; color: #1D4ED8; border: 1px solid #DBEAFE; }
+        .o-badge--gold { background: #FEF3C7; color: #B45309; border: 1px solid #FDE68A; }
+        .o-badge--green { background: #ECFDF5; color: #047857; border: 1px solid #D1FAE5; }
+        .o-badge--gray { background: #F3F4F6; color: #4B5563; border: 1px solid #E5E7EB; }
+
+        .score-high { font-weight: 700; color: #047857; }
+        .score-mid { font-weight: 700; color: #B45309; }
+        .score-low { font-weight: 700; color: #DC2626; }
+
+        .o-table__empty td {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+    </style>
 </head>
 <body>
 <?php include_once 'includes/navbar.php'; ?>
 <div class="o-page">
 
     <!-- Header banner -->
-    <div style="background:linear-gradient(135deg,var(--brand) 0%,var(--brand-dark) 100%);border-radius:var(--radius-lg);padding:24px 28px;margin-bottom:22px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px;">
+    <div class="o-head-banner">
         <div>
-            <div style="font-size:18px;font-weight:700;color:var(--gold);">🚀 TCS NQT Practice Hub Analytics</div>
-            <div style="font-size:13px;color:rgba(255,255,255,0.8);margin-top:4px;">Monitor student performance across Foundation, Advanced, and Technical NQT modules.</div>
+            <div style="font-size:20px;font-weight:700;color:var(--maroon);">🚀 TCS NQT Practice Hub Analytics</div>
+            <div style="font-size:13.5px;color:var(--text-secondary);margin-top:4px;">Monitor student performance across Foundation, Advanced, and Technical NQT modules.</div>
         </div>
-        <div style="display:flex;gap:14px;">
+        <div style="display:flex;gap:12px;">
             <?php
             $scores = array_column($nqtReports, 'score');
             $avgScore = !empty($scores) ? round(array_sum($scores)/count($scores)) : 0;
             ?>
-            <div style="background:rgba(255,255,255,0.1);padding:10px 18px;border-radius:10px;text-align:center;border:1px solid rgba(255,255,255,0.15);">
-                <div style="font-size:20px;font-weight:700;color:var(--gold);"><?php echo count($nqtReports); ?></div>
-                <div style="font-size:11px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-top:2px;">Total Attempts</div>
+            <div style="background:#F9FAFB;padding:10px 18px;border-radius:var(--radius-sm);text-align:center;border:1px solid var(--border-color);">
+                <div style="font-size:20px;font-weight:800;color:var(--maroon);"><?php echo count($nqtReports); ?></div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;margin-top:2px;">Total Attempts</div>
             </div>
-            <div style="background:rgba(255,255,255,0.1);padding:10px 18px;border-radius:10px;text-align:center;border:1px solid rgba(255,255,255,0.15);">
-                <div style="font-size:20px;font-weight:700;color:var(--gold);"><?php echo $avgScore; ?>%</div>
-                <div style="font-size:11px;color:rgba(255,255,255,0.7);text-transform:uppercase;margin-top:2px;">Avg Score</div>
+            <div style="background:#F9FAFB;padding:10px 18px;border-radius:var(--radius-sm);text-align:center;border:1px solid var(--border-color);">
+                <div style="font-size:20px;font-weight:800;color:#059669;"><?php echo $avgScore; ?>%</div>
+                <div style="font-size:11px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;margin-top:2px;">Avg Score</div>
             </div>
         </div>
     </div>

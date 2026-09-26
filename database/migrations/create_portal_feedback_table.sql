@@ -14,5 +14,8 @@ CREATE TABLE IF NOT EXISTS portal_feedback (
     new_feature_title VARCHAR(255) NULL,
     new_feature_description TEXT NULL,
     
+    -- Attachment / Proof (screenshots or documents showing loopholes/bugs)
+    attachment_path VARCHAR(255) NULL,
+    
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

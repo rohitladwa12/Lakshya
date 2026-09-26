@@ -88,154 +88,179 @@ $fullName = getFullName();
     <title>Manage Interviews - <?php echo APP_NAME; ?></title>
     <style>
         :root {
-            --brand: #800000;
-            --brand-light: #a52a2a;
-            --bg-main: #f8fafc;
-            --glass: rgba(255, 255, 255, 0.9);
-            --text-main: #1e293b;
-            --text-muted: #64748b;
-            --shadow-sm: 0 2px 4px rgba(0,0,0,0.05);
-            --shadow-md: 0 10px 15px -3px rgba(0,0,0,0.1);
+            --maroon: #7C0000;
+            --maroon-dark: #5A0000;
+            --maroon-light: #9B1B1B;
+            --gold: #B08D2C;
+            --page-bg: #F8F9FA;
+            --card-bg: #FFFFFF;
+            --border-color: #E5E7EB;
+            --text-primary: #111827;
+            --text-secondary: #4B5563;
+            --text-muted: #9CA3AF;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
+            --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }
 
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
-            font-family: 'Inter', system-ui, sans-serif; 
-            background: var(--bg-main); 
-            color: var(--text-main);
-            padding-top: 90px; /* Adjusted for new 70px navbar + padding */
+            font-family: 'Inter', system-ui, -apple-system, sans-serif; 
+            background: var(--page-bg); 
+            color: var(--text-primary);
+            padding-top: 0;
             min-height: 100vh;
         }
 
-        .o-page { padding: 40px; max-width: 1400px; margin: 0 auto; }
+        .o-page { padding: 32px 40px; max-width: 1400px; margin: 0 auto; }
         
         .o-head {
-            background: var(--glass);
-            backdrop-filter: blur(12px);
-            padding: 30px;
-            border-radius: 24px;
-            border: 1px solid white;
+            background: var(--card-bg);
+            padding: 24px 30px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
             box-shadow: var(--shadow-sm);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 40px;
+            margin-bottom: 28px;
         }
 
-        .o-head h1 { font-size: 28px; font-weight: 800; color: var(--brand); letter-spacing: -0.02em; }
-        .o-head p { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+        .o-head h1 { font-size: 24px; font-weight: 700; color: var(--maroon); letter-spacing: -0.02em; }
+        .o-head p { color: var(--text-secondary); font-size: 13.5px; margin-top: 4px; }
 
         .interview-grid { 
             display: grid; 
-            grid-template-columns: repeat(auto-fill, minmax(350px, 1fr)); 
-            gap: 25px; 
+            grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); 
+            gap: 20px; 
         }
 
         .card-glass {
-            background: var(--glass);
-            backdrop-filter: blur(12px);
-            border-radius: 20px;
-            padding: 25px;
-            border: 1px solid white;
+            background: var(--card-bg);
+            border-radius: var(--radius-md);
+            padding: 22px;
+            border: 1px solid var(--border-color);
+            border-left: 4px solid var(--maroon);
             box-shadow: var(--shadow-sm);
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
             position: relative;
-            overflow: hidden;
         }
 
-        .card-glass:hover { transform: translateY(-5px); box-shadow: var(--shadow-md); }
+        .card-glass:hover { transform: translateY(-3px); box-shadow: var(--shadow-md); }
 
-        .card-glass::before {
-            content: '';
-            position: absolute;
-            top: 0; left: 0; width: 4px; height: 100%;
-            background: var(--brand);
-            opacity: 0.8;
-        }
-
-        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; }
-        .student-name { font-size: 18px; font-weight: 700; color: var(--text-main); }
-        .job-title { font-size: 13px; color: var(--text-muted); margin-top: 4px; font-weight: 500; }
+        .card-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
+        .student-name { font-size: 16px; font-weight: 700; color: var(--text-primary); }
+        .job-title { font-size: 13px; color: var(--text-secondary); margin-top: 3px; font-weight: 500; }
 
         .status-pill {
-            padding: 6px 12px;
-            border-radius: 10px;
+            padding: 4px 10px;
+            border-radius: 9999px;
             font-size: 11px;
-            font-weight: 700;
+            font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
+            letter-spacing: 0.04em;
         }
 
-        .status-Scheduled { background: rgba(59, 130, 246, 0.1); color: #2563eb; }
-        .status-Completed { background: rgba(34, 197, 94, 0.1); color: #16a34a; }
+        .status-Scheduled { background: #EFF6FF; color: #1D4ED8; border: 1px solid #DBEAFE; }
+        .status-Completed { background: #ECFDF5; color: #047857; border: 1px solid #D1FAE5; }
 
-        .info-item { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; color: var(--text-main); font-size: 14px; }
-        .info-icon { font-size: 16px; color: var(--brand); opacity: 0.8; width: 20px; }
+        .info-item { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; color: var(--text-secondary); font-size: 13.5px; }
+        .info-icon { font-size: 14px; color: var(--maroon); width: 18px; text-align: center; }
 
         .card-footer {
-            margin-top: 25px;
-            padding-top: 20px;
-            border-top: 1px solid #f1f5f9;
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border-color);
             display: flex;
             justify-content: flex-end;
-            gap: 12px;
+            gap: 10px;
         }
 
         .btn-action {
-            padding: 10px 18px;
-            border-radius: 12px;
+            padding: 8px 16px;
+            border-radius: var(--radius-sm);
             font-size: 13px;
             font-weight: 600;
             border: none;
             cursor: pointer;
-            transition: all 0.2s;
-            display: flex;
+            transition: all 0.15s ease;
+            display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 6px;
         }
 
-        .btn-schedule { background: var(--brand); color: white; }
-        .btn-outline { background: white; border: 1.5px solid #e2e8f0; color: var(--text-muted); }
-        .btn-outline:hover { background: #f8fafc; color: var(--brand); border-color: var(--brand); }
-        .btn-action:hover { transform: translateY(-2px); filter: brightness(1.1); }
+        .btn-schedule { background: var(--maroon); color: #FFFFFF; }
+        .btn-schedule:hover { background: var(--maroon-dark); color: #FFFFFF; }
+        .btn-outline { background: #FFFFFF; border: 1px solid var(--border-color); color: var(--text-secondary); }
+        .btn-outline:hover { background: #F3F4F6; color: var(--text-primary); border-color: #D1D5DB; }
 
-        /* Modal Glass */
+        /* Modal ERP */
         #scheduleModal {
             display: none;
             position: fixed;
             inset: 0;
-            background: rgba(15, 23, 42, 0.4);
-            backdrop-filter: blur(8px);
-            z-index: 1000;
+            background: rgba(17, 24, 39, 0.45);
+            backdrop-filter: blur(4px);
+            z-index: 2000;
             align-items: center;
             justify-content: center;
             padding: 20px;
         }
 
         .modal-glass {
-            background: white;
-            border-radius: 24px;
+            background: var(--card-bg);
+            border-radius: var(--radius-lg);
             width: 100%;
-            max-width: 550px;
-            padding: 35px;
-            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-            animation: modalSlide 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            max-width: 540px;
+            padding: 28px;
+            box-shadow: var(--shadow-modal);
+            border: 1px solid var(--border-color);
+            animation: modalFade 0.2s ease-out;
         }
 
-        @keyframes modalSlide { from { opacity: 0; transform: scale(0.95) translateY(10px); } }
+        @keyframes modalFade { from { opacity: 0; transform: scale(0.97); } to { opacity: 1; transform: scale(1); } }
 
-        .form-group { margin-bottom: 20px; }
-        .form-group label { display: block; margin-bottom: 8px; font-weight: 600; font-size: 13px; color: var(--text-main); }
+        .modal-header-erp {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 16px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .close-btn-erp {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: #F3F4F6;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: all 0.15s;
+        }
+        .close-btn-erp:hover { background: #E5E7EB; color: var(--text-primary); }
+
+        .form-group { margin-bottom: 18px; }
+        .form-group label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; color: var(--text-primary); }
         .form-control {
             width: 100%;
-            padding: 12px 16px;
-            border: 1.5px solid #e2e8f0;
-            border-radius: 12px;
-            font-size: 14px;
-            transition: all 0.2s;
-            background: #f8fafc;
+            padding: 9px 12px;
+            border: 1px solid #D1D5DB;
+            border-radius: var(--radius-sm);
+            font-size: 13.5px;
+            transition: all 0.15s;
+            background: #FFFFFF;
+            color: var(--text-primary);
         }
-        .form-control:focus { outline: none; border-color: var(--brand); background: white; box-shadow: 0 0 0 4px rgba(128, 0, 0, 0.1); }
+        .form-control:focus { outline: none; border-color: var(--maroon); box-shadow: 0 0 0 3px rgba(124, 0, 0, 0.12); }
     </style>
 </head>
 <body>
@@ -303,12 +328,12 @@ $fullName = getFullName();
     <!-- Schedule Modal -->
     <div id="scheduleModal" <?php echo $shortlistId ? 'style="display:flex"' : ''; ?>>
         <div class="modal-glass">
-            <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 30px;">
+            <div class="modal-header-erp">
                 <div>
-                    <h2 id="modalTitle" style="color: var(--brand); font-size: 20px; font-weight: 800;">Schedule Interview</h2>
-                    <p style="font-size: 13px; color: var(--text-muted);">Coordinate evaluation round</p>
+                    <h2 id="modalTitle" style="color: var(--maroon); font-size: 18px; font-weight: 700; margin: 0;">Schedule Interview</h2>
+                    <p style="font-size: 12.5px; color: var(--text-secondary); margin-top: 2px;">Coordinate evaluation round</p>
                 </div>
-                <button onclick="closeModal()" style="background: none; border: none; font-size: 24px; color: var(--text-muted); cursor: pointer;">&times;</button>
+                <button type="button" onclick="closeModal()" class="close-btn-erp">&times;</button>
             </div>
 
             <form id="interviewForm" method="POST" action="interview_handler.php">

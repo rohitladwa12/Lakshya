@@ -146,33 +146,44 @@ $hasJobsWithoutYear = count(array_filter(
     <style>
         :root {
             --brand: #7C0000;
-            --brand-dark: #4A0000;
-            --brand-light: #F9F1F1;
-            --gold: #C9972C;
-            --text-dark: #1f2937;
-            --text-muted: #6b7280;
-            --bg-light: #f3f4f6;
-            --border-color: #e5e7eb;
-            --ease-out: cubic-bezier(0.34, 1.56, 0.64, 1);
+            --brand-hover: #9E0000;
+            --brand-light: #FDF2F2;
+            --gold: #B08D2C;
+            --surface-bg: #FFFFFF;
+            --page-bg: #F8F9FA;
+            --border-color: #E5E7EB;
+            --border-subtle: #F3F4F6;
+            --text-primary: #111827;
+            --text-secondary: #4B5563;
+            --text-muted: #9CA3AF;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+            --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.02);
+            --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
         }
 
         body {
-            font-family: 'Outfit', sans-serif;
-            background-color: var(--bg-light);
-            color: var(--text-dark);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--page-bg);
+            color: var(--text-primary);
             margin: 0;
+            padding-top: 0;
+            line-height: 1.5;
         }
 
         .main-content {
-            padding: 40px 50px;
-            max-width: 1500px;
+            padding: 28px 32px 60px 32px;
+            max-width: 1440px;
             margin: 0 auto;
+            box-sizing: border-box;
         }
 
         .tabs-header {
             display: flex;
             gap: 15px;
-            margin-bottom: 25px;
+            margin-bottom: 24px;
             border-bottom: 2px solid var(--border-color);
             padding-bottom: 0;
         }
@@ -180,14 +191,14 @@ $hasJobsWithoutYear = count(array_filter(
         .tab-btn {
             background: transparent;
             border: none;
-            padding: 12px 24px;
-            font-size: 15px;
-            font-weight: 700;
+            padding: 10px 18px;
+            font-size: 14px;
+            font-weight: 600;
             color: var(--text-muted);
             cursor: pointer;
             border-bottom: 3px solid transparent;
             margin-bottom: -2px;
-            transition: all 0.2s;
+            transition: all 0.15s;
             font-family: inherit;
         }
 
@@ -198,11 +209,12 @@ $hasJobsWithoutYear = count(array_filter(
         .tab-btn.active {
             color: var(--brand);
             border-bottom-color: var(--brand);
+            font-weight: 700;
         }
 
         .tab-content {
             display: none;
-            animation: fadeIn 0.3s ease;
+            animation: fadeIn 0.2s ease;
         }
 
         .tab-content.active {
@@ -210,28 +222,30 @@ $hasJobsWithoutYear = count(array_filter(
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
+            from { opacity: 0; transform: translateY(6px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
         .header-container {
             display: flex;
             justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
+            align-items: flex-start;
+            margin-bottom: 24px;
+            gap: 20px;
+            flex-wrap: wrap;
         }
 
         .header-title h1 {
-            font-size: 28px;
-            font-weight: 800;
-            color: var(--brand-dark);
-            margin: 0 0 6px 0;
-            letter-spacing: -0.5px;
+            font-size: 26px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0 0 4px 0;
+            letter-spacing: -0.4px;
         }
 
         .header-title p {
-            font-size: 14px;
-            color: var(--text-muted);
+            font-size: 13.5px;
+            color: var(--text-secondary);
             margin: 0;
         }
 
@@ -239,23 +253,22 @@ $hasJobsWithoutYear = count(array_filter(
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            padding: 12px 20px;
+            padding: 9px 16px;
             background: var(--brand);
             color: #fff;
-            font-weight: 700;
-            font-size: 14px;
-            border-radius: 12px;
+            font-weight: 600;
+            font-size: 13.5px;
+            border-radius: 8px;
             text-decoration: none;
-            border: none;
+            border: 1px solid var(--brand);
             cursor: pointer;
-            box-shadow: 0 4px 14px rgba(124, 0, 0, 0.2);
-            transition: all 0.3s;
+            box-shadow: 0 1px 2px rgba(124, 0, 0, 0.2);
+            transition: all 0.15s ease;
         }
 
         .btn-create-drive:hover {
-            background: var(--brand-dark);
-            transform: translateY(-2px);
-            box-shadow: 0 6px 20px rgba(124, 0, 0, 0.3);
+            background: var(--brand-hover);
+            border-color: var(--brand-hover);
         }
 
         .alerts-container {
@@ -461,29 +474,32 @@ $hasJobsWithoutYear = count(array_filter(
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(17, 24, 39, 0.45);
+            backdrop-filter: blur(4px);
             z-index: 10000;
             align-items: center;
             justify-content: center;
             padding: 20px;
+            box-sizing: border-box;
         }
 
         .modal-content {
-            background: #fff;
-            border-radius: 20px;
-            max-width: 650px;
+            background: #FFFFFF;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            max-width: 680px;
             width: 100%;
             max-height: 90vh;
             overflow-y: auto;
-            padding: 30px;
+            padding: 28px 32px;
             box-sizing: border-box;
             position: relative;
-            box-shadow: 0 20px 50px rgba(0,0,0,0.15);
-            animation: modalFadeIn 0.3s var(--ease-out);
+            box-shadow: var(--shadow-modal);
+            animation: modalFadeIn 0.2s ease;
         }
 
         @keyframes modalFadeIn {
-            from { opacity: 0; transform: translateY(20px); }
+            from { opacity: 0; transform: translateY(8px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
@@ -491,41 +507,53 @@ $hasJobsWithoutYear = count(array_filter(
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 24px;
+            margin-bottom: 20px;
             border-bottom: 1px solid var(--border-color);
-            padding-bottom: 16px;
+            padding-bottom: 14px;
         }
 
         .modal-header h2 {
             margin: 0;
-            font-size: 20px;
-            font-weight: 800;
-            color: var(--brand-dark);
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--text-primary);
+            letter-spacing: -0.2px;
         }
 
         .close-btn {
-            font-size: 24px;
-            color: var(--text-muted);
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: #F3F4F6;
+            color: var(--text-secondary);
             cursor: pointer;
-            background: none;
             border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: all 0.15s ease;
+            line-height: 1;
         }
 
         .close-btn:hover {
-            color: var(--brand);
+            background: #E5E7EB;
+            color: var(--text-primary);
         }
 
         /* Form styling */
         .form-group {
-            margin-bottom: 18px;
+            margin-bottom: 16px;
         }
 
         .form-group label {
             display: block;
-            font-size: 13px;
-            font-weight: 700;
-            color: var(--text-dark);
-            margin-bottom: 8px;
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .form-control {

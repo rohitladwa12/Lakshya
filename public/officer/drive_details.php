@@ -121,22 +121,32 @@ foreach ($attemptsList as $att) {
     <style>
         :root {
             --brand: #7C0000;
-            --brand-dark: #4A0000;
-            --brand-light: #F9F1F1;
-            --gold: #C9972C;
-            --text-dark: #1f2937;
-            --text-muted: #6b7280;
-            --bg-light: #f3f4f6;
-            --border-color: #e5e7eb;
-            --ease-out: cubic-bezier(0.34, 1.56, 0.64, 1);
+            --brand-hover: #9E0000;
+            --brand-light: #FDF2F2;
+            --gold: #B08D2C;
+            --surface-bg: #FFFFFF;
+            --page-bg: #F8F9FA;
+            --border-color: #E5E7EB;
+            --border-subtle: #F3F4F6;
+            --text-primary: #111827;
+            --text-secondary: #4B5563;
+            --text-muted: #9CA3AF;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+            --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.02);
+            --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
         }
 
         body {
-            font-family: 'Outfit', sans-serif;
-            background-color: var(--bg-light);
-            color: var(--text-dark);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--page-bg);
+            color: var(--text-primary);
             margin: 0;
-            padding: 40px;
+            padding: 28px 32px 60px 32px;
+            box-sizing: border-box;
+            line-height: 1.5;
         }
 
         .header-container {
@@ -417,51 +427,69 @@ foreach ($attemptsList as $att) {
             left: 0;
             right: 0;
             bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
+            background: rgba(17, 24, 39, 0.45);
+            backdrop-filter: blur(4px);
             z-index: 10000;
             align-items: center;
             justify-content: center;
             padding: 20px;
+            box-sizing: border-box;
         }
 
         .modal-content {
-            background: #fff;
-            border-radius: 20px;
-            max-width: 500px;
+            background: #FFFFFF;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            max-width: 520px;
             width: 100%;
-            padding: 24px;
-            box-shadow: 0 20px 40px rgba(0,0,0,0.15);
+            padding: 24px 28px;
+            box-shadow: var(--shadow-modal);
             position: relative;
             box-sizing: border-box;
-            animation: modalFadeIn 0.3s var(--ease-out);
+            animation: modalFadeIn 0.2s ease;
+        }
+
+        @keyframes modalFadeIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         .modal-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
             border-bottom: 1px solid var(--border-color);
             padding-bottom: 12px;
         }
 
         .modal-header h3 {
             margin: 0;
-            font-size: 18px;
-            color: var(--brand-dark);
-            font-weight: 800;
+            font-size: 17px;
+            color: var(--text-primary);
+            font-weight: 700;
+            letter-spacing: -0.2px;
         }
 
         .close-btn {
-            font-size: 24px;
-            color: var(--text-muted);
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: #F3F4F6;
+            color: var(--text-secondary);
             cursor: pointer;
-            background: none;
             border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            transition: all 0.15s ease;
+            line-height: 1;
         }
 
         .close-btn:hover {
-            color: var(--brand);
+            background: #E5E7EB;
+            color: var(--text-primary);
         }
 
         .attempts-list {

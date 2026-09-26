@@ -37,32 +37,62 @@ class InternshipApplication extends Model {
         $applied_sgpa = 0.00;
         
         if ($user) {
-            $inst = $user['institution'];
+            $inst = $user['institution'] ?? null;
             $db = $this->getDB();
             
             if ($inst === INSTITUTION_GMU) {
                 $prefix = DB_GMU_PREFIX;
                 $remoteDB = getDB('gmu');
                 if ($remoteDB) {
-                    $stmtSem = $remoteDB->prepare("SELECT sem FROM {$prefix}ad_student_approved WHERE usn = ? ORDER BY academic_year DESC, sem DESC LIMIT 1");
-                    $stmtSem->execute([$user['username']]);
-                    $applied_semester = $stmtSem->fetchColumn();
+                    $stmtSem = $remoteDB->prepare("SELECT sem FROM {$prefix}ad_student_approved WHERE (usn = ? OR (aadhar IS NOT NULL AND aadhar = ?)) AND sem IS NOT NULL AND sem != '' ORDER BY academic_year DESC, sem DESC LIMIT 1");
+                    $stmtSem->execute([$user['username'], $user['aadhar'] ?? '']);
+                    $val = $stmtSem->fetchColumn();
+                    if ($val !== false && $val !== '' && is_numeric($val)) {
+                        $applied_semester = (int)$val;
+                    }
 
-                    $stmtSgpa = $remoteDB->prepare("SELECT sgpa FROM {$prefix}ad_student_approved WHERE usn = ? AND sgpa IS NOT NULL AND sgpa > 0 ORDER BY academic_year DESC, sem DESC LIMIT 1");
-                    $stmtSgpa->execute([$user['username']]);
-                    $applied_sgpa = $stmtSgpa->fetchColumn() ?: 0.00;
+                    $stmtSgpa = $remoteDB->prepare("SELECT sgpa FROM {$prefix}ad_student_approved WHERE (usn = ? OR (aadhar IS NOT NULL AND aadhar = ?)) AND sgpa IS NOT NULL AND sgpa > 0 ORDER BY academic_year DESC, sem DESC LIMIT 1");
+                    $stmtSgpa->execute([$user['username'], $user['aadhar'] ?? '']);
+                    $valS = $stmtSgpa->fetchColumn();
+                    if ($valS !== false && is_numeric($valS)) {
+                        $applied_sgpa = (float)$valS;
+                    }
                 }
             } else {
-                $stmtSem = $db->prepare("SELECT semester FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND is_current = 1 LIMIT 1");
-                $stmtSem->execute([$user['username'], INSTITUTION_GMIT]);
-                $applied_semester = $stmtSem->fetchColumn();
+                $stmtSem = $db->prepare("SELECT semester FROM student_sem_sgpa WHERE (student_id = ? OR student_id = ?) AND institution = ? AND is_current = 1 LIMIT 1");
+                $stmtSem->execute([$user['username'], $user['aadhar'] ?? '', INSTITUTION_GMIT]);
+                $val = $stmtSem->fetchColumn();
+                if ($val !== false && $val !== '' && is_numeric($val)) {
+                    $applied_semester = (int)$val;
+                }
 
-                $stmtSgpa = $db->prepare("SELECT sgpa FROM student_sem_sgpa WHERE student_id = ? AND institution = ? AND sgpa > 0 ORDER BY semester DESC LIMIT 1");
-                $stmtSgpa->execute([$user['username'], INSTITUTION_GMIT]);
-                $applied_sgpa = $stmtSgpa->fetchColumn() ?: 0.00;
+                $stmtSgpa = $db->prepare("SELECT sgpa FROM student_sem_sgpa WHERE (student_id = ? OR student_id = ?) AND institution = ? AND sgpa > 0 ORDER BY semester DESC LIMIT 1");
+                $stmtSgpa->execute([$user['username'], $user['aadhar'] ?? '', INSTITUTION_GMIT]);
+                $valS = $stmtSgpa->fetchColumn();
+                if ($valS !== false && is_numeric($valS)) {
+                    $applied_sgpa = (float)$valS;
+                }
+            }
+
+            // Fallback: Check StudentProfile if still unresolved
+            if ($applied_semester === null) {
+                $studentModel = new StudentProfile();
+                $prof = $studentModel->getByUserId($studentId, $inst);
+                if (!empty($prof['semester']) && is_numeric($prof['semester'])) {
+                    $applied_semester = (int)$prof['semester'];
+                }
+                if (!empty($prof['sgpa']) && is_numeric($prof['sgpa']) && $applied_sgpa == 0) {
+                    $applied_sgpa = (float)$prof['sgpa'];
+                }
             }
         }
         
+        // Ensure applied_semester is strictly an integer or null (never empty string)
+        if ($applied_semester !== null) {
+            $applied_semester = is_numeric($applied_semester) && (int)$applied_semester > 0 ? (int)$applied_semester : null;
+        }
+        $applied_sgpa = is_numeric($applied_sgpa) ? round((float)$applied_sgpa, 2) : 0.00;
+
         $id = $this->create([
             'internship_id' => $internshipId,
             'student_id' => $studentId,

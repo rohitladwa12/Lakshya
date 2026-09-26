@@ -33,31 +33,148 @@ if (isPost()) {
     $csrfToken = post('csrf_token');
     if ($csrfToken !== ($_SESSION['csrf_token'] ?? '')) {
         $error = "Security validation failed. Please refresh and try again.";
-    } elseif (empty($generalComments) && empty($newFeatureTitle) && empty($newFeatureDescription)) {
-        $error = "Please provide at least general comments or a new feature suggestion.";
     } else {
-        try {
-            $sql = "INSERT INTO portal_feedback (
-                        student_id, student_name, institution, current_sem, branch, 
-                        general_comments, new_feature_title, new_feature_description
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)";
-            $stmt = $db->prepare($sql);
-            $stmt->execute([
-                $username,
-                $profile['name'] ?? $fullName,
-                $institution,
-                $profile['semester'] ?? null,
-                $profile['department'] ?? null,
-                $generalComments ?: null,
-                $newFeatureTitle ?: null,
-                $newFeatureDescription ?: null
-            ]);
-            
-            Session::flash('success', 'Thank you! Your feedback has been submitted successfully.');
-            redirect('feedback.php');
-            exit;
-        } catch (Exception $e) {
-            $error = "Error saving feedback: " . $e->getMessage();
+        $attachmentPath = null;
+        
+        // Handle image upload if provided with strict multi-layer security validation
+        if (isset($_FILES['attachment']) && $_FILES['attachment']['error'] !== UPLOAD_ERR_NO_FILE) {
+            $file = $_FILES['attachment'];
+            if ($file['error'] !== UPLOAD_ERR_OK) {
+                $error = "File upload failed. Please try again.";
+            } elseif (empty($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
+                $error = "Invalid file upload detected.";
+            } else {
+                $maxFileSize = 10 * 1024 * 1024; // 10MB
+                $allowedExts = ['png', 'jpg', 'jpeg'];
+                $fileExt = strtolower(pathinfo($file['name'], PATHINFO_EXTENSION));
+
+                // 1. Extension, size, and null-byte check
+                if ($file['size'] > $maxFileSize || $file['size'] <= 0) {
+                    $error = "Attachment file size must be between 1 byte and 10MB.";
+                } elseif (!in_array($fileExt, $allowedExts, true)) {
+                    $error = "Invalid file type. Only PNG, JPG, and JPEG image proofs are allowed.";
+                } elseif (strpos($file['name'], "\0") !== false) {
+                    $error = "Invalid file name detected.";
+                } else {
+                    // 2. MIME type verification via finfo
+                    $finfo = finfo_open(FILEINFO_MIME_TYPE);
+                    $mime = finfo_file($finfo, $file['tmp_name']);
+                    finfo_close($finfo);
+
+                    $allowedImageMimes = ['image/png', 'image/jpeg', 'image/pjpeg'];
+
+                    if (!in_array($mime, $allowedImageMimes, true)) {
+                        $error = "Invalid image format detected (" . htmlspecialchars($mime) . "). Please upload a genuine PNG, JPG, or JPEG image.";
+                    } else {
+                        // 3. Scan for disguised executable binaries (PE/ELF) and embedded script tags
+                        $fileHeader = file_get_contents($file['tmp_name'], false, null, 0, 4096);
+                        
+                        // Check for executable binary magic bytes (Windows PE "MZ" or Linux ELF "\x7fELF")
+                        if (str_starts_with($fileHeader, "MZ") || str_starts_with($fileHeader, "\x7fELF")) {
+                            $error = "Security violation: Executable binary files are strictly prohibited.";
+                        } else {
+                            $lowerHeader = strtolower($fileHeader);
+                            if (strpos($lowerHeader, '<?php') !== false || 
+                                strpos($lowerHeader, '<? ') !== false || 
+                                strpos($lowerHeader, '<?=') !== false || 
+                                strpos($lowerHeader, '<script') !== false ||
+                                strpos($lowerHeader, '__halt_compiler') !== false) {
+                                $error = "Security violation: Embedded scripts are not permitted in uploaded files.";
+                            }
+                        }
+
+                        if (empty($error)) {
+                            $uploadDir = UPLOADS_PATH . '/feedback';
+                            if (!is_dir($uploadDir)) {
+                                mkdir($uploadDir, 0755, true);
+                            }
+
+                            $safeUsername = preg_replace('/[^a-zA-Z0-9_-]/', '', $username);
+                            $cleanExt = ($fileExt === 'jpeg') ? 'jpg' : $fileExt;
+                            $newFileName = 'proof_' . $safeUsername . '_' . date('Ymd_His') . '_' . bin2hex(random_bytes(4)) . '.' . $cleanExt;
+                            $targetFilePath = $uploadDir . '/' . $newFileName;
+
+                            // 4. Deep Image Verification & Sanitization (Strips polyglots, hidden binaries & EXIF exploits)
+                            $imgInfo = @getimagesize($file['tmp_name']);
+                            if ($imgInfo === false || $imgInfo[0] <= 0 || $imgInfo[1] <= 0) {
+                                $error = "The uploaded file is not a valid image or is corrupted.";
+                            } elseif ($imgInfo[0] > 10000 || $imgInfo[1] > 10000) {
+                                $error = "Image dimensions are too large. Maximum supported dimensions: 10,000 x 10,000 pixels.";
+                            } else {
+                                $srcImg = null;
+                                if ($cleanExt === 'jpg') {
+                                    if ($imgInfo[2] !== IMAGETYPE_JPEG) {
+                                        $error = "Mismatched image structure for JPEG.";
+                                    } else {
+                                        $srcImg = @imagecreatefromjpeg($file['tmp_name']);
+                                    }
+                                } elseif ($cleanExt === 'png') {
+                                    if ($imgInfo[2] !== IMAGETYPE_PNG) {
+                                        $error = "Mismatched image structure for PNG.";
+                                    } else {
+                                        $srcImg = @imagecreatefrompng($file['tmp_name']);
+                                    }
+                                }
+
+                                if (empty($error)) {
+                                    if (!$srcImg) {
+                                        $error = "Failed to process the image. The file appears corrupted or invalid.";
+                                    } else {
+                                        $saved = false;
+                                        if ($cleanExt === 'png') {
+                                            imagealphablending($srcImg, false);
+                                            imagesavealpha($srcImg, true);
+                                            $saved = imagepng($srcImg, $targetFilePath, 8);
+                                        } else {
+                                            $saved = imagejpeg($srcImg, $targetFilePath, 90);
+                                        }
+                                        imagedestroy($srcImg);
+
+                                        if ($saved) {
+                                            @chmod($targetFilePath, 0644);
+                                            $attachmentPath = 'uploads/feedback/' . $newFileName;
+                                        } else {
+                                            $error = "Failed to save the sanitized image. Please try again.";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (empty($error)) {
+            if (empty($generalComments) && empty($newFeatureTitle) && empty($newFeatureDescription) && empty($attachmentPath)) {
+                $error = "Please provide general comments, a feature suggestion, or an attachment proof.";
+            } else {
+                try {
+                    $sql = "INSERT INTO portal_feedback (
+                                student_id, student_name, institution, current_sem, branch, 
+                                general_comments, new_feature_title, new_feature_description,
+                                attachment_path
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                    $stmt = $db->prepare($sql);
+                    $stmt->execute([
+                        $username,
+                        $profile['name'] ?? $fullName,
+                        $institution,
+                        $profile['semester'] ?? null,
+                        $profile['department'] ?? null,
+                        $generalComments ?: null,
+                        $newFeatureTitle ?: null,
+                        $newFeatureDescription ?: null,
+                        $attachmentPath
+                    ]);
+                    
+                    Session::flash('success', 'Thank you! Your feedback has been submitted successfully.');
+                    redirect('feedback.php');
+                    exit;
+                } catch (Exception $e) {
+                    $error = "Error saving feedback: " . $e->getMessage();
+                }
+            }
         }
     }
 }
@@ -506,7 +623,7 @@ try {
                     </div>
                 <?php endif; ?>
 
-                <form method="POST" action="feedback.php">
+                <form method="POST" action="feedback.php" enctype="multipart/form-data">
                     <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
                     
                     <div class="form-group">
@@ -526,6 +643,17 @@ try {
                     <div class="form-group">
                         <label for="new_feature_description">Detailed Feature Description</label>
                         <textarea class="form-control" name="new_feature_description" id="new_feature_description" placeholder="Describe the feature in detail. How will it help students? How should it work?"><?php echo htmlspecialchars($_POST['new_feature_description'] ?? ''); ?></textarea>
+                    </div>
+
+                    <div class="form-group" style="margin-top: 15px;">
+                        <label for="attachment" style="display: flex; align-items: center; justify-content: space-between;">
+                            <span><i class="fas fa-paperclip" style="color: var(--primary-maroon); margin-right: 4px;"></i> Proof / Screenshot Attachment</span>
+                            <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">(Optional)</span>
+                        </label>
+                        <input type="file" class="form-control" name="attachment" id="attachment" accept=".png,.jpg,.jpeg">
+                        <small style="display: block; margin-top: 5px; font-size: 11px; color: var(--text-muted);">
+                            Upload a screenshot proof highlighting any website loopholes, bugs, or errors (PNG, JPG, or JPEG up to 10MB).
+                        </small>
                     </div>
 
                     <button type="submit" class="btn-submit">
@@ -567,7 +695,7 @@ try {
                                 <?php foreach ($feedbackHistory as $fb): ?>
                                     <tr>
                                         <td class="date-col">
-                                            <?php echo date('d M Y', strtotime($fb['created_at'])); ?>
+                                             <?php echo date('d M Y', strtotime($fb['created_at'])); ?>
                                             <div style="font-size: 11px; font-weight: normal; color: var(--text-muted); margin-top: 2px;">
                                                 <?php echo date('h:i A', strtotime($fb['created_at'])); ?>
                                             </div>
@@ -579,6 +707,14 @@ try {
                                                 </div>
                                             <?php else: ?>
                                                 <span style="color: var(--text-muted); font-style: italic;">None</span>
+                                            <?php endif; ?>
+
+                                            <?php if (!empty($fb['attachment_path'])): ?>
+                                                <div style="margin-top: 8px;">
+                                                    <a href="<?php echo APP_URL . '/' . htmlspecialchars($fb['attachment_path']); ?>" target="_blank" rel="noopener noreferrer" style="display: inline-flex; align-items: center; gap: 5px; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 600; color: #800000; background: #FEF2F2; border: 1px solid #FECACA; text-decoration: none;">
+                                                        <i class="fas fa-paperclip"></i> View Proof
+                                                    </a>
+                                                </div>
                                             <?php endif; ?>
                                         </td>
                                         <td>

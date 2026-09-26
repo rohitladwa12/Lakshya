@@ -11,7 +11,8 @@ class JobPosting extends Model {
     protected $fillable = [
         'company_id', 'academic_year', 'title', 'description', 'requirements', 'responsibilities',
         'location', 'job_type', 'work_mode', 'salary_min', 'salary_max',
-        'min_cgpa', 'eligible_courses', 'eligible_branches', 'eligible_years', 'custom_fields', 'posted_date',
+        'min_cgpa', 'eligible_courses', 'eligible_branches', 'eligible_years', 'eligible_gender',
+        'application_mode', 'external_url', 'custom_fields', 'posted_date',
         'application_deadline', 'status', 'posted_by'
     ];
 
@@ -22,7 +23,11 @@ class JobPosting extends Model {
         try {
             $redis = \App\Helpers\RedisHelper::getInstance();
             if ($redis->isConnected()) {
-                $redis->getClient()->publish('campus_feed', json_encode($data));
+                $payload = json_encode($data);
+                $client = $redis->getClient();
+                $client->lpush('campus_notifications_recent', $payload);
+                $client->ltrim('campus_notifications_recent', 0, 19);
+                $client->publish('campus_feed', $payload);
             }
         } catch (Exception $e) {
             error_log("Redis Broadcast Failed: " . $e->getMessage());
@@ -178,50 +183,9 @@ class JobPosting extends Model {
         
         // Tag with eligibility
         foreach ($jobs as &$job) {
-            $job['is_eligible'] = true;
-            $job['ineligibility_reasons'] = [];
-            
-            // Strict SGPA Check (All semesters above threshold)
-            if ($job['min_cgpa'] > 0) {
-                $check = $profileModel->isEligibleStrict($studentId, $job['min_cgpa'], $job);
-                if (!$check['eligible']) {
-                    $job['is_eligible'] = false;
-                    $job['ineligibility_reasons'] = array_merge($job['ineligibility_reasons'], $check['reasons']);
-                }
-            } else {
-                // Check Course and Branches anyway if no SGPA requirement
-                $courses = json_decode($job['eligible_courses'] ?: '', true) ?: [];
-                if (!empty($courses) && !in_array($profile['course'], $courses)) {
-                    $job['is_eligible'] = false;
-                    $job['ineligibility_reasons'][] = "Open to " . implode(', ', $courses) . " only";
-                }
-
-                // Check Branches if specified
-                $branches = json_decode($job['eligible_branches'] ?: '', true) ?: [];
-                if (!empty($branches) && !empty($profile['department'])) {
-                    $studentBranch = strtoupper(trim($profile['department']));
-                    $equivalentBranches = getEquivalentBranches($studentBranch);
-                    $matchFound = false;
-                    foreach ($equivalentBranches as $eqBranch) {
-                        if (in_array($eqBranch, $branches)) {
-                            $matchFound = true;
-                            break;
-                        }
-                    }
-                    if (!$matchFound) {
-                        $job['is_eligible'] = false;
-                        $job['ineligibility_reasons'][] = "Open to branches: " . implode(', ', $branches);
-                    }
-                }
-
-                
-                // Check Year
-                $years = json_decode($job['eligible_years'] ?: '', true) ?: [];
-                if (!empty($years) && !in_array($profile['year_of_study'], $years)) {
-                    $job['is_eligible'] = false;
-                    $job['ineligibility_reasons'][] = "Open to year(s) " . implode(', ', $years) . " only";
-                }
-            }
+            $check = $profileModel->isEligibleStrict($studentId, $job['min_cgpa'] ?? 0, $job);
+            $job['is_eligible'] = $check['eligible'];
+            $job['ineligibility_reasons'] = $check['reasons'];
         }
         
         return $jobs;

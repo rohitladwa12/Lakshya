@@ -52,7 +52,7 @@ try {
             $assessmentId   = (int)($_POST['assessment_id'] ?? 0);
             $assessmentType = trim($_POST['assessment_type'] ?? 'general');
 
-            if ($assessmentId <= 0) {
+            if ($assessmentId < 0) {
                 ob_clean();
                 echo json_encode(['success' => false, 'error' => 'Invalid assessment identifier.']);
                 exit;

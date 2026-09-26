@@ -80,6 +80,10 @@ if (isPost()) {
         $db->commit();
         Session::flash('success', 'Student marked as Placed successfully');
         redirect('job_applicants?job_id=' . $jobId);
+    } catch (Exception $e) {
+        $db->rollBack();
+        Session::flash('error', 'Failed to mark as placed: ' . $e->getMessage());
+        redirect('job_applicants?job_id=' . $jobId);
     }
 } else {
     redirect('jobs');

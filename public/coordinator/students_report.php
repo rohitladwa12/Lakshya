@@ -142,6 +142,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['ajax_action'])) {
                         "UPDATE student_sem_sgpa SET is_current = 1 WHERE student_id = ? AND institution = ? AND semester = ?"
                     )->execute([$usn, $inst, $maxSem]);
                 }
+
+                // Invalidate Redis cache so student immediately sees updated record
+                try {
+                    $proxy = new \App\Services\RemoteDataProxy();
+                    $proxy->clearCache($usn, $inst);
+                } catch (\Throwable $e) {}
             }
             echo json_encode(['status' => 'success']);
         } catch (Exception $e) {

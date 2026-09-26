@@ -189,6 +189,9 @@ function requireLogin() {
             echo json_encode(['success' => false, 'message' => 'Session expired. Please login again.']);
             exit;
         }
+        if (!empty($_SERVER['REQUEST_URI']) && strpos($_SERVER['REQUEST_URI'], 'login') === false) {
+            $_SESSION['redirect_after_login'] = $_SERVER['REQUEST_URI'];
+        }
         Session::flash('error', 'Please login to continue');
         redirect('/Lakshya/login');
     }

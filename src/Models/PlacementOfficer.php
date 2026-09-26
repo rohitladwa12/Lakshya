@@ -156,7 +156,7 @@ class PlacementOfficer extends Model {
      */
     public function getRecentApplications($limit = 5) {
         // 1. Fetch recent applications and job details (LOCAL DB only)
-        $sql = "SELECT ja.*, jp.title as job_title, c.name as company_name
+        $sql = "SELECT ja.*, jp.title as job_title, jp.application_mode, c.name as company_name
                 FROM job_applications ja
                 JOIN job_postings jp ON ja.job_id = jp.id
                 JOIN companies c ON jp.company_id = c.id

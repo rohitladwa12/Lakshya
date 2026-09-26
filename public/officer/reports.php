@@ -125,295 +125,357 @@ $fullName = getFullName();
     <title>Intelligence Hub - <?php echo APP_NAME; ?></title>
     <style>
         :root {
-            --black: #111;
-            --gray-subtle: #f9f9f9;
-            --border: #ddd;
-            --text-main: #000;
-            --text-muted: #666;
+            --maroon: #7C0000;
+            --maroon-dark: #5A0000;
+            --maroon-light: #9B1B1B;
+            --gold: #B08D2C;
+            --page-bg: #F8F9FA;
+            --card-bg: #FFFFFF;
+            --border-color: #E5E7EB;
+            --text-primary: #111827;
+            --text-secondary: #4B5563;
+            --text-muted: #9CA3AF;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
+            --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }
 
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body { 
-            background: #fff; 
-            color: var(--text-main); 
+            background: var(--page-bg); 
+            color: var(--text-primary); 
             font-family: 'Inter', system-ui, -apple-system, sans-serif;
             margin: 0;
             padding: 0;
+            min-height: 100vh;
         }
 
-        /* Fixed Navigation Adjustment */
         .hub-container {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 100px 20px 40px;
+            padding: 32px 40px;
         }
 
-        header { margin-bottom: 40px; }
-        h1 { font-size: 32px; font-weight: 900; margin: 0; letter-spacing: -0.02em; }
-        .subtitle { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+        header { 
+            margin-bottom: 24px; 
+            background: var(--card-bg);
+            padding: 24px 30px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+        }
+        h1 { font-size: 22px; font-weight: 700; margin: 0; letter-spacing: -0.02em; color: var(--maroon); }
+        .subtitle { color: var(--text-secondary); font-size: 13.5px; margin-top: 4px; }
 
         /* Tabs */
         .hub-tabs {
             display: flex;
-            gap: 2px;
-            border-bottom: 2px solid var(--black);
-            margin-bottom: 30px;
-            background: #fff;
-            position: sticky;
-            top: 70px; /* Aligned with new 70px navbar */
-            z-index: 10;
+            gap: 8px;
+            border-bottom: 1px solid var(--border-color);
+            margin-bottom: 24px;
+            background: transparent;
         }
 
         .tab-link {
-            padding: 14px 28px;
+            padding: 9px 18px;
             text-decoration: none;
-            color: var(--text-muted);
-            font-weight: 700;
-            font-size: 13px;
-            letter-spacing: 0.05em;
-            transition: all 0.2s;
-            border: 2px solid transparent;
-            border-bottom: none;
-            margin-bottom: -2px;
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 12.5px;
+            letter-spacing: 0.03em;
+            transition: all 0.15s ease;
+            border-radius: var(--radius-sm);
+            border: 1px solid transparent;
         }
 
-        .tab-link:hover { color: var(--black); background: var(--gray-subtle); }
+        .tab-link:hover { color: var(--text-primary); background: #F3F4F6; }
         .tab-link.active {
-            color: var(--black);
-            border: 2px solid var(--black);
-            border-bottom: 2px solid #fff;
-            background: #fff;
+            color: #FFFFFF;
+            background: var(--maroon);
+            border-color: var(--maroon);
         }
 
-        /* Tables - Strict B&W */
+        /* Tables - Clean ERP */
         .data-table {
             width: 100%;
-            border-collapse: collapse;
+            border-collapse: separate;
+            border-spacing: 0;
             margin-bottom: 24px;
-            border: 1px solid var(--black);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            background: var(--card-bg);
+            overflow: hidden;
+            box-shadow: var(--shadow-sm);
         }
 
         .data-table th {
             text-align: left;
-            padding: 14px 16px;
-            background: var(--black);
-            color: #fff;
-            font-size: 11px;
+            padding: 12px 16px;
+            background: #F9FAFB;
+            color: var(--text-secondary);
+            font-size: 11.5px;
+            font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.1em;
-            border: 1px solid var(--black);
+            letter-spacing: 0.04em;
+            border-bottom: 1px solid var(--border-color);
+            border-right: none;
         }
 
         .data-table td {
-            padding: 16px;
-            border: 1px solid var(--border);
-            font-size: 13px;
-            color: var(--text-main);
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 13.5px;
+            color: var(--text-primary);
+            border-right: none;
+            vertical-align: middle;
         }
 
-        .data-table tr:hover { background: var(--gray-subtle); }
+        .data-table tr:hover td { background: #FDFEFE; }
+        .data-table tr:last-child td { border-bottom: none; }
 
         /* Generic UI */
         .btn-black {
-            background: var(--black);
-            color: #fff;
-            border: 2px solid var(--black);
-            padding: 10px 20px;
-            font-size: 12px;
-            font-weight: 700;
+            background: var(--maroon);
+            color: #FFFFFF;
+            border: none;
+            padding: 8px 16px;
+            font-size: 12.5px;
+            font-weight: 600;
             cursor: pointer;
             text-decoration: none;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            transition: 0.2s;
+            gap: 6px;
+            letter-spacing: 0.02em;
+            border-radius: var(--radius-sm);
+            transition: all 0.15s ease;
         }
 
-        .btn-black:hover { opacity: 0.8; }
+        .btn-black:hover { background: var(--maroon-dark); color: #FFFFFF; opacity: 1; }
 
         .btn-outline {
-            background: #fff;
-            color: var(--black);
+            background: #FFFFFF;
+            border: 1px solid var(--border-color);
+            color: var(--text-secondary);
         }
 
-        .btn-outline:hover { background: var(--black); color: #fff; }
+        .btn-outline:hover { background: #F3F4F6; color: var(--text-primary); border-color: #D1D5DB; }
 
         .search-bar {
             display: flex;
             flex-wrap: wrap;
             gap: 12px;
             margin-bottom: 24px;
-            padding: 24px;
-            background: var(--gray-subtle);
-            border: 1px solid var(--border);
+            padding: 18px 24px;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
             align-items: center;
+            box-shadow: var(--shadow-sm);
         }
 
         .form-input {
-            padding: 12px 16px;
-            border: 2px solid var(--border);
-            font-size: 13px;
+            padding: 9px 14px;
+            border: 1px solid #D1D5DB;
+            border-radius: var(--radius-sm);
+            font-size: 13.5px;
             width: 100%;
-            max-width: 300px;
-            background: #fff;
-            font-weight: 600;
+            max-width: 280px;
+            background: #FFFFFF;
+            font-weight: 500;
+            color: var(--text-primary);
         }
 
-        .form-input:focus { outline: none; border-color: var(--black); }
+        .form-input:focus { outline: none; border-color: var(--maroon); box-shadow: 0 0 0 3px rgba(124, 0, 0, 0.12); }
 
         /* Pagination */
         .pagination {
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 4px;
-            margin-top: 40px;
+            gap: 6px;
+            margin-top: 30px;
         }
 
         .page-btn {
-            padding: 10px 16px;
-            border: 2px solid var(--border);
+            padding: 7px 12px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
             text-decoration: none;
-            color: var(--black);
-            font-size: 13px;
-            font-weight: 700;
+            color: var(--text-secondary);
+            font-size: 12.5px;
+            font-weight: 600;
+            background: #FFFFFF;
+            transition: all 0.15s ease;
         }
 
         .page-btn.active {
-            background: var(--black);
-            color: #fff;
-            border-color: var(--black);
+            background: var(--maroon);
+            color: #FFFFFF;
+            border-color: var(--maroon);
         }
 
-        .page-btn:hover:not(.active) { border-color: var(--black); }
+        .page-btn:hover:not(.active) { background: #F3F4F6; color: var(--text-primary); border-color: #D1D5DB; }
 
         .tag {
-            padding: 4px 10px;
-            font-size: 10px;
-            font-weight: 800;
-            border: 1.5px solid var(--black);
+            padding: 3px 8px;
+            font-size: 11px;
+            font-weight: 600;
+            border-radius: 9999px;
             text-transform: uppercase;
             display: inline-block;
+            background: #F3F4F6;
+            color: var(--text-secondary);
+            border: 1px solid #E5E7EB;
         }
 
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 24px;
-            margin-bottom: 30px;
+            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
         }
 
         .stat-card {
-            border: 3px solid var(--black);
-            padding: 32px;
-            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 22px;
+            background: var(--card-bg);
+            box-shadow: var(--shadow-sm);
         }
 
-        .stat-val { font-size: 48px; font-weight: 900; line-height: 1; }
-        .stat-lbl { font-size: 13px; font-weight: 700; color: var(--text-muted); margin-top: 10px; text-transform: uppercase; letter-spacing: 0.1em; }
+        .stat-val { font-size: 32px; font-weight: 800; line-height: 1; color: var(--maroon); }
+        .stat-lbl { font-size: 11.5px; font-weight: 700; color: var(--text-secondary); margin-top: 8px; text-transform: uppercase; letter-spacing: 0.04em; }
 
         @media (max-width: 768px) {
             .search-bar { flex-direction: column; }
             .form-input { max-width: none; }
+            .hub-container { padding: 20px; }
         }
 
-        /* Modal System */
+        /* Modal System ERP */
         .modal-overlay {
             position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8);
+            inset: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(17, 24, 39, 0.45);
+            backdrop-filter: blur(4px);
             display: none;
             align-items: center;
             justify-content: center;
-            z-index: 1000;
+            z-index: 2000;
+            padding: 20px;
+            box-sizing: border-box;
         }
 
         .modal-content {
-            background: #fff;
+            background: #FFFFFF;
             width: 100%;
-            max-width: 600px;
-            border: 3px solid var(--black);
-            padding: 40px;
+            max-width: 580px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-modal);
+            padding: 28px;
             position: relative;
-            max-height: 80vh;
+            max-height: 85vh;
             overflow-y: auto;
+            box-sizing: border-box;
         }
 
-        .close-modal {
-            position: absolute;
-            top: 20px; right: 20px;
-            background: var(--black);
-            color: #fff;
-            border: none;
-            padding: 8px 12px;
-            font-size: 10px;
-            font-weight: 900;
+        .modal-header-erp {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 14px;
+            margin-bottom: 18px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .close-btn-erp {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: #F3F4F6;
+            color: var(--text-secondary);
             cursor: pointer;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
         }
+        .close-btn-erp:hover { background: #E5E7EB; color: var(--text-primary); }
 
-        .modal-title { font-size: 24px; font-weight: 900; margin-bottom: 20px; text-transform: uppercase; border-bottom: 2px solid var(--black); padding-bottom: 10px; }
         .modal-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
-        .modal-item { border: 1px solid var(--border); padding: 15px; }
-        .modal-item-title { font-size: 11px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 5px; }
-        .modal-item-val { font-size: 18px; font-weight: 900; }
+        .modal-item { border: 1px solid var(--border-color); padding: 12px 14px; background: #F9FAFB; border-radius: var(--radius-sm); }
+        .modal-item-title { font-size: 11px; font-weight: 700; color: var(--text-secondary); text-transform: uppercase; margin-bottom: 4px; }
+        .modal-item-val { font-size: 16px; font-weight: 700; color: var(--text-primary); }
 
         /* Card Layout for Portfolio/AI */
         .card-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
+            gap: 16px;
+            margin-bottom: 24px;
         }
 
         .info-card {
-            border: 1px solid var(--border);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
             padding: 20px;
-            background: #fff;
-            transition: all 0.2s;
+            background: var(--card-bg);
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
             display: flex;
             flex-direction: column;
             position: relative;
         }
 
         .info-card:hover {
-            border-color: var(--black);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
         }
 
         .card-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 15px;
+            margin-bottom: 12px;
         }
 
         .card-date { font-size: 11px; color: var(--text-muted); font-family: monospace; }
         
-        .card-student-name { font-size: 18px; font-weight: 900; margin: 0; }
-        .card-student-meta { font-size: 12px; font-weight: 600; color: var(--text-muted); margin-bottom: 15px; }
+        .card-student-name { font-size: 16px; font-weight: 700; margin: 0; color: var(--text-primary); }
+        .card-student-meta { font-size: 12px; font-weight: 500; color: var(--text-secondary); margin-bottom: 12px; }
         
         .card-content-box {
-            background: var(--gray-subtle);
-            padding: 15px;
-            margin-bottom: 15px;
+            background: #F9FAFB;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            padding: 12px 14px;
+            margin-bottom: 14px;
             flex-grow: 1;
         }
 
-        .card-category { font-size: 10px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-muted); margin-bottom: 5px; }
-        .card-title { font-size: 15px; font-weight: 700; margin: 0 0 5px; }
-        .card-desc { font-size: 13px; line-height: 1.5; color: var(--text-muted); }
+        .card-category { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); margin-bottom: 4px; }
+        .card-title { font-size: 14px; font-weight: 700; margin: 0 0 4px; color: var(--text-primary); }
+        .card-desc { font-size: 13px; line-height: 1.5; color: var(--text-secondary); }
 
         .card-footer {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding-top: 15px;
-            border-top: 1px dashed var(--border);
+            padding-top: 12px;
+            border-top: 1px solid var(--border-color);
         }
 
-        .card-branch { font-size: 11px; font-weight: 700; text-transform: uppercase; }
-        .card-score { font-size: 20px; font-weight: 900; }
+        .card-branch { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-secondary); }
+        .card-score { font-size: 18px; font-weight: 800; color: var(--maroon); }
     </style>
 </head>
 <body>
@@ -785,8 +847,10 @@ $fullName = getFullName();
     <!-- Modals -->
     <div id="infoModal" class="modal-overlay">
         <div class="modal-content">
-            <button class="close-modal" onclick="closeModal()">CLOSE</button>
-            <div id="modalTitle" class="modal-title">Details</div>
+            <div class="modal-header-erp">
+                <div id="modalTitle" style="color: var(--maroon); font-size: 17px; font-weight: 700; margin: 0;">Details</div>
+                <button type="button" class="close-btn-erp" onclick="closeModal()">&times;</button>
+            </div>
             <div id="modalBody"></div>
         </div>
     </div>

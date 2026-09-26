@@ -36,8 +36,30 @@ if (!$job) {
 $hasApplied = $applicationModel->hasApplied($jobId, $userId);
 $isEnded = ($job['status'] === 'Closed' || strtotime($job['application_deadline']) < time());
 
-// Check student eligibility
+// 1. Check student academic profile completion
 $profileModel = new StudentProfile();
+$institution = $_SESSION['institution'] ?? '';
+$hasAcademicProfile = $profileModel->hasCompletedAcademicProfile($userId, $institution);
+
+if (!$hasAcademicProfile) {
+    $_SESSION['redirect_after_sgpa'] = $_SERVER['REQUEST_URI'];
+    Session::flash('error', 'Please update your Academic Profile (Semester & SGPA) before viewing or applying for job opportunities.');
+    redirect('sgpa_entry.php');
+}
+
+// 2. Check student resume completion
+require_once __DIR__ . '/../../src/Models/Resume.php';
+$resumeModel = new Resume();
+$currentUsn = $_SESSION['username'] ?? getUsername();
+$hasResume = $resumeModel->hasResume([$currentUsn, $userId]);
+
+if (!$hasResume) {
+    $_SESSION['redirect_after_resume'] = $_SERVER['REQUEST_URI'];
+    Session::flash('error', 'Please create and save your resume in the Resume Builder before viewing or applying for job opportunities.');
+    redirect('resume_builder.php');
+}
+
+// Check student eligibility
 $eligibilityCheck = $profileModel->isEligibleStrict($userId, $job['min_cgpa'], $job);
 $isEligible = $eligibilityCheck['eligible'];
 $ineligibilityReasons = $eligibilityCheck['reasons'];
@@ -46,20 +68,17 @@ $ineligibilityReasons = $eligibilityCheck['reasons'];
 $message = '';
 $error = '';
 
-// Check for existing global resume
-$currentUsn    = $_SESSION['username'] ?? getUsername();
-$fullResumePath = RESUME_UPLOAD_PATH . '/Student_Resumes/' . $currentUsn . '_Resume.pdf';
-$hasResume      = file_exists($fullResumePath);
-
 if (isPost() && isset($_POST['apply'])) {
     if ($isEnded) {
         $error = "This job is no longer accepting applications.";
+    } elseif (!$hasAcademicProfile) {
+        $error = "Please update your Academic Profile (Semester & SGPA) before applying.";
+    } elseif (!$hasResume) {
+        $error = "Please build your resume in the Resume Builder before applying.";
     } elseif (!$isEligible) {
         $error = "You are not eligible to apply for this job. Reason: " . implode(', ', $ineligibilityReasons);
     } elseif ($hasApplied) {
         $error = "You have already applied for this job.";
-    } elseif (!$hasResume) {
-        $error = "Please build your resume in the Resume Builder before applying.";
     } else {
         // Process Custom Responses
         $customResponses = [];
@@ -101,17 +120,30 @@ if (isPost() && isset($_POST['apply'])) {
             }
         }
 
+        $isExternalApply = (($job['application_mode'] ?? 'Internal') === 'External' && !empty($job['external_url']));
         if (empty($error)) {
-            $result = $applicationModel->apply($jobId, $userId, [
-                'cover_letter' => post('cover_letter'),
-                'custom_responses' => json_encode($customResponses)
-            ]);
-            
-            if ($result['success']) {
-                $message = $result['message'];
-                $hasApplied = true;
-            } else {
-                $error = $result['message'];
+            try {
+                $applyData = [
+                    'cover_letter' => post('cover_letter') ?: ($isExternalApply ? 'Applied via External Company Portal' : ''),
+                    'custom_responses' => json_encode($customResponses),
+                    'notes' => $isExternalApply ? ('External: ' . $job['external_url']) : null
+                ];
+                $result = $applicationModel->apply($jobId, $userId, $applyData);
+                
+                if ($result['success']) {
+                    $hasApplied = true;
+                    if ($isExternalApply) {
+                        $message = "Your application was registered on Lakshya! Opening the company recruitment portal...";
+                        $externalRedirectUrl = $job['external_url'];
+                    } else {
+                        $message = $result['message'];
+                    }
+                } else {
+                    $error = $result['message'];
+                }
+            } catch (\Throwable $e) {
+                error_log("Job application failed: " . $e->getMessage());
+                $error = "Failed to submit application: " . $e->getMessage();
             }
         }
     }
@@ -337,6 +369,8 @@ if (isPost() && isset($_POST['apply'])) {
                         <li class="meta-item"><div class="meta-icon"><i class="fas fa-calendar-alt"></i></div><div><div class="meta-label">Deadline</div><div class="meta-value"><?php echo date('d M Y', strtotime($job['application_deadline'])); ?></div></div></li>
                         <li class="meta-item"><div class="meta-icon"><i class="fas fa-briefcase"></i></div><div><div class="meta-label">Type</div><div class="meta-value"><?php echo htmlspecialchars($job['job_type'] ?? '—'); ?></div></div></li>
                         <li class="meta-item"><div class="meta-icon"><i class="fas fa-graduation-cap"></i></div><div><div class="meta-label">Min SGPA</div><div class="meta-value"><?php echo $job['min_cgpa'] > 0 ? $job['min_cgpa'].'+' : 'Any'; ?></div></div></li>
+                        <li class="meta-item"><div class="meta-icon"><i class="fas fa-venus-mars"></i></div><div><div class="meta-label">Gender</div><div class="meta-value"><?php echo (!empty($job['eligible_gender']) && $job['eligible_gender'] !== 'Both') ? htmlspecialchars($job['eligible_gender']) . ' Only' : 'All (Male & Female)'; ?></div></div></li>
+                        <li class="meta-item"><div class="meta-icon"><i class="fas fa-paper-plane"></i></div><div><div class="meta-label">Apply Via</div><div class="meta-value"><?php echo (($job['application_mode'] ?? 'Internal') === 'External') ? 'Company Website' : 'Lakshya Portal'; ?></div></div></li>
                     </ul>
                 </div></div>
 
@@ -354,6 +388,11 @@ if (isPost() && isset($_POST['apply'])) {
 
                     $deadlineStr = date('M d, Y', strtotime($job['application_deadline']));
 
+                    $genderNote = '';
+                    if (!empty($job['eligible_gender']) && $job['eligible_gender'] !== 'Both') {
+                        $genderNote = "*Gender:* " . $job['eligible_gender'] . " Only\n";
+                    }
+
                     $waMessage = "*📢 New Placement Opportunity!*\n\n"
                                . "*Company:* " . ($job['company_name'] ?? 'Company') . "\n"
                                . "*Role:* " . $job['title'] . "\n"
@@ -361,6 +400,7 @@ if (isPost() && isset($_POST['apply'])) {
                                . "*Salary:* " . $salaryStr . "\n"
                                . "*Min SGPA:* " . ($job['min_cgpa'] ?: 'Any') . "+\n"
                                . "*Eligible Branches:* " . $branchesStr . "\n"
+                               . $genderNote
                                . "*Deadline:* " . $deadlineStr . "\n\n"
                                . "*Apply here:* " . $shareUrl . "\n\n"
                                . "_Lakshya Placement Portal_";
@@ -376,13 +416,36 @@ if (isPost() && isset($_POST['apply'])) {
                 <div class="apply-card">
                     <?php if ($hasApplied): ?>
                         <div class="btn-applied-state"><i class="fas fa-check-circle"></i> Application Submitted</div>
-                        <p style="text-align:center;margin-top:12px;font-size:13px;color:var(--text-muted);">Track your status in the Dashboard.</p>
+                        <?php if (($job['application_mode'] ?? 'Internal') === 'External' && !empty($job['external_url'])): ?>
+                            <p style="text-align:center;margin-top:10px;font-size:12px;color:var(--text-muted);">
+                                You applied for this opportunity on the company portal.
+                            </p>
+                            <a href="<?php echo htmlspecialchars($job['external_url']); ?>" target="_blank" class="btn-builder" style="background:#2563eb;color:#fff;margin-top:8px;">
+                                <i class="fas fa-external-link-alt"></i> Re-open Company Portal
+                            </a>
+                        <?php else: ?>
+                            <p style="text-align:center;margin-top:12px;font-size:13px;color:var(--text-muted);">Track your status in the Dashboard.</p>
+                        <?php endif; ?>
 
                     <?php elseif ($isEnded): ?>
                         <div class="elig-box not" style="background:#f1f5f9; border-color:#e2e8f0; color:#64748b;">
                             <div class="elig-box-title"><i class="fas fa-calendar-times"></i> Application Closed</div>
                             This job is no longer accepting applications.
                         </div>
+
+                    <?php elseif (!$hasAcademicProfile): ?>
+                        <div class="elig-box not" style="background:#fffbeb;border-color:#fde68a;color:#b45309;">
+                            <div class="elig-box-title"><i class="fas fa-graduation-cap"></i> Academic Details Required</div>
+                            Please update your semester & SGPA details before applying.
+                        </div>
+                        <a href="sgpa_entry.php" class="btn-builder" style="background:var(--brand);color:#fff;"><i class="fas fa-edit"></i> Update Academic Details</a>
+
+                    <?php elseif (!$hasResume): ?>
+                        <div class="elig-box not" style="background:#fee2e2;border-color:#fecaca;color:#991b1b;">
+                            <div class="elig-box-title"><i class="fas fa-file-circle-xmark"></i> Resume Required</div>
+                            Build your Lakshya resume before applying.
+                        </div>
+                        <a href="resume_builder.php" class="btn-builder"><i class="fas fa-magic"></i> Go to Resume Builder</a>
 
                     <?php elseif (!$isEligible): ?>
                         <div class="elig-box not">
@@ -391,7 +454,26 @@ if (isPost() && isset($_POST['apply'])) {
                             <ul style="margin-top:8px;"><?php foreach ($ineligibilityReasons as $r): ?><li><?php echo htmlspecialchars($r); ?></li><?php endforeach; ?></ul>
                         </div>
 
-                    <?php elseif ($hasResume): ?>
+                    <?php elseif (($job['application_mode'] ?? 'Internal') === 'External' && !empty($job['external_url'])): ?>
+                        <div class="elig-box ok">
+                            <div class="elig-box-title"><i class="fas fa-circle-check"></i> You're Eligible!</div>
+                        </div>
+                        <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 14px; margin-bottom: 16px;">
+                            <div style="color: #1e40af; font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
+                                <i class="fas fa-globe"></i> Apply on Company Portal
+                            </div>
+                            <div style="font-size: 12px; color: #1e3a8a; line-height: 1.5;">
+                                This company requires applications directly on their official recruitment portal. Clicking below will log your application on Lakshya and immediately open the company application portal in a new tab.
+                            </div>
+                        </div>
+                        <form method="POST">
+                            <input type="hidden" name="apply_mode" value="external">
+                            <button type="submit" name="apply" class="btn-submit" style="background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);">
+                                Apply on Company Website <i class="fas fa-external-link-alt" style="margin-left: 6px;"></i>
+                            </button>
+                        </form>
+
+                    <?php else: ?>
                         <div class="elig-box ok">
                             <div class="elig-box-title"><i class="fas fa-circle-check"></i> You're Eligible!</div>
                         </div>
@@ -420,17 +502,14 @@ if (isPost() && isset($_POST['apply'])) {
                             <?php endif; ?>
                             <button type="submit" name="apply" class="btn-submit"><i class="fas fa-paper-plane"></i> Submit Application</button>
                         </form>
-
-                    <?php else: ?>
-                        <div class="elig-box not" style="background:#fee2e2;border-color:#fecaca;color:#991b1b;">
-                            <div class="elig-box-title"><i class="fas fa-file-circle-xmark"></i> Resume Required</div>
-                            Build your Lakshya resume before applying.
-                        </div>
-                        <a href="resume_builder.php" class="btn-builder"><i class="fas fa-magic"></i> Go to Resume Builder</a>
                     <?php endif; ?>
                 </div>
             </div>
         </div>
-    </div>
+    <?php if (!empty($externalRedirectUrl)): ?>
+    <script>
+        window.open(<?php echo json_encode($externalRedirectUrl); ?>, '_blank');
+    </script>
+    <?php endif; ?>
 </body>
 </html>

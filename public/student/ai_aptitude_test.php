@@ -52,6 +52,7 @@ $fullName = getFullName();
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
     <script src="report_question.js?v=<?php echo APP_VERSION; ?>"></script>
+    <script src="../js/proctor.js?v=<?php echo APP_VERSION; ?>"></script>
     <style>
         :root {
             --primary: #800000;
@@ -462,8 +463,12 @@ $fullName = getFullName();
                 <p>• 40 Minutes Total Time</p>
                 <p>• Full-screen experience recommended</p>
                 <p>• Questions focus on <?php echo !empty($concept) ? htmlspecialchars($concept) : 'company awareness'; ?> & aptitude</p>
+                <div id="proctor-env-box" style="margin-top: 15px; padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
+                    <div style="font-weight: 600; color: var(--primary);"><i class="fas fa-shield-alt"></i> AI Proctoring Active</div>
+                    <div id="proctor-env-status" style="margin-top: 4px; color: #64748b; font-size: 0.85rem;">Camera & baseline calibration will initialize on start.</div>
+                </div>
             </div>
-            <button class="btn-start" onclick="startTest()">Initialize Test Environment</button>
+            <button class="btn-start" id="btnStartTest" onclick="startTest()">Initialize Test Environment</button>
             <p style="margin-top: 20px; font-size: 0.9rem; color: #888;">By clicking start, you agree to follow the
                 assessment protocols.</p>
         </div>
@@ -522,6 +527,26 @@ $fullName = getFullName();
 
         let testStarted = false;
         let isSubmitting = false;
+        let proctorEngine = null;
+
+        // Initialize Proctoring Engine
+        try {
+            proctorEngine = new ProctoringEngine({
+                studentId: "<?php echo addslashes($fullName ?: (string)getUsername()); ?>",
+                assessmentId: <?php echo (int)($taskId ?: 1); ?>,
+                assessmentType: 'aptitude',
+                apiEndpoint: 'proctor_handler.php',
+                onWarning: (data) => {
+                    console.warn("Proctor Warning:", data);
+                },
+                onAutoSubmit: () => {
+                    console.error("Proctor: Assessment auto-terminated due to maximum integrity violations.");
+                    submitTest();
+                }
+            });
+        } catch (e) {
+            console.error("ProctoringEngine instantiation error:", e);
+        }
 
         function renderMath(element) {
             if (typeof renderMathInElement === 'function') {
@@ -547,7 +572,38 @@ $fullName = getFullName();
         }
 
         async function startTest() {
-            // Fullscreen
+            const startBtn = document.getElementById('btnStartTest') || document.querySelector('.btn-start');
+            const statusEl = document.getElementById('proctor-env-status');
+
+            // 1. Initialize Proctoring & Camera
+            if (proctorEngine) {
+                if (startBtn) startBtn.disabled = true;
+                if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--primary);"></i> Initializing camera & proctoring session...';
+
+                try {
+                    const camReady = await proctorEngine.init();
+                    if (!camReady) {
+                        if (startBtn) startBtn.disabled = false;
+                        if (statusEl) statusEl.innerHTML = '<span style="color:#e74c3c;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> Camera access required. Please allow camera in browser and retry.</span>';
+                        return;
+                    }
+
+                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--primary);"></i> Calibrating posture & identity baseline... (keep face centered)';
+                    const envCheck = await proctorEngine.runEnvCheck();
+                    if (!envCheck.passed) {
+                        if (startBtn) startBtn.disabled = false;
+                        const reason = (envCheck.reasons && envCheck.reasons.length) ? envCheck.reasons.join(' ') : 'Camera calibration failed. Please ensure face is centered and lighting is adequate.';
+                        if (statusEl) statusEl.innerHTML = `<span style="color:#e74c3c;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> ${reason}</span>`;
+                        return;
+                    }
+
+                    proctorEngine.start();
+                } catch (pErr) {
+                    console.warn("Proctor init warning:", pErr);
+                }
+            }
+
+            // 2. Fullscreen
             try {
                 if (document.documentElement.requestFullscreen) {
                     await document.documentElement.requestFullscreen();
@@ -787,6 +843,9 @@ $fullName = getFullName();
             if (isSubmitting) return;
             isSubmitting = true;
             if (timerInterval) clearInterval(timerInterval);
+            if (proctorEngine) {
+                try { proctorEngine.stop(); } catch (e) { }
+            }
 
             const submitBtn = document.getElementById('submitBtn');
             if (submitBtn) {

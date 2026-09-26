@@ -29,7 +29,7 @@ $isFrozen = (int)$stmtFreeze->fetchColumn() === 1;
 
 // Handle form submission
 $success = '';
-$error = '';
+$error = Session::flash('error') ?: '';
 if (isPost() && !$isFrozen) {
     $semData = [];
     for ($i = 1; $i <= 8; $i++) {
@@ -58,8 +58,26 @@ if (isPost() && !$isFrozen) {
             $error = "Please enter at least one semester SGPA.";
         } else {
             if ($studentProfileModel->saveSGPA($username, INSTITUTION_GMIT, $semData, $currentSem)) {
+                // Clear any lingering proxy and session caches
+                try {
+                    $proxy = new \App\Services\RemoteDataProxy();
+                    $proxy->clearCache([$username, $userId], INSTITUTION_GMIT);
+                } catch (\Throwable $e) {}
+
+                if (session_status() === PHP_SESSION_ACTIVE) {
+                    unset($_SESSION['student_profile_' . $username]);
+                    unset($_SESSION['student_profile_' . $userId]);
+                    unset($_SESSION['student_profile_' . strtoupper((string)$username)]);
+                    unset($_SESSION['student_profile_' . strtolower((string)$username)]);
+                }
+
                 Session::flash('success', 'Academic history updated successfully.');
-                redirect('dashboard');
+                if (!empty($_SESSION['redirect_after_sgpa'])) {
+                    $target = $_SESSION['redirect_after_sgpa'];
+                    unset($_SESSION['redirect_after_sgpa']);
+                    redirect($target);
+                }
+                redirect('dashboard.php');
             } else {
                 $error = "Failed to save data. Please try again.";
             }
@@ -351,6 +369,13 @@ foreach ($records as $r) {
         <div class="form-section">
             <?php if ($error): ?>
                 <div class="error">⚠️ <?php echo $error; ?></div>
+            <?php endif; ?>
+
+            <?php if (!empty($_SESSION['redirect_after_sgpa'])): ?>
+                <div style="background:#fffbeb; border:1px solid #fde68a; color:#92400e; padding:12px 16px; border-radius:12px; margin-bottom:18px; display:flex; justify-content:space-between; align-items:center; font-size:13px; font-weight:600;">
+                    <span><i class="fas fa-info-circle"></i> Once updated, you will be redirected back to the opportunity.</span>
+                    <a href="<?php echo htmlspecialchars($_SESSION['redirect_after_sgpa']); ?>" style="color:#800000; text-decoration:underline;">Back to Opportunity</a>
+                </div>
             <?php endif; ?>
 
             <?php if ($isFrozen): ?>

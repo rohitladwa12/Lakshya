@@ -97,7 +97,12 @@ abstract class Model {
                 VALUES (" . implode(', ', $placeholders) . ")";
         
         $stmt = $this->db->prepare($sql);
-        $stmt->execute(array_values($data));
+        $i = 1;
+        foreach ($data as $value) {
+            $type = is_null($value) ? PDO::PARAM_NULL : (is_int($value) ? PDO::PARAM_INT : (is_bool($value) ? PDO::PARAM_BOOL : PDO::PARAM_STR));
+            $stmt->bindValue($i++, $value, $type);
+        }
+        $stmt->execute();
         
         return $this->db->lastInsertId();
     }
@@ -128,7 +133,12 @@ abstract class Model {
                " WHERE {$this->primaryKey} = ?";
         
         $stmt = $this->db->prepare($sql);
-        return $stmt->execute($params);
+        $i = 1;
+        foreach ($params as $value) {
+            $type = is_null($value) ? PDO::PARAM_NULL : (is_int($value) ? PDO::PARAM_INT : (is_bool($value) ? PDO::PARAM_BOOL : PDO::PARAM_STR));
+            $stmt->bindValue($i++, $value, $type);
+        }
+        return $stmt->execute();
     }
     
     /**

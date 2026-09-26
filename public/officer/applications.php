@@ -365,62 +365,71 @@ function formatResponsesForPrint($json) {
     <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         :root {
-            --brand: #800000;
-            --brand-light: #fff5f5;
-            --brand-gradient: linear-gradient(135deg, #800000 0%, #a52a2a 100%);
-            --glass: rgba(255, 255, 255, 0.95);
-            --glass-border: rgba(255, 255, 255, 0.3);
-            --shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
-            --text-dark: #1e293b;
-            --text-muted: #64748b;
+            --brand: #7C0000;
+            --brand-hover: #9E0000;
+            --brand-light: #FDF2F2;
+            --gold: #B08D2C;
+            --surface-bg: #FFFFFF;
+            --page-bg: #F8F9FA;
+            --border-color: #E5E7EB;
+            --border-subtle: #F3F4F6;
+            --text-primary: #111827;
+            --text-secondary: #4B5563;
+            --text-muted: #9CA3AF;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+            --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.02);
+            --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
         }
 
         body {
-            font-family: 'Inter', sans-serif;
-            background: #f8fafc;
-            color: var(--text-dark);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--page-bg);
+            color: var(--text-primary);
             margin: 0;
-            padding-top: 100px;
-            line-height: 1.6;
+            padding-top: 0;
+            line-height: 1.5;
         }
 
         .o-page {
-            max-width: 1400px;
+            max-width: 1440px;
             margin: 0 auto;
-            padding: 40px 20px;
+            padding: 28px 32px 60px 32px;
+            box-sizing: border-box;
         }
 
         .o-head {
-            margin-bottom: 40px;
+            margin-bottom: 24px;
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
+            gap: 20px;
+            flex-wrap: wrap;
         }
 
         .o-head h1 {
-            font-size: 28px;
-            font-weight: 800;
-            letter-spacing: -0.5px;
-            background: var(--brand-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin: 0;
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.4px;
+            color: var(--text-primary);
+            margin: 0 0 4px 0;
         }
 
-        /* Filter Glass */
+        /* Filter Card */
         .filter-glass {
-            background: var(--glass);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--glass-border);
-            border-radius: 16px;
+            background: var(--surface-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
             padding: 16px 20px;
-            margin-bottom: 20px;
-            box-shadow: var(--shadow);
+            margin-bottom: 24px;
+            box-shadow: var(--shadow-card);
         }
 
         .filter-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
             gap: 12px;
             margin-bottom: 12px;
         }
@@ -428,8 +437,8 @@ function formatResponsesForPrint($json) {
         .filter-item label {
             display: block;
             font-size: 11px;
-            font-weight: 700;
-            color: var(--text-muted);
+            font-weight: 600;
+            color: var(--text-secondary);
             margin-bottom: 4px;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -439,17 +448,19 @@ function formatResponsesForPrint($json) {
             width: 100%;
             padding: 8px 12px;
             border-radius: 8px;
-            border: 1.5px solid #e2e8f0;
+            border: 1px solid #D1D5DB;
             font-size: 13px;
             font-weight: 500;
-            transition: all 0.2s;
-            background: #fff;
+            transition: all 0.15s ease;
+            background: #FFFFFF;
+            color: var(--text-primary);
+            box-sizing: border-box;
         }
 
         .filter-item select:focus, .filter-item input:focus {
             border-color: var(--brand);
             outline: none;
-            box-shadow: 0 0 0 3px rgba(128, 0, 0, 0.05);
+            box-shadow: 0 0 0 3px rgba(124, 0, 0, 0.1);
         }
 
         .filter-footer {
@@ -457,16 +468,15 @@ function formatResponsesForPrint($json) {
             justify-content: space-between;
             align-items: center;
             padding-top: 12px;
-            border-top: 1px solid #f1f5f9;
+            border-top: 1px solid var(--border-subtle);
         }
 
         /* Table Design */
         .table-card {
-            background: var(--glass);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--glass-border);
-            border-radius: 20px;
-            box-shadow: var(--shadow);
+            background: var(--surface-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            box-shadow: var(--shadow-card);
             overflow: hidden;
         }
 
@@ -477,100 +487,196 @@ function formatResponsesForPrint($json) {
 
         .modern-table th {
             text-align: left;
-            padding: 18px 24px;
-            background: #f8fafc;
-            color: var(--text-muted);
-            font-size: 11px;
-            font-weight: 700;
+            padding: 12px 16px;
+            background: #F9FAFB;
+            color: var(--text-secondary);
+            font-size: 11.5px;
+            font-weight: 600;
             text-transform: uppercase;
-            letter-spacing: 1px;
-            border-bottom: 1px solid #e2e8f0;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid var(--border-color);
+            white-space: nowrap;
         }
 
         .modern-table td {
-            padding: 20px 24px;
-            border-bottom: 1px solid #f1f5f9;
-            font-size: 14px;
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-subtle);
+            font-size: 13px;
+            color: var(--text-primary);
+            vertical-align: middle;
         }
 
         .modern-table tr:last-child td { border: none; }
-        .modern-table tr:hover td { background: rgba(128, 0, 0, 0.01); }
+        .modern-table tr:hover td { background: #FBFBFC; }
 
-        .job-title { font-weight: 700; color: var(--text-dark); margin-bottom: 4px; }
+        .job-title { font-weight: 600; color: var(--text-primary); margin-bottom: 2px; }
         .comp-name { font-size: 12px; color: var(--text-muted); font-weight: 500; }
 
         /* Status Pills */
         .status-pill {
-            padding: 6px 12px;
-            border-radius: 10px;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
+            display: inline-flex;
+            align-items: center;
+            padding: 3px 9px;
+            border-radius: 6px;
+            font-size: 11.5px;
+            font-weight: 600;
+            line-height: 1.2;
+            white-space: nowrap;
         }
-        .st-applied { background: #eff6ff; color: #1e40af; }
-        .st-shortlisted { background: #ecfdf5; color: #059669; }
-        .st-selected { background: #fff7ed; color: #c2410c; }
-        .st-rejected { background: #fef2f2; color: #dc2626; }
+        .st-applied { background: #FFFBEB; color: #92400E; border: 1px solid #FDE68A; }
+        .st-shortlisted { background: #EFF6FF; color: #1E40AF; border: 1px solid #BFDBFE; }
+        .st-selected { background: #ECFDF5; color: #065F46; border: 1px solid #A7F3D0; }
+        .st-rejected { background: #FEF2F2; color: #991B1B; border: 1px solid #FECACA; }
 
         .status-select {
-            padding: 8px 12px;
-            border-radius: 10px;
-            border: 1px solid #e2e8f0;
+            padding: 6px 10px;
+            border-radius: 6px;
+            border: 1px solid #D1D5DB;
             font-size: 12px;
             font-weight: 600;
-            background: #fff;
+            background: #FFFFFF;
+            color: var(--text-primary);
             cursor: pointer;
+            outline: none;
+        }
+        .status-select:focus {
+            border-color: var(--brand);
+            box-shadow: 0 0 0 2px rgba(124, 0, 0, 0.1);
         }
 
         /* Buttons */
         .btn-action {
-            padding: 10px 20px;
-            border-radius: 12px;
+            padding: 8px 14px;
+            border-radius: 8px;
             font-size: 13px;
             font-weight: 600;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            transition: all 0.2s;
+            gap: 6px;
+            transition: all 0.15s ease;
             cursor: pointer;
             border: none;
             text-decoration: none;
+            box-sizing: border-box;
         }
 
-        .btn-primary { background: var(--brand-gradient); color: white; }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(128, 0, 0, 0.2); }
-        .btn-excel { background: #10b981; color: white; }
-        .btn-view { background: var(--brand-light); color: var(--brand); }
-        .btn-view:hover { background: var(--brand); color: white; }
+        .btn-primary { 
+            background: var(--brand); 
+            color: #FFFFFF; 
+            border: 1px solid var(--brand);
+            box-shadow: 0 1px 2px rgba(124, 0, 0, 0.2); 
+        }
+        .btn-primary:hover { 
+            background: var(--brand-hover); 
+            border-color: var(--brand-hover);
+        }
+
+        .btn-excel { 
+            background: #059669; 
+            color: #FFFFFF; 
+            border: 1px solid #059669;
+        }
+        .btn-excel:hover { 
+            background: #047857; 
+        }
+
+        .btn-view { 
+            background: #F3F4F6; 
+            color: var(--text-secondary); 
+            border: 1px solid var(--border-color);
+        }
+        .btn-view:hover { 
+            background: #E5E7EB; 
+            color: var(--text-primary); 
+        }
 
         .usn-badge {
-            background: #f1f5f9;
-            color: #475569;
-            padding: 4px 10px;
-            border-radius: 8px;
+            background: #F3F4F6;
+            color: #374151;
+            padding: 2px 7px;
+            border-radius: 6px;
             font-family: inherit;
-            font-weight: 700;
-            font-size: 12px;
+            font-weight: 600;
+            font-size: 11.5px;
         }
 
-        .pagination { display: flex; justify-content: center; gap: 8px; padding: 30px; }
+        .pagination { display: flex; justify-content: center; gap: 6px; padding: 24px; }
         .page-link {
-            padding: 10px 18px;
-            border-radius: 12px;
-            background: white;
-            border: 1.5px solid #e2e8f0;
-            color: var(--text-dark);
+            padding: 8px 14px;
+            border-radius: 8px;
+            background: #FFFFFF;
+            border: 1px solid #D1D5DB;
+            color: var(--text-secondary);
             text-decoration: none;
             font-weight: 600;
-            transition: all 0.2s;
+            font-size: 13px;
+            transition: all 0.15s ease;
         }
-        .page-link.active { background: var(--brand-gradient); color: white; border-color: transparent; }
+        .page-link.active { background: var(--brand); color: #FFFFFF; border-color: var(--brand); }
         .page-link:hover:not(.active) { border-color: var(--brand); color: var(--brand); }
 
-        /* Modal */
-        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(4px); z-index: 2000; align-items: center; justify-content: center; padding: 20px; }
-        .modal-content { background: white; border-radius: 24px; padding: 40px; width: 100%; max-width: 600px; position: relative; box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25); }
-        .close-modal { position: absolute; top: 25px; right: 25px; font-size: 24px; cursor: pointer; color: var(--text-muted); }
+        /* Modal Architecture */
+        .modal { 
+            display: none; 
+            position: fixed; 
+            inset: 0; 
+            background: rgba(17, 24, 39, 0.45); 
+            backdrop-filter: blur(4px); 
+            z-index: 2000; 
+            align-items: center; 
+            justify-content: center; 
+            padding: 20px; 
+            box-sizing: border-box;
+        }
+
+        .modal-content { 
+            background: #FFFFFF; 
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg); 
+            padding: 28px 30px; 
+            width: 100%; 
+            max-width: 620px; 
+            position: relative; 
+            box-shadow: var(--shadow-modal); 
+            box-sizing: border-box;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 14px;
+            margin-bottom: 20px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .modal-header h3 {
+            font-size: 17px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0;
+            letter-spacing: -0.2px;
+        }
+
+        .close-modal { 
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: #F3F4F6;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px; 
+            cursor: pointer; 
+            transition: all 0.15s ease;
+            line-height: 1;
+        }
+
+        .close-modal:hover {
+            background: #E5E7EB;
+            color: var(--text-primary);
+        }
 
         .print-only { display: none; }
         @media print {
@@ -886,17 +992,17 @@ function formatResponsesForPrint($json) {
     <!-- Attempts Modal -->
     <div id="attemptsModal" class="modal">
         <div class="modal-content">
-            <div class="modal-header" style="margin-bottom: 25px;">
-                <h3 id="modalAttemptStudentName" style="font-weight: 800; text-transform: uppercase;">ASSESSMENT ATTEMPTS</h3>
+            <div class="modal-header">
+                <h3 id="modalAttemptStudentName">ASSESSMENT ATTEMPTS</h3>
                 <span class="close-modal" onclick="closeAttemptsModal()">&times;</span>
             </div>
             <div id="attemptsContent">
-                <table class="modern-table" style="box-shadow: none; border-radius: 12px; border: 1px solid #f1f5f9;">
-                    <thead style="background: #f8fafc;">
+                <table class="modern-table" style="border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden;">
+                    <thead>
                         <tr>
-                            <th style="font-size: 11px; letter-spacing: 1px;">ATTEMPT</th>
-                            <th style="font-size: 11px; letter-spacing: 1px;">SCORE</th>
-                            <th style="font-size: 11px; letter-spacing: 1px;">STATUS</th>
+                            <th>ATTEMPT</th>
+                            <th>SCORE</th>
+                            <th>STATUS</th>
                         </tr>
                     </thead>
                     <tbody id="attemptsTableBody"></tbody>
@@ -908,16 +1014,16 @@ function formatResponsesForPrint($json) {
     <!-- SGPA Details Modal -->
     <div id="sgpaModal" class="modal">
         <div class="modal-content">
-            <div class="modal-header" style="margin-bottom: 25px;">
-                <h3 id="modalStudentName" style="font-weight: 800;">Academic History</h3>
+            <div class="modal-header">
+                <h3 id="modalStudentName">Academic History</h3>
                 <span class="close-modal" onclick="closeSgpaModal()">&times;</span>
             </div>
             <div id="sgpaLoading" style="text-align: center; padding: 40px; display: none;">
-                <i class="fas fa-circle-notch fa-spin" style="font-size: 32px; color: var(--brand);"></i>
+                <i class="fas fa-circle-notch fa-spin" style="font-size: 28px; color: var(--brand);"></i>
             </div>
             <div id="sgpaContent">
-                <table class="modern-table" style="box-shadow: none; border-radius: 12px; border: 1px solid #f1f5f9;">
-                    <thead style="background: #f8fafc;">
+                <table class="modern-table" style="border-radius: 8px; border: 1px solid var(--border-color); overflow: hidden;">
+                    <thead>
                         <tr>
                             <th>Semester</th>
                             <th>SGPA</th>
@@ -933,13 +1039,13 @@ function formatResponsesForPrint($json) {
     <!-- Custom Responses Modal -->
     <div id="responsesModal" class="modal">
         <div class="modal-content">
-            <div class="modal-header" style="margin-bottom: 25px;">
-                <h3 id="responseStudentName" style="font-weight: 800;">Form Responses</h3>
+            <div class="modal-header">
+                <h3 id="responseStudentName">Form Responses</h3>
                 <span class="close-modal" onclick="closeResponsesModal()">&times;</span>
             </div>
             <div id="responsesContainer" style="max-height: 450px; overflow-y: auto; padding-right: 10px;"></div>
-            <div style="margin-top: 30px; text-align: right;">
-                <button class="btn-action btn-view" onclick="closeResponsesModal()">Close</button>
+            <div style="margin-top: 24px; text-align: right; padding-top: 16px; border-top: 1px solid var(--border-color);">
+                <button class="btn-action" style="background: #FFFFFF; border: 1px solid #D1D5DB; color: var(--text-secondary); border-radius: 8px;" onclick="closeResponsesModal()">Close</button>
             </div>
         </div>
     </div>

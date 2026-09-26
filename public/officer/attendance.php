@@ -23,29 +23,39 @@ $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Attendance Management | Placement Portal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
-            --brand: #7C0000;
-            --brand-dark: #4A0000;
-            --brand-light: #F9F1F1;
-            --gold: #C9972C;
-            --text-dark: #1f2937;
-            --text-muted: #6b7280;
-            --bg-light: #f3f4f6;
-            --border-color: #e5e7eb;
-            --ease-out: cubic-bezier(0.34, 1.56, 0.64, 1);
+            --maroon: #7C0000;
+            --maroon-dark: #5A0000;
+            --maroon-light: #9B1B1B;
+            --gold: #B08D2C;
+            --page-bg: #F8F9FA;
+            --card-bg: #FFFFFF;
+            --border-color: #E5E7EB;
+            --text-primary: #111827;
+            --text-secondary: #4B5563;
+            --text-muted: #9CA3AF;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
         }
 
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
-            font-family: 'Outfit', sans-serif;
-            background-color: var(--bg-light);
-            color: var(--text-dark);
-            margin: 0;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background-color: var(--page-bg);
+            color: var(--text-primary);
+            padding-top: 0;
+            min-height: 100vh;
         }
 
         .main-content {
-            padding: 40px 50px;
+            padding: 32px 40px;
             max-width: 1400px;
             margin: 0 auto;
         }
@@ -54,20 +64,25 @@ $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 30px;
+            margin-bottom: 24px;
+            background: var(--card-bg);
+            padding: 24px 30px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
         }
 
         .header-title h1 {
-            font-size: 28px;
-            font-weight: 800;
-            color: var(--brand-dark);
-            margin: 0 0 6px 0;
-            letter-spacing: -0.5px;
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--maroon);
+            margin: 0 0 4px 0;
+            letter-spacing: -0.02em;
         }
 
         .header-title p {
-            font-size: 14px;
-            color: var(--text-muted);
+            font-size: 13.5px;
+            color: var(--text-secondary);
             margin: 0;
         }
 
@@ -75,65 +90,72 @@ $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
             position: relative;
             max-width: 400px;
             width: 100%;
-            margin-bottom: 25px;
+            margin-bottom: 20px;
         }
 
         .search-container i {
             position: absolute;
-            left: 16px;
+            left: 14px;
             top: 50%;
             transform: translateY(-50%);
             color: var(--text-muted);
-            font-size: 16px;
+            font-size: 14px;
         }
 
         .search-input {
             width: 100%;
-            padding: 14px 16px 14px 44px;
-            border-radius: 14px;
-            border: 1px solid var(--border-color);
+            padding: 9px 14px 9px 38px;
+            border-radius: var(--radius-sm);
+            border: 1px solid #D1D5DB;
             background: #fff;
-            font-size: 14px;
+            font-size: 13.5px;
             box-sizing: border-box;
             outline: none;
-            transition: all 0.3s;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.02);
+            transition: all 0.15s ease;
+            box-shadow: var(--shadow-sm);
+            color: var(--text-primary);
         }
 
         .search-input:focus {
-            border-color: var(--brand);
-            box-shadow: 0 4px 12px rgba(124, 0, 0, 0.08);
+            border-color: var(--maroon);
+            box-shadow: 0 0 0 3px rgba(124, 0, 0, 0.12);
         }
 
         .table-container {
-            background: #fff;
-            border-radius: 20px;
+            background: var(--card-bg);
+            border-radius: var(--radius-lg);
             border: 1px solid var(--border-color);
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04);
+            box-shadow: var(--shadow-sm);
             overflow: hidden;
         }
 
         .attendance-table {
             width: 100%;
-            border-collapse: collapse;
+            border-collapse: separate;
+            border-spacing: 0;
             text-align: left;
         }
 
         .attendance-table th {
-            background: #fafafa;
-            padding: 18px 24px;
-            font-size: 13px;
+            background: #F9FAFB;
+            padding: 12px 18px;
+            font-size: 11.5px;
             font-weight: 700;
-            color: var(--text-muted);
+            color: var(--text-secondary);
             text-transform: uppercase;
             border-bottom: 1px solid var(--border-color);
+            letter-spacing: 0.04em;
         }
 
         .attendance-table td {
-            padding: 20px 24px;
-            font-size: 14px;
+            padding: 14px 18px;
+            font-size: 13.5px;
             border-bottom: 1px solid var(--border-color);
             vertical-align: middle;
+        }
+
+        .attendance-table tr:hover td {
+            background: #FDFEFE;
         }
 
         .attendance-table tr:last-child td {
@@ -142,100 +164,103 @@ $jobs = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
         .job-title {
             font-weight: 700;
-            color: var(--text-dark);
-            margin: 0 0 4px 0;
-            font-size: 15px;
+            color: var(--text-primary);
+            margin: 0 0 3px 0;
+            font-size: 14px;
         }
 
         .company-badge {
             display: inline-block;
-            padding: 4px 8px;
-            background: var(--brand-light);
-            color: var(--brand);
+            padding: 3px 8px;
+            background: #FDF2F2;
+            color: var(--maroon);
             font-size: 11px;
             font-weight: 700;
-            border-radius: 6px;
+            border-radius: 4px;
             text-transform: uppercase;
+            border: 1px solid #FEE2E2;
         }
 
         .academic-year-badge {
             display: inline-block;
-            padding: 4px 8px;
-            background: #eff6ff;
-            color: #1e40af;
+            padding: 3px 8px;
+            background: #EFF6FF;
+            color: #1D4ED8;
             font-size: 11px;
-            font-weight: 700;
-            border-radius: 6px;
+            font-weight: 600;
+            border-radius: 4px;
+            border: 1px solid #DBEAFE;
         }
 
         .stats-badge {
             display: inline-flex;
             align-items: center;
-            gap: 6px;
-            padding: 6px 12px;
-            border-radius: 10px;
-            font-size: 13px;
+            gap: 5px;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 11.5px;
             font-weight: 600;
         }
 
         .stats-badge.present {
-            background: #e8fbee;
-            color: #166534;
+            background: #ECFDF5;
+            color: #047857;
+            border: 1px solid #D1FAE5;
         }
 
         .stats-badge.absent {
-            background: #fef2f2;
-            color: #991b1b;
+            background: #FEF2F2;
+            color: #DC2626;
+            border: 1px solid #FEE2E2;
         }
 
         .stats-badge.not-taken {
-            background: #f3f4f6;
+            background: #F3F4F6;
             color: var(--text-muted);
-            font-style: italic;
+            border: 1px solid #E5E7EB;
         }
 
         .btn-action {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            padding: 10px 18px;
-            border-radius: 10px;
-            font-size: 13px;
-            font-weight: 700;
+            gap: 6px;
+            padding: 7px 14px;
+            border-radius: var(--radius-sm);
+            font-size: 12.5px;
+            font-weight: 600;
             text-decoration: none;
             border: none;
             cursor: pointer;
-            transition: all 0.3s;
+            transition: all 0.15s ease;
         }
 
         .btn-take {
-            background: var(--brand);
-            color: #fff;
-            box-shadow: 0 4px 10px rgba(124, 0, 0, 0.15);
+            background: var(--maroon);
+            color: #FFFFFF;
         }
 
         .btn-take:hover {
-            background: var(--brand-dark);
-            transform: translateY(-1px);
-            box-shadow: 0 6px 15px rgba(124, 0, 0, 0.25);
+            background: var(--maroon-dark);
+            color: #FFFFFF;
         }
 
         .btn-view {
-            background: #f3f4f6;
-            color: var(--text-dark);
+            background: #FFFFFF;
+            color: var(--text-secondary);
             border: 1px solid var(--border-color);
         }
 
         .btn-view:hover {
-            background: #e5e7eb;
-            transform: translateY(-1px);
+            background: #F3F4F6;
+            color: var(--text-primary);
+            border-color: #D1D5DB;
         }
 
         .no-data {
             text-align: center;
             padding: 60px;
             color: var(--text-muted);
-            font-size: 16px;
+            font-size: 14px;
         }
 
         .no-data i {

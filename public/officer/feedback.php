@@ -73,19 +73,25 @@ try {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Student Feedback – <?php echo APP_NAME; ?></title>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
-            --brand: #7C0000;
-            --brand-light: #A50000;
-            --gold: #C9972C;
-            --glass: rgba(255, 255, 255, 0.8);
-            --glass-border: rgba(255, 255, 255, 0.2);
-            --text-dark: #1e293b;
-            --text-muted: #64748b;
-            --bg-gradient: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            --shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+            --maroon: #7C0000;
+            --maroon-dark: #5A0000;
+            --maroon-light: #9B1B1B;
+            --gold: #B08D2C;
+            --page-bg: #F8F9FA;
+            --card-bg: #FFFFFF;
+            --border-color: #E5E7EB;
+            --text-primary: #111827;
+            --text-secondary: #4B5563;
+            --text-muted: #9CA3AF;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
         }
 
         * {
@@ -95,17 +101,17 @@ try {
         }
 
         body {
-            font-family: 'Outfit', system-ui, -apple-system, sans-serif;
-            background: var(--bg-gradient);
-            color: var(--text-dark);
-            padding-top: 90px;
+            font-family: 'Inter', system-ui, -apple-system, sans-serif;
+            background: var(--page-bg);
+            color: var(--text-primary);
+            padding-top: 0;
             min-height: 100vh;
         }
 
         .dashboard-container {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 32px;
+            padding: 32px 40px;
         }
 
         /* Header Section */
@@ -113,95 +119,98 @@ try {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 32px;
+            margin-bottom: 24px;
+            background: var(--card-bg);
+            padding: 24px 30px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
         }
 
         .welcome-text h1 {
-            font-size: 28px;
+            font-size: 22px;
             font-weight: 700;
             margin: 0;
-            background: linear-gradient(to right, var(--brand), var(--brand-light));
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
+            color: var(--maroon);
+            letter-spacing: -0.02em;
         }
 
         .welcome-text p {
-            color: var(--text-muted);
+            color: var(--text-secondary);
             margin: 4px 0 0 0;
-            font-size: 15px;
+            font-size: 13.5px;
         }
 
         /* Stats Grid */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 20px;
-            margin-bottom: 32px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
         }
 
         .stat-card {
-            background: var(--glass);
-            backdrop-filter: blur(8px);
-            -webkit-backdrop-filter: blur(8px);
-            border: 1px solid var(--glass-border);
-            border-radius: 20px;
-            padding: 24px;
-            box-shadow: var(--shadow);
-            transition: transform 0.3s ease;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 20px 24px;
+            box-shadow: var(--shadow-sm);
+            transition: transform 0.15s ease;
         }
 
         .stat-card:hover {
-            transform: translateY(-5px);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-md);
         }
 
         .stat-label {
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-muted);
+            font-size: 11.5px;
+            font-weight: 700;
+            color: var(--text-secondary);
             text-transform: uppercase;
-            letter-spacing: 0.5px;
-            margin-bottom: 8px;
+            letter-spacing: 0.04em;
+            margin-bottom: 6px;
             display: block;
         }
 
         .stat-value {
-            font-size: 30px;
+            font-size: 26px;
             font-weight: 800;
-            color: var(--brand);
+            color: var(--maroon);
             display: block;
         }
 
         .stat-footer {
-            margin-top: 12px;
+            margin-top: 8px;
             font-size: 12px;
-            color: var(--text-muted);
+            color: var(--text-secondary);
             display: flex;
             align-items: center;
             gap: 4px;
         }
 
         .content-card {
-            background: var(--glass);
-            backdrop-filter: blur(8px);
-            border: 1px solid var(--glass-border);
-            border-radius: 24px;
-            padding: 30px;
-            box-shadow: var(--shadow);
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
+            padding: 24px 28px;
+            box-shadow: var(--shadow-sm);
         }
 
         .card-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 25px;
-            gap: 20px;
+            margin-bottom: 20px;
+            gap: 16px;
+            flex-wrap: wrap;
         }
 
         .card-header h3 {
             margin: 0;
-            font-size: 18px;
+            font-size: 17px;
             font-weight: 700;
-            color: var(--text-dark);
+            color: var(--text-primary);
             display: flex;
             align-items: center;
             gap: 8px;
@@ -209,137 +218,159 @@ try {
 
         .search-box {
             position: relative;
-            width: 350px;
+            width: 320px;
         }
 
         .search-box input {
             width: 100%;
-            padding: 10px 15px 10px 40px;
-            border-radius: 12px;
-            border: 1px solid var(--glass-border);
+            padding: 9px 14px 9px 38px;
+            border-radius: var(--radius-sm);
+            border: 1px solid #D1D5DB;
             outline: none;
             font-family: inherit;
-            background: rgba(255, 255, 255, 0.7);
+            font-size: 13.5px;
+            background: #FFFFFF;
+            color: var(--text-primary);
+            transition: all 0.15s ease;
+        }
+
+        .search-box input:focus {
+            border-color: var(--maroon);
+            box-shadow: 0 0 0 3px rgba(124, 0, 0, 0.12);
         }
 
         .search-box i {
             position: absolute;
-            left: 15px;
+            left: 14px;
             top: 50%;
             transform: translateY(-50%);
             color: var(--text-muted);
+            font-size: 14px;
         }
 
         .modern-table {
             width: 100%;
             border-collapse: separate;
-            border-spacing: 0 8px;
+            border-spacing: 0;
         }
 
         .modern-table th {
             text-align: left;
-            padding: 0 16px 8px 16px;
-            font-size: 12px;
-            font-weight: 600;
-            color: var(--text-muted);
+            padding: 12px 16px;
+            font-size: 11.5px;
+            font-weight: 700;
+            color: var(--text-secondary);
             text-transform: uppercase;
+            letter-spacing: 0.04em;
+            background: #F9FAFB;
+            border-bottom: 1px solid var(--border-color);
         }
 
         .modern-table td {
-            padding: 18px 16px;
-            background: rgba(255, 255, 255, 0.6);
-            border: none;
+            padding: 14px 16px;
+            background: #FFFFFF;
+            border-bottom: 1px solid var(--border-color);
             vertical-align: top;
+            font-size: 13.5px;
         }
 
-        .modern-table tr td:first-child { border-radius: 12px 0 0 12px; }
-        .modern-table tr td:last-child { border-radius: 0 12px 12px 0; }
-
         .modern-table tr:hover td {
-            background: rgba(255, 255, 255, 0.95);
+            background: #FDFEFE;
+        }
+
+        .modern-table tr:last-child td {
+            border-bottom: none;
         }
 
         .back-link {
-            color: var(--text-muted);
+            color: var(--text-secondary);
             text-decoration: none;
-            font-size: 14px;
-            margin-bottom: 20px;
-            display: inline-block;
-            transition: all 0.2s ease;
+            font-size: 13px;
+            margin-bottom: 16px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 500;
+            transition: color 0.15s ease;
         }
 
         .back-link:hover {
-            color: var(--brand);
+            color: var(--maroon);
         }
 
         .badge-inst {
             display: inline-block;
-            padding: 4px 8px;
-            border-radius: 6px;
+            padding: 3px 8px;
+            border-radius: 4px;
             font-size: 11px;
             font-weight: 700;
             text-transform: uppercase;
         }
         
         .badge-gmu {
-            background: #dcfce7;
-            color: #15803d;
+            background: #ECFDF5;
+            color: #047857;
+            border: 1px solid #D1FAE5;
         }
         
         .badge-gmit {
-            background: #e0e7ff;
-            color: #4338ca;
+            background: #EFF6FF;
+            color: #1D4ED8;
+            border: 1px solid #DBEAFE;
         }
 
         .badge-feature {
-            background: #fef3c7;
-            color: #d97706;
+            background: #FEF3C7;
+            color: #B45309;
+            border: 1px solid #FDE68A;
             font-weight: 700;
             font-size: 11px;
-            padding: 4px 8px;
-            border-radius: 6px;
+            padding: 3px 8px;
+            border-radius: 4px;
             display: inline-block;
             margin-bottom: 6px;
             text-transform: uppercase;
         }
+
         /* Alert styles */
         .alert {
             padding: 12px 16px;
-            border-radius: 12px;
-            font-size: 14px;
+            border-radius: var(--radius-sm);
+            font-size: 13.5px;
             font-weight: 500;
             margin-bottom: 20px;
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
         }
         .alert-success {
-            background: #f0fdf4;
-            color: #166534;
-            border: 1px solid #bbf7d0;
+            background: #ECFDF5;
+            color: #047857;
+            border: 1px solid #A7F3D0;
         }
         .alert-error {
-            background: #fef2f2;
-            color: #991b1b;
-            border: 1px solid #fecaca;
+            background: #FEF2F2;
+            color: #DC2626;
+            border: 1px solid #FECACA;
         }
+
         /* Reply styling */
         .reply-section {
             margin-top: 10px;
-            padding: 12px;
-            background: rgba(255, 255, 255, 0.7);
-            border-radius: 12px;
-            border: 1px solid var(--glass-border);
+            padding: 12px 14px;
+            background: #F9FAFB;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-color);
         }
         .reply-meta {
             font-size: 11px;
-            color: var(--text-muted);
-            margin-bottom: 6px;
+            color: var(--text-secondary);
+            margin-bottom: 4px;
             font-weight: 600;
         }
         .reply-content {
             font-size: 13px;
-            color: var(--text-dark);
+            color: var(--text-primary);
             line-height: 1.5;
             word-break: break-word;
         }
@@ -347,70 +378,71 @@ try {
             margin-top: 10px;
         }
         .reply-btn-toggle {
-            background: var(--brand);
+            background: var(--maroon);
             color: white;
             border: none;
             padding: 6px 12px;
-            border-radius: 8px;
+            border-radius: var(--radius-sm);
             font-size: 12px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.15s ease;
             display: inline-flex;
             align-items: center;
             gap: 6px;
         }
         .reply-btn-toggle:hover {
-            background: var(--brand-light);
+            background: var(--maroon-dark);
         }
         .btn-reply-submit {
-            background: #10b981;
+            background: #059669;
             color: white;
             border: none;
-            padding: 6px 12px;
-            border-radius: 6px;
+            padding: 6px 14px;
+            border-radius: var(--radius-sm);
             font-size: 12px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.15s ease;
         }
         .btn-reply-submit:hover {
-            background: #059669;
+            background: #047857;
         }
         .reply-textarea {
             width: 100%;
             min-height: 60px;
             padding: 8px 12px;
-            border: 1px solid var(--glass-border);
-            border-radius: 8px;
+            border: 1px solid #D1D5DB;
+            border-radius: var(--radius-sm);
             font-family: inherit;
             font-size: 13px;
             margin-bottom: 8px;
             resize: vertical;
             outline: none;
-            background: rgba(255, 255, 255, 0.8);
+            background: #FFFFFF;
+            color: var(--text-primary);
         }
         .reply-textarea:focus {
-            border-color: var(--brand);
+            border-color: var(--maroon);
+            box-shadow: 0 0 0 3px rgba(124, 0, 0, 0.12);
         }
         .btn-template {
-            background: #f1f5f9;
-            color: #475569;
-            border: 1px solid #cbd5e1;
+            background: #F3F4F6;
+            color: var(--text-secondary);
+            border: 1px solid var(--border-color);
             padding: 4px 8px;
-            border-radius: 6px;
+            border-radius: 4px;
             font-size: 11px;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.2s ease;
+            transition: all 0.15s ease;
             display: inline-flex;
             align-items: center;
             gap: 4px;
         }
         .btn-template:hover {
-            background: #e2e8f0;
-            color: #1e293b;
-            border-color: #94a3b8;
+            background: #E5E7EB;
+            color: var(--text-primary);
         }
     </style>
 </head>
@@ -533,6 +565,14 @@ try {
                                         </div>
                                     <?php else: ?>
                                         <span style="color: var(--text-muted); font-style: italic; font-size: 13px;">None</span>
+                                    <?php endif; ?>
+
+                                    <?php if (!empty($fb['attachment_path'])): ?>
+                                        <div style="margin-top: 8px;">
+                                            <a href="<?php echo APP_URL . '/' . htmlspecialchars($fb['attachment_path']); ?>" target="_blank" rel="noopener noreferrer" class="btn-template" style="color: var(--maroon); border-color: #FECACA; background: #FEF2F2; font-weight: 600; text-decoration: none;">
+                                                <i class="fas fa-paperclip"></i> View Proof
+                                            </a>
+                                        </div>
                                     <?php endif; ?>
                                 </td>
                                 <td>

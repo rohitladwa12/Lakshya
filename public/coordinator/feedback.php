@@ -544,6 +544,14 @@ if (!empty($discipline_filters)) {
                                     <?php else: ?>
                                         <span style="color: var(--text-muted); font-style: italic; font-size: 13px;">None</span>
                                     <?php endif; ?>
+
+                                    <?php if (!empty($fb['attachment_path'])): ?>
+                                        <div style="margin-top: 8px;">
+                                            <a href="<?php echo APP_URL . '/' . htmlspecialchars($fb['attachment_path']); ?>" target="_blank" rel="noopener noreferrer" class="btn-template" style="color: var(--primary-maroon); border-color: #FECACA; background: #FEF2F2; font-weight: 600; text-decoration: none;">
+                                                <i class="fas fa-paperclip"></i> View Proof
+                                            </a>
+                                        </div>
+                                    <?php endif; ?>
                                 </td>
                                 <td>
                                     <?php if ($fb['new_feature_title']): ?>

@@ -4,6 +4,11 @@
  */
 
 ob_start();
+// Prevent mobile browsers from serving stale cached dashboard HTML
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Pragma: no-cache");
+header("Expires: 0");
+
 require_once __DIR__ . '/../../config/bootstrap.php';
 
 // 3. Handle manual cache refresh via POST (Secured)
@@ -18,7 +23,7 @@ if (isPost() && isset($_POST['action']) && $_POST['action'] === 'refresh_cache')
     }
 
     Session::flash('success', 'Academic data synchronized successfully.');
-    redirect('student/dashboard.php');
+    redirect('dashboard.php');
 }
 
 // Require student role
@@ -100,6 +105,8 @@ if (empty($fullName) && !empty($mainProfile['name'])) {
 
 $needsSgpaUpdate = false;
 $hasFullHistory = true;
+$currentActiveSem = 0;
+$currentActiveSgpa = null;
 if ($isGMIT) {
     try {
         $db = getDB();
@@ -118,12 +125,12 @@ if ($isGMIT) {
             $hasFullHistory = false;
             $needsSgpaUpdate = true;
         } else {
-            $currentActiveSem = 0;
             $anyFreezed = false;
 
             foreach ($sgpaRecords as $r) {
                 if ($r['is_current'] == 1) {
                     $currentActiveSem = (int) $r['semester'];
+                    $currentActiveSgpa = $r['sgpa'];
                 }
                 if ($r['freezed'] == 1) {
                     $anyFreezed = true;
@@ -2976,7 +2983,26 @@ $dailyQuote = $_SESSION['grind_quote'];
             // Use RemoteDataProxy to avoid remote DB lag
             $dataProxy = new \App\Services\RemoteDataProxy();
             $academicHistory = $dataProxy->getAcademicHistory($userId, $institution);
+
+            // For GMIT, ensure active semester from local DB is prioritized at index 0 of history
+            if ($isGMIT && !empty($currentActiveSem) && !empty($academicHistory)) {
+                usort($academicHistory, function($a, $b) use ($currentActiveSem) {
+                    $semA = (int)($a['semester'] ?? 0);
+                    $semB = (int)($b['semester'] ?? 0);
+                    if ($semA === $currentActiveSem) return -1;
+                    if ($semB === $currentActiveSem) return 1;
+                    return $semB <=> $semA;
+                });
+            }
+
             $profile = $academicHistory[0] ?? null;
+
+            if ($isGMIT && !empty($currentActiveSem) && $profile) {
+                $profile['semester'] = (string) $currentActiveSem;
+                if ($currentActiveSgpa !== null) {
+                    $profile['sgpa'] = $currentActiveSgpa;
+                }
+            }
 
             // Bypass profile missing check for demo user
             if (!$profile && Session::getRole() === ROLE_DEMO) {
@@ -5076,25 +5102,38 @@ $dailyQuote = $_SESSION['grind_quote'];
     <div id="notification-toast-container"></div>
 
     <script>
-        // --- REAL-TIME NOTIFICATION SYSTEM ---
-        if (!!window.EventSource) {
-            const source = new EventSource('../notifications_stream.php');
+        // --- LIGHTWEIGHT NOTIFICATION SYSTEM (POLLING) ---
+        (function() {
+            let seenNotificationIds = new Set();
+            let isInitialLoad = true;
 
-            source.addEventListener('notification', function (e) {
+            async function checkNotifications() {
                 try {
-                    const data = JSON.parse(e.data);
-                    showNotificationToast(data);
+                    const res = await fetch('../api/get_notifications.php', { cache: 'no-store' });
+                    if (!res.ok) return;
+                    const json = await res.json();
+                    if (json.success && Array.isArray(json.notifications)) {
+                        json.notifications.forEach(item => {
+                            const key = item.id ? `${item.type || 'job'}_${item.id}` : JSON.stringify(item);
+                            if (!seenNotificationIds.has(key)) {
+                                seenNotificationIds.add(key);
+                                if (!isInitialLoad) {
+                                    showNotificationToast(item);
+                                }
+                            }
+                        });
+                    }
                 } catch (err) {
-                    console.error("Invalid notification data", err);
+                    // Fail silently to never disrupt the dashboard
+                } finally {
+                    isInitialLoad = false;
                 }
-            });
+            }
 
-            source.addEventListener('error', function (e) {
-                if (e.readyState == EventSource.CLOSED) {
-                    console.log("Notification stream closed");
-                }
-            });
-        }
+            // Check shortly after load, then poll every 60 seconds
+            setTimeout(checkNotifications, 3000);
+            setInterval(checkNotifications, 60000);
+        })();
 
         function showNotificationToast(data) {
             const container = document.getElementById('notification-toast-container');

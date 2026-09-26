@@ -38,61 +38,177 @@ $applicants = $applicationModel->getByJob($jobId);
     
     <style>
         :root {
-            --primary: #800000;
-            --primary-dark: #5b1f1f;
-            --accent: #e9c66f;
-            --bg-light: #f4f6f9;
-            --text-dark: #1e293b;
-            --text-muted: #64748b;
-            --white: #ffffff;
-            --border-color: #e2e8f0;
+            --maroon: #7C0000;
+            --maroon-dark: #5A0000;
+            --maroon-light: #9B1B1B;
+            --gold: #B08D2C;
+            --page-bg: #F8F9FA;
+            --card-bg: #FFFFFF;
+            --border-color: #E5E7EB;
+            --text-primary: #111827;
+            --text-secondary: #4B5563;
+            --text-muted: #9CA3AF;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+            --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07);
+            --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
         }
 
-        body { font-family: 'Inter', sans-serif; background: var(--bg-light); color: var(--text-dark); margin: 0; }
-        .navbar { background: var(--primary); color: var(--white); padding: 1rem 2rem; display: flex; justify-content: space-between; align-items: center; }
-        .container { max-width: 1200px; margin: 2rem auto; padding: 0 1.5rem; }
-        .card { background: var(--white); border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); padding: 2rem; margin-bottom: 2rem; border: 1px solid var(--border-color); }
-        .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
-        .job-info h1 { margin: 0; font-size: 1.5rem; }
-        .job-info p { color: var(--text-muted); margin: 0.5rem 0 0; }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Inter', system-ui, -apple-system, sans-serif; 
+            background: var(--page-bg); 
+            color: var(--text-primary); 
+            padding-top: 0;
+            min-height: 100vh;
+        }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 32px 40px; }
+        .card { 
+            background: var(--card-bg); 
+            border-radius: var(--radius-lg); 
+            box-shadow: var(--shadow-sm); 
+            padding: 24px; 
+            margin-bottom: 24px; 
+            border: 1px solid var(--border-color); 
+        }
+        .header { 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            margin-bottom: 24px; 
+            background: var(--card-bg);
+            padding: 24px 30px;
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+        }
+        .job-info h1 { margin: 0; font-size: 22px; font-weight: 700; color: var(--maroon); }
+        .job-info p { color: var(--text-secondary); margin: 4px 0 0; font-size: 13.5px; }
         
-        table { width: 100%; border-collapse: collapse; margin-top: 1rem; }
-        th, td { padding: 1rem; text-align: left; border-bottom: 1px solid var(--border-color); }
-        th { background: #f8fafc; color: var(--text-muted); text-transform: uppercase; font-size: 0.75rem; font-weight: 600; letter-spacing: 0.05em; }
+        table { width: 100%; border-collapse: separate; border-spacing: 0; margin-top: 8px; }
+        th, td { padding: 12px 16px; text-align: left; border-bottom: 1px solid var(--border-color); }
+        th { 
+            background: #F9FAFB; 
+            color: var(--text-secondary); 
+            text-transform: uppercase; 
+            font-size: 11.5px; 
+            font-weight: 700; 
+            letter-spacing: 0.04em; 
+            border-top: 1px solid var(--border-color);
+        }
+        tr:hover td { background: #FDFEFE; }
         
-        .badge { padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
-        .badge-applied { background: #dbeafe; color: #1e40af; }
-        .badge-selected { background: #dcfce7; color: #166534; }
+        .badge { padding: 4px 10px; border-radius: 9999px; font-size: 11.5px; font-weight: 600; display: inline-block; }
+        .badge-applied { background: #EFF6FF; color: #1D4ED8; border: 1px solid #DBEAFE; }
+        .badge-selected { background: #ECFDF5; color: #047857; border: 1px solid #D1FAE5; }
+        .badge-rejected { background: #FEF2F2; color: #DC2626; border: 1px solid #FEE2E2; }
+        .badge-shortlisted { background: #F5F3FF; color: #7C3AED; border: 1px solid #EDE9FE; }
         
-        .btn { padding: 0.5rem 1rem; border-radius: 6px; font-weight: 500; cursor: pointer; text-decoration: none; display: inline-flex; align-items: center; gap: 0.5rem; font-size: 0.875rem; }
-        .btn-primary { background: var(--primary); color: white; border: none; }
-        .btn-outline { border: 1px solid var(--border-color); color: var(--text-dark); background: white; }
+        .btn { 
+            padding: 8px 16px; 
+            border-radius: var(--radius-sm); 
+            font-weight: 600; 
+            cursor: pointer; 
+            text-decoration: none; 
+            display: inline-flex; 
+            align-items: center; 
+            gap: 6px; 
+            font-size: 13px; 
+            transition: all 0.15s ease;
+        }
+        .btn-primary { background: var(--maroon); color: #FFFFFF; border: none; }
+        .btn-primary:hover { background: var(--maroon-dark); color: #FFFFFF; }
+        .btn-outline { border: 1px solid var(--border-color); color: var(--text-secondary); background: #FFFFFF; }
+        .btn-outline:hover { background: #F3F4F6; color: var(--text-primary); border-color: #D1D5DB; }
+        .btn-sm { padding: 6px 12px; font-size: 12px; }
         
-        /* Modal */
-        .modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); }
-        .modal-content { background: white; margin: 5% auto; padding: 2rem; border-radius: 12px; width: 500px; }
-        .form-group { margin-bottom: 1.5rem; }
-        .form-group label { display: block; margin-bottom: 0.5rem; font-weight: 600; font-size: 0.9rem; }
-        .form-group input { width: 100%; padding: 0.75rem; border: 1px solid var(--border-color); border-radius: 8px; box-sizing: border-box; }
+        /* Modal ERP */
+        .modal { 
+            display: none; 
+            position: fixed; 
+            inset: 0; 
+            z-index: 2000; 
+            background: rgba(17, 24, 39, 0.45); 
+            backdrop-filter: blur(4px);
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .modal-content { 
+            background: #FFFFFF; 
+            border-radius: var(--radius-lg); 
+            width: 100%; 
+            max-width: 520px; 
+            padding: 28px; 
+            box-shadow: var(--shadow-modal); 
+            border: 1px solid var(--border-color);
+            margin: auto;
+            position: relative;
+        }
+        .modal-header-erp {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-bottom: 14px;
+            margin-bottom: 18px;
+            border-bottom: 1px solid var(--border-color);
+        }
+        .close-btn-erp {
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            background: #F3F4F6;
+            color: var(--text-secondary);
+            cursor: pointer;
+            border: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+        .close-btn-erp:hover { background: #E5E7EB; color: var(--text-primary); }
+
+        .form-group { margin-bottom: 16px; }
+        .form-group label { display: block; margin-bottom: 6px; font-weight: 600; font-size: 13px; color: var(--text-primary); }
+        .form-group input { 
+            width: 100%; 
+            padding: 9px 12px; 
+            border: 1px solid #D1D5DB; 
+            border-radius: var(--radius-sm); 
+            box-sizing: border-box; 
+            font-size: 13.5px;
+            color: var(--text-primary);
+        }
+        .form-group input:focus { outline: none; border-color: var(--maroon); box-shadow: 0 0 0 3px rgba(124, 0, 0, 0.12); }
     </style>
 </head>
 <body>
-    <div class="navbar">
-        <h1>🎓 LAKSHYA - Officer</h1>
-    </div>
+    <?php include_once 'includes/navbar.php'; ?>
     
     <div class="container">
         <div class="header">
             <div class="job-info">
-                <h1>Applicants for: <?php echo htmlspecialchars($job['title']); ?></h1>
-                <p><?php echo htmlspecialchars($job['company_name']); ?> &bull; <?php echo htmlspecialchars($job['location']); ?></p>
+                <h1>Applicants: <?php echo htmlspecialchars($job['title']); ?></h1>
+                <p>
+                    <?php echo htmlspecialchars($job['company_name']); ?> &bull; <?php echo htmlspecialchars($job['location']); ?>
+                    <?php if (($job['application_mode'] ?? 'Internal') === 'External' && !empty($job['external_url'])): ?>
+                        &bull; <span style="background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; padding: 2px 8px; border-radius: 4px; font-weight: 600; font-size: 11px;"><i class="fas fa-external-link-alt"></i> External Portal: <a href="<?php echo htmlspecialchars($job['external_url']); ?>" target="_blank" style="color: #1d4ed8; text-decoration: underline;"><?php echo htmlspecialchars($job['external_url']); ?></a></span>
+                    <?php endif; ?>
+                </p>
             </div>
             <a href="jobs" class="btn btn-outline"><i class="fas fa-arrow-left"></i> Back to Jobs</a>
         </div>
 
         <div class="card">
             <?php if (empty($applicants)): ?>
-                <p style="text-align: center; color: var(--text-muted);">No students have applied for this job yet.</p>
+                <div style="text-align: center; padding: 60px 20px; color: var(--text-muted);">
+                    <i class="fas fa-users-slash" style="font-size: 36px; margin-bottom: 12px; opacity: 0.5;"></i>
+                    <p style="font-size: 14px;">No students have applied for this job yet.</p>
+                </div>
             <?php else: ?>
                 <table>
                     <thead>
@@ -108,23 +224,30 @@ $applicants = $applicationModel->getByJob($jobId);
                         <?php foreach ($applicants as $app): ?>
                         <tr>
                             <td>
-                                <strong><?php echo htmlspecialchars(($app['student_name'] ?? $app['usn']) ?? 'N/A'); ?></strong><br>
-                                <span style="font-size: 0.85rem; color: var(--text-muted)"><?php echo htmlspecialchars(($app['student_id'] ?? $app['usn']) ?? 'N/A'); ?></span>
+                                <strong style="color: var(--text-primary);"><?php echo htmlspecialchars(($app['student_name'] ?? $app['usn']) ?? 'N/A'); ?></strong><br>
+                                <span style="font-size: 12px; color: var(--text-secondary);"><?php echo htmlspecialchars(($app['student_id'] ?? $app['usn']) ?? 'N/A'); ?></span>
                             </td>
-                            <td><?php echo $app['sgpa'] ?? 'N/A'; ?></td>
+                            <td style="font-weight: 600; color: var(--text-primary);"><?php echo $app['sgpa'] ?? 'N/A'; ?></td>
                             <td>
                                 <?php if ($app['resume_path']): ?>
                                     <a href="../student/view_resume.php?usn=<?php echo urlencode($app['usn'] ?? ''); ?>" target="_blank" class="btn btn-outline btn-sm">
-                                        <i class="fas fa-file-pdf"></i> View Resume
+                                        <i class="fas fa-file-pdf" style="color: var(--maroon);"></i> View Resume
                                     </a>
                                 <?php else: ?>
-                                    No Resume
+                                    <span style="color: var(--text-muted); font-size: 12px;">No Resume</span>
                                 <?php endif; ?>
                             </td>
                             <td>
                                 <span class="badge badge-<?php echo strtolower($app['status']); ?>">
                                     <?php echo $app['status']; ?>
                                 </span>
+                                <?php if (!empty($app['notes']) && strpos($app['notes'], 'External:') !== false): ?>
+                                    <div style="margin-top: 4px;">
+                                        <span style="font-size: 10px; font-weight: 600; color: #1e40af; background: #eff6ff; border: 1px solid #bfdbfe; padding: 2px 6px; border-radius: 4px; display: inline-flex; align-items: center; gap: 4px;">
+                                            <i class="fas fa-external-link-alt"></i> External
+                                        </span>
+                                    </div>
+                                <?php endif; ?>
                             </td>
                             <td>
                                 <?php if ($app['status'] !== 'Selected'): ?>
@@ -132,7 +255,7 @@ $applicants = $applicationModel->getByJob($jobId);
                                         <i class="fas fa-award"></i> Mark as Placed
                                     </button>
                                 <?php else: ?>
-                                    <span style="color: var(--success); font-weight: 600;">ALREADY PLACED</span>
+                                    <span style="color: #047857; font-weight: 700; font-size: 12px;">ALREADY PLACED</span>
                                 <?php endif; ?>
                             </td>
                         </tr>
@@ -146,8 +269,13 @@ $applicants = $applicationModel->getByJob($jobId);
     <!-- Placement Modal -->
     <div id="placementModal" class="modal">
         <div class="modal-content">
-            <h2 style="margin-top: 0;">Mark Student as Placed</h2>
-            <p id="studentNameDisplay" style="color: var(--text-muted); margin-bottom: 2rem;"></p>
+            <div class="modal-header-erp">
+                <div>
+                    <h2 style="font-size: 18px; font-weight: 700; color: var(--maroon); margin: 0;">Mark Student as Placed</h2>
+                    <p id="studentNameDisplay" style="color: var(--text-secondary); font-size: 12.5px; margin-top: 3px;"></p>
+                </div>
+                <button type="button" onclick="closePlacementModal()" class="close-btn-erp">&times;</button>
+            </div>
             
             <form action="placement_handler" method="POST" enctype="multipart/form-data">
                 <input type="hidden" name="job_id" id="modalJobId">
@@ -190,7 +318,7 @@ $applicants = $applicationModel->getByJob($jobId);
             document.getElementById('modalUsn').value = app.usn;
             document.getElementById('modalInstitution').value = app.institution;
             document.getElementById('studentNameDisplay').innerText = "Student: " + app.student_name + " (" + app.usn + ")";
-            document.getElementById('placementModal').style.display = 'block';
+            document.getElementById('placementModal').style.display = 'flex';
         }
 
         function closePlacementModal() {

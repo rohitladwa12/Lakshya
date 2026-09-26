@@ -20,6 +20,28 @@ $userModel = new User();
 $user = $userModel->findByUsername($userId) ?: $userModel->find($userId, getInstitution()); // Use session institution
 $usn = ($user && isset($user['username'])) ? $user['username'] : getUsername();
 
+// 1. Check student academic profile completion
+$profileModel = new StudentProfile();
+$institution = $_SESSION['institution'] ?? '';
+$hasAcademicProfile = $profileModel->hasCompletedAcademicProfile($userId, $institution);
+
+if (!$hasAcademicProfile) {
+    $_SESSION['redirect_after_sgpa'] = $_SERVER['REQUEST_URI'];
+    Session::flash('error', 'Please update your Academic Profile (Semester & SGPA) before viewing or applying for internship opportunities.');
+    redirect('sgpa_entry.php');
+}
+
+// 2. Check student resume completion
+require_once __DIR__ . '/../../src/Models/Resume.php';
+$resumeModel = new Resume();
+$hasResume = $resumeModel->hasResume([$usn, $userId]);
+
+if (!$hasResume) {
+    $_SESSION['redirect_after_resume'] = $_SERVER['REQUEST_URI'];
+    Session::flash('error', 'Please create and save your resume in the Resume Builder before viewing or applying for internship opportunities.');
+    redirect('resume_builder.php');
+}
+
 // Check application status
 $appModel = new InternshipApplication();
 $hasApplied = $appModel->hasApplied($id, $usn);
@@ -31,10 +53,7 @@ $isEnded = ($internship['status'] === 'Closed' || ($deadline && $deadline < $tod
 $message = '';
 $error = '';
 
-// Check for existing resume for UI / Application logic
 $existingResumePath = 'uploads/resumes/Student_Resumes/' . $usn . '_Resume.pdf';
-$fullResumePath = RESUME_UPLOAD_PATH . '/Student_Resumes/' . $usn . '_Resume.pdf';
-$hasResumeFile = file_exists($fullResumePath);
 
 // Handle Application
 if (isPost() && isset($_POST['apply'])) {
@@ -42,7 +61,9 @@ if (isPost() && isset($_POST['apply'])) {
         $error = "This internship is no longer accepting applications (Deadline Passed).";
     } elseif ($hasApplied) {
         $error = "You have already applied.";
-    } elseif (!$hasResumeFile) {
+    } elseif (!$hasAcademicProfile) {
+        $error = "Please update your Academic Profile (Semester & SGPA) before applying.";
+    } elseif (!$hasResume) {
         $error = "Please build your resume in the Resume Builder before applying.";
     } else {
         $resumePath = $existingResumePath;
@@ -695,7 +716,19 @@ if (isPost() && isset($_POST['apply'])) {
                             This internship posting is no longer accepting applications.
                         </div>
                     </div>
-                <?php elseif ($hasResumeFile): ?>
+                <?php elseif (!$hasAcademicProfile): ?>
+                    <div style="background: #fffbeb; padding: 1.2rem; border-radius: 16px; border: 1px solid #fde68a; margin-bottom: 1.5rem;">
+                        <div style="display:flex; align-items:center; gap:0.5rem; color:#b45309; font-weight:700; font-size:0.95rem; margin-bottom:0.5rem;">
+                            <i class="fas fa-graduation-cap"></i> Academic Details Required
+                        </div>
+                        <div style="font-size: 0.85rem; color: #92400e; margin-bottom: 1rem;">
+                            Please update your semester & SGPA details before applying for internships.
+                        </div>
+                        <a href="sgpa_entry.php" style="display: flex; align-items: center; justify-content: center; gap: 0.5rem; background: var(--primary); color: white; border-radius: 8px; padding: 0.75rem; text-decoration: none; font-weight: 600; font-size: 0.9rem;">
+                            <i class="fas fa-edit"></i> Update Academic Details
+                        </a>
+                    </div>
+                <?php elseif ($hasResume): ?>
                     <form method="POST">
                         <div style="background: rgba(233, 198, 111, 0.1); padding: 1.2rem; border-radius: 16px; border: 1px solid var(--accent-gold); margin-bottom: 1.5rem;">
                             <div style="display:flex; align-items:center; gap:0.5rem; color:var(--primary); font-weight:700; font-size:0.9rem; margin-bottom:0.5rem;">

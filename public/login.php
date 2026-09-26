@@ -119,6 +119,11 @@ if (isPost()) {
             } elseif ($user['role'] === ROLE_DEMO) {
                 redirect('student/dashboard');
             } else {
+                if (!empty($_SESSION['redirect_after_login'])) {
+                    $target = $_SESSION['redirect_after_login'];
+                    unset($_SESSION['redirect_after_login']);
+                    redirect($target);
+                }
                 redirect('student/dashboard');
             }
         } else {

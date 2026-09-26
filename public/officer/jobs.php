@@ -87,306 +87,381 @@ $fullName = getFullName();
     <title>Manage Jobs - <?php echo APP_NAME; ?></title>
     <style>
         :root {
-            --brand: #800000;
-            --brand-light: #fff5f5;
-            --brand-gradient: linear-gradient(135deg, #800000 0%, #a52a2a 100%);
-            --glass: rgba(255, 255, 255, 0.95);
-            --glass-border: rgba(255, 255, 255, 0.3);
-            --shadow: 0 8px 32px rgba(0, 0, 0, 0.05);
-            --text-dark: #1e293b;
-            --text-muted: #64748b;
+            --brand: #7C0000;
+            --brand-hover: #9E0000;
+            --brand-light: #FDF2F2;
+            --gold: #B08D2C;
+            --surface-bg: #FFFFFF;
+            --page-bg: #F8F9FA;
+            --border-color: #E5E7EB;
+            --border-subtle: #F3F4F6;
+            --text-primary: #111827;
+            --text-secondary: #4B5563;
+            --text-muted: #9CA3AF;
+            --radius-sm: 6px;
+            --radius-md: 10px;
+            --radius-lg: 14px;
+            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+            --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.02);
+            --shadow-modal: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
         }
 
         body {
-            font-family: 'Inter', sans-serif;
-            background: #f8fafc;
-            color: var(--text-dark);
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--page-bg);
+            color: var(--text-primary);
             margin: 0;
-            padding-top: 80px; /* Adjusted for new 70px navbar */
-            line-height: 1.6;
+            padding-top: 0;
+            line-height: 1.5;
         }
 
         .o-page {
-            max-width: 1400px;
+            max-width: 1440px;
             margin: 0 auto;
-            padding: 40px 20px;
+            padding: 28px 32px 60px 32px;
+            box-sizing: border-box;
         }
 
         .o-head {
-            margin-bottom: 40px;
+            margin-bottom: 24px;
             display: flex;
             justify-content: space-between;
-            align-items: center;
+            align-items: flex-start;
+            gap: 20px;
+            flex-wrap: wrap;
         }
 
         .o-head h1 {
-            font-size: 28px;
-            font-weight: 800;
-            letter-spacing: -0.5px;
-            background: var(--brand-gradient);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin: 0;
+            font-size: 26px;
+            font-weight: 700;
+            letter-spacing: -0.4px;
+            color: var(--text-primary);
+            margin: 0 0 4px 0;
         }
 
-        /* Filter Glass */
+        /* Filter Card */
         .filter-glass {
-            background: var(--glass);
-            backdrop-filter: blur(12px);
-            border: 1px solid var(--glass-border);
-            border-radius: 20px;
-            padding: 20px;
-            margin-bottom: 30px;
-            box-shadow: var(--shadow);
+            background: var(--surface-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            padding: 16px 20px;
+            margin-bottom: 24px;
+            box-shadow: var(--shadow-card);
             display: flex;
             justify-content: space-between;
             align-items: center;
-            gap: 20px;
+            gap: 16px;
+            flex-wrap: wrap;
         }
 
         .search-container {
             flex: 1;
+            min-width: 250px;
             position: relative;
         }
 
         .search-container i {
             position: absolute;
-            left: 15px;
+            left: 14px;
             top: 50%;
             transform: translateY(-50%);
             color: var(--text-muted);
+            font-size: 14px;
         }
 
         .search-input {
             width: 100%;
-            padding: 12px 15px 12px 40px;
-            border-radius: 12px;
-            border: 1.5px solid #e2e8f0;
-            font-size: 14px;
+            padding: 10px 14px 10px 38px;
+            border-radius: 8px;
+            border: 1px solid #D1D5DB;
+            background: #FFFFFF;
+            font-size: 13.5px;
             font-weight: 500;
-            transition: all 0.2s;
+            color: var(--text-primary);
+            transition: all 0.15s ease;
+            box-sizing: border-box;
         }
 
         .search-input:focus {
             border-color: var(--brand);
             outline: none;
-            box-shadow: 0 0 0 4px rgba(128, 0, 0, 0.05);
+            box-shadow: 0 0 0 3px rgba(124, 0, 0, 0.1);
         }
 
         .status-select {
-            padding: 12px 15px;
-            border-radius: 12px;
-            border: 1.5px solid #e2e8f0;
-            font-size: 14px;
-            font-weight: 600;
-            background: #fff;
-            min-width: 150px;
+            padding: 10px 14px;
+            border-radius: 8px;
+            border: 1px solid #D1D5DB;
+            font-size: 13.5px;
+            font-weight: 500;
+            background: #FFFFFF;
+            color: var(--text-primary);
+            min-width: 160px;
+            transition: all 0.15s ease;
+            cursor: pointer;
+        }
+
+        .status-select:focus {
+            border-color: var(--brand);
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(124, 0, 0, 0.1);
         }
 
         /* Card Grid Design */
         .jobs-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-            gap: 25px;
-            margin-top: 20px;
+            grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+            gap: 20px;
+            margin-top: 16px;
         }
+
         .job-card {
-    background: #ffffff;
-    border-radius: 12px;
-    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
-    border: 1px solid #eef2f6;
-    transition: transform 0.2s, box-shadow 0.2s;
-}
-.job-card:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 12px 24px rgba(0,0,0,0.1);
-}
-.card-cover {
-    height: 140px;
-    background: linear-gradient(135deg, #0f172a, #1e293b);
-    position: relative;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-}
-.card-cover::before {
-    content: '';
-    position: absolute;
-    inset: 0;
-    background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" opacity="0.05"><path d="M0 0h100v100H0z"/><path stroke="%23fff" stroke-width="2" d="M0 50h100M50 0v100" fill="none"/></svg>') repeat;
-}
-.card-cover img {
-    height: 60px;
-    width: 60px;
-    object-fit: contain;
-    background: white;
-    padding: 8px;
-    border-radius: 12px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
-    z-index: 1;
-}
-.card-body {
-    padding: 20px;
-    display: flex;
-    flex-direction: column;
-    flex: 1;
-}
-.badge-type {
-    background: #fdf6e3;
-    color: #b45309;
-    padding: 6px 12px;
-    border-radius: 20px;
-    font-size: 11px;
-    font-weight: 700;
-    align-self: flex-start;
-    margin-bottom: 12px;
-}
-.job-title {
-    font-size: 17px;
-    font-weight: 800;
-    color: #1e293b;
-    margin: 0 0 10px 0;
-    line-height: 1.3;
-}
-.job-meta-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: #64748b;
-    margin-bottom: 16px;
-    font-weight: 500;
-}
-.job-meta-row i { color: #94a3b8; }
-.job-meta-grid {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 12px;
-    margin-bottom: 20px;
-}
-.meta-item {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    font-size: 13px;
-    color: #475569;
-    font-weight: 500;
-}
-.meta-item i { color: #64748b; font-size: 14px; width: 16px; text-align: center; }
-.enrollment-box {
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 15px;
-    margin-bottom: 15px;
-}
-.enrollment-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 12px;
-}
-.enrollment-title {
-    font-size: 13px;
-    font-weight: 700;
-    color: #800000;
-    line-height: 1.3;
-}
-.enrollment-status {
-    font-size: 12px;
-    font-weight: 700;
-    text-align: right;
-}
-.status-active { color: #059669; }
-.status-ended { color: #d97706; }
-.status-closed { color: #dc2626; }
-.status-draft { color: #64748b; }
-.enrollment-stats {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 10px;
-}
-.estat-box {
-    background: #f8fafc;
-    border-radius: 8px;
-    padding: 10px;
-    text-align: center;
-}
-.estat-lbl {
-    font-size: 10px;
-    color: #64748b;
-    font-weight: 700;
-    text-transform: uppercase;
-    margin-bottom: 4px;
-}
-.estat-val {
-    font-size: 16px;
-    font-weight: 800;
-    color: #1e293b;
-}
-.estat-val.red { color: #800000; }
-.card-actions {
-    display: flex;
-    gap: 6px;
-    flex-wrap: wrap;
-    margin-top: auto;
-}
-.btn-card-action {
-    flex: 1;
-    min-width: calc(50% - 3px);
-    padding: 8px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
-    text-decoration: none;
-    border: none;
-    cursor: pointer;
-    transition: 0.2s;
-}
-.btn-edit { background: #f1f5f9; color: #334155; }
-.btn-edit:hover { background: #e2e8f0; }
-.btn-wa { background: #dcfce7; color: #166534; }
-.btn-wa:hover { background: #bbf7d0; }
-.btn-apps { background: #e0e7ff; color: #3730a3; }
-.btn-apps:hover { background: #c7d2fe; }
-.btn-close { background: #fee2e2; color: #991b1b; }
-.btn-close:hover { background: #fecaca; }
+            background: var(--surface-bg);
+            border-radius: var(--radius-md);
+            box-shadow: var(--shadow-card);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid var(--border-color);
+            transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+        }
+
+        .job-card:hover {
+            transform: translateY(-2px);
+            border-color: #CBD5E1;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.06);
+        }
+
+        .card-cover {
+            height: 110px;
+            background: #F9FAFB;
+            border-bottom: 1px solid var(--border-color);
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .card-cover img {
+            height: 54px;
+            width: 54px;
+            object-fit: contain;
+            background: #FFFFFF;
+            padding: 6px;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            box-shadow: var(--shadow-sm);
+            z-index: 1;
+        }
+
+        .card-body {
+            padding: 18px 20px;
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+        }
+
+        .badge-type {
+            background: #EFF6FF;
+            color: #1E40AF;
+            border: 1px solid #BFDBFE;
+            padding: 3px 9px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            align-self: flex-start;
+            margin-bottom: 10px;
+        }
+
+        .job-title {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+            margin: 0 0 8px 0;
+            line-height: 1.35;
+        }
+
+        .job-meta-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12.5px;
+            color: var(--text-secondary);
+            margin-bottom: 14px;
+            font-weight: 500;
+        }
+
+        .job-meta-row i { color: var(--text-muted); }
+
+        .job-meta-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12.5px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .meta-item i { color: var(--text-muted); font-size: 13px; width: 16px; text-align: center; }
+
+        .enrollment-box {
+            border: 1px solid var(--border-color);
+            background: #F9FAFB;
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-bottom: 14px;
+        }
+
+        .enrollment-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 10px;
+        }
+
+        .enrollment-title {
+            font-size: 12.5px;
+            font-weight: 600;
+            color: var(--brand);
+            line-height: 1.3;
+        }
+
+        .enrollment-status {
+            font-size: 11.5px;
+            font-weight: 600;
+            text-align: right;
+        }
+
+        .status-active { color: #059669; }
+        .status-ended { color: #D97706; }
+        .status-closed { color: #DC2626; }
+        .status-draft { color: var(--text-muted); }
+
+        .enrollment-stats {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+        }
+
+        .estat-box {
+            background: #FFFFFF;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            padding: 8px;
+            text-align: center;
+        }
+
+        .estat-lbl {
+            font-size: 10px;
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.4px;
+            margin-bottom: 2px;
+        }
+
+        .estat-val {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .estat-val.red { color: var(--brand); }
+
+        .card-actions {
+            display: flex;
+            gap: 6px;
+            flex-wrap: wrap;
+            margin-top: auto;
+            padding-top: 6px;
+        }
+
+        .btn-card-action {
+            flex: 1;
+            min-width: calc(50% - 3px);
+            padding: 7px 10px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 5px;
+            text-decoration: none;
+            border: 1px solid transparent;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .btn-edit { background: #F3F4F6; color: #374151; border-color: #E5E7EB; }
+        .btn-edit:hover { background: #E5E7EB; color: #111827; }
+        .btn-wa { background: #ECFDF5; color: #065F46; border-color: #A7F3D0; }
+        .btn-wa:hover { background: #D1FAE5; }
+        .btn-apps { background: #EFF6FF; color: #1E40AF; border-color: #BFDBFE; }
+        .btn-apps:hover { background: #DBEAFE; }
+        .btn-close { background: #FEF2F2; color: #991B1B; border-color: #FECACA; }
+        .btn-close:hover { background: #FEE2E2; }
 
         /* Buttons */
         .btn-action {
-            padding: 10px 20px;
-            border-radius: 12px;
-            font-size: 13px;
+            padding: 9px 16px;
+            border-radius: 8px;
+            font-size: 13.5px;
             font-weight: 600;
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            transition: all 0.2s;
+            transition: all 0.15s ease;
             cursor: pointer;
             border: none;
             text-decoration: none;
             box-sizing: border-box;
         }
 
-        .btn-primary { background: var(--brand-gradient); color: white; }
-        .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 8px 20px rgba(128, 0, 0, 0.2); }
-        .btn-view { background: var(--brand-light); color: var(--brand); font-size: 16px; padding: 0; width: 40px; height: 40px; justify-content: center; align-items: center; border-radius: 10px; box-sizing: border-box; }
-        .btn-view:hover { background: var(--brand); color: white; }
+        .btn-primary { 
+            background: var(--brand); 
+            color: #FFFFFF; 
+            border: 1px solid var(--brand);
+            box-shadow: 0 1px 2px rgba(124, 0, 0, 0.2); 
+        }
+        .btn-primary:hover { 
+            background: var(--brand-hover); 
+            border-color: var(--brand-hover);
+        }
 
-        /* Modal Glass */
+        .btn-view { 
+            background: #F3F4F6; 
+            color: var(--text-secondary); 
+            font-size: 16px; 
+            padding: 0; 
+            width: 32px; 
+            height: 32px; 
+            justify-content: center; 
+            align-items: center; 
+            border-radius: 8px; 
+            box-sizing: border-box; 
+            border: 1px solid var(--border-color);
+        }
+        .btn-view:hover { 
+            background: #E5E7EB; 
+            color: var(--text-primary); 
+        }
+
+        /* Modal Glass -> Standardized White ERP Modal */
         #jobModal {
             display: none;
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.5);
-            backdrop-filter: blur(8px);
+            background: rgba(17, 24, 39, 0.45);
+            backdrop-filter: blur(4px);
             z-index: 2000;
             align-items: center;
             justify-content: center;
@@ -394,85 +469,91 @@ $fullName = getFullName();
         }
 
         .modal-glass {
-            background: var(--glass);
-            border: 1px solid var(--glass-border);
-            border-radius: 30px;
+            background: var(--surface-bg);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-lg);
             width: 100%;
-            max-width: 900px;
+            max-width: 860px;
             max-height: 90vh;
             overflow-y: auto;
             position: relative;
-            box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
-            padding: 40px;
+            box-shadow: var(--shadow-modal);
+            padding: 28px 32px;
+            box-sizing: border-box;
         }
 
         .modal-tabs {
             display: flex;
-            gap: 10px;
-            margin-bottom: 30px;
-            padding: 5px;
-            background: #f1f5f9;
-            border-radius: 15px;
+            gap: 6px;
+            margin-bottom: 24px;
+            padding: 4px;
+            background: #F3F4F6;
+            border-radius: 10px;
         }
 
         .tab-btn {
             flex: 1;
-            padding: 12px;
-            border-radius: 12px;
+            padding: 10px 14px;
+            border-radius: 8px;
             font-size: 13px;
-            font-weight: 700;
+            font-weight: 600;
             text-align: center;
             cursor: pointer;
-            transition: all 0.2s;
+            transition: all 0.15s ease;
             border: none;
             background: transparent;
-            color: var(--text-muted);
+            color: var(--text-secondary);
         }
 
         .tab-btn.active {
-            background: white;
+            background: #FFFFFF;
             color: var(--brand);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+            font-weight: 700;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
         }
 
         .form-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 20px;
+            gap: 18px;
         }
 
         .form-group label {
             display: block;
-            font-size: 12px;
-            font-weight: 700;
-            color: var(--text-muted);
-            margin-bottom: 8px;
+            font-size: 11.5px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
             text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         .form-control {
             width: 100%;
-            padding: 12px 15px;
-            border-radius: 12px;
-            border: 1.5px solid #e2e8f0;
-            font-size: 14px;
-            transition: all 0.2s;
+            padding: 9px 12px;
+            border-radius: 8px;
+            border: 1px solid #D1D5DB;
+            background: #FFFFFF;
+            font-size: 13.5px;
+            color: var(--text-primary);
+            transition: all 0.15s ease;
+            box-sizing: border-box;
         }
 
         .form-control:focus {
             border-color: var(--brand);
             outline: none;
-            box-shadow: 0 0 0 4px rgba(128, 0, 0, 0.05);
+            box-shadow: 0 0 0 3px rgba(124, 0, 0, 0.1);
         }
 
         .checkbox-group {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
-            gap: 10px;
-            background: #f8fafc;
-            padding: 15px;
-            border-radius: 15px;
-            border: 1px solid #e2e8f0;
+            gap: 8px;
+            background: #F9FAFB;
+            padding: 12px 14px;
+            border-radius: 8px;
+            border: 1px solid var(--border-color);
         }
 
         .checkbox-item {
@@ -480,15 +561,16 @@ $fullName = getFullName();
             align-items: center;
             gap: 8px;
             font-size: 13px;
-            font-weight: 600;
+            font-weight: 500;
+            color: var(--text-primary);
             cursor: pointer;
         }
 
         .tab-content { display: none; }
-        .tab-content.active { display: block; animation: fadeIn 0.3s ease; }
+        .tab-content.active { display: block; animation: fadeIn 0.2s ease; }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: translateY(10px); }
+            from { opacity: 0; transform: translateY(6px); }
             to { opacity: 1; transform: translateY(0); }
         }
 
@@ -557,6 +639,16 @@ $fullName = getFullName();
 
                 $deadlineStr = date('M d, Y - h:i A', strtotime($job['application_deadline']));
 
+                $genderNote = '';
+                if (!empty($job['eligible_gender']) && $job['eligible_gender'] !== 'Both') {
+                    $genderNote = "*Gender:* " . $job['eligible_gender'] . " Only\n";
+                }
+
+                $appModeNote = '';
+                if (!empty($job['application_mode']) && $job['application_mode'] === 'External') {
+                    $appModeNote = "*Application:* Apply on Company Portal\n";
+                }
+
                 $waMessage = "*📢 New Placement Opportunity!*\n\n"
                            . "*Company:* " . ($job['company_name'] ?? 'Company') . "\n"
                            . "*Role:* " . $job['title'] . "\n"
@@ -564,6 +656,8 @@ $fullName = getFullName();
                            . "*Salary:* " . $salaryStr . "\n"
                            . "*Min SGPA:* " . ($job['min_cgpa'] ?: 'Any') . "+\n"
                            . "*Eligible Branches:* " . $branchesStr . "\n"
+                           . $genderNote
+                           . $appModeNote
                            . "*Deadline:* " . $deadlineStr . "\n\n"
                            . "*Apply here:* " . $shareUrl . "\n\n"
                            . "_Lakshya Placement Portal_";
@@ -580,6 +674,14 @@ $fullName = getFullName();
                 </div>
                 <div class="card-body">
                     <span class="badge-type"><?php echo htmlspecialchars($job['job_type'] ?? 'Full-Time'); ?></span>
+                    <?php if (!empty($job['application_mode']) && $job['application_mode'] === 'External'): ?>
+                        <span class="badge-type" style="background:#fef3c7;color:#92400e;margin-left:4px;" title="External Company Application"><i class="fas fa-external-link-alt"></i> External</span>
+                    <?php endif; ?>
+                    <?php if (!empty($job['eligible_gender']) && $job['eligible_gender'] === 'Male'): ?>
+                        <span class="badge-type" style="background:#e0f2fe;color:#0369a1;margin-left:4px;"><i class="fas fa-mars"></i> Male Only</span>
+                    <?php elseif (!empty($job['eligible_gender']) && $job['eligible_gender'] === 'Female'): ?>
+                        <span class="badge-type" style="background:#fce7f3;color:#be185d;margin-left:4px;"><i class="fas fa-venus"></i> Female Only</span>
+                    <?php endif; ?>
                     <h3 class="job-title"><?php echo htmlspecialchars($job['title']); ?></h3>
                     
                     <div class="job-meta-row">
@@ -657,12 +759,12 @@ $fullName = getFullName();
     <!-- Job Modal -->
     <div id="jobModal">
         <div class="modal-glass">
-            <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; padding-bottom: 16px; margin-bottom: 20px; border-bottom: 1px solid var(--border-color);">
                 <div>
-                    <h2 style="font-weight: 800; color: var(--brand); margin: 0;" id="modalTitle">Post Opportunity</h2>
-                    <p style="color: var(--text-muted); font-size: 13px;">Fill in the details for the new job posting</p>
+                    <h2 style="font-size: 18px; font-weight: 700; color: var(--text-primary); margin: 0;" id="modalTitle">Post Opportunity</h2>
+                    <p style="color: var(--text-muted); font-size: 13px; margin: 3px 0 0 0;">Configure company, eligibility, and drive criteria</p>
                 </div>
-                <button type="button" class="btn-action btn-view" onclick="closeModal()" style="font-size: 24px; background: transparent;">&times;</button>
+                <button type="button" class="btn-view" onclick="closeModal()" title="Close dialog" style="font-size: 18px; line-height: 1;">&times;</button>
             </div>
             
             <div class="modal-tabs">
@@ -766,6 +868,30 @@ $fullName = getFullName();
                             <label>Application Deadline</label>
                             <input type="datetime-local" name="application_deadline" id="deadline" class="form-control" required min="<?php echo date('Y-m-d\TH:i'); ?>">
                         </div>
+                        <div class="form-group" style="grid-column: span 2; background: #f8fafc; padding: 16px; border-radius: 14px; border: 1px solid #e2e8f0;">
+                            <label style="font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; margin-bottom: 8px; display: block;">
+                                <i class="fas fa-paper-plane"></i> How should students apply?
+                            </label>
+                            <div style="display: flex; gap: 24px; align-items: center; margin-bottom: 8px;">
+                                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-dark);">
+                                    <input type="radio" name="application_mode" value="Internal" id="app_mode_internal" checked onchange="toggleAppMode()">
+                                    <span>Directly on Lakshya (Internal)</span>
+                                </label>
+                                <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 600; cursor: pointer; color: var(--text-dark);">
+                                    <input type="radio" name="application_mode" value="External" id="app_mode_external" onchange="toggleAppMode()">
+                                    <span>On Company Website (External Link)</span>
+                                </label>
+                            </div>
+                            <div id="externalUrlGroup" style="display: none; margin-top: 10px;">
+                                <label style="font-size: 12px; font-weight: 600; color: #475569; display: block; margin-bottom: 6px;">
+                                    External Application Link (URL) <span style="color: #dc2626;">*</span>
+                                </label>
+                                <input type="url" name="external_url" id="externalUrl" class="form-control" placeholder="https://careers.company.com/job-id or Google Form link">
+                                <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">
+                                    Students must meet all Lakshya criteria (academic profile, resume, CGPA, branch, gender). Clicking Apply logs them on Lakshya and opens this link in a new tab.
+                                </div>
+                            </div>
+                        </div>
                         <div class="form-group" style="grid-column: span 2;">
                             <label>Job Description</label>
                             <textarea name="description" id="description" class="form-control" rows="3" placeholder="Describe the role and what the candidate will work on..."></textarea>
@@ -784,6 +910,20 @@ $fullName = getFullName();
                             <label class="checkbox-item"><input type="checkbox" name="eligible_years[]" value="2" class="year-check"> 2nd Year</label>
                             <label class="checkbox-item"><input type="checkbox" name="eligible_years[]" value="3" class="year-check"> 3rd Year</label>
                             <label class="checkbox-item"><input type="checkbox" name="eligible_years[]" value="4" class="year-check"> 4th Year (Final)</label>
+                        </div>
+                    </div>
+
+                    <!-- Eligible Gender -->
+                    <div style="margin-top:16px;padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;">
+                        <label style="display:block;font-size:12px;font-weight:700;color:var(--text-muted);text-transform:uppercase;margin-bottom:10px;">
+                            <i class="fas fa-venus-mars"></i> Eligible Gender
+                        </label>
+                        <div class="checkbox-group">
+                            <label class="checkbox-item"><input type="checkbox" name="eligible_gender[]" value="Male" class="gender-check" id="gender_male"> Male</label>
+                            <label class="checkbox-item"><input type="checkbox" name="eligible_gender[]" value="Female" class="gender-check" id="gender_female"> Female</label>
+                        </div>
+                        <div style="font-size:11px;color:var(--text-muted);margin-top:6px;">
+                            Leave both selected for all students, or select one to restrict applications.
                         </div>
                     </div>
 
@@ -841,9 +981,9 @@ $fullName = getFullName();
                     </button>
                 </div>
 
-                <div style="margin-top: 40px; display: flex; justify-content: flex-end; gap: 12px; padding-top: 25px; border-top: 1px solid #f1f5f9;">
-                    <button type="button" class="btn-action" style="background: #f1f5f9; color: var(--text-muted);" onclick="closeModal()">Cancel</button>
-                    <button type="submit" id="submitBtn" class="btn-action btn-primary">
+                <div style="margin-top: 28px; display: flex; justify-content: flex-end; gap: 10px; padding-top: 20px; border-top: 1px solid var(--border-color);">
+                    <button type="button" class="btn-action" style="background: #FFFFFF; border: 1px solid #D1D5DB; color: var(--text-secondary); border-radius: 8px;" onclick="closeModal()">Cancel</button>
+                    <button type="submit" id="submitBtn" class="btn-action btn-primary" style="border-radius: 8px;">
                         <span id="btnText">Save Opportunity</span>
                     </button>
                 </div>
@@ -995,6 +1135,15 @@ $fullName = getFullName();
             container.appendChild(div);
         }
 
+        function toggleAppMode() {
+            const extRadio = document.getElementById('app_mode_external');
+            const urlGroup = document.getElementById('externalUrlGroup');
+            const urlInput = document.getElementById('externalUrl');
+            const isExt = extRadio ? extRadio.checked : false;
+            if (urlGroup) urlGroup.style.display = isExt ? 'block' : 'none';
+            if (urlInput) urlInput.required = isExt;
+        }
+
         function openModal() {
             document.getElementById('modalTitle').innerText = 'Post Opportunity';
             document.getElementById('formAction').value = 'create';
@@ -1015,6 +1164,17 @@ $fullName = getFullName();
             document.getElementById('selInstitution').value = '<?php echo $_SESSION['user']['institution'] ?? 'GMIT'; ?>';
             onInstChange();
             
+            const maleCb = document.getElementById('gender_male');
+            const femaleCb = document.getElementById('gender_female');
+            if (maleCb) maleCb.checked = true;
+            if (femaleCb) femaleCb.checked = true;
+
+            const modeInternal = document.getElementById('app_mode_internal');
+            if (modeInternal) modeInternal.checked = true;
+            const extUrlInput = document.getElementById('externalUrl');
+            if (extUrlInput) extUrlInput.value = '';
+            toggleAppMode();
+
             addSpocRow();
         }
 
@@ -1073,6 +1233,21 @@ $fullName = getFullName();
                 const years = JSON.parse(job.eligible_years || '[]');
                 document.querySelectorAll('.year-check').forEach(cb => cb.checked = years.map(String).includes(cb.value));
             } catch(e) {}
+
+            const editMaleCb = document.getElementById('gender_male');
+            const editFemaleCb = document.getElementById('gender_female');
+            const genderVal = job.eligible_gender || 'Both';
+            if (editMaleCb) editMaleCb.checked = (genderVal === 'Both' || genderVal === 'Male');
+            if (editFemaleCb) editFemaleCb.checked = (genderVal === 'Both' || genderVal === 'Female');
+
+            const isExternal = (job.application_mode === 'External');
+            const modeInt = document.getElementById('app_mode_internal');
+            const modeExt = document.getElementById('app_mode_external');
+            if (modeInt) modeInt.checked = !isExternal;
+            if (modeExt) modeExt.checked = isExternal;
+            const extUrlInput = document.getElementById('externalUrl');
+            if (extUrlInput) extUrlInput.value = job.external_url || '';
+            toggleAppMode();
 
             try {
                 const customFields = JSON.parse(job.custom_fields || '[]');
