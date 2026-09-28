@@ -465,9 +465,21 @@ $issuer = $cert['sub_title'];
             if (e.key === 'F12') e.preventDefault();
         });
 
-        // Fullscreen monitoring
+        // Fullscreen monitoring & application switching detection
         document.addEventListener('fullscreenchange', () => {
             if (!document.fullscreenElement && isSessionActive) {
+                document.getElementById('warningOverlay').classList.remove('hidden');
+            }
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden' && isSessionActive) {
+                document.getElementById('warningOverlay').classList.remove('hidden');
+            }
+        });
+
+        window.addEventListener('blur', () => {
+            if (isSessionActive) {
                 document.getElementById('warningOverlay').classList.remove('hidden');
             }
         });

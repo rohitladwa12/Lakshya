@@ -602,10 +602,15 @@ if ($driveId > 0) {
                 <span id="finalScoreNum" class="score-number">0</span><span id="finalScorePct"
                     class="score-percentage">%</span>
             </div>
-            <div class="score-desc">Your technical performance has been evaluated.</div>
+            <div id="proctorPenaltyBox" style="display: none; margin: 12px 0; padding: 10px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; font-size: 0.85rem;">
+                <div style="color: #ccc;">Raw Performance: <strong id="rawScoreVal" style="color: #fff;">0%</strong></div>
+                <div style="color: #ef4444; font-weight: 700; margin-top: 3px;"><i class="fas fa-shield-alt"></i> Proctor Penalty: <span id="penaltyPctVal">-0%</span></div>
+            </div>
+            <div class="score-desc" id="scoreDescText">Your technical performance has been evaluated.</div>
             <button class="btn-continue" onclick="closeSession()">Continue</button>
         </div>
     </div>
+
 
     <!-- Scripts -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.js"></script>
@@ -699,6 +704,18 @@ if ($driveId > 0) {
             // Fullscreen Enforcement Listener
             document.addEventListener('fullscreenchange', () => {
                 if (!document.fullscreenElement && isSessionActive) {
+                    document.getElementById('warningOverlay').classList.remove('hidden');
+                }
+            });
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden' && isSessionActive) {
+                    document.getElementById('warningOverlay').classList.remove('hidden');
+                }
+            });
+
+            window.addEventListener('blur', () => {
+                if (isSessionActive) {
                     document.getElementById('warningOverlay').classList.remove('hidden');
                 }
             });
@@ -1106,14 +1123,19 @@ if ($driveId > 0) {
 
             document.getElementById('loadingOverlay').classList.remove('hidden');
 
-            // 1. Get Report Data
-            const res = await apiCall({ action: 'generate_report_data', session_id: sessionId });
+            // 1. Get Report Data with proctoring audit token
+            const res = await apiCall({ 
+                action: 'generate_report_data', 
+                session_id: sessionId,
+                proctor_token: proctorEngine ? (proctorEngine._token || '') : ''
+            });
 
             document.getElementById('loadingOverlay').classList.add('hidden');
             if (res.success) {
                 const modal = document.getElementById('scoreModal');
                 const scoreNum = document.getElementById('finalScoreNum');
                 const scorePct = document.getElementById('finalScorePct');
+                const penaltyBox = document.getElementById('proctorPenaltyBox');
 
                 scoreNum.innerText = res.score;
                 if (res.score <= 0) {
@@ -1124,10 +1146,17 @@ if ($driveId > 0) {
                     scorePct.classList.remove('score-zero');
                 }
 
+                if (res.penalty_pct > 0 && penaltyBox) {
+                    document.getElementById('rawScoreVal').innerText = (res.raw_score || res.score) + '%';
+                    document.getElementById('penaltyPctVal').innerText = '-' + res.penalty_pct + '% (' + res.strike_count + ' Strike' + (res.strike_count > 1 ? 's' : '') + ')';
+                    penaltyBox.style.display = 'block';
+                }
+
                 modal.classList.remove('hidden');
             } else {
                 alert(res.message || "Failed to generate score data.");
             }
+
         }
 
         function closeSession() {

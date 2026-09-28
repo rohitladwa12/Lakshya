@@ -504,6 +504,27 @@ try {
 
 
             try {
+                // Retrieve Proctoring Session & calculate authoritative penalty deduction
+                $proctorToken = trim($input['proctor_token'] ?? '');
+
+                $penaltyPct = 0.0;
+                $strikeCount = 0;
+                $isTerminated = false;
+
+                if (!empty($proctorToken)) {
+                    $pStmt = $db->prepare("SELECT * FROM proctor_sessions WHERE session_token = ? LIMIT 1");
+                    $pStmt->execute([$proctorToken]);
+                    $pSess = $pStmt->fetch(PDO::FETCH_ASSOC);
+                    if ($pSess) {
+                        $penaltyPct = (float)$pSess['penalty_pct'];
+                        $strikeCount = (int)$pSess['strike_count'];
+                        $isTerminated = ($pSess['status'] === 'terminated' || $strikeCount >= 3);
+                    }
+                }
+
+                $rawScore = $score;
+                $finalScore = $isTerminated ? 0 : max(0, round($rawScore - $penaltyPct));
+
                 if ($isDrive) {
                     // Fetch details first to securely update them
                     $stmt = $db->prepare("SELECT details FROM student_drive_attempts WHERE id = ?");
@@ -513,12 +534,16 @@ try {
                     if (isset($reportRes['content'])) {
                         $details['report_content'] = $reportRes['content'];
                     }
+                    $details['raw_score'] = $rawScore;
+                    $details['penalty_pct'] = $penaltyPct;
+                    $details['strike_count'] = $strikeCount;
+                    $details['final_score'] = $finalScore;
 
                     // Finalize Status immediately
                     $db->prepare("UPDATE student_drive_attempts 
                               SET score = ?, status = 'Completed', completed_at = CURRENT_TIMESTAMP, details = ? 
                               WHERE id = ?")
-                        ->execute([$score, json_encode($details), $sessionId]);
+                        ->execute([$finalScore, json_encode($details), $sessionId]);
                 } else {
                     // Decode current details to safely append
                     $stmt = $db->prepare("SELECT details, started_at, usn FROM unified_ai_assessments WHERE id = ?");
@@ -529,12 +554,16 @@ try {
                     if (isset($reportRes['content'])) {
                         $details['report_content'] = $reportRes['content'];
                     }
+                    $details['raw_score'] = $rawScore;
+                    $details['penalty_pct'] = $penaltyPct;
+                    $details['strike_count'] = $strikeCount;
+                    $details['final_score'] = $finalScore;
 
                     // Finalize Status immediately so closing the browser doesn't orphan the completion
                     $db->prepare("UPDATE unified_ai_assessments 
                               SET score = ?, feedback = ?, status = 'completed', completed_at = CURRENT_TIMESTAMP, details = ? 
                               WHERE id = ?")
-                        ->execute([$score, "Report Generated", json_encode($details), $sessionId]);
+                        ->execute([$finalScore, "Report Generated", json_encode($details), $sessionId]);
 
                     // Insert into task_completions immediately if it's an assigned task
                     if (isset($details['task_id']) && $details['task_id']) {
@@ -549,12 +578,19 @@ try {
                                           score = VALUES(score),
                                           time_taken = VALUES(time_taken), 
                                           completed_at = CURRENT_TIMESTAMP");
-                        $stmtComp->execute([$taskId, $studentUsn, $score, $timeTaken]);
+                        $stmtComp->execute([$taskId, $studentUsn, $finalScore, $timeTaken]);
                         error_log("Task completion auto-recorded for Technical round. Task: $taskId, USN: $studentUsn");
                     }
                 }
                 ob_clean();
-                echo json_encode(['success' => true, 'score' => $score]);
+                echo json_encode([
+                    'success' => true, 
+                    'score' => $finalScore,
+                    'raw_score' => $rawScore,
+                    'penalty_pct' => $penaltyPct,
+                    'strike_count' => $strikeCount
+                ]);
+
             } catch (Throwable $e) {
                 ob_clean();
                 echo json_encode(['success' => false, 'message' => 'DB finalize failed: ' . $e->getMessage()]);

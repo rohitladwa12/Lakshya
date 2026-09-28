@@ -615,8 +615,10 @@ $projectTitle = $project['title'];
     // --- PROCTORING ENGINE STATE ---
     let webcamStream = null;
     let screenStream = null;
+    let screenVideoEl = null;
     let proctorInterval = null;
     let calibrationData = { center: null, left: null, right: null, up: null, down: null };
+
 
     let proctorStats = {
         totalFrames: 0,
@@ -896,8 +898,20 @@ $projectTitle = $project['title'];
                 triggerWarning('Screen sharing was stopped by the user.', 'SCREEN_SHARE_STOPPED');
             };
 
+            if (!screenVideoEl) {
+                screenVideoEl = document.createElement('video');
+                screenVideoEl.autoplay = true;
+                screenVideoEl.muted = true;
+                screenVideoEl.playsInline = true;
+                screenVideoEl.style.display = 'none';
+                document.body.appendChild(screenVideoEl);
+            }
+            screenVideoEl.srcObject = screenStream;
+            screenVideoEl.play().catch(() => {});
+
             statusEl.style.color = '#10b981';
             statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Screen share active!';
+
 
             setTimeout(() => {
                 document.getElementById('introOverlay').classList.add('hidden');
@@ -1094,6 +1108,41 @@ $projectTitle = $project['title'];
 
     async function logProctoringEvent(eventType, duration = 0, confidence = 1.0, severity = 'LOW', metadata = {}) {
         try {
+            let snapshot = null;
+            const videoEl = document.getElementById('proctorWebcamVideo');
+            const canvasEl = document.getElementById('proctorAnalysisCanvas');
+            const isTabOrScreenEvent = ['TAB_SWITCH', 'WINDOW_BLUR', 'FULLSCREEN_EXIT', 'SCREEN_SHARE_STOPPED'].includes(eventType);
+
+            if (isTabOrScreenEvent && screenVideoEl && screenVideoEl.videoWidth > 0 && canvasEl) {
+                const sw = screenVideoEl.videoWidth || 1280;
+                const sh = screenVideoEl.videoHeight || 720;
+                canvasEl.width = sw;
+                canvasEl.height = sh;
+                const ctx = canvasEl.getContext('2d');
+                ctx.drawImage(screenVideoEl, 0, 0, sw, sh);
+
+                if (videoEl && videoEl.videoWidth > 0) {
+                    const pipW = Math.min(320, Math.floor(sw * 0.25));
+                    const pipH = Math.floor(pipW * ((videoEl.videoHeight || 480) / (videoEl.videoWidth || 640)));
+                    const pipX = sw - pipW - 16;
+                    const pipY = sh - pipH - 16;
+                    ctx.fillStyle = '#000000';
+                    ctx.fillRect(pipX - 3, pipY - 3, pipW + 6, pipH + 6);
+                    ctx.drawImage(videoEl, pipX, pipY, pipW, pipH);
+
+                    ctx.fillStyle = '#ef4444';
+                    ctx.font = 'bold 13px sans-serif';
+                    ctx.fillText('🔴 CAM + SCREEN EVIDENCE', pipX + 8, pipY + 20);
+                }
+                snapshot = canvasEl.toDataURL('image/jpeg', 0.82);
+            } else if (videoEl && canvasEl && videoEl.videoWidth > 0) {
+                canvasEl.width = videoEl.videoWidth || 640;
+                canvasEl.height = videoEl.videoHeight || 480;
+                const ctx = canvasEl.getContext('2d');
+                ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
+                snapshot = canvasEl.toDataURL('image/jpeg', 0.85);
+            }
+
             await fetch('project_viva_handler.php', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
@@ -1104,7 +1153,8 @@ $projectTitle = $project['title'];
                     duration: duration,
                     confidence: confidence,
                     severity: severity,
-                    metadata: metadata
+                    metadata: metadata,
+                    snapshot: snapshot
                 })
             });
         } catch (e) {}
@@ -1193,6 +1243,23 @@ $projectTitle = $project['title'];
             triggerWarning('Full screen mode was deactivated.', 'FULLSCREEN_EXIT');
         }
     });
+
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden' && isSessionActive) {
+            setTimeout(() => {
+                triggerWarning('Tab or application switch detected via Taskbar.', 'TAB_SWITCH');
+            }, 120);
+        }
+    });
+
+    window.addEventListener('blur', () => {
+        if (isSessionActive) {
+            setTimeout(() => {
+                triggerWarning('Window focus lost. Candidate clicked outside test window or opened taskbar app.', 'WINDOW_BLUR');
+            }, 120);
+        }
+    });
+
 
     async function enterFullscreen() {
         if (document.documentElement.requestFullscreen) {

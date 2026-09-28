@@ -79,6 +79,7 @@ try {
             echo json_encode($result);
             exit;
 
+        case 'record_observation':
         case 'report_observation':
         case 'report_event':
             $token       = trim($_POST['token'] ?? '');

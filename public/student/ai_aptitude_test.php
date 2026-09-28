@@ -513,7 +513,17 @@ $fullName = getFullName();
 
         <div id="resultDetails"></div>
 
-        <button class="btn-start" onclick="window.location.href='dashboard'">Return to Dashboard</button>
+    <!-- Warning Overlay -->
+    <div id="warningOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.95); z-index: 9999; align-items: center; justify-content: center;">
+        <div style="text-align: center; max-width: 500px; padding: 30px; border: 2px solid var(--primary); background: #1a1a1a; border-radius: 16px; color: #fff;">
+            <i class="fas fa-exclamation-triangle" style="color: #e74c3c; font-size: 3rem; margin-bottom: 20px;"></i>
+            <h2 style="color: #fff; margin-bottom: 10px;">Security Violation</h2>
+            <p style="color: #ccc; margin-bottom: 25px;">
+                You have left the test window or exited Full Screen mode. This violation has been logged with an immediate camera snapshot.<br>
+                Please return to full screen immediately to continue.
+            </p>
+            <button onclick="resumeFullscreen()" class="btn-start" style="width: 100%; margin-top: 0;">RESUME ASSESSMENT</button>
+        </div>
     </div>
 
     <script>
@@ -839,6 +849,54 @@ $fullName = getFullName();
             }, 1000);
         }
 
+        function resumeFullscreen() {
+            document.documentElement.requestFullscreen().then(() => {
+                document.getElementById('warningOverlay').style.display = 'none';
+            }).catch(() => {
+                document.getElementById('warningOverlay').style.display = 'none';
+            });
+        }
+
+        document.addEventListener('fullscreenchange', () => {
+            const warning = document.getElementById('warningOverlay');
+            if (!document.fullscreenElement && testStarted && !isSubmitting) {
+                warning.style.display = 'flex';
+            } else if (document.fullscreenElement) {
+                warning.style.display = 'none';
+            }
+        });
+
+        document.addEventListener('visibilitychange', () => {
+            const warning = document.getElementById('warningOverlay');
+            if (document.visibilityState === 'hidden' && testStarted && !isSubmitting) {
+                warning.style.display = 'flex';
+            }
+        });
+
+        window.addEventListener('blur', () => {
+            const warning = document.getElementById('warningOverlay');
+            if (testStarted && !isSubmitting) {
+                warning.style.display = 'flex';
+            }
+        });
+
+        document.addEventListener('contextmenu', e => e.preventDefault());
+        document.addEventListener('copy', e => e.preventDefault());
+        document.addEventListener('cut', e => e.preventDefault());
+        document.addEventListener('paste', e => e.preventDefault());
+
+        document.addEventListener('keydown', e => {
+            if (e.ctrlKey && ['c', 'v', 'x', 'u'].includes(e.key.toLowerCase())) {
+                e.preventDefault();
+            }
+            if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+                e.preventDefault();
+            }
+            if (e.key === 'F12') {
+                e.preventDefault();
+            }
+        });
+
         async function submitTest() {
             if (isSubmitting) return;
             isSubmitting = true;
@@ -864,6 +922,7 @@ $fullName = getFullName();
                 formData.append('questions', JSON.stringify(questions));
                 formData.append('task_id', "<?php echo $taskId; ?>");
                 formData.append('time_taken', 40 * 60 - timeLeft); // Fix: Send actual time taken to coordinator dashboard
+                formData.append('proctor_token', proctorEngine ? (proctorEngine._token || '') : '');
                 formData.append('csrf_token', window.CSRF_TOKEN);
 
                 const response = await fetch('ai_aptitude_handler.php', {
@@ -875,8 +934,12 @@ $fullName = getFullName();
                 const data = await response.json();
                 if (data.success) {
                     document.getElementById('finalScore').innerText = Math.round(data.score) + '%';
-                    document.getElementById('resultMsg').innerText =
-                        `Success! You answered ${data.correct} out of ${data.total} questions correctly.`;
+                    let breakdownText = `You answered ${data.correct} out of ${data.total} questions correctly.`;
+                    if (data.penalty_pct > 0) {
+                        breakdownText += ` (Raw Score: ${data.raw_score}% | Integrity Penalty: -${data.penalty_pct}%)`;
+                    }
+                    document.getElementById('resultMsg').innerText = breakdownText;
+
 
                     // Render Review Section
                     if (data.results && data.results.questions) {

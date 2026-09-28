@@ -129,6 +129,9 @@
         <a href="ai_monitor.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'ai_monitor.php' ? 'active' : ''; ?>">
             <i class="fas fa-microchip"></i> AI Performance
         </a>
+        <a href="proctoring.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'proctoring.php' ? 'active' : ''; ?>">
+            <i class="fas fa-shield-halved"></i> AI Proctoring
+        </a>
         <a href="feedback.php" class="nav-item <?php echo basename($_SERVER['PHP_SELF']) == 'feedback.php' ? 'active' : ''; ?>">
             <i class="fas fa-comments"></i> Student Feedback
         </a>

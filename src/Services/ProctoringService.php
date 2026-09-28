@@ -385,9 +385,9 @@ class ProctoringService
             $evidenceScore     = $evalResult['evidence_score'];
             $correlatedContext = $evalResult['correlated_context'];
 
-            // 4. Secure Evidence Vault Storage (if strike & snapshot provided)
+            // 4. Secure Evidence Vault Storage (if snapshot provided)
             $snapshotInfo = null;
-            if ($isStrike && !empty($snapshotBase64)) {
+            if (!empty($snapshotBase64)) {
                 $snapshotInfo = self::saveSnapshotToVault($snapshotBase64, $sessionToken, $establishedEvent);
             }
 
@@ -1011,7 +1011,7 @@ class ProctoringService
     /**
      * Save snapshot base64 securely to the isolated evidence vault.
      */
-    private static function saveSnapshotToVault($base64Data, $sessionToken, $eventType)
+    public static function saveSnapshotToVault($base64Data, $sessionToken, $eventType)
     {
         try {
             $vaultDir = __DIR__ . '/../../storage/proctor_vault/' . preg_replace('/[^a-zA-Z0-9_-]/', '', $sessionToken);

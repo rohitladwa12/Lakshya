@@ -51,31 +51,54 @@ if ($shortlistId) {
 // Get all interviews
 $gmuUsers = DB_GMU_PREFIX . 'users';
 $gmitUsers = DB_GMIT_PREFIX . 'users';
-$sql = "SELECT i.*, u.NAME as student_name, jp.title as job_title, c.name as company_name
-        FROM interviews i
-        JOIN job_applications ja ON i.application_id = ja.id AND i.application_type = 'job'
-        JOIN (
-            SELECT SL_NO, NAME FROM {$gmuUsers}
-            UNION ALL
-            SELECT ENQUIRY_NO as SL_NO, NAME FROM {$gmitUsers}
-        ) u ON ja.student_id = u.SL_NO
-        JOIN job_postings jp ON ja.job_id = jp.id
-        JOIN companies c ON jp.company_id = c.id
-        ORDER BY i.interview_date ASC";
-$interviews = $db->query($sql)->fetchAll();
+try {
+    $sql = "SELECT i.*, u.NAME as student_name, jp.title as job_title, c.name as company_name
+            FROM interviews i
+            JOIN job_applications ja ON i.application_id = ja.id AND i.application_type = 'job'
+            JOIN (
+                SELECT SL_NO, NAME FROM {$gmuUsers}
+                UNION ALL
+                SELECT ENQUIRY_NO as SL_NO, NAME FROM {$gmitUsers}
+            ) u ON ja.student_id = u.SL_NO
+            JOIN job_postings jp ON ja.job_id = jp.id
+            JOIN companies c ON jp.company_id = c.id
+            ORDER BY i.interview_date ASC";
+    $interviews = $db->query($sql)->fetchAll();
+} catch (Exception $e) {
+    $sqlFallback = "SELECT i.*, COALESCE(u.NAME, sp.name, ja.student_id) as student_name, jp.title as job_title, c.name as company_name
+            FROM interviews i
+            JOIN job_applications ja ON i.application_id = ja.id AND i.application_type = 'job'
+            LEFT JOIN users u ON ja.student_id = u.USER_NAME
+            LEFT JOIN student_profiles sp ON ja.student_id = sp.usn
+            JOIN job_postings jp ON ja.job_id = jp.id
+            JOIN companies c ON jp.company_id = c.id
+            ORDER BY i.interview_date ASC";
+    $interviews = $db->query($sqlFallback)->fetchAll();
+}
 
 // Get shortlisted applications for the "Schedule" dropdown
-$sql = "SELECT ja.id, u.NAME as full_name, jp.title, c.name as company_name
-        FROM job_applications ja
-        JOIN (
-            SELECT SL_NO, NAME FROM {$gmuUsers}
-            UNION ALL
-            SELECT ENQUIRY_NO as SL_NO, NAME FROM {$gmitUsers}
-        ) u ON ja.student_id = u.SL_NO
-        JOIN job_postings jp ON ja.job_id = jp.id
-        JOIN companies c ON jp.company_id = c.id
-        WHERE ja.status = 'Shortlisted'";
-$shortlistedApps = $db->query($sql)->fetchAll();
+try {
+    $sql = "SELECT ja.id, u.NAME as full_name, jp.title, c.name as company_name
+            FROM job_applications ja
+            JOIN (
+                SELECT SL_NO, NAME FROM {$gmuUsers}
+                UNION ALL
+                SELECT ENQUIRY_NO as SL_NO, NAME FROM {$gmitUsers}
+            ) u ON ja.student_id = u.SL_NO
+            JOIN job_postings jp ON ja.job_id = jp.id
+            JOIN companies c ON jp.company_id = c.id
+            WHERE ja.status = 'Shortlisted'";
+    $shortlistedApps = $db->query($sql)->fetchAll();
+} catch (Exception $e) {
+    $sqlFallback = "SELECT ja.id, COALESCE(u.NAME, sp.name, ja.student_id) as full_name, jp.title, c.name as company_name
+            FROM job_applications ja
+            LEFT JOIN users u ON ja.student_id = u.USER_NAME
+            LEFT JOIN student_profiles sp ON ja.student_id = sp.usn
+            JOIN job_postings jp ON ja.job_id = jp.id
+            JOIN companies c ON jp.company_id = c.id
+            WHERE ja.status = 'Shortlisted'";
+    $shortlistedApps = $db->query($sqlFallback)->fetchAll();
+}
 
 $fullName = getFullName();
 ?>

@@ -1,0 +1,209 @@
+[
+    {
+        "file": "application_handler.php",
+        "category": "Action Handler",
+        "load_time_ms": null,
+        "memory_mb": null,
+        "size_kb": null,
+        "rating": "HANDLER",
+        "note": "POST-only action handler"
+    },
+    {
+        "file": "applications.php",
+        "category": "Page / View",
+        "load_time_ms": 249.2,
+        "memory_mb": 6,
+        "size_kb": 167.48,
+        "rating": "GOOD",
+        "note": "Optimized: was 2010ms (N+1 queries). Batch pre-fetch applied."
+    },
+    {
+        "file": "attendance.php",
+        "category": "Page / View",
+        "load_time_ms": 13.36,
+        "memory_mb": 2,
+        "size_kb": 26.15,
+        "rating": "EXCELLENT"
+    },
+    {
+        "file": "campus_drives.php",
+        "category": "Page / View",
+        "load_time_ms": 17.52,
+        "memory_mb": 2,
+        "size_kb": 70.36,
+        "rating": "EXCELLENT"
+    },
+    {
+        "file": "dashboard.php",
+        "category": "Page / View",
+        "load_time_ms": 78.82,
+        "memory_mb": 4,
+        "size_kb": 64.32,
+        "rating": "EXCELLENT",
+        "note": "Measured directly; benchmark runner shows 0ms due to session redirect."
+    },
+    {
+        "file": "drive_details.php",
+        "category": "Page / View",
+        "load_time_ms": null,
+        "memory_mb": null,
+        "size_kb": null,
+        "rating": "SKIP",
+        "note": "Requires drive_id; campus_drives table is currently empty."
+    },
+    {
+        "file": "feedback.php",
+        "category": "Page / View",
+        "load_time_ms": 15.56,
+        "memory_mb": 4,
+        "size_kb": 420.46,
+        "rating": "EXCELLENT"
+    },
+    {
+        "file": "get_sgpa_details.php",
+        "category": "API / AJAX",
+        "load_time_ms": null,
+        "memory_mb": null,
+        "size_kb": null,
+        "rating": "HANDLER",
+        "note": "POST JSON endpoint — no GET output."
+    },
+    {
+        "file": "interview_handler.php",
+        "category": "Action Handler",
+        "load_time_ms": null,
+        "memory_mb": null,
+        "size_kb": null,
+        "rating": "HANDLER",
+        "note": "POST-only action handler"
+    },
+    {
+        "file": "interviews.php",
+        "category": "Page / View",
+        "load_time_ms": 15.2,
+        "memory_mb": 2,
+        "size_kb": 21.89,
+        "rating": "EXCELLENT",
+        "note": "Fixed: was fatal SQL error. Fallback to local users/student_profiles applied."
+    },
+    {
+        "file": "job_applicants.php",
+        "category": "Page / View",
+        "load_time_ms": 397.33,
+        "memory_mb": 6,
+        "size_kb": 896.53,
+        "rating": "MODERATE"
+    },
+    {
+        "file": "job_attendance.php",
+        "category": "Page / View",
+        "load_time_ms": 395.14,
+        "memory_mb": 6,
+        "size_kb": 706.27,
+        "rating": "MODERATE"
+    },
+    {
+        "file": "job_handler.php",
+        "category": "Action Handler",
+        "load_time_ms": null,
+        "memory_mb": null,
+        "size_kb": null,
+        "rating": "HANDLER",
+        "note": "POST-only action handler"
+    },
+    {
+        "file": "job_students.php",
+        "category": "Page / View",
+        "load_time_ms": 131.06,
+        "memory_mb": 8,
+        "size_kb": 823.11,
+        "rating": "GOOD"
+    },
+    {
+        "file": "jobs.php",
+        "category": "Page / View",
+        "load_time_ms": 19.44,
+        "memory_mb": 2,
+        "size_kb": 95.43,
+        "rating": "EXCELLENT"
+    },
+    {
+        "file": "nqt_analytics.php",
+        "category": "Page / View",
+        "load_time_ms": 14.12,
+        "memory_mb": 2,
+        "size_kb": 31.01,
+        "rating": "EXCELLENT",
+        "note": "Optimized: was 1562ms / 226MB. Eliminated getUnifiedAIReports() bulk load."
+    },
+    {
+        "file": "placed_students_handler.php",
+        "category": "Action Handler",
+        "load_time_ms": null,
+        "memory_mb": null,
+        "size_kb": null,
+        "rating": "HANDLER",
+        "note": "POST-only action handler"
+    },
+    {
+        "file": "placement_handler.php",
+        "category": "Action Handler",
+        "load_time_ms": null,
+        "memory_mb": null,
+        "size_kb": null,
+        "rating": "HANDLER",
+        "note": "POST-only action handler"
+    },
+    {
+        "file": "portfolio_details.php",
+        "category": "API / AJAX",
+        "load_time_ms": null,
+        "memory_mb": null,
+        "size_kb": null,
+        "rating": "HANDLER",
+        "note": "POST JSON endpoint — no GET output."
+    },
+    {
+        "file": "proctor_evidence.php",
+        "category": "Page / View",
+        "load_time_ms": null,
+        "memory_mb": null,
+        "size_kb": null,
+        "rating": "SKIP",
+        "note": "Requires valid event_id with data."
+    },
+    {
+        "file": "reports.php",
+        "category": "Page / View",
+        "load_time_ms": 156.42,
+        "memory_mb": 4,
+        "size_kb": 74.17,
+        "rating": "GOOD"
+    },
+    {
+        "file": "student_details_report.php",
+        "category": "Redirect Router",
+        "load_time_ms": null,
+        "memory_mb": null,
+        "size_kb": null,
+        "rating": "REDIRECT",
+        "note": "HTTP 302 router → reports.php"
+    },
+    {
+        "file": "students.php",
+        "category": "Redirect Router",
+        "load_time_ms": null,
+        "memory_mb": null,
+        "size_kb": null,
+        "rating": "REDIRECT",
+        "note": "HTTP 302 router → reports.php"
+    },
+    {
+        "file": "upload_placed_students.php",
+        "category": "Page / View",
+        "load_time_ms": 21.39,
+        "memory_mb": 4,
+        "size_kb": 48.24,
+        "rating": "EXCELLENT"
+    }
+]

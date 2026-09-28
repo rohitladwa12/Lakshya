@@ -101,9 +101,15 @@ try {
                 $severity = 'LOW';
             }
 
+            $snapshotInfo = null;
+            $snapshotBase64 = $input['snapshot'] ?? $input['snapshot_base64'] ?? null;
+            if (!empty($snapshotBase64)) {
+                $snapshotInfo = \App\Services\ProctoringService::saveSnapshotToVault($snapshotBase64, $username, $eventType);
+            }
+
             $stmt = $db->prepare("INSERT INTO assessment_integrity_events 
-                (student_id, portfolio_id, assessment_type, event_type, duration, confidence, severity, metadata, created_at) 
-                VALUES (?, ?, 'Skill Verification', ?, ?, ?, ?, ?, NOW())");
+                (student_id, portfolio_id, assessment_type, event_type, duration, confidence, severity, metadata, snapshot_path, file_size, sha256, mime_type, created_at) 
+                VALUES (?, ?, 'Skill Verification', ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
             
             $stmt->execute([
                 $username,
@@ -112,7 +118,11 @@ try {
                 $duration,
                 $confidence,
                 $severity,
-                json_encode($metadata)
+                json_encode($metadata),
+                $snapshotInfo['path'] ?? null,
+                $snapshotInfo['size'] ?? null,
+                $snapshotInfo['sha256'] ?? null,
+                $snapshotInfo['mime'] ?? null
             ]);
 
             ob_clean(); echo json_encode([
@@ -287,8 +297,12 @@ try {
                 ];
             }
 
-            $score = ($correctCount / count($questions)) * 100;
-            $isPassed = ($score >= 70); // 70% to pass
+            $rawScore = ($correctCount / count($questions)) * 100;
+            $autoSubmitted = !empty($input['auto_submitted']);
+            $strikeCount = (int)($input['strike_count'] ?? 0);
+            $penaltyPct = ($strikeCount === 1) ? 5.0 : (($strikeCount === 2) ? 10.0 : ($strikeCount >= 3 || $autoSubmitted ? 100.0 : 0.0));
+            $score = max(0.0, round($rawScore - $penaltyPct, 1));
+            $isPassed = ($score >= 70 && !$autoSubmitted && $strikeCount < 3); // 70% to pass after proctoring penalty
 
             // Build Assessment Integrity Report from logged events
             $integrityReport = [
@@ -296,12 +310,16 @@ try {
                 'camera_availability_pct' => 100.0,
                 'face_presence_pct' => 100.0,
                 'gaze_confidence_pct' => 92.5,
+                'raw_score' => $rawScore,
+                'penalty_pct' => $penaltyPct,
+                'final_score' => $score,
                 'attention_deviations' => 0,
                 'longest_deviation_sec' => 0.0,
                 'screen_interruptions' => 0,
                 'multiple_faces_count' => 0,
                 'integrity_status' => 'No significant anomalies detected'
             ];
+
 
             try {
                 $eventStmt = $db->prepare("SELECT event_type, duration, confidence, severity FROM assessment_integrity_events WHERE student_id = ? AND portfolio_id = ?");

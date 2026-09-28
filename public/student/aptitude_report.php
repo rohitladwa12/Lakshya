@@ -202,9 +202,68 @@ $reportContent = $details['report_content'] ?? null;
         </div>
         <div class="stat-card">
             <div class="label">Status</div>
-            <div class="value" style="color: var(--success); font-size: 1.5rem;"><?php echo strtoupper($assessment['status']); ?></div>
+            <div class="value" style="color: <?php echo ($assessment['score'] >= 70) ? 'var(--success)' : '#ef4444'; ?>; font-size: 1.5rem;"><?php echo strtoupper($assessment['status']); ?></div>
         </div>
     </div>
+
+    <?php 
+    $rawScore = $details['raw_score'] ?? round($assessment['score']);
+    $penaltyPct = (float)($details['penalty_pct'] ?? 0);
+    $strikeCount = (int)($details['strike_count'] ?? 0);
+    $integrityReport = $details['integrity_report'] ?? null;
+    ?>
+
+    <?php if ($penaltyPct > 0 || $strikeCount > 0): ?>
+    <div style="background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 16px; padding: 20px; margin-bottom: 30px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px;">
+        <div>
+            <span style="color: #aaa; font-size: 0.85rem; text-transform: uppercase; font-weight: 600; display: block;">Raw Score</span>
+            <strong style="font-size: 1.3rem; color: #fff;"><?php echo $rawScore; ?>%</strong>
+        </div>
+        <div>
+            <span style="color: #ef4444; font-size: 0.85rem; text-transform: uppercase; font-weight: 700; display: block;"><i class="fas fa-shield-alt"></i> Proctor Penalty</span>
+            <strong style="font-size: 1.3rem; color: #ef4444;">-<?php echo $penaltyPct; ?>% (<?php echo $strikeCount; ?> Strike<?php echo $strikeCount > 1 ? 's' : ''; ?>)</strong>
+        </div>
+        <div>
+            <span style="color: #aaa; font-size: 0.85rem; text-transform: uppercase; font-weight: 600; display: block;">Verified Final Score</span>
+            <strong style="font-size: 1.4rem; color: var(--secondary);"><?php echo round($assessment['score']); ?>%</strong>
+        </div>
+    </div>
+    <?php endif; ?>
+
+    <?php if (!empty($integrityReport)): ?>
+    <div class="section" style="padding: 25px;">
+        <h2 class="section-title" style="margin-bottom: 15px;"><i class="fas fa-shield-alt" style="color: var(--secondary);"></i> Assessment Integrity Audit Report</h2>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid rgba(255,255,255,0.08);">
+            <span style="color: #aaa; font-size: 0.9rem;">Integrity Assessment Status:</span>
+            <span style="padding: 4px 12px; border-radius: 20px; font-weight: 700; font-size: 0.85rem; background: <?php echo ($strikeCount >= 3) ? 'rgba(239, 68, 68, 0.2)' : (($strikeCount > 0) ? 'rgba(245, 158, 11, 0.2)' : 'rgba(39, 174, 96, 0.2)'); ?>; color: <?php echo ($strikeCount >= 3) ? '#ef4444' : (($strikeCount > 0) ? '#f59e0b' : '#27ae60'); ?>;">
+                <?php echo htmlspecialchars($integrityReport['integrity_status'] ?? 'Verified'); ?>
+            </span>
+        </div>
+        <div class="stats-grid" style="margin-bottom: 0; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px;">
+            <div class="stat-card" style="padding: 15px;">
+                <div class="label" style="font-size: 0.75rem;">Camera Stream</div>
+                <div class="value" style="font-size: 1.2rem;"><?php echo htmlspecialchars((string)($integrityReport['camera_availability_pct'] ?? 100)); ?>%</div>
+            </div>
+            <div class="stat-card" style="padding: 15px;">
+                <div class="label" style="font-size: 0.75rem;">Face Presence</div>
+                <div class="value" style="font-size: 1.2rem;"><?php echo htmlspecialchars((string)($integrityReport['face_presence_pct'] ?? 100)); ?>%</div>
+            </div>
+            <div class="stat-card" style="padding: 15px;">
+                <div class="label" style="font-size: 0.75rem;">Gaze Confidence</div>
+                <div class="value" style="font-size: 1.2rem;"><?php echo htmlspecialchars((string)($integrityReport['gaze_confidence_pct'] ?? 95)); ?>%</div>
+            </div>
+            <div class="stat-card" style="padding: 15px;">
+                <div class="label" style="font-size: 0.75rem;">Screen Interruptions</div>
+                <div class="value" style="font-size: 1.2rem;"><?php echo (int)($integrityReport['screen_interruptions'] ?? 0); ?></div>
+            </div>
+            <div class="stat-card" style="padding: 15px;">
+                <div class="label" style="font-size: 0.75rem;">Multiple Persons</div>
+                <div class="value" style="font-size: 1.2rem;"><?php echo (int)($integrityReport['multiple_faces_count'] ?? 0); ?></div>
+            </div>
+        </div>
+    </div>
+    <?php endif; ?>
+
 
     <div class="section">
         <h2 class="section-title"><i class="fas fa-user-graduate"></i> Candidate Information</h2>

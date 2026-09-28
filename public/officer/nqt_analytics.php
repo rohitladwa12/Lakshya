@@ -7,20 +7,18 @@ require_once __DIR__ . '/../../config/bootstrap.php';
 // Require placement officer role
 requireRole(ROLE_PLACEMENT_OFFICER);
 
-$officerModel = new PlacementOfficer();
-$allReports = $officerModel->getUnifiedAIReports();
-
-// Filter for TCS NQT Practice and Completed status only
-$nqtReports = array_filter($allReports, function($report) {
-    $isNqt = isset($report['company_name']) && $report['company_name'] === 'TCS NQT Practice';
-    $isCompleted = isset($report['status']) && strtolower($report['status']) === 'completed';
-    return $isNqt && $isCompleted;
-});
-
-// Sort by date descending
-usort($nqtReports, function($a, $b) {
-    return strtotime($b['started_at'] ?? '0') - strtotime($a['started_at'] ?? '0');
-});
+$db = getDB();
+$sql = "
+    SELECT u.id, u.student_id, u.company_name, u.assessment_type, u.score, u.status, u.started_at,
+           COALESCE(sp.name, u.student_id) as student_name,
+           sp.semester,
+           COALESCE(sp.department, 'General') as branch
+    FROM unified_ai_assessments u
+    LEFT JOIN student_profiles sp ON u.student_id = sp.usn
+    WHERE u.company_name = 'TCS NQT Practice' AND LOWER(u.status) = 'completed'
+    ORDER BY u.started_at DESC
+";
+$nqtReports = $db->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 
 $fullName = getFullName();
 ?>

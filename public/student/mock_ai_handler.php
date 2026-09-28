@@ -201,9 +201,15 @@ try {
                 $severity = 'LOW';
             }
 
+            $snapshotInfo = null;
+            $snapshotBase64 = $input['snapshot'] ?? $input['snapshot_base64'] ?? null;
+            if (!empty($snapshotBase64)) {
+                $snapshotInfo = \App\Services\ProctoringService::saveSnapshotToVault($snapshotBase64, $studentIdForDb, $eventType);
+            }
+
             $stmt = $db->prepare("INSERT INTO assessment_integrity_events 
-                (student_id, portfolio_id, assessment_type, event_type, duration, confidence, severity, metadata, created_at) 
-                VALUES (?, ?, 'Mock AI Interview', ?, ?, ?, ?, ?, NOW())");
+                (student_id, portfolio_id, assessment_type, event_type, duration, confidence, severity, metadata, snapshot_path, file_size, sha256, mime_type, created_at) 
+                VALUES (?, ?, 'Mock AI Interview', ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
             
             $stmt->execute([
                 $studentIdForDb,
@@ -212,7 +218,11 @@ try {
                 $duration,
                 $confidence,
                 $severity,
-                json_encode($metadata)
+                json_encode($metadata),
+                $snapshotInfo['path'] ?? null,
+                $snapshotInfo['size'] ?? null,
+                $snapshotInfo['sha256'] ?? null,
+                $snapshotInfo['mime'] ?? null
             ]);
 
             ob_clean(); echo json_encode([

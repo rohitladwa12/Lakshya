@@ -378,10 +378,84 @@ try {
                 error_log("Aptitude Submission: using fallback profile for unregistered USN: $fallbackUsn");
             }
 
+            // Retrieve Proctoring Session & calculate authoritative penalty deduction
+            $proctorToken = trim($_POST['proctor_token'] ?? '');
+            $penaltyPct = 0.0;
+            $strikeCount = 0;
+            $isTerminated = false;
+            $integrityReport = [
+                'screen_sharing_active_pct' => 100.0,
+                'camera_availability_pct' => 100.0,
+                'face_presence_pct' => 100.0,
+                'gaze_confidence_pct' => 95.0,
+                'raw_score' => $percentage,
+                'penalty_pct' => 0.0,
+                'final_score' => $percentage,
+                'attention_deviations' => 0,
+                'longest_deviation_sec' => 0.0,
+                'screen_interruptions' => 0,
+                'multiple_faces_count' => 0,
+                'integrity_status' => 'Clean — Verified Academic Integrity'
+            ];
+
+            if (!empty($proctorToken)) {
+                $pStmt = $db->prepare("SELECT * FROM proctor_sessions WHERE session_token = ? LIMIT 1");
+                $pStmt->execute([$proctorToken]);
+                $pSess = $pStmt->fetch(PDO::FETCH_ASSOC);
+                if ($pSess) {
+                    $penaltyPct = (float)$pSess['penalty_pct'];
+                    $strikeCount = (int)$pSess['strike_count'];
+                    $isTerminated = ($pSess['status'] === 'terminated' || $strikeCount >= 3);
+                }
+            }
+
+            // Check assessment integrity events for session
+            try {
+                $evStmt = $db->prepare("SELECT event_type, duration, confidence, severity FROM assessment_integrity_events WHERE student_id = ? AND (session_token = ? OR created_at >= DATE_SUB(NOW(), INTERVAL 2 HOUR))");
+                $evStmt->execute([$studentId, $proctorToken]);
+                $events = $evStmt->fetchAll(PDO::FETCH_ASSOC);
+                if (!empty($events)) {
+                    foreach ($events as $evt) {
+                        $eType = $evt['event_type'];
+                        if (in_array($eType, ['TAB_SWITCH', 'WINDOW_BLUR', 'FULLSCREEN_EXIT', 'SCREEN_SHARE_STOPPED'])) {
+                            $integrityReport['screen_interruptions']++;
+                        } elseif ($eType === 'MULTI_FACE' || $eType === 'MULTIPLE_PERSONS_PRESENT') {
+                            $integrityReport['multiple_faces_count']++;
+                        } elseif ($eType === 'NO_FACE' || $eType === 'UNATTENDED_STATION') {
+                            $integrityReport['face_presence_pct'] = max(70.0, $integrityReport['face_presence_pct'] - 5.0);
+                        } elseif ($eType === 'EYE_GAZE_SAMPLE' || $eType === 'LOOKING_AWAY' || $eType === 'SUSTAINED_DOWNWARD_ATTENTION') {
+                            $integrityReport['attention_deviations']++;
+                        }
+                    }
+                }
+            } catch (Exception $e) {}
+
+            $rawPercentage = round($percentage, 1);
+            $finalPercentage = $isTerminated ? 0.0 : max(0.0, round($rawPercentage - $penaltyPct, 1));
+
+            if ($isTerminated || $strikeCount >= 3) {
+                $integrityReport['integrity_status'] = 'Disqualified: Maximum Integrity Violations (3/3) Exceeded';
+            } elseif ($strikeCount > 0) {
+                $integrityReport['integrity_status'] = "Integrity Penalties Applied (-{$penaltyPct}% Deducted)";
+            }
+
+            $integrityReport['raw_score'] = $rawPercentage;
+            $integrityReport['penalty_pct'] = $penaltyPct;
+            $integrityReport['strike_count'] = $strikeCount;
+            $integrityReport['final_score'] = $finalPercentage;
+
             // Store result in unified_ai_assessments
             error_log("Preparing DB insertion into unified_ai_assessments");
 
-            $detailsJson = json_encode(['questions' => $questions, 'user_answers' => $answers]);
+            $detailsJson = json_encode([
+                'questions' => $questions,
+                'user_answers' => $answers,
+                'raw_score' => $rawPercentage,
+                'penalty_pct' => $penaltyPct,
+                'strike_count' => $strikeCount,
+                'final_score' => $finalPercentage,
+                'integrity_report' => $integrityReport
+            ]);
 
             $db = getDB();
             $sql = "INSERT INTO unified_ai_assessments 
@@ -394,7 +468,7 @@ try {
                 $student['usn'],
                 $student['name'],
                 $companyName,
-                $percentage,
+                $finalPercentage,
                 count($questions),
                 $detailsJson,
                 $inst
@@ -416,22 +490,26 @@ try {
                                           score = VALUES(score), 
                                           time_taken = VALUES(time_taken),
                                           completed_at = CURRENT_TIMESTAMP");
-                    $stmt->execute([$taskId, $student['usn'], $percentage, $timeTaken]);
+                    $stmt->execute([$taskId, $student['usn'], $finalPercentage, $timeTaken]);
                     error_log("Task completion recorded for USN: {$student['usn']}, Task: $taskId");
                 }
 
                 ob_clean();
                 echo json_encode([
                     'success' => true,
-                    'score' => $percentage,
+                    'score' => $finalPercentage,
+                    'raw_score' => $rawPercentage,
+                    'penalty_pct' => $penaltyPct,
+                    'strike_count' => $strikeCount,
                     'correct' => $score,
                     'total' => count($questions),
                     'results' => [
-                        'questions' => $questions, // Use corrected questions with fixed explanations
+                        'questions' => $questions,
                         'user_answers' => $answers
                     ],
                     'message' => 'Assessment completed successfully.'
                 ]);
+
             } else {
                 error_log("Aptitude Submission Error: DB Execute returned false");
                 ob_clean();

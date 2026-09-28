@@ -28,13 +28,14 @@ $filters = SessionFilterHelper::getFilters($pageId);
 $appModel = new JobApplication();
 $jobModel = new JobPosting();
 
-$jobId = $filters['job_id'] ?? null;
-$statusFilter = $filters['status'] ?? null;
-$companyId = $filters['company_id'] ?? null;
-$semester = $filters['semester'] ?? null;
-$minSgpa = $filters['min_sgpa'] ?? null;
-$minSslc = $filters['min_sslc'] ?? null;
-$minPuc = $filters['min_puc'] ?? null;
+// Sanitize — empty strings and "0" must be treated as "no filter"
+$jobId       = !empty($filters['job_id'])      ? (int)$filters['job_id']            : null;
+$statusFilter= !empty($filters['status'])      ? trim($filters['status'])            : null;
+$companyId   = !empty($filters['company_id'])  ? (int)$filters['company_id']         : null;
+$semester    = !empty($filters['semester'])    ? (int)$filters['semester']            : null;
+$minSgpa     = isset($filters['min_sgpa'])  && $filters['min_sgpa'] !== '' && (float)$filters['min_sgpa'] > 0 ? (float)$filters['min_sgpa'] : null;
+$minSslc     = isset($filters['min_sslc'])  && $filters['min_sslc'] !== '' && (float)$filters['min_sslc'] > 0 ? (float)$filters['min_sslc'] : null;
+$minPuc      = isset($filters['min_puc'])   && $filters['min_puc']  !== '' && (float)$filters['min_puc']  > 0 ? (float)$filters['min_puc']  : null;
 
 // Get all applications with detailed info for filtering
 // 1. Fetch applications with basic job/company info from LOCAL DB
@@ -67,173 +68,132 @@ $stmt = $appModel->getDB()->prepare($sql);
 $stmt->execute($params);
 $rawApps = $stmt->fetchAll();
 
-// 2. Enrich with student details from REMOTE/LOCAL DBs and apply academic filters
-$userModel = new User();
+// 2. Batch-enrich student details from local DBs to eliminate N+1 queries
+$allUsns = array_unique(array_filter(array_column($rawApps, 'student_id')));
+$userMap = [];
+$profileMap = [];
+
+if (!empty($allUsns)) {
+    $placeholders = implode(',', array_fill(0, count($allUsns), '?'));
+    $usnValues = array_values($allUsns);
+
+    // Batch lookup users
+    try {
+        $stmtUsers = $appModel->getDB()->prepare("SELECT USER_NAME as username, NAME as full_name, AADHAR as aadhar, MOBILE_NO as phone, COLLEGE as institution FROM users WHERE USER_NAME IN ($placeholders)");
+        $stmtUsers->execute($usnValues);
+        while ($u = $stmtUsers->fetch(PDO::FETCH_ASSOC)) {
+            $inst = (strpos(strtoupper($u['institution'] ?? ''), 'GMIT') !== false || strpos(strtoupper($u['username']), 'GMIT') !== false) ? INSTITUTION_GMIT : INSTITUTION_GMU;
+            $userMap[$u['username']] = [
+                'username' => $u['username'],
+                'full_name' => $u['full_name'],
+                'institution' => $inst,
+                'aadhar' => $u['aadhar'],
+                'phone' => $u['phone']
+            ];
+        }
+    } catch (Exception $e) {}
+
+    // Batch lookup student profiles
+    try {
+        $stmtProfiles = $appModel->getDB()->prepare("SELECT usn, name, course, department, gender, cgpa, semester FROM student_profiles WHERE usn IN ($placeholders)");
+        $stmtProfiles->execute($usnValues);
+        while ($p = $stmtProfiles->fetch(PDO::FETCH_ASSOC)) {
+            $profileMap[$p['usn']] = $p;
+        }
+    } catch (Exception $e) {}
+}
+
+// 3. Second-pass batch: find any student_ids that weren't in local maps (cross-institution)
+$missingIds = [];
+foreach ($rawApps as $app) {
+    if (empty($userMap[$app['student_id']]) && empty($profileMap[$app['student_id']])) {
+        $missingIds[] = $app['student_id'];
+    }
+}
+$missingIds = array_unique(array_filter($missingIds));
+if (!empty($missingIds)) {
+    $ph2 = implode(',', array_fill(0, count($missingIds), '?'));
+    // Try users table (may use different column names on some installs)
+    try {
+        $stmtMiss = $appModel->getDB()->prepare("SELECT USER_NAME as username, NAME as full_name, AADHAR as aadhar, MOBILE_NO as phone, COLLEGE as institution FROM users WHERE USER_NAME IN ($ph2)");
+        $stmtMiss->execute(array_values($missingIds));
+        while ($u = $stmtMiss->fetch(PDO::FETCH_ASSOC)) {
+            $inst = (strpos(strtoupper($u['institution'] ?? ''), 'GMIT') !== false || strpos(strtoupper($u['username']), 'GMIT') !== false) ? INSTITUTION_GMIT : INSTITUTION_GMU;
+            $userMap[$u['username']] = ['username' => $u['username'], 'full_name' => $u['full_name'], 'institution' => $inst, 'aadhar' => $u['aadhar'], 'phone' => $u['phone']];
+        }
+    } catch (Exception $e) {}
+    // Also check student_profiles for any remaining
+    try {
+        $stmtMissP = $appModel->getDB()->prepare("SELECT usn, name, course, department, gender, cgpa, semester FROM student_profiles WHERE usn IN ($ph2)");
+        $stmtMissP->execute(array_values($missingIds));
+        while ($p = $stmtMissP->fetch(PDO::FETCH_ASSOC)) {
+            $profileMap[$p['usn']] = $p;
+        }
+    } catch (Exception $e) {}
+}
+
 $applications = [];
 
 foreach ($rawApps as $app) {
-    // Fetch student info using User model which handles remote switches
-    $student = $userModel->findByUsername($app['student_id']) ?: $userModel->find($app['student_id']);
+    // All lookups now served from in-memory maps — zero per-row DB calls
+    $student = $userMap[$app['student_id']] ?? null;
+    $prof = $profileMap[$app['student_id']] ?? null;
     
-    if ($student) {
-        $app['student_name'] = $student['full_name'];
-        $app['usn'] = $student['username'];
-        $app['institution'] = $student['institution'];
-        $app['gender'] = $student['gender'] ?? 'N/A';
+    if ($student || $prof) {
+        $app['student_name'] = $student['full_name'] ?? ($prof['name'] ?? $app['student_id']);
+        $app['usn'] = $student['username'] ?? $app['student_id'];
+        $app['institution'] = $student['institution'] ?? ((strpos(strtoupper($app['student_id']), 'GMIT') !== false) ? INSTITUTION_GMIT : INSTITUTION_GMU);
+        $app['gender'] = $prof['gender'] ?? ($student['gender'] ?? 'N/A');
         $app['aadhar'] = $student['aadhar'] ?? null;
         
-        // Fetch academic details (Remote or Local fallback)
-        $inst = $student['institution'];
+        $inst = $app['institution'];
         $prefix = ($inst === INSTITUTION_GMU) ? DB_GMU_PREFIX : DB_GMIT_PREFIX;
         
         // Basic enrichment defaults
-        $app['academic_sgpa'] = 0.0;
-        $app['course'] = 'N/A';
-        $app['branch'] = 'N/A';
+        $app['academic_sgpa'] = $app['applied_sgpa'] ?? ($prof['cgpa'] ?? 0.0);
+        $app['course'] = $prof['course'] ?? 'N/A';
+        $app['branch'] = $prof['department'] ?? 'N/A';
         $app['puc_percentage'] = 0.0;
         $app['sslc_percentage'] = 0.0;
-        $app['current_semester'] = null;
+        $app['current_semester'] = $app['applied_semester'] ?? ($prof['semester'] ?? null);
 
-        try {
-            if ($app['applied_semester'] !== null && $app['applied_sgpa'] !== null) {
-                $app['current_semester'] = $app['applied_semester'];
-                $app['academic_sgpa'] = $app['applied_sgpa'];
-                
-                // Fetch only basic details (percentages, course, branch, gender)
+        // Fallback to remote query only if branch/course is unknown
+        if (empty($app['branch']) || $app['branch'] === 'N/A') {
+            try {
                 if ($inst === INSTITUTION_GMU) {
                     $remoteDB = getDB('gmu');
-                    $stmtAc = $remoteDB->prepare("SELECT a.course, a.discipline, d.puc_percentage, d.sslc_percentage, d.gender
-                                               FROM {$prefix}ad_student_approved a
-                                               LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
-                                               WHERE a.usn = ? LIMIT 1");
-                    $stmtAc->execute([$app['usn']]);
-                    $ac = $stmtAc->fetch();
-                    if ($ac) {
-                        $app['course'] = $ac['course'];
-                        $app['branch'] = $ac['discipline'];
-                        $app['puc_percentage'] = $ac['puc_percentage'];
-                        $app['sslc_percentage'] = $ac['sslc_percentage'];
-                        if (!empty($ac['gender'])) $app['gender'] = $ac['gender'];
-                    }
-                } else {
-                    $remoteDB = getDB('gmit');
-                    $stmtDet = $remoteDB->prepare("SELECT puc_percentage, sslc_percentage, course, discipline, gender FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1");
-                    $stmtDet->execute([$app['student_id'], $app['usn']]);
-                    $det = $stmtDet->fetch();
-                    if ($det) {
-                        $app['puc_percentage'] = $det['puc_percentage'];
-                        $app['sslc_percentage'] = $det['sslc_percentage'];
-                        $app['course'] = $det['course'];
-                        $app['branch'] = $det['discipline'];
-                        if (!empty($det['gender'])) $app['gender'] = $det['gender'];
-                    }
-                }
-            } else {
-                // Fallback to legacy dynamic lookup if not populated
-                if ($inst === INSTITUTION_GMU) {
-                    // GMU: Fetch from remote
-                    $remoteDB = getDB('gmu');
-                    
-                    // Get current semester
-                    $stmtSem = $remoteDB->prepare("SELECT sem FROM {$prefix}ad_student_approved WHERE usn = ? ORDER BY academic_year DESC, sem DESC LIMIT 1");
-                    $stmtSem->execute([$app['usn']]);
-                    $semRow = $stmtSem->fetch();
-                    $app['current_semester'] = $semRow ? $semRow['sem'] : null;
-    
-                    // Get details and latest non-null/non-zero SGPA
-                    $stmtAc = $remoteDB->prepare("SELECT a.sgpa, a.course, a.discipline, d.puc_percentage, d.sslc_percentage, d.gender
-                                               FROM {$prefix}ad_student_approved a
-                                               LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
-                                               WHERE a.usn = ? AND a.sgpa IS NOT NULL AND a.sgpa > 0.00
-                                               ORDER BY a.academic_year DESC, a.sem DESC LIMIT 1");
-                    $stmtAc->execute([$app['usn']]);
-                    $ac = $stmtAc->fetch();
-                    if ($ac) {
-                        $app['academic_sgpa'] = $ac['sgpa'];
-                        $app['course'] = $ac['course'];
-                        $app['branch'] = $ac['discipline'];
-                        $app['puc_percentage'] = $ac['puc_percentage'];
-                        $app['sslc_percentage'] = $ac['sslc_percentage'];
-                        if (!empty($ac['gender'])) $app['gender'] = $ac['gender'];
-                    } else {
-                        // Fallback to any record (even if SGPA is null/0) to get course/percentages
-                        $stmtFallback = $remoteDB->prepare("SELECT a.sgpa, a.course, a.discipline, d.puc_percentage, d.sslc_percentage, d.gender
-                                                    FROM {$prefix}ad_student_approved a
-                                                    LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
-                                                    WHERE a.usn = ? 
-                                                    ORDER BY a.academic_year DESC, a.sem DESC LIMIT 1");
-                        $stmtFallback->execute([$app['usn']]);
-                        $fb = $stmtFallback->fetch();
-                        if ($fb) {
-                            $app['academic_sgpa'] = $fb['sgpa'] ?: 0.00;
-                            $app['course'] = $fb['course'];
-                            $app['branch'] = $fb['discipline'];
-                            $app['puc_percentage'] = $fb['puc_percentage'];
-                            $app['sslc_percentage'] = $fb['sslc_percentage'];
-                            if (!empty($fb['gender'])) $app['gender'] = $fb['gender'];
+                    if ($remoteDB) {
+                        $stmtAc = $remoteDB->prepare("SELECT a.course, a.discipline, d.puc_percentage, d.sslc_percentage, d.gender
+                                                   FROM {$prefix}ad_student_approved a
+                                                   LEFT JOIN {$prefix}ad_student_details d ON (a.usn = d.student_id OR a.usn = d.usn)
+                                                   WHERE a.usn = ? LIMIT 1");
+                        $stmtAc->execute([$app['usn']]);
+                        $ac = $stmtAc->fetch();
+                        if ($ac) {
+                            $app['course'] = $ac['course'];
+                            $app['branch'] = $ac['discipline'];
+                            $app['puc_percentage'] = $ac['puc_percentage'];
+                            $app['sslc_percentage'] = $ac['sslc_percentage'];
+                            if (!empty($ac['gender'])) $app['gender'] = $ac['gender'];
                         }
                     }
                 } else {
-                    // GMIT: Fetch academic history from local SGPA tracker
-                    // First, get the current semester
-                    $enrichParams = [$app['usn']];
-                    $sqlCurr = "SELECT semester FROM student_sem_sgpa WHERE (student_id = ?";
-                    if (!empty($app['aadhar'])) {
-                        $sqlCurr .= " OR student_id = ?";
-                        $enrichParams[] = $app['aadhar'];
-                    }
-                    $sqlCurr .= ") AND institution = ? AND is_current = 1 LIMIT 1";
-                    $enrichParams[] = INSTITUTION_GMIT;
-                    $stmtCurr = $appModel->getDB()->prepare($sqlCurr);
-                    $stmtCurr->execute($enrichParams);
-                    $currSemRow = $stmtCurr->fetch();
-                    $app['current_semester'] = $currSemRow ? $currSemRow['semester'] : null;
-    
-                    // Then get the latest semester SGPA that is > 0
-                    $enrichParams2 = [$app['usn']];
-                    $sqlAc = "SELECT sgpa FROM student_sem_sgpa WHERE (student_id = ?";
-                    if (!empty($app['aadhar'])) {
-                        $sqlAc .= " OR student_id = ?";
-                        $enrichParams2[] = $app['aadhar'];
-                    }
-                    $sqlAc .= ") AND institution = ? AND sgpa > 0.00 ORDER BY semester DESC LIMIT 1";
-                    $enrichParams2[] = INSTITUTION_GMIT;
-                    $stmtAc = $appModel->getDB()->prepare($sqlAc);
-                    $stmtAc->execute($enrichParams2);
-                    $ac = $stmtAc->fetch();
-                    if ($ac) {
-                        $app['academic_sgpa'] = $ac['sgpa'];
-                    } else {
-                        // Fallback to current sem SGPA if all are 0
-                        $enrichParams3 = [$app['usn']];
-                        $sqlAcFallback = "SELECT sgpa FROM student_sem_sgpa WHERE (student_id = ?";
-                        if (!empty($app['aadhar'])) {
-                            $sqlAcFallback .= " OR student_id = ?";
-                            $enrichParams3[] = $app['aadhar'];
-                        }
-                        $sqlAcFallback .= ") AND institution = ? AND is_current = 1 LIMIT 1";
-                        $enrichParams3[] = INSTITUTION_GMIT;
-                        $stmtAcFallback = $appModel->getDB()->prepare($sqlAcFallback);
-                        $stmtAcFallback->execute($enrichParams3);
-                        $acFallback = $stmtAcFallback->fetch();
-                        $app['academic_sgpa'] = $acFallback ? $acFallback['sgpa'] : 0.00;
-                    }
-                    
-                    // Fetch puc/sslc from remote GMIT details
                     $remoteDB = getDB('gmit');
-                    $stmtDet = $remoteDB->prepare("SELECT puc_percentage, sslc_percentage, course, discipline, gender FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1");
-                    $stmtDet->execute([$app['student_id'], $app['usn']]);
-                    $det = $stmtDet->fetch();
-                    if ($det) {
-                        $app['puc_percentage'] = $det['puc_percentage'];
-                        $app['sslc_percentage'] = $det['sslc_percentage'];
-                        $app['course'] = $det['course'];
-                        $app['branch'] = $det['discipline'];
-                        if (!empty($det['gender'])) $app['gender'] = $det['gender'];
+                    if ($remoteDB) {
+                        $stmtDet = $remoteDB->prepare("SELECT puc_percentage, sslc_percentage, course, discipline, gender FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1");
+                        $stmtDet->execute([$app['student_id'], $app['usn']]);
+                        $det = $stmtDet->fetch();
+                        if ($det) {
+                            $app['puc_percentage'] = $det['puc_percentage'];
+                            $app['sslc_percentage'] = $det['sslc_percentage'];
+                            $app['course'] = $det['course'];
+                            $app['branch'] = $det['discipline'];
+                            if (!empty($det['gender'])) $app['gender'] = $det['gender'];
+                        }
                     }
                 }
-            }
-        } catch (Exception $e) { /* ignore detail fetch errors */ }
+            } catch (Exception $e) {}
+        }
 
         // Apply PHP-side academic filters
         if ($semester && $app['current_semester'] != $semester) continue;
@@ -729,7 +689,7 @@ function formatResponsesForPrint($json) {
             <div class="filter-grid">
                 <div class="filter-item">
                     <label>Semester</label>
-                    <select name="semester" onchange="this.form.submit()">
+                    <select name="semester">
                         <option value="">All Semesters</option>
                         <?php for($i=1; $i<=8; $i++): ?>
                         <option value="<?php echo $i; ?>" <?php echo $semester == $i ? 'selected' : ''; ?>><?php echo $i; ?></option>
@@ -738,7 +698,7 @@ function formatResponsesForPrint($json) {
                 </div>
                 <div class="filter-item">
                     <label>Company</label>
-                    <select name="company_id" onchange="this.form.submit()">
+                    <select name="company_id">
                         <option value="">All Companies</option>
                         <?php foreach ($allCompanies as $comp): ?>
                         <option value="<?php echo $comp['id']; ?>" <?php echo $companyId == $comp['id'] ? 'selected' : ''; ?>>
@@ -749,7 +709,7 @@ function formatResponsesForPrint($json) {
                 </div>
                 <div class="filter-item">
                     <label>Job Role</label>
-                    <select name="job_id" onchange="this.form.submit()">
+                    <select name="job_id">
                         <option value="">All Roles</option>
                         <?php foreach ($allJobs as $job): ?>
                         <option value="<?php echo $job['id']; ?>" <?php echo $jobId == $job['id'] ? 'selected' : ''; ?>>
@@ -760,20 +720,23 @@ function formatResponsesForPrint($json) {
                 </div>
                 <div class="filter-item">
                     <label>Min SGPA</label>
-                    <input type="number" step="0.01" name="min_sgpa" value="<?php echo htmlspecialchars($minSgpa); ?>" placeholder="e.g. 7.5">
+                    <input type="number" step="0.01" min="0" max="10" name="min_sgpa" value="<?php echo $minSgpa !== null ? htmlspecialchars($minSgpa) : ''; ?>" placeholder="e.g. 7.5">
                 </div>
                 <div class="filter-item">
                     <label>Min 10th %</label>
-                    <input type="number" step="0.01" name="min_sslc" value="<?php echo htmlspecialchars($minSslc); ?>" placeholder="0">
+                    <input type="number" step="0.01" min="0" max="100" name="min_sslc" value="<?php echo $minSslc !== null ? htmlspecialchars($minSslc) : ''; ?>" placeholder="e.g. 60">
                 </div>
                 <div class="filter-item">
                     <label>Min 12th %</label>
-                    <input type="number" step="0.01" name="min_puc" value="<?php echo htmlspecialchars($minPuc); ?>" placeholder="0">
+                    <input type="number" step="0.01" min="0" max="100" name="min_puc" value="<?php echo $minPuc !== null ? htmlspecialchars($minPuc) : ''; ?>" placeholder="e.g. 60">
                 </div>
             </div>
             <div class="filter-footer">
                 <div style="font-size: 13px; color: var(--text-muted);">
                     Showing <strong><?php echo count($applications); ?></strong> applications
+                    <?php if ($jobId || $companyId || $semester || $minSgpa || $minSslc || $minPuc || $statusFilter): ?>
+                        <span style="color: var(--primary); margin-left:8px;">· Filters active</span>
+                    <?php endif; ?>
                 </div>
                 <div style="display: flex; gap: 10px;">
                     <button type="submit" name="reset_filters" value="1" class="btn-action" style="background: transparent; color: var(--text-muted);">
@@ -785,6 +748,7 @@ function formatResponsesForPrint($json) {
                 </div>
             </div>
         </form>
+
 
         <div class="table-card screen-only">
             <div style="overflow-x: auto;">

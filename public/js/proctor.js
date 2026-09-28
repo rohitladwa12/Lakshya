@@ -26,12 +26,18 @@ class ProctoringEngine {
         this._token        = null;
         this._settings     = {};
         this._stream       = null;
+        this._screenStream = options.screenStream || null;
         this._videoEl      = null;
-        this._canvasEl     = null;
+        this._screenVideoEl= null;
         this._isActive     = false;
         this._seq          = 0;
         this._detector     = null;
         this._detectorMode = 'mediapipe';
+
+        if (this._screenStream) {
+            this.setScreenStream(this._screenStream);
+        }
+
 
         // Phase 4B Baselines & Calibration Distributions
         this._baseline = {
@@ -151,6 +157,37 @@ class ProctoringEngine {
             return false;
         }
     }
+
+    setScreenStream(stream) {
+        if (!stream) return;
+        this._screenStream = stream;
+        if (!this._screenVideoEl) {
+            this._screenVideoEl = document.createElement('video');
+            this._screenVideoEl.autoplay = true;
+            this._screenVideoEl.muted = true;
+            this._screenVideoEl.playsInline = true;
+            this._screenVideoEl.style.display = 'none';
+            document.body.appendChild(this._screenVideoEl);
+        }
+        this._screenVideoEl.srcObject = stream;
+        this._screenVideoEl.play().catch(() => {});
+    }
+
+    async initScreenShare() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) return false;
+        try {
+            const stream = await navigator.mediaDevices.getDisplayMedia({
+                video: { displaySurface: 'monitor', cursor: 'always' },
+                audio: false
+            });
+            this.setScreenStream(stream);
+            return true;
+        } catch (e) {
+            console.warn('[Proctor] Screen share declined or failed:', e);
+            return false;
+        }
+    }
+
 
     async runEnvCheck() {
         if (!this._stream) return { passed: false, reasons: ['Camera stream is not active.'] };
@@ -333,6 +370,12 @@ class ProctoringEngine {
         this._attachBrowserListeners();
     }
 
+    // Alias so pages can call either proctorEngine.start() or proctorEngine.startMonitoring()
+    start() {
+        return this.startMonitoring();
+    }
+
+
     stop() {
         this._isActive = false;
         clearInterval(this._monitorLoop);
@@ -344,10 +387,21 @@ class ProctoringEngine {
             this._stream = null;
         }
 
+        if (this._screenStream) {
+            this._screenStream.getTracks().forEach(t => t.stop());
+            this._screenStream = null;
+        }
+
+        if (this._screenVideoEl && this._screenVideoEl.parentNode) {
+            this._screenVideoEl.parentNode.removeChild(this._screenVideoEl);
+            this._screenVideoEl = null;
+        }
+
         if (this._token) {
             this._post('end_session', { token: this._token }).catch(() => {});
         }
     }
+
 
     // ─────────────────────────────────────────────────────────
     // PRIVATE: SENSORS & 4-TIER EVIDENCE OBSERVATION PIPELINE
@@ -377,12 +431,12 @@ class ProctoringEngine {
             return;
         }
 
-        // 2. Multi-Face Presence
+        // 2. Multi-Face Presence → MULTI_FACE (matches admin dashboard label)
         if (faceCount > 1) {
             this._setPreviewStatusIndicator('warning');
-            if (this._canReport('MULTIPLE_PERSONS_PRESENT', 4000)) {
+            if (this._canReport('MULTI_FACE', 4000)) {
                 const snapshot = this._captureSnapshot();
-                await this._reportObservation('MULTIPLE_PERSONS_PRESENT', 2000, 0.95, snapshot, {
+                await this._reportObservation('MULTI_FACE', 2000, 0.95, snapshot, {
                     face_count: faceCount,
                     scene_luminance: Number(lum.toFixed(1))
                 });
@@ -390,15 +444,16 @@ class ProctoringEngine {
             return;
         }
 
-        // 3. Unattended Station (Face Absence)
+        // 3. Unattended Station (Face Absence) → NO_FACE/UNATTENDED_STATION
         if (faceCount === 0) {
             this._setPreviewStatusIndicator('warning');
             if (!this._unattendedStartTime) this._unattendedStartTime = now;
             const absentDurationMs = now - this._unattendedStartTime;
 
-            if (absentDurationMs >= 3000 && this._canReport('UNATTENDED_STATION', 4000)) {
+            if (absentDurationMs >= 3000 && this._canReport('NO_FACE', 4000)) {
                 const snapshot = this._captureSnapshot();
-                await this._reportObservation('OCCLUSION_SAMPLE', absentDurationMs, 0.90, snapshot, {
+                // Send NO_FACE first for immediate admin visibility
+                await this._reportObservation('NO_FACE', absentDurationMs, 0.90, snapshot, {
                     face_count: 0,
                     scene_luminance: Number(lum.toFixed(1)),
                     camera_stable: true,
@@ -409,6 +464,30 @@ class ProctoringEngine {
         } else {
             this._unattendedStartTime = null;
         }
+
+        // 3b. Phone / Prohibited Device — geometric proxy heuristic
+        // Detects a bright rectangular foreign object (phone screen glow) via canvas luminance
+        // analysis. When a phone is held in view it creates a high-contrast bright rectangle
+        // with a different colour temperature than a human face, detectable as a luminance spike
+        // in the peripheral image zone vs. the face-centred zone.
+        const phoneScore = this._estimatePhonePresence();
+        if (phoneScore > 0.60) {
+            if (!this._devicePresenceStartTime) this._devicePresenceStartTime = now;
+            const devDurationMs = now - this._devicePresenceStartTime;
+
+            if (devDurationMs >= 3000 && this._canReport('PROHIBITED_DEVICE_DETECTED', 5000)) {
+                const snapshot = this._captureSnapshot();
+                await this._reportObservation('PROHIBITED_DEVICE_DETECTED', devDurationMs, phoneScore, snapshot, {
+                    class: 'cell_phone',
+                    confidence: Number(phoneScore.toFixed(2)),
+                    duration_ms: devDurationMs,
+                    detection_method: 'luminance_heuristic'
+                });
+            }
+        } else {
+            this._devicePresenceStartTime = null;
+        }
+
 
         // ── SINGLE FACE DETECTED: EXTRACT DETAILED GEOMETRY ──
         const detection = detections[0];
@@ -681,6 +760,10 @@ class ProctoringEngine {
     async _reportObservation(eventType, durationMs, confidence, snapshotBase64, metadata) {
         if (!this._isActive || !this._token) return;
 
+        // INSTANT 0ms BLINK-OF-AN-EYE SNAPSHOT CAPTURE
+        // Capture snapshot frame synchronously in memory BEFORE network latency
+        const instantSnapshot = snapshotBase64 || this._captureSnapshot();
+
         this._seq++;
         try {
             const res = await this._post('record_observation', {
@@ -688,7 +771,7 @@ class ProctoringEngine {
                 seq:              this._seq,
                 event_type:       eventType,
                 confidence:       confidence,
-                snapshot:         snapshotBase64,
+                snapshot:         instantSnapshot,
                 metadata:         metadata
             });
 
@@ -763,25 +846,45 @@ class ProctoringEngine {
     }
 
     _attachBrowserListeners() {
+        // INSTANT CAPTURE ON TAB SWITCH (Prioritizing desktop screen stream if active)
         this._onVisibilityChange = async () => {
             if (document.hidden) {
-                await this._reportObservation('TAB_SWITCH', 1000, 1.0, null, { trigger: 'visibility_hidden' });
+                // Brief 120ms pause allows OS window manager to bring switched tab/window to foreground on screen stream
+                await this._sleep(120);
+                const instantSnapshot = this._captureSnapshot(true);
+                await this._reportObservation('TAB_SWITCH', 1000, 1.0, instantSnapshot, { trigger: 'visibility_hidden' });
             }
         };
 
+        // INSTANT CAPTURE ON WINDOW BLUR (Focus Lost)
+        this._onBlur = async () => {
+            if (this._isActive) {
+                await this._sleep(120);
+                const instantSnapshot = this._captureSnapshot(true);
+                await this._reportObservation('WINDOW_BLUR', 1000, 1.0, instantSnapshot, { trigger: 'window_blur' });
+            }
+        };
+
+        // INSTANT CAPTURE ON FULLSCREEN EXIT
         this._onFullscreenChange = async () => {
             if (!document.fullscreenElement) {
-                await this._reportObservation('FULLSCREEN_EXIT', 1000, 1.0, null, { trigger: 'fullscreen_exit' });
+                const instantSnapshot = this._captureSnapshot(true);
+                await this._reportObservation('FULLSCREEN_EXIT', 1000, 1.0, instantSnapshot, { trigger: 'fullscreen_exit' });
             }
         };
 
         document.addEventListener('visibilitychange', this._onVisibilityChange);
+        window.addEventListener('blur', this._onBlur);
         document.addEventListener('fullscreenchange', this._onFullscreenChange);
     }
+
 
     _detachBrowserListeners() {
         if (this._onVisibilityChange) {
             document.removeEventListener('visibilitychange', this._onVisibilityChange);
+        }
+        if (this._onBlur) {
+            window.removeEventListener('blur', this._onBlur);
         }
         if (this._onFullscreenChange) {
             document.removeEventListener('fullscreenchange', this._onFullscreenChange);
@@ -837,12 +940,150 @@ class ProctoringEngine {
         return sum / (data.length / 16);
     }
 
-    _captureSnapshot() {
-        if (!this._canvasEl) return null;
+    _captureSnapshot(preferScreen = false) {
         try {
-            return this._canvasEl.toDataURL('image/jpeg', 0.65);
-        } catch (e) { return null; }
+            if (!this._canvasEl) {
+                this._canvasEl = document.createElement('canvas');
+            }
+            const hasScreen = Boolean(this._screenVideoEl && this._screenVideoEl.videoWidth > 0);
+            const hasWebcam = Boolean(this._videoEl && this._videoEl.videoWidth > 0);
+
+            if (preferScreen && hasScreen) {
+                const sw = this._screenVideoEl.videoWidth || 1280;
+                const sh = this._screenVideoEl.videoHeight || 720;
+                this._canvasEl.width = sw;
+                this._canvasEl.height = sh;
+                const ctx = this._canvasEl.getContext('2d');
+                ctx.drawImage(this._screenVideoEl, 0, 0, sw, sh);
+
+                // Overlay webcam PiP in bottom-right corner if available
+                if (hasWebcam) {
+                    const pipW = Math.min(320, Math.floor(sw * 0.25));
+                    const pipH = Math.floor(pipW * ((this._videoEl.videoHeight || 480) / (this._videoEl.videoWidth || 640)));
+                    const pipX = sw - pipW - 16;
+                    const pipY = sh - pipH - 16;
+
+                    ctx.fillStyle = '#000000';
+                    ctx.fillRect(pipX - 3, pipY - 3, pipW + 6, pipH + 6);
+                    ctx.drawImage(this._videoEl, pipX, pipY, pipW, pipH);
+
+                    // Red badge on PiP
+                    ctx.fillStyle = '#ef4444';
+                    ctx.font = 'bold 13px sans-serif';
+                    ctx.fillText('🔴 CAM + SCREEN EVIDENCE', pipX + 8, pipY + 20);
+                }
+                return this._canvasEl.toDataURL('image/jpeg', 0.80);
+            }
+
+            if (hasWebcam) {
+                this._canvasEl.width = this._videoEl.videoWidth || 640;
+                this._canvasEl.height = this._videoEl.videoHeight || 480;
+                const ctx = this._canvasEl.getContext('2d');
+                ctx.drawImage(this._videoEl, 0, 0, this._canvasEl.width, this._canvasEl.height);
+                return this._canvasEl.toDataURL('image/jpeg', 0.80);
+            }
+
+            if (hasScreen) {
+                this._canvasEl.width = this._screenVideoEl.videoWidth || 1280;
+                this._canvasEl.height = this._screenVideoEl.videoHeight || 720;
+                const ctx = this._canvasEl.getContext('2d');
+                ctx.drawImage(this._screenVideoEl, 0, 0, this._canvasEl.width, this._canvasEl.height);
+                return this._canvasEl.toDataURL('image/jpeg', 0.80);
+            }
+
+            return null;
+        } catch (e) {
+            console.error('[LakshyaProctor] Snapshot capture error:', e);
+            return null;
+        }
     }
+
+
+    /**
+     * Phone / Prohibited Device Heuristic Detector
+     *
+     * Strategy: A phone or tablet screen held in the frame produces a bright, high-saturation,
+     * high-contrast rectangular glow that is:
+     *   (a) significantly brighter than the face region in a localised area
+     *   (b) has unusually high pixel variance (sharp edges of a screen vs. organic face texture)
+     *   (c) contributes an abnormal saturation spike in the peripheral zones
+     *
+     * Returns a [0.0, 1.0] suspicion score. Above 0.60 = likely phone present.
+     */
+    _estimatePhonePresence() {
+        if (!this._canvasEl || !this._videoEl || this._videoEl.videoWidth === 0) return 0.0;
+        try {
+            const ctx = this._canvasEl.getContext('2d');
+            const w = this._canvasEl.width;
+            const h = this._canvasEl.height;
+
+            // Sample three zones: centre (face area), left peripheral, right peripheral
+            // Phone is usually held to the side or below face
+            const zones = [
+                { x: 0,           y: 0,       zw: Math.floor(w * 0.30), zh: h, label: 'left'   },
+                { x: Math.floor(w * 0.35), y: Math.floor(h * 0.55), zw: Math.floor(w * 0.30), zh: Math.floor(h * 0.45), label: 'bottom_centre' },
+                { x: Math.floor(w * 0.70), y: 0,       zw: Math.floor(w * 0.30), zh: h, label: 'right'  },
+            ];
+
+            const centerX = Math.floor(w * 0.25); const centerY = Math.floor(h * 0.15);
+            const centerW = Math.floor(w * 0.50); const centerH = Math.floor(h * 0.50);
+            const centreData = ctx.getImageData(centerX, centerY, centerW, centerH).data;
+
+            // Face region mean luminance
+            let centreLumSum = 0;
+            for (let i = 0; i < centreData.length; i += 16) {
+                centreLumSum += 0.299 * centreData[i] + 0.587 * centreData[i+1] + 0.114 * centreData[i+2];
+            }
+            const centreLum = centreLumSum / (centreData.length / 16);
+
+            let maxZoneScore = 0.0;
+            for (const zone of zones) {
+                if (zone.zw < 10 || zone.zh < 10) continue;
+                const zData = ctx.getImageData(zone.x, zone.y, zone.zw, zone.zh).data;
+                let lumSum = 0, satSum = 0, varianceAcc = 0;
+                const samples = [];
+                for (let i = 0; i < zData.length; i += 12) {
+                    const r = zData[i], g = zData[i+1], b = zData[i+2];
+                    const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+                    const max = Math.max(r, g, b), min = Math.min(r, g, b);
+                    const sat = max > 0 ? (max - min) / max : 0;
+                    lumSum += lum;
+                    satSum += sat;
+                    samples.push(lum);
+                }
+                const n = samples.length;
+                if (n === 0) continue;
+                const meanLum = lumSum / n;
+                const meanSat = satSum / n;
+
+                // Variance (screen edges = sharp → high variance)
+                for (const s of samples) {
+                    const d = s - meanLum;
+                    varianceAcc += d * d;
+                }
+                const variance = varianceAcc / n;
+                const stdDev = Math.sqrt(variance);
+
+                // Brightness excess: screen is much brighter than face
+                const brightnessExcess = Math.max(0, (meanLum - centreLum - 30) / 120);
+
+                // Saturation spike: phone screens emit vivid colours
+                const satSpike = Math.max(0, (meanSat - 0.15) / 0.35);
+
+                // High variance = sharp rectangular edges characteristic of a screen
+                const varianceScore = Math.min(1.0, stdDev / 55.0);
+
+                // Composite score — weighted: brightness excess matters most
+                const zoneScore = (0.45 * brightnessExcess) + (0.30 * varianceScore) + (0.25 * satSpike);
+                if (zoneScore > maxZoneScore) maxZoneScore = zoneScore;
+            }
+
+            return Math.min(1.0, maxZoneScore);
+        } catch (e) {
+            return 0.0;
+        }
+    }
+
 
     _injectUI() {
         if (!document.getElementById('proctor-css')) {

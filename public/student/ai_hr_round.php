@@ -672,10 +672,15 @@ if ($driveId > 0) {
                 <span id="finalScoreNum" class="score-number">0</span><span id="finalScorePct"
                     class="score-percentage">%</span>
             </div>
-            <div class="score-desc">Your HR interview performance has been evaluated.</div>
+            <div id="proctorPenaltyBox" style="display: none; margin: 12px 0; padding: 10px; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; font-size: 0.85rem;">
+                <div style="color: #ccc;">Raw Performance: <strong id="rawScoreVal" style="color: #fff;">0%</strong></div>
+                <div style="color: #ef4444; font-weight: 700; margin-top: 3px;"><i class="fas fa-shield-alt"></i> Proctor Penalty: <span id="penaltyPctVal">-0%</span></div>
+            </div>
+            <div class="score-desc" id="scoreDescText">Your HR interview performance has been evaluated.</div>
             <button class="btn-continue" onclick="closeSession()">Continue</button>
         </div>
     </div>
+
 
     <!-- Security Warning Overlay -->
     <div id="warningOverlay" class="overlay hidden">
@@ -1227,6 +1232,22 @@ if ($driveId > 0) {
                 } else if (document.fullscreenElement) warning.classList.add('hidden');
             });
 
+            document.addEventListener('visibilitychange', () => {
+                const warning = document.getElementById('warningOverlay');
+                if (document.visibilityState === 'hidden' && isSessionActive) {
+                    warning.classList.remove('hidden');
+                    speak("Please return to the test window.");
+                }
+            });
+
+            window.addEventListener('blur', () => {
+                const warning = document.getElementById('warningOverlay');
+                if (isSessionActive) {
+                    warning.classList.remove('hidden');
+                    speak("Window lost focus. Please remain inside the test window.");
+                }
+            });
+
             window.addEventListener('beforeunload', () => {
                 if (isSessionActive) transitionTo(State.ENDED);
                 releaseAudioResources(); // always stop mic tracks, even after ENDED
@@ -1645,6 +1666,7 @@ if ($driveId > 0) {
             const res = await apiCall({
                 action: 'generate_report_data',
                 session_id: sessionId,
+                proctor_token: proctorEngine ? (proctorEngine._token || '') : '',
                 telemetry: getTelemetryPayload()
             });
             document.getElementById('loadingOverlay').classList.add('hidden');
@@ -1652,11 +1674,20 @@ if ($driveId > 0) {
                 isSessionActive = false;
                 transitionTo(State.ENDED);
                 document.getElementById('finalScoreNum').innerText = res.score;
+                
+                const penaltyBox = document.getElementById('proctorPenaltyBox');
+                if (res.penalty_pct > 0 && penaltyBox) {
+                    document.getElementById('rawScoreVal').innerText = (res.raw_score || res.score) + '%';
+                    document.getElementById('penaltyPctVal').innerText = '-' + res.penalty_pct + '% (' + res.strike_count + ' Strike' + (res.strike_count > 1 ? 's' : '') + ')';
+                    penaltyBox.style.display = 'block';
+                }
+
                 document.getElementById('scoreModal').classList.remove('hidden');
             } else {
                 alert(res.message || 'Report generation failed. Please try ending the session again.');
                 transitionTo(State.WAITING); // resume the interview
             }
+
         }
 
         async function apiCall(data) {

@@ -93,9 +93,15 @@ try {
                 $severity = 'LOW';
             }
 
+            $snapshotInfo = null;
+            $snapshotBase64 = $input['snapshot'] ?? $input['snapshot_base64'] ?? null;
+            if (!empty($snapshotBase64)) {
+                $snapshotInfo = \App\Services\ProctoringService::saveSnapshotToVault($snapshotBase64, $username, $eventType);
+            }
+
             $stmt = $db->prepare("INSERT INTO assessment_integrity_events 
-                (student_id, portfolio_id, assessment_type, event_type, duration, confidence, severity, metadata, created_at) 
-                VALUES (?, ?, 'Project Defense', ?, ?, ?, ?, ?, NOW())");
+                (student_id, portfolio_id, assessment_type, event_type, duration, confidence, severity, metadata, snapshot_path, file_size, sha256, mime_type, created_at) 
+                VALUES (?, ?, 'Project Defense', ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())");
             
             $stmt->execute([
                 $username,
@@ -104,7 +110,11 @@ try {
                 $duration,
                 $confidence,
                 $severity,
-                json_encode($metadata)
+                json_encode($metadata),
+                $snapshotInfo['path'] ?? null,
+                $snapshotInfo['size'] ?? null,
+                $snapshotInfo['sha256'] ?? null,
+                $snapshotInfo['mime'] ?? null
             ]);
 
             ob_clean(); echo json_encode([
@@ -252,6 +262,13 @@ try {
 
                 $autoSubmitted = !empty($input['auto_submitted']);
                 $strikeCount = (int)($input['strike_count'] ?? 0);
+                $penaltyPct = ($strikeCount === 1) ? 5.0 : (($strikeCount === 2) ? 10.0 : ($strikeCount >= 3 || $autoSubmitted ? 100.0 : 0.0));
+                $rawScore = $score;
+                $finalScore = max(0.0, round($rawScore - $penaltyPct, 1));
+                
+                $integrityReport['raw_score'] = $rawScore;
+                $integrityReport['penalty_pct'] = $penaltyPct;
+                $integrityReport['final_score'] = $finalScore;
                 $integrityReport['auto_submitted'] = $autoSubmitted;
                 $integrityReport['strike_count'] = $strikeCount;
 
@@ -265,7 +282,7 @@ try {
             }
 
             // 3. Update student_portfolio
-            $isVerified = ($score >= 70) ? 1 : 0;
+            $isVerified = ($finalScore >= 70 && !$autoSubmitted && $strikeCount < 3) ? 1 : 0;
             $sql = "UPDATE student_portfolio SET 
                     is_verified = ?, 
                     verification_score = ?, 
@@ -274,7 +291,7 @@ try {
                     WHERE id = ?";
             $db->prepare($sql)->execute([
                 $isVerified,
-                $score,
+                $finalScore,
                 json_encode([
                     'feedback' => $feedback,
                     'transcript' => $history,
@@ -282,6 +299,7 @@ try {
                 ]),
                 $portfolioId
             ]);
+
 
             // 4. Sync to unified_ai_assessments
             try {
