@@ -21,7 +21,7 @@ if (isPost() && (isset($_POST['id']))) {
 }
 
 $filters = SessionFilterHelper::getFilters('project_viva');
-$portfolioId = $filters['id'] ?? 0;
+$portfolioId = isset($_GET['id']) ? (int)$_GET['id'] : (int)($filters['id'] ?? 0);
 
 // Fetch project details
 $stmt = getDB()->prepare("SELECT * FROM student_portfolio WHERE id = ? AND student_id = ?");
@@ -45,6 +45,7 @@ $projectTitle = $project['title'];
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="../js/lakshya_dialogs.js?v=<?php echo APP_VERSION; ?>"></script>
     <!-- KaTeX for equation rendering -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
@@ -325,6 +326,15 @@ $projectTitle = $project['title'];
             box-shadow: 0 20px 40px rgba(0,0,0,0.6);
             z-index: 999;
             backdrop-filter: blur(10px);
+            cursor: grab;
+            user-select: none;
+            -webkit-user-select: none;
+            touch-action: none;
+        }
+        .proctor-widget.is-dragging {
+            cursor: grabbing !important;
+            opacity: 0.88;
+            box-shadow: 0 24px 48px rgba(0,0,0,0.85);
         }
 
         .proctor-widget video {
@@ -426,9 +436,9 @@ $projectTitle = $project['title'];
             <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.2rem;">
                 Enable your webcam feed to establish active identity monitoring during the defense session.
             </p>
-            <video id="setupWebcamPreview" autoplay muted playsinline style="width: 220px; height: 150px; border-radius: 16px; background: #000; border: 2px solid var(--glass-border); margin: 0 auto 1.2rem; object-fit: cover; display: block;"></video>
+            <video id="setupWebcamPreview" autoplay muted playsinline style="width: 220px; height: 150px; border-radius: 16px; background: #000; border: 2px solid var(--glass-border); margin: 0 auto 1.2rem; object-fit: cover; display: block; transform: scaleX(-1);"></video>
             <div id="setupCheckStatus" style="font-size: 0.85rem; font-weight: 700; color: #f59e0b; margin-bottom: 1.5rem;">
-                Requesting camera permission…
+                Click the button below to enable your camera.
             </div>
             <button id="btnGrantCamera" onclick="initCameraSetup()" class="btn-action">
                 Enable Camera & Continue <i class="fas fa-arrow-right"></i>
@@ -441,10 +451,14 @@ $projectTitle = $project['title'];
             <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;" id="calibPromptText">
                 Look directly at the center target below.
             </p>
+            <video id="calibWebcamPreview" autoplay muted playsinline style="width: 220px; height: 150px; border-radius: 16px; background: #000; border: 2px solid var(--glass-border); margin: 0 auto 0.8rem; object-fit: cover; display: block; transform: scaleX(-1);"></video>
             <div class="calib-target" id="calibTarget"></div>
             <div id="calibProgressText" style="font-size: 0.9rem; font-weight: 700; color: var(--accent-gold); margin-bottom: 1.5rem;">
                 Progress: Center (0/3s)
             </div>
+            <button id="btnRetryCalib" onclick="startCalibrationFlow()" class="btn-action hidden">
+                <i class="fas fa-redo"></i> Retry Calibration
+            </button>
         </div>
 
         <!-- Step 3 View: Screen Share Setup -->
@@ -610,7 +624,8 @@ $projectTitle = $project['title'];
     let currentIdx = 0;
     let isSessionActive = false;
     const portfolioId = <?php echo $portfolioId; ?>;
-    const CSRF_TOKEN = '<?php echo $_SESSION['csrf_token']; ?>';
+    const CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
+    let isFinalizing = false; // last answer + 3rd-strike auto-submit must not both submit
 
     // --- PROCTORING ENGINE STATE ---
     let webcamStream = null;
@@ -640,23 +655,34 @@ $projectTitle = $project['title'];
     let mediaPipeDetector = null;
     let isMediaPipeLoading = false;
 
-    async function initMediaPipeDetector() {
+    // Pinned so the JS bundle and the WASM files always come from the same release
+    const MEDIAPIPE_VERSION = '0.10.14';
+
+    async function initMediaPipeDetector(delegates = ['GPU', 'CPU']) {
         if (mediaPipeDetector || isMediaPipeLoading) return;
         isMediaPipeLoading = true;
         try {
-            const visionModule = await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs');
+            const visionModule = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/vision_bundle.mjs`);
             const vision = await visionModule.FilesetResolver.forVisionTasks(
-                'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm'
+                `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`
             );
-            mediaPipeDetector = await visionModule.FaceDetector.createFromOptions(vision, {
-                baseOptions: {
-                    modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite',
-                    delegate: 'GPU'
-                },
-                runningMode: 'IMAGE',
-                minDetectionConfidence: 0.45,
-            });
-            console.log("[Lakshya AI] MediaPipe BlazeFace AI Detector initialized.");
+            // The GPU delegate fails on some Macs / Safari builds, so fall back to CPU
+            for (const delegate of delegates) {
+                try {
+                    mediaPipeDetector = await visionModule.FaceDetector.createFromOptions(vision, {
+                        baseOptions: {
+                            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite',
+                            delegate: delegate
+                        },
+                        runningMode: 'IMAGE',
+                        minDetectionConfidence: 0.45,
+                    });
+                    console.log(`[Lakshya AI] MediaPipe BlazeFace AI Detector initialized (${delegate}).`);
+                    break;
+                } catch (delegateErr) {
+                    console.warn(`[Lakshya AI] MediaPipe ${delegate} delegate failed:`, delegateErr);
+                }
+            }
         } catch (err) {
             console.warn("[Lakshya AI] MediaPipe CDN load fallback:", err);
         } finally {
@@ -665,6 +691,70 @@ $projectTitle = $project['title'];
     }
     // Pre-warm MediaPipe detector on page load
     initMediaPipeDetector();
+
+    const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+    // Gives the AI detector a few seconds to finish loading before calibration relies on it
+    async function waitForFaceDetector(timeoutMs) {
+        const start = Date.now();
+        while (!mediaPipeDetector && isMediaPipeLoading && Date.now() - start < timeoutMs) {
+            await sleep(200);
+        }
+    }
+
+    /**
+     * Counts faces in the current video frame.
+     * Returns { count, centerX (0..1 of frame width, or null), source }.
+     */
+    async function detectFaces(videoEl, canvasEl) {
+        if (mediaPipeDetector) {
+            try {
+                const mpResult = mediaPipeDetector.detect(videoEl);
+                const detections = (mpResult && mpResult.detections) || [];
+                const box = detections.length === 1 ? detections[0].boundingBox : null;
+                return {
+                    count: detections.length,
+                    centerX: box ? (box.originX + box.width / 2) / videoEl.videoWidth : null,
+                    source: 'mediapipe'
+                };
+            } catch (e) {
+                // GPU context can be lost at runtime (common on Safari) — rebuild on CPU
+                console.warn("[Lakshya AI] MediaPipe detect failed, switching to CPU:", e);
+                try { mediaPipeDetector.close(); } catch (closeErr) {}
+                mediaPipeDetector = null;
+                initMediaPipeDetector(['CPU']);
+            }
+        }
+
+        const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+        ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
+
+        if (nativeFaceDetector) {
+            try {
+                const detected = await nativeFaceDetector.detect(canvasEl);
+                const box = detected.length === 1 ? detected[0].boundingBox : null;
+                return {
+                    count: detected.length,
+                    centerX: box ? (box.x + box.width / 2) / canvasEl.width : null,
+                    source: 'native'
+                };
+            } catch (e) {}
+        }
+
+        // Heuristic YCbCr skin-pixel fallback (if ML models are offline).
+        // It cannot tell one close face from two, so it never reports more than one face.
+        const data = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height).data;
+        let skinPixelCount = 0;
+        for (let i = 0; i < data.length; i += 16) {
+            const r = data[i], g = data[i+1], b = data[i+2];
+            const y  = 0.299 * r + 0.587 * g + 0.114 * b;
+            const cb = 128 - (0.168736 * r) - (0.331264 * g) + (0.5 * b);
+            const cr = 128 + (0.5 * r) - (0.418688 * g) - (0.081312 * b);
+            if (y > 30 && cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173) skinPixelCount++;
+        }
+        const skinRatio = skinPixelCount / (data.length / 16);
+        return { count: skinRatio >= 0.025 ? 1 : 0, centerX: null, source: 'heuristic' };
+    }
 
     function renderMath(element) {
         if (typeof renderMathInElement === 'function') {
@@ -692,8 +782,10 @@ $projectTitle = $project['title'];
         document.addEventListener('cut', e => e.preventDefault());
         document.addEventListener('paste', e => e.preventDefault());
         document.addEventListener('keydown', e => {
-            if (e.ctrlKey && ['c', 'v', 'x', 'u'].includes(e.key.toLowerCase())) e.preventDefault();
-            if (e.ctrlKey && e.shiftKey && e.key === 'I') e.preventDefault();
+            // metaKey = Cmd on macOS
+            if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'u'].includes(e.key.toLowerCase())) e.preventDefault();
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'i') e.preventDefault();
+            if (e.metaKey && e.altKey && e.key.toLowerCase() === 'i') e.preventDefault();
             if (e.key === 'F12') e.preventDefault();
         });
     }
@@ -750,12 +842,15 @@ $projectTitle = $project['title'];
             if (btnEl) btnEl.style.display = 'none';
 
             videoTrack.onended = () => handleCameraStreamLost();
-            videoTrack.onmute = () => handleCameraStreamLost();
+            // macOS mutes the track for a moment while the FaceTime camera warms up or switches
+            // (Continuity Camera, video effects). That is not a lost camera — only 'ended' is fatal.
+            videoTrack.onmute = () => console.warn("[Lakshya AI] Camera track temporarily muted.");
 
             let countdown = 5;
+            let waitedForFrames = 0;
             const updateCountdown = () => {
                 const track = webcamStream ? webcamStream.getVideoTracks()[0] : null;
-                if (!track || track.readyState !== 'live' || track.ended || track.muted) {
+                if (!track || track.readyState !== 'live') {
                     handleCameraStreamLost();
                     return;
                 }
@@ -763,6 +858,23 @@ $projectTitle = $project['title'];
                 if (videoEl.paused) {
                     videoEl.play().catch(e => {});
                 }
+
+                // Don't start the countdown until the preview is actually showing a picture
+                if (videoEl.videoWidth === 0 || track.muted) {
+                    waitedForFrames++;
+                    statusEl.style.color = '#f59e0b';
+                    statusEl.innerHTML = waitedForFrames < 10
+                        ? '<i class="fas fa-spinner fa-spin"></i> Waiting for camera picture…'
+                        : '<i class="fas fa-exclamation-triangle"></i> Camera opened but no picture is coming through.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Close other apps using the camera (FaceTime, Zoom, Teams). On a Mac, check System Settings → Privacy &amp; Security → Camera and make sure your browser is allowed.</span>';
+                    if (waitedForFrames === 10 && btnEl) {
+                        btnEl.innerHTML = '<i class="fas fa-redo"></i> Retry Camera Setup';
+                        btnEl.style.display = 'inline-flex';
+                    }
+                    cameraSetupTimer = setTimeout(updateCountdown, 500);
+                    return;
+                }
+                statusEl.style.color = '#10b981';
+                if (btnEl) btnEl.style.display = 'none';
 
                 if (countdown > 0) {
                     statusEl.innerHTML = `<i class="fas fa-check-circle"></i> Camera Active! Position yourself comfortably.<br><span style="color:var(--accent-gold); font-size: 0.85rem; font-weight: 700;">Calibration starting in ${countdown}s…</span>`;
@@ -796,13 +908,15 @@ $projectTitle = $project['title'];
             if (err.message === 'INSECURE_CONTEXT') {
                 errMsg = '<i class="fas fa-times-circle"></i> Camera blocked: Insecure Context.<br><span style="font-size:0.8rem; font-weight:600; color:#ef4444;">Browsers require HTTPS or localhost for camera access. Please use https:// or access via localhost.</span>';
             } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                errMsg = '<i class="fas fa-times-circle"></i> Camera permission was denied.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Click the 🔒 icon in your browser address bar, allow Camera access, and click Retry.</span>';
+                errMsg = '<i class="fas fa-times-circle"></i> Camera permission was denied.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Click the 🔒 icon in your browser address bar, allow Camera access, and click Retry. On a Mac, also enable your browser under System Settings → Privacy &amp; Security → Camera, then restart the browser.</span>';
             } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
                 errMsg = '<i class="fas fa-times-circle"></i> No camera device detected.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please plug in a webcam and click Retry below.</span>';
             } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
                 errMsg = '<i class="fas fa-times-circle"></i> Camera is currently in use.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Another app (Zoom, Teams, or another tab) is using the webcam. Please close it and click Retry.</span>';
             } else if (err.name === 'SecurityError') {
                 errMsg = '<i class="fas fa-times-circle"></i> Camera access restricted by security policy.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Permissions policy or browser configuration is blocking camera access.</span>';
+            } else if (err.message === 'MEDIA_NOT_SUPPORTED') {
+                errMsg = '<i class="fas fa-times-circle"></i> This browser does not support camera access.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please use the latest Chrome, Edge, Firefox or Safari.</span>';
             }
         }
 
@@ -818,45 +932,136 @@ $projectTitle = $project['title'];
     }
 
     // --- STEP 2: GAZE CALIBRATION ---
-    async function startCalibrationFlow() {
+    let isCalibrating = false;
+    // Gaze threshold (fraction of frame width) — widened after calibration if the student's natural range is larger
+    let gazeDeviationThreshold = 0.32;
+
+    // Samples the live camera for durationMs and reports how often a single face was seen
+    async function sampleCalibrationPose(durationMs, onTick) {
+        const videoEl = document.getElementById('calibWebcamPreview');
+        const canvasEl = document.getElementById('proctorAnalysisCanvas');
+        let frames = 0, faceFrames = 0, multiFrames = 0, source = 'none';
+        const centers = [];
+        const start = Date.now();
+
+        while (Date.now() - start < durationMs) {
+            await sleep(250);
+            if (onTick) onTick(Math.min(durationMs, Date.now() - start));
+            if (!videoEl || videoEl.readyState < 2 || videoEl.videoWidth === 0) continue;
+            const result = await detectFaces(videoEl, canvasEl);
+            frames++;
+            source = result.source;
+            if (result.count === 1) {
+                faceFrames++;
+                if (result.centerX !== null) centers.push(result.centerX);
+            } else if (result.count > 1) {
+                multiFrames++;
+            }
+        }
+
+        return {
+            timestamp: Date.now(),
+            frames: frames,
+            confidence: frames > 0 ? Math.round((faceFrames / frames) * 100) / 100 : 0,
+            multi_face_frames: multiFrames,
+            face_center_x: centers.length ? centers.reduce((a, b) => a + b, 0) / centers.length : null,
+            detector: source
+        };
+    }
+
+    // Runs one pose, retrying until a face is visible. Returns the pose data, or null if the student must retry.
+    async function calibratePose(label, prompt, durationMs) {
         const textEl = document.getElementById('calibPromptText');
         const progEl = document.getElementById('calibProgressText');
+        const maxAttempts = 3;
+
+        for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+            textEl.textContent = prompt;
+            progEl.style.color = 'var(--accent-gold)';
+            const pose = await sampleCalibrationPose(durationMs, (elapsed) => {
+                progEl.textContent = `Calibrating ${label} Baseline (${Math.ceil(elapsed / 1000)}/${Math.round(durationMs / 1000)}s)`;
+            });
+
+            if (pose.frames === 0) {
+                progEl.style.color = '#ef4444';
+                progEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i> No camera picture received. Retrying…';
+            } else if (pose.multi_face_frames > pose.frames / 2) {
+                progEl.style.color = '#ef4444';
+                progEl.innerHTML = '<i class="fas fa-users-slash"></i> More than one face detected. Only you should be in front of the camera.';
+            } else if (pose.confidence >= 0.4) {
+                progEl.style.color = '#10b981';
+                progEl.innerHTML = `<i class="fas fa-check-circle"></i> ${label} Baseline Saved!`;
+                await sleep(700);
+                return pose;
+            } else {
+                progEl.style.color = '#ef4444';
+                progEl.innerHTML = '<i class="fas fa-user-slash"></i> We can\'t see your face clearly.<br><span style="font-size:0.8rem; color:#94a3b8;">Sit facing the screen, keep your whole face inside the preview and make sure the room is well lit (avoid a bright window behind you).</span>';
+            }
+            await sleep(2500);
+        }
+        return null;
+    }
+
+    async function startCalibrationFlow() {
+        if (isCalibrating) return;
+        isCalibrating = true;
+
+        const textEl = document.getElementById('calibPromptText');
+        const progEl = document.getElementById('calibProgressText');
+        const retryBtn = document.getElementById('btnRetryCalib');
+        const calibVideo = document.getElementById('calibWebcamPreview');
+        if (retryBtn) retryBtn.classList.add('hidden');
+
+        // Keep the face preview visible during calibration
+        if (calibVideo && webcamStream && calibVideo.srcObject !== webcamStream) {
+            calibVideo.srcObject = webcamStream;
+            calibVideo.play().catch(e => {});
+        }
 
         textEl.textContent = 'Get ready! Sit straight and face the screen.';
-        progEl.textContent = 'Calibration Starting in 3 seconds…';
-        await new Promise(r => setTimeout(r, 1000));
-        progEl.textContent = 'Calibration Starting in 2 seconds…';
-        await new Promise(r => setTimeout(r, 1000));
-        progEl.textContent = 'Calibration Starting in 1 second…';
-        await new Promise(r => setTimeout(r, 1000));
+        progEl.style.color = 'var(--accent-gold)';
+        if (!mediaPipeDetector && isMediaPipeLoading) {
+            progEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading AI face detector…';
+            await waitForFaceDetector(10000);
+        }
+        for (let s = 3; s >= 1; s--) {
+            progEl.textContent = `Calibration Starting in ${s} second${s > 1 ? 's' : ''}…`;
+            await sleep(1000);
+        }
 
-        // Center
-        textEl.textContent = 'Look directly at the center target.';
-        progEl.textContent = 'Calibrating Center Baseline (1/3s)';
-        await new Promise(r => setTimeout(r, 1000));
-        progEl.textContent = 'Calibrating Center Baseline (2/3s)';
-        await new Promise(r => setTimeout(r, 1000));
-        progEl.textContent = 'Calibrating Center Baseline (3/3s)';
-        await new Promise(r => setTimeout(r, 1000));
-        calibrationData.center = { timestamp: Date.now(), confidence: 0.95 };
-        progEl.innerHTML = '<i class="fas fa-check-circle"></i> Center Baseline Saved!';
-        await new Promise(r => setTimeout(r, 800));
+        const center = await calibratePose('Center', 'Look directly at the center target.', 3000);
+        if (!center) {
+            isCalibrating = false;
+            textEl.textContent = 'Calibration could not detect your face.';
+            if (retryBtn) retryBtn.classList.remove('hidden');
+            return;
+        }
+        calibrationData.center = center;
 
-        // Left
-        textEl.textContent = 'Look slightly to your LEFT for 2 seconds.';
-        progEl.textContent = 'Calibrating Left Baseline…';
-        await new Promise(r => setTimeout(r, 1800));
-        calibrationData.left = { timestamp: Date.now(), confidence: 0.95 };
+        // Side poses only widen the gaze tolerance, so a weak result there is not fatal
+        calibrationData.left = await sampleCalibrationPose(2000, () => {
+            textEl.textContent = 'Turn your head slightly to your LEFT.';
+            progEl.style.color = 'var(--accent-gold)';
+            progEl.textContent = 'Calibrating Left Baseline…';
+        });
         progEl.innerHTML = '<i class="fas fa-check-circle"></i> Left Baseline Saved!';
-        await new Promise(r => setTimeout(r, 800));
+        await sleep(700);
 
-        // Right
-        textEl.textContent = 'Look slightly to your RIGHT for 2 seconds.';
-        progEl.textContent = 'Calibrating Right Baseline…';
-        await new Promise(r => setTimeout(r, 1800));
-        calibrationData.right = { timestamp: Date.now(), confidence: 0.95 };
+        calibrationData.right = await sampleCalibrationPose(2000, () => {
+            textEl.textContent = 'Turn your head slightly to your RIGHT.';
+            progEl.textContent = 'Calibrating Right Baseline…';
+        });
         progEl.innerHTML = '<i class="fas fa-check-circle"></i> Right Baseline Saved!';
-        await new Promise(r => setTimeout(r, 800));
+        await sleep(700);
+
+        const baseX = center.face_center_x;
+        const sideSpread = [calibrationData.left.face_center_x, calibrationData.right.face_center_x]
+            .filter(x => x !== null && baseX !== null)
+            .map(x => Math.abs(x - baseX));
+        if (sideSpread.length) {
+            gazeDeviationThreshold = Math.min(0.42, Math.max(0.32, Math.max(...sideSpread) + 0.08));
+        }
+        isCalibrating = false;
 
         try {
             await fetch('project_viva_handler.php', {
@@ -919,19 +1124,39 @@ $projectTitle = $project['title'];
             }, 800);
 
         } catch (err) {
+            console.error("Project Viva Screen Share Error:", err);
             statusEl.style.color = '#ef4444';
-            statusEl.innerHTML = '<i class="fas fa-times-circle"></i> Screen share required for defense session. Select a screen to share.';
+            if (err && err.name === 'NotAllowedError' && /system/i.test(err.message || '')) {
+                // Chrome reports "Permission denied by system" when macOS Screen Recording access is off
+                statusEl.innerHTML = '<i class="fas fa-times-circle"></i> Your computer blocked screen sharing.<br><span style="font-size:0.85rem; color:#94a3b8;">On a Mac: open System Settings → Privacy &amp; Security → Screen &amp; System Audio Recording, enable your browser, then fully quit and reopen the browser.</span>';
+            } else if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+                statusEl.innerHTML = '<i class="fas fa-times-circle"></i> This browser does not support screen sharing. Please use the latest Chrome, Edge, Firefox or Safari on a computer.';
+            } else {
+                statusEl.innerHTML = '<i class="fas fa-times-circle"></i> Screen share required for defense session. Select a screen to share.<br><span style="font-size:0.85rem; color:#94a3b8;">If the picker never appeared on a Mac, check System Settings → Privacy &amp; Security → Screen &amp; System Audio Recording.</span>';
+            }
         }
     }
 
     async function beginAssessmentExecution() {
         await enterFullscreen();
         isSessionActive = true;
+        // Keep the PHP session alive while answers are typed — an expired session would lose the submission
+        if (!window._sessionKeepAlive) {
+            window._sessionKeepAlive = setInterval(() => {
+                if (!isSessionActive) return;
+                fetch('project_viva_handler.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+                    body: JSON.stringify({ action: 'ping' })
+                }).catch(() => {});
+            }, 4 * 60 * 1000);
+        }
 
         proctorStats = {
             totalFrames: 0,
             validFaceFrames: 0,
             consecutiveNoFace: 0,
+            consecutiveMultiFace: 0,
             consecutiveGazeDev: 0,
             lastLoggedNoFaceTime: 0,
             lastLoggedGazeTime: 0
@@ -939,12 +1164,19 @@ $projectTitle = $project['title'];
 
         const setupVid = document.getElementById('setupWebcamPreview');
         if (setupVid) setupVid.srcObject = null;
+        const calibVid = document.getElementById('calibWebcamPreview');
+        if (calibVid) calibVid.srcObject = null;
+
+        // Browsers (Safari especially) refuse fullscreen once the click that started screen share has expired.
+        // Ask for one more click instead of silently running outside fullscreen — this is not a strike.
+        if (!getFullscreenElement()) showFullscreenPrompt();
 
         const widget = document.getElementById('proctorWidget');
         const widgetVideo = document.getElementById('proctorWebcamVideo');
         if (widget && widgetVideo && webcamStream) {
             widget.style.display = 'block';
             widgetVideo.srcObject = webcamStream;
+            enableDraggableWidget(widget);
             try { await widgetVideo.play(); } catch (e) {}
         }
 
@@ -952,6 +1184,64 @@ $projectTitle = $project['title'];
         proctorInterval = setInterval(runProctoringCheckFrame, 1200);
 
         startProcessing();
+    }
+
+    function enableDraggableWidget(el) {
+        if (!el || el._dragInit) return;
+        el._dragInit = true;
+        let isDragging = false;
+        let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
+
+        const onStart = (e) => {
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'A') return;
+            isDragging = true;
+            el.classList.add('is-dragging');
+            const clientX = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY;
+            const rect = el.getBoundingClientRect();
+            initialLeft = rect.left;
+            initialTop = rect.top;
+            startX = clientX;
+            startY = clientY;
+
+            el.style.bottom = 'auto';
+            el.style.right = 'auto';
+            el.style.left = `${initialLeft}px`;
+            el.style.top = `${initialTop}px`;
+        };
+
+        const onMove = (e) => {
+            if (!isDragging) return;
+            const clientX = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY;
+            const dx = clientX - startX;
+            const dy = clientY - startY;
+
+            let newLeft = initialLeft + dx;
+            let newTop = initialTop + dy;
+            const maxLeft = Math.max(0, window.innerWidth - el.offsetWidth - 8);
+            const maxTop = Math.max(0, window.innerHeight - el.offsetHeight - 8);
+
+            newLeft = Math.max(8, Math.min(maxLeft, newLeft));
+            newTop = Math.max(8, Math.min(maxTop, newTop));
+
+            el.style.left = `${newLeft}px`;
+            el.style.top = `${newTop}px`;
+            if (e.cancelable) e.preventDefault();
+        };
+
+        const onEnd = () => {
+            if (!isDragging) return;
+            isDragging = false;
+            el.classList.remove('is-dragging');
+        };
+
+        el.addEventListener('mousedown', onStart);
+        window.addEventListener('mousemove', onMove, { passive: false });
+        window.addEventListener('mouseup', onEnd);
+        el.addEventListener('touchstart', onStart, { passive: true });
+        window.addEventListener('touchmove', onMove, { passive: false });
+        window.addEventListener('touchend', onEnd);
     }
 
     // --- PROCTORING FRAME MONITORING LOOP ---
@@ -966,94 +1256,25 @@ $projectTitle = $project['title'];
         if (!videoEl || !canvasEl) return;
 
         if (videoEl.paused || videoEl.ended || videoEl.videoWidth === 0 || videoEl.videoHeight === 0) {
-            try { videoEl.play(); } catch (e) {}
+            videoEl.play().catch(e => {});
             return;
         }
 
-        const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
-        ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
-        const imgData = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
-        const data = imgData.data;
-
         proctorStats.totalFrames++;
 
-        let facesDetected = -1;
+        const detection = await detectFaces(videoEl, canvasEl);
+        const facesDetected = detection.count;
+        // The pixel heuristic is unreliable (lighting, skin tone), so it needs a longer streak before a strike
+        const noFaceStrikeFrames = detection.source === 'heuristic' ? 6 : 3;
+
+        // Compare against the student's own calibrated position, not the frame centre,
+        // so sitting slightly off-centre (common with laptop cameras) isn't flagged as looking away
         let gazeDeviated = false;
-
-        // 1. Primary AI Vision Engine: MediaPipe BlazeFace (Google AI)
-        if (mediaPipeDetector) {
-            try {
-                const mpResult = mediaPipeDetector.detect(videoEl);
-                if (mpResult && mpResult.detections) {
-                    facesDetected = mpResult.detections.length;
-                    if (facesDetected === 1 && mpResult.detections[0].boundingBox) {
-                        const box = mpResult.detections[0].boundingBox;
-                        const centerX = box.originX + (box.width / 2);
-                        const videoCenterX = videoEl.videoWidth / 2;
-                        if (Math.abs(centerX - videoCenterX) > (videoEl.videoWidth * 0.32)) {
-                            gazeDeviated = true;
-                        }
-                    }
-                }
-            } catch (e) {}
-        }
-
-        // 2. Native Browser FaceDetector Fallback
-        if (facesDetected === -1 && nativeFaceDetector) {
-            try {
-                const detected = await nativeFaceDetector.detect(canvasEl);
-                facesDetected = detected.length;
-                if (facesDetected === 1 && detected[0].boundingBox) {
-                    const box = detected[0].boundingBox;
-                    const centerX = box.x + (box.width / 2);
-                    const frameCenterX = canvasEl.width / 2;
-                    if (Math.abs(centerX - frameCenterX) > (canvasEl.width * 0.35)) {
-                        gazeDeviated = true;
-                    }
-                }
-            } catch (e) {}
-        }
-
-        // 3. Heuristic YCbCr Pixel Fallback (if ML models are offline)
-        let lumSum = 0;
-        let skinPixelCount = 0;
-        let leftEdgeCount = 0;
-        let centerCount = 0;
-        let rightEdgeCount = 0;
-        const totalPixels = data.length / 4;
-        const width = canvasEl.width;
-
-        for (let i = 0; i < data.length; i += 16) {
-            const pixelIdx = i / 4;
-            const x = pixelIdx % width;
-            const r = data[i], g = data[i+1], b = data[i+2];
-            const y  = 0.299 * r + 0.587 * g + 0.114 * b;
-            const cb = 128 - (0.168736 * r) - (0.331264 * g) + (0.5 * b);
-            const cr = 128 + (0.5 * r) - (0.418688 * g) - (0.081312 * b);
-
-            lumSum += y;
-            if (y > 30 && cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173) {
-                skinPixelCount++;
-                if (x < width * 0.30) leftEdgeCount++;
-                else if (x > width * 0.70) rightEdgeCount++;
-                else if (x >= width * 0.40 && x <= width * 0.60) centerCount++;
-            }
-        }
-
-        const sampleTotal = totalPixels / 4;
-        const skinRatio = skinPixelCount / sampleTotal;
-        const leftEdgeRatio = leftEdgeCount / (sampleTotal * 0.30);
-        const rightEdgeRatio = rightEdgeCount / (sampleTotal * 0.30);
-        const centerRatio = centerCount / (sampleTotal * 0.20);
-
-        if (facesDetected === -1) {
-            if ((leftEdgeRatio > 0.08 && rightEdgeRatio > 0.08 && centerRatio < 0.03) || skinRatio > 0.38) {
-                facesDetected = 2;
-            } else if (skinRatio >= 0.025) {
-                facesDetected = 1;
-            } else {
-                facesDetected = 0;
-            }
+        if (facesDetected === 1 && detection.centerX !== null) {
+            const baselineX = (calibrationData.center && calibrationData.center.face_center_x !== null && calibrationData.center.face_center_x !== undefined)
+                ? calibrationData.center.face_center_x
+                : 0.5;
+            gazeDeviated = Math.abs(detection.centerX - baselineX) > gazeDeviationThreshold;
         }
 
         // 4. Evaluate Detection Results & Fire Strike Warnings
@@ -1093,7 +1314,7 @@ $projectTitle = $project['title'];
 
             if (statusLabelEl) statusLabelEl.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-user-slash"></i> NO FACE DETECTED</span>`;
 
-            if (proctorStats.consecutiveNoFace >= 3 && (Date.now() - lastNoFaceWarningTime) > 7000) {
+            if (proctorStats.consecutiveNoFace >= noFaceStrikeFrames && (Date.now() - lastNoFaceWarningTime) > 7000) {
                 lastNoFaceWarningTime = Date.now();
                 triggerWarning('No face detected in camera stream. Candidate must remain visible throughout the defense.', 'NO_FACE');
             }
@@ -1106,16 +1327,21 @@ $projectTitle = $project['title'];
         }
     }
 
+    let snapshotCanvas = null;
+
     async function logProctoringEvent(eventType, duration = 0, confidence = 1.0, severity = 'LOW', metadata = {}) {
         try {
             let snapshot = null;
             const videoEl = document.getElementById('proctorWebcamVideo');
-            const canvasEl = document.getElementById('proctorAnalysisCanvas');
+            // Separate canvas: resizing the 320x240 analysis canvas to screen size (5K px on Retina Macs)
+            // made every later face-check frame huge and slow
+            const canvasEl = snapshotCanvas || (snapshotCanvas = document.createElement('canvas'));
             const isTabOrScreenEvent = ['TAB_SWITCH', 'WINDOW_BLUR', 'FULLSCREEN_EXIT', 'SCREEN_SHARE_STOPPED'].includes(eventType);
 
             if (isTabOrScreenEvent && screenVideoEl && screenVideoEl.videoWidth > 0 && canvasEl) {
-                const sw = screenVideoEl.videoWidth || 1280;
-                const sh = screenVideoEl.videoHeight || 720;
+                const screenScale = Math.min(1, 1600 / (screenVideoEl.videoWidth || 1280));
+                const sw = Math.round((screenVideoEl.videoWidth || 1280) * screenScale);
+                const sh = Math.round((screenVideoEl.videoHeight || 720) * screenScale);
                 canvasEl.width = sw;
                 canvasEl.height = sh;
                 const ctx = canvasEl.getContext('2d');
@@ -1166,8 +1392,13 @@ $projectTitle = $project['title'];
     let lastMultiFaceWarningTime = 0;
     let lastGazeWarningTime = 0;
 
+    let lastStrikeTime = 0;
+
     function triggerWarning(reason, eventType = 'SECURITY_VIOLATION') {
         if (!isSessionActive) return;
+        // One action (e.g. Cmd+Tab) fires blur, visibilitychange and fullscreenchange together — count it once
+        if (Date.now() - lastStrikeTime < 3000) return;
+        lastStrikeTime = Date.now();
         warningCount++;
         logProctoringEvent(eventType, 0, 1.0, 'HIGH', { strike_count: warningCount, reason: reason });
 
@@ -1232,20 +1463,63 @@ $projectTitle = $project['title'];
         return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
     }
 
-    function resumeFullscreen() {
-        document.documentElement.requestFullscreen().then(() => {
-            document.getElementById('warningOverlay').classList.add('hidden');
-        }).catch(e => alert("Please enable F11 manually."));
+    // Safari < 16.4 only has the webkit-prefixed Fullscreen API
+    function getFullscreenElement() {
+        return document.fullscreenElement || document.webkitFullscreenElement || null;
     }
 
-    document.addEventListener('fullscreenchange', () => {
-        if (!document.fullscreenElement && isSessionActive) {
+    // The fullscreen transition on macOS can briefly blur the window; don't count that as a violation
+    let fullscreenGraceUntil = 0;
+
+    function requestFullscreenCompat() {
+        fullscreenGraceUntil = Date.now() + 1500;
+        const el = document.documentElement;
+        if (el.requestFullscreen) return el.requestFullscreen();
+        if (el.webkitRequestFullscreen) {
+            el.webkitRequestFullscreen();
+            return Promise.resolve();
+        }
+        return Promise.reject(new Error('Fullscreen API not supported'));
+    }
+
+    function showFullscreenPrompt() {
+        const iconEl = document.getElementById('warningIcon');
+        const titleEl = document.getElementById('warningTitle');
+        const msgEl = document.getElementById('warningMessage');
+        const btnEl = document.getElementById('warningBtn');
+        if (iconEl) { iconEl.className = 'fas fa-expand'; iconEl.style.color = 'var(--accent-gold)'; }
+        if (titleEl) titleEl.textContent = 'Full Screen Required';
+        if (msgEl) msgEl.innerHTML = 'Click the button below to enter full screen and begin your defense. This is not counted as a warning.';
+        if (btnEl) {
+            btnEl.textContent = 'ENTER FULL SCREEN';
+            btnEl.onclick = resumeFullscreen;
+            btnEl.style.display = 'inline-flex';
+        }
+        document.getElementById('warningOverlay').classList.remove('hidden');
+    }
+
+    function resumeFullscreen() {
+        requestFullscreenCompat().then(() => {
+            document.getElementById('warningOverlay').classList.add('hidden');
+        }).catch(e => {
+            // alert() would blur the window and cause another strike, so show the hint inline
+            const msgEl = document.getElementById('warningMessage');
+            if (msgEl && !msgEl.querySelector('.fs-blocked-hint')) {
+                msgEl.innerHTML += '<br><br><span class="fs-blocked-hint" style="color:#f59e0b;">Your browser blocked full screen. Please click the button again, and allow full screen if your browser asks.</span>';
+            }
+        });
+    }
+
+    function onFullscreenChange() {
+        if (!getFullscreenElement() && isSessionActive) {
             triggerWarning('Full screen mode was deactivated.', 'FULLSCREEN_EXIT');
         }
-    });
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
     document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'hidden' && isSessionActive) {
+        if (document.visibilityState === 'hidden' && isSessionActive && Date.now() > fullscreenGraceUntil) {
             setTimeout(() => {
                 triggerWarning('Tab or application switch detected via Taskbar.', 'TAB_SWITCH');
             }, 120);
@@ -1253,7 +1527,7 @@ $projectTitle = $project['title'];
     });
 
     window.addEventListener('blur', () => {
-        if (isSessionActive) {
+        if (isSessionActive && Date.now() > fullscreenGraceUntil) {
             setTimeout(() => {
                 triggerWarning('Window focus lost. Candidate clicked outside test window or opened taskbar app.', 'WINDOW_BLUR');
             }, 120);
@@ -1262,9 +1536,7 @@ $projectTitle = $project['title'];
 
 
     async function enterFullscreen() {
-        if (document.documentElement.requestFullscreen) {
-            await document.documentElement.requestFullscreen().catch((e) => console.warn(e));
-        }
+        await requestFullscreenCompat().catch((e) => console.warn(e));
     }
 
     async function startProcessing() {
@@ -1339,15 +1611,22 @@ $projectTitle = $project['title'];
     }
 
     function submitAnswer() {
+        if (isFinalizing || currentIdx >= questions.length) return;
         const answer = document.getElementById('userAnswer').value.trim();
-        if (answer.length < 10) { alert("Please provide a detailed technical response."); return; }
+        if (answer.length < 10) {
+            LakshyaDialog.alert("Please provide a detailed technical response (at least 10 characters).", { type: 'warning', title: 'Answer Too Short' });
+            return;
+        }
         answers.push({ question: questions[currentIdx], answer: answer });
         currentIdx++;
         renderStep();
     }
 
     async function pollJobStatus(jobId, onSuccess, onError) {
+        let polls = 0;
         const check = async () => {
+            // Stop after ~5 minutes instead of polling forever if the job is stuck
+            if (++polls > 200) { onError("The AI took too long to respond. Please try again."); return; }
             try {
                 const res = await fetch(`ai_job_status.php?job_id=${jobId}`);
                 const data = await res.json();
@@ -1364,6 +1643,8 @@ $projectTitle = $project['title'];
     }
 
     async function finalizeAssessment(isAuto = false) {
+        if (isFinalizing) return;
+        isFinalizing = true;
         isSessionActive = false;
         clearInterval(proctorInterval);
 
@@ -1410,17 +1691,19 @@ $projectTitle = $project['title'];
         document.getElementById('warningOverlay').classList.add('hidden');
         document.getElementById('loadingOverlay').classList.add('hidden');
         document.getElementById('resultsView').style.display = 'block';
-        const isVerified = evalData.score >= 70;
-        document.getElementById('finalScoreVal').innerText = evalData.score;
-        document.getElementById('finalStatusText').innerText = isVerified ? 'VERIFIED' : 'NOT VERIFIED';
-        document.getElementById('finalStatusText').style.color = isVerified ? '#10b981' : '#ef4444';
-        document.getElementById('finalFeedback').innerText = evalData.feedback;
+        // The server applies integrity penalties and decides verification — show its result, not the raw AI score
+        const showOutcome = (score, isVerified, statusText) => {
+            document.getElementById('finalScoreVal').innerText = score;
+            document.getElementById('finalStatusText').innerText = statusText || (isVerified ? 'VERIFIED' : 'NOT VERIFIED');
+            document.getElementById('finalStatusText').style.color = isVerified ? '#10b981' : '#ef4444';
+            const ring = document.getElementById('successRing');
+            ring.style.color = isVerified ? '#10b981' : '#ef4444';
+            ring.innerHTML = isVerified ? '<i class="fas fa-award"></i>' : '<i class="fas fa-exclamation-triangle"></i>';
+        };
+        showOutcome(evalData.score ?? '--', false, 'SAVING RESULT…');
+        document.getElementById('finalStatusText').style.color = '#f59e0b';
+        document.getElementById('finalFeedback').innerText = evalData.feedback || '';
         renderMath(document.getElementById('finalFeedback'));
-        
-        if (!isVerified) {
-            document.getElementById('successRing').style.color = '#ef4444';
-            document.getElementById('successRing').innerHTML = '<i class="fas fa-exclamation-triangle"></i>';
-        }
 
         const clientFacePct = proctorStats.totalFrames > 0 
             ? Math.round((proctorStats.validFaceFrames / proctorStats.totalFrames) * 100)
@@ -1445,23 +1728,29 @@ $projectTitle = $project['title'];
                 })
             });
 
-            if (!saveRes.ok) {
-                console.error('Failed to save viva result — HTTP', saveRes.status);
+            const saveData = await saveRes.json().catch(() => ({ success: false }));
+            if (!saveRes.ok || !saveData.success) {
+                console.error('Failed to save viva result — HTTP', saveRes.status, saveData.message);
+                showOutcome('--', false, 'NOT SAVED');
+                await LakshyaDialog.alert(saveData.message || 'Your result could not be saved. Please retake the defense from the dashboard.', {
+                    type: 'error', title: 'Result Not Saved'
+                });
                 return;
             }
-            const saveData = await saveRes.json();
+            showOutcome(saveData.final_score ?? evalData.score, !!saveData.is_verified);
             
             // Render Integrity Report Card
             if (saveData.integrity_report) {
                 const rpt = saveData.integrity_report;
-                document.getElementById('rptScreenShare').innerText = (rpt.screen_sharing_active_pct || 100) + '%';
-                document.getElementById('rptCameraAvail').innerText = (rpt.camera_availability_pct || 100) + '%';
-                document.getElementById('rptFacePres').innerText = (rpt.face_presence_pct || 100) + '%';
-                document.getElementById('rptGazeConf').innerText = (rpt.gaze_confidence_pct || 92) + '%';
-                document.getElementById('rptAttnDev').innerText = rpt.attention_deviations || 0;
-                document.getElementById('rptLongestDev').innerText = (rpt.longest_deviation_sec || 0) + 's';
-                document.getElementById('rptScreenInt').innerText = rpt.screen_interruptions || 0;
-                document.getElementById('rptMultiFace').innerText = rpt.multiple_faces_count || 0;
+                // ?? not ||: a real 0% must not display as 100%
+                document.getElementById('rptScreenShare').innerText = (rpt.screen_sharing_active_pct ?? 100) + '%';
+                document.getElementById('rptCameraAvail').innerText = (rpt.camera_availability_pct ?? 100) + '%';
+                document.getElementById('rptFacePres').innerText = (rpt.face_presence_pct ?? 100) + '%';
+                document.getElementById('rptGazeConf').innerText = (rpt.gaze_confidence_pct ?? 92) + '%';
+                document.getElementById('rptAttnDev').innerText = rpt.attention_deviations ?? 0;
+                document.getElementById('rptLongestDev').innerText = (rpt.longest_deviation_sec ?? 0) + 's';
+                document.getElementById('rptScreenInt').innerText = rpt.screen_interruptions ?? 0;
+                document.getElementById('rptMultiFace').innerText = rpt.multiple_faces_count ?? 0;
 
                 const pill = document.getElementById('rptStatusPill');
                 if (pill) {
@@ -1474,10 +1763,20 @@ $projectTitle = $project['title'];
                 }
             }
 
-        } catch (err) { console.error("Persistence error", err); }
+        } catch (err) {
+            console.error("Persistence error", err);
+            showOutcome('--', false, 'NOT SAVED');
+            LakshyaDialog.alert('Network error while saving your result. Please check your connection and retake the defense from the dashboard.', { type: 'error', title: 'Result Not Saved' });
+        }
     }
 
-    function handleException(msg) { alert("ERROR: " + msg); window.location.href = 'dashboard'; }
+    async function handleException(msg) {
+        // Stop proctoring so no strike / auto-submit fires while the error is on screen
+        isSessionActive = false;
+        if (proctorInterval) clearInterval(proctorInterval);
+        await LakshyaDialog.alert(String(msg), { type: 'error', title: 'Error', okText: 'Return to Dashboard' });
+        window.location.href = 'dashboard';
+    }
 </script>
 
 </body>

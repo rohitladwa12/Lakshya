@@ -31,11 +31,11 @@ if (empty($studentId)) {
 
 $action = trim($_REQUEST['action'] ?? '');
 
-// 3. Payload Size Limit (Max 500KB)
-if (isset($_SERVER['CONTENT_LENGTH']) && (int)$_SERVER['CONTENT_LENGTH'] > 512000) {
+// 3. Payload Size Limit (Max 3MB for high-res telemetry & PiP snapshots)
+if (isset($_SERVER['CONTENT_LENGTH']) && (int)$_SERVER['CONTENT_LENGTH'] > 3145728) {
     ob_clean();
     http_response_code(413);
-    echo json_encode(['success' => false, 'error' => 'Payload too large (500KB maximum).']);
+    echo json_encode(['success' => false, 'error' => 'Payload too large (3MB maximum).']);
     exit;
 }
 

@@ -23,9 +23,9 @@ if (isPost() && (isset($_POST['company']) || isset($_POST['task_id']))) {
 }
 
 $filters = SessionFilterHelper::getFilters('ai_aptitude_test');
-$companyName = $filters['company'] ?? 'General';
-$taskId = $filters['task_id'] ?? 0;
-$concept = $filters['concept'] ?? '';
+$companyName = !empty($_GET['company']) ? clean($_GET['company']) : ($filters['company'] ?? 'General');
+$taskId = isset($_GET['task_id']) ? (int)$_GET['task_id'] : ($filters['task_id'] ?? 0);
+$concept = !empty($_GET['concept']) ? clean($_GET['concept']) : ($filters['concept'] ?? '');
 if (empty($concept) && $taskId) {
     try {
         $db = getDB();
@@ -48,6 +48,8 @@ $fullName = getFullName();
     <script src="resilience.js?v=<?php echo APP_VERSION; ?>"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- In-page dialogs (replaces native alert/confirm popups) -->
+    <script src="../js/lakshya_dialogs.js?v=<?php echo APP_VERSION; ?>"></script>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/contrib/auto-render.min.js"></script>
@@ -281,13 +283,16 @@ $fullName = getFullName();
         }
 
         .footer {
-            margin-top: 20px;
+            margin-top: 15px;
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-shrink: 0;
-            padding-top: 20px;
+            padding-top: 15px;
+            padding-right: 175px; /* Safe space to prevent overlap with floating proctor webcam */
             border-top: 1px solid rgba(255, 255, 255, 0.1);
+            position: relative;
+            z-index: 10;
         }
 
         .btn-nav {
@@ -310,10 +315,10 @@ $fullName = getFullName();
             background: var(--success);
             color: var(--white);
             border: none;
-            padding: 15px 40px;
+            padding: 14px 36px;
             border-radius: 50px;
             cursor: pointer;
-            font-size: 1.1rem;
+            font-size: 1.05rem;
             font-weight: 600;
             display: none;
         }
@@ -361,17 +366,48 @@ $fullName = getFullName();
             }
         }
 
-        @media (max-width: 768px) {
-            .options-grid {
-                grid-template-columns: 1fr;
-            }
-
+        @media (max-width: 1024px), (max-height: 850px) {
             .test-container {
-                padding: 20px;
+                padding: 20px 30px;
             }
 
             .q-text {
-                font-size: 1.5rem;
+                font-size: 1.35rem;
+                margin-bottom: 20px;
+            }
+
+            .options-grid {
+                gap: 14px;
+                margin-bottom: 20px;
+            }
+
+            .option-btn {
+                padding: 16px 20px;
+                font-size: 1.05rem;
+            }
+
+            .footer {
+                padding-right: 175px;
+            }
+        }
+
+        @media (max-width: 768px) {
+            .options-grid {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+
+            .test-container {
+                padding: 15px;
+            }
+
+            .q-text {
+                font-size: 1.2rem;
+            }
+
+            .footer {
+                padding-right: 0;
+                padding-bottom: 10px;
             }
         }
 
@@ -512,17 +548,18 @@ $fullName = getFullName();
         <p id="resultMsg" style="margin-bottom: 30px; font-size: 1.2rem; color: #ccc;">Checking your performance...</p>
 
         <div id="resultDetails"></div>
+    </div>
 
-    <!-- Warning Overlay -->
+    <!-- Warning Overlay (must not be inside #resultsUI, which is display:none during the test) -->
     <div id="warningOverlay" style="display: none; position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.95); z-index: 9999; align-items: center; justify-content: center;">
         <div style="text-align: center; max-width: 500px; padding: 30px; border: 2px solid var(--primary); background: #1a1a1a; border-radius: 16px; color: #fff;">
             <i class="fas fa-exclamation-triangle" style="color: #e74c3c; font-size: 3rem; margin-bottom: 20px;"></i>
-            <h2 style="color: #fff; margin-bottom: 10px;">Security Violation</h2>
-            <p style="color: #ccc; margin-bottom: 25px;">
+            <h2 id="warningTitle" style="color: #fff; margin-bottom: 10px;">Security Violation</h2>
+            <p id="warningText" style="color: #ccc; margin-bottom: 25px;">
                 You have left the test window or exited Full Screen mode. This violation has been logged with an immediate camera snapshot.<br>
                 Please return to full screen immediately to continue.
             </p>
-            <button onclick="resumeFullscreen()" class="btn-start" style="width: 100%; margin-top: 0;">RESUME ASSESSMENT</button>
+            <button id="warningBtn" onclick="resumeFullscreen()" class="btn-start" style="width: 100%; margin-top: 0;">RESUME ASSESSMENT</button>
         </div>
     </div>
 
@@ -533,16 +570,24 @@ $fullName = getFullName();
         let currentIdx = 0;
         let timeLeft = 40 * 60; // 40 minutes for 40 questions
         let timerInterval;
-        const companyName = "<?php echo addslashes($companyName); ?>";
+        // json_encode (not addslashes) so a value containing a closing script tag or a line break can't break the script
+        const companyName = <?php echo json_encode((string)$companyName, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+        const conceptName = <?php echo json_encode((string)($concept ?? ''), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+        const taskIdStr = "<?php echo (int)$taskId; ?>";
 
         let testStarted = false;
         let isSubmitting = false;
         let proctorEngine = null;
+        let proctorReady = false; // camera calibrated + monitoring started (don't redo it on a retry)
+
+        function escapeHtml(text) {
+            return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
 
         // Initialize Proctoring Engine
         try {
             proctorEngine = new ProctoringEngine({
-                studentId: "<?php echo addslashes($fullName ?: (string)getUsername()); ?>",
+                studentId: <?php echo json_encode((string)getUsername(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
                 assessmentId: <?php echo (int)($taskId ?: 1); ?>,
                 assessmentType: 'aptitude',
                 apiEndpoint: 'proctor_handler.php',
@@ -574,6 +619,16 @@ $fullName = getFullName();
             }
         }
 
+        // Question text is plain text that may contain comparisons like "a<b" —
+        // inserted raw, the browser parsed those as tags and swallowed the rest of
+        // the question/options. Escape everything, then re-allow simple formatting tags.
+        function safeText(s) {
+            // '&' is left alone: stored questions contain entities like &quot;
+            return String(s ?? '')
+                .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/&lt;(\/?(?:b|i|u|br|sup|sub|strong|em|small))\s*\/?&gt;/gi, '<$1>');
+        }
+
         function shuffleArray(arr) {
             for (let i = arr.length - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
@@ -584,47 +639,57 @@ $fullName = getFullName();
         async function startTest() {
             const startBtn = document.getElementById('btnStartTest') || document.querySelector('.btn-start');
             const statusEl = document.getElementById('proctor-env-status');
+            const isMac = /Mac/i.test(navigator.platform || navigator.userAgent);
+            // Prevent a second click while camera/calibration is in progress
+            if (startBtn) startBtn.disabled = true;
 
-            // 1. Initialize Proctoring & Camera
-            if (proctorEngine) {
-                if (startBtn) startBtn.disabled = true;
+            // 1. Initialize Proctoring & Camera (skipped on a retry once calibration already passed)
+            if (proctorEngine && !proctorReady) {
                 if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--primary);"></i> Initializing camera & proctoring session...';
 
                 try {
-                    const camReady = await proctorEngine.init();
-                    if (!camReady) {
-                        if (startBtn) startBtn.disabled = false;
-                        if (statusEl) statusEl.innerHTML = '<span style="color:#e74c3c;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> Camera access required. Please allow camera in browser and retry.</span>';
-                        return;
+                    // On a calibration retry the camera is already open — re-opening it would leak the old stream
+                    if (!proctorEngine._stream) {
+                        const camReady = await proctorEngine.init();
+                        if (!camReady) {
+                            // The engine wrote the specific reason (denied / in use / not found) into the status line
+                            const engineMsg = statusEl ? statusEl.textContent.trim() : '';
+                            if (startBtn) { startBtn.disabled = false; startBtn.textContent = 'Retry Camera'; }
+                            if (statusEl) statusEl.innerHTML = '<span style="color:#e74c3c;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> '
+                                + escapeHtml(engineMsg || 'Camera access required. Please allow camera in browser and retry.') + '</span>'
+                                + (isMac
+                                    ? '<br><span style="font-size:0.8rem;color:#64748b;">On a Mac: open System Settings → Privacy &amp; Security → Camera, turn on your browser, then quit and reopen the browser. Close FaceTime, Zoom or Teams if they are using the camera.</span>'
+                                    : '<br><span style="font-size:0.8rem;color:#64748b;">Click the camera icon in the address bar to allow access, and close other apps that are using the camera.</span>');
+                            return;
+                        }
                     }
 
-                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--primary);"></i> Calibrating posture & identity baseline... (keep face centered)';
+                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--primary);"></i> Calibrating posture & identity baseline... Keep your face centered in the camera preview (bottom-right).';
                     const envCheck = await proctorEngine.runEnvCheck();
                     if (!envCheck.passed) {
-                        if (startBtn) startBtn.disabled = false;
+                        if (startBtn) { startBtn.disabled = false; startBtn.textContent = 'Retry Calibration'; }
                         const reason = (envCheck.reasons && envCheck.reasons.length) ? envCheck.reasons.join(' ') : 'Camera calibration failed. Please ensure face is centered and lighting is adequate.';
-                        if (statusEl) statusEl.innerHTML = `<span style="color:#e74c3c;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> ${reason}</span>`;
+                        if (statusEl) statusEl.innerHTML = `<span style="color:#e74c3c;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> ${escapeHtml(reason)}</span><br><span style="font-size:0.8rem;color:#64748b;">Face the screen with your face fully visible in the preview, add light in front of you, then click Retry Calibration.</span>`;
                         return;
                     }
 
                     proctorEngine.start();
+                    proctorReady = true;
                 } catch (pErr) {
                     console.warn("Proctor init warning:", pErr);
                 }
             }
 
-            // 2. Fullscreen
-            try {
-                if (document.documentElement.requestFullscreen) {
-                    await document.documentElement.requestFullscreen();
-                }
-            } catch (e) { console.log('Fullscreen failed'); }
+            // 2. Fullscreen — usually refused here because the Start click was long ago (camera + calibration),
+            // so the student then gets an in-page "Enter Full Screen" prompt instead (not a violation)
+            await requestFullscreenCompat().catch(() => console.log('Fullscreen failed'));
 
             document.getElementById('introOverlay').style.opacity = '0';
             setTimeout(() => {
                 document.getElementById('introOverlay').style.display = 'none';
                 document.getElementById('testUI').style.display = 'flex';
-            }, 500);
+                if (!getFullscreenElement() && !isSubmitting) showSecurityOverlay(true);
+            }, 700);
 
             loadQuestions();
         }
@@ -637,14 +702,14 @@ $fullName = getFullName();
             area.innerHTML = `
                 <div style="text-align:center; max-width: 500px;">
                     <i class="fas fa-triangle-exclamation" style="font-size:2.5rem; color:var(--error); margin-bottom:15px;"></i>
-                    <p style="margin-bottom:20px; color:#eee;">${msg}</p>
+                    <p style="margin-bottom:20px; color:#eee;">${escapeHtml(msg)}</p>
                     <button class="btn-start" onclick="retryLoadQuestions()">Retry Loading Questions</button>
                 </div>`;
         }
 
         function showLoader(text) {
             document.getElementById('questionArea').innerHTML =
-                `<div class="loader"></div><p style="text-align: center;">${text}</p>`;
+                `<div class="loader"></div><p style="text-align: center;">${escapeHtml(text)}</p>`;
         }
 
         function retryLoadQuestions() {
@@ -670,8 +735,8 @@ $fullName = getFullName();
                 const formData = new FormData();
                 formData.append('action', 'get_questions');
                 formData.append('company_name', companyName);
-                formData.append('concept', "<?php echo addslashes($concept ?? ''); ?>");
-                formData.append('task_id', "<?php echo $taskId; ?>"); // Fix: coordinator task_id must be sent so manual questions are fetched
+                formData.append('concept', conceptName);
+                formData.append('task_id', taskIdStr); // Fix: coordinator task_id must be sent so manual questions are fetched
                 formData.append('csrf_token', window.CSRF_TOKEN);
 
                 const response = await fetch('ai_aptitude_handler.php', {
@@ -692,9 +757,11 @@ $fullName = getFullName();
                     // Poll for AI questions while we have DB questions ready
                     const dbQuestions = data.db_questions || [];
                     const pollStartedAt = Date.now();
+                    showLoader('Generating your ' + (conceptName || 'aptitude') + ' questions with AI... this can take up to 2 minutes.');
                     const pollInterval = setInterval(async () => {
-                        // Never poll forever: after 90s fall back to DB questions
-                        if (Date.now() - pollStartedAt > 90000) {
+                        // Never poll forever: 40 questions are generated in batches of
+                        // 10 (~30s each), so allow 4 minutes before falling back to DB questions
+                        if (Date.now() - pollStartedAt > 240000) {
                             clearInterval(pollInterval);
                             if (dbQuestions.length > 0) beginTest(dbQuestions);
                             else showLoadError('The AI question generator timed out. Please retry.');
@@ -754,7 +821,7 @@ $fullName = getFullName();
             const q = questions[currentIdx];
             window.openQuestionReportModal({
                 test_type: 'mock_ai',
-                test_id: "<?php echo $taskId; ?>" || 'aptitude',
+                test_id: (taskIdStr !== '0' ? taskIdStr : 'aptitude'),
                 question_text: q.question,
                 options: q.options,
                 correct_answer: q.answer,
@@ -776,7 +843,7 @@ $fullName = getFullName();
                 const isSelected = userAnswers[currentIdx] === i ? 'selected' : '';
                 optionsHtml += `
                     <button class="option-btn ${isSelected}" onclick="selectOption(${i})">
-                        ${opt}
+                        ${safeText(opt)}
                     </button>
                 `;
             });
@@ -784,10 +851,10 @@ $fullName = getFullName();
             area.innerHTML = `
                 <div class="question-card">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                        <span class="q-number">SECTION: ${q.category || 'General Aptitude'}</span>
+                        <span class="q-number">SECTION: ${safeText(q.category || 'General Aptitude')}</span>
                         <a href="javascript:void(0)" onclick="reportCurrentQuestion()" style="color: var(--secondary); text-decoration: none; font-size: 0.9rem; font-weight: 600;"><i class="fas fa-flag"></i> Report Issue</a>
                     </div>
-                    <h2 class="q-text">${q.question}</h2>
+                    <h2 class="q-text">${safeText(q.question)}</h2>
                     <div class="options-grid">
                         ${optionsHtml}
                     </div>
@@ -849,34 +916,77 @@ $fullName = getFullName();
             }, 1000);
         }
 
+        // --- Fullscreen helpers (Safari < 16.4 only has the webkit-prefixed API) ---
+        function getFullscreenElement() {
+            return document.fullscreenElement || document.webkitFullscreenElement || null;
+        }
+
+        // The macOS fullscreen transition briefly blurs the window; don't treat that as leaving the test
+        let fullscreenGraceUntil = 0;
+
+        function requestFullscreenCompat() {
+            fullscreenGraceUntil = Date.now() + 1500;
+            if (proctorEngine && typeof proctorEngine.noteFullscreenRequest === 'function') {
+                proctorEngine.noteFullscreenRequest();
+            }
+            const el = document.documentElement;
+            if (el.requestFullscreen) return el.requestFullscreen();
+            if (el.webkitRequestFullscreen) {
+                el.webkitRequestFullscreen();
+                return Promise.resolve();
+            }
+            return Promise.reject(new Error('Fullscreen API not supported'));
+        }
+
+        // isPrompt = true: plain "enter full screen" request, not a violation
+        function showSecurityOverlay(isPrompt) {
+            const titleEl = document.getElementById('warningTitle');
+            const textEl = document.getElementById('warningText');
+            const btnEl = document.getElementById('warningBtn');
+            if (isPrompt) {
+                titleEl.textContent = 'Full Screen Required';
+                textEl.textContent = 'Click the button below to enter full screen and continue your assessment. This is not counted as a warning.';
+                btnEl.textContent = 'ENTER FULL SCREEN';
+            } else {
+                titleEl.textContent = 'Security Violation';
+                textEl.innerHTML = 'You have left the test window or exited Full Screen mode. This violation has been logged with an immediate camera snapshot.<br>Please return to full screen immediately to continue.';
+                btnEl.textContent = 'RESUME ASSESSMENT';
+            }
+            document.getElementById('warningOverlay').style.display = 'flex';
+        }
+
         function resumeFullscreen() {
-            document.documentElement.requestFullscreen().then(() => {
+            requestFullscreenCompat().then(() => {
                 document.getElementById('warningOverlay').style.display = 'none';
             }).catch(() => {
-                document.getElementById('warningOverlay').style.display = 'none';
+                // Keep the overlay and explain inline (a native popup would blur the window again)
+                const textEl = document.getElementById('warningText');
+                if (textEl && !textEl.querySelector('.fs-blocked-hint')) {
+                    textEl.insertAdjacentHTML('beforeend', '<br><br><span class="fs-blocked-hint" style="color:#f59e0b;">Your browser blocked full screen. Please click the button again, and allow full screen if your browser asks.</span>');
+                }
             });
         }
 
-        document.addEventListener('fullscreenchange', () => {
-            const warning = document.getElementById('warningOverlay');
-            if (!document.fullscreenElement && testStarted && !isSubmitting) {
-                warning.style.display = 'flex';
-            } else if (document.fullscreenElement) {
-                warning.style.display = 'none';
+        // These only show the overlay — strikes are counted by the proctoring engine itself
+        function onFullscreenChange() {
+            if (!getFullscreenElement() && testStarted && !isSubmitting) {
+                showSecurityOverlay(false);
+            } else if (getFullscreenElement()) {
+                document.getElementById('warningOverlay').style.display = 'none';
             }
-        });
+        }
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
         document.addEventListener('visibilitychange', () => {
-            const warning = document.getElementById('warningOverlay');
-            if (document.visibilityState === 'hidden' && testStarted && !isSubmitting) {
-                warning.style.display = 'flex';
+            if (document.visibilityState === 'hidden' && testStarted && !isSubmitting && Date.now() > fullscreenGraceUntil) {
+                showSecurityOverlay(false);
             }
         });
 
         window.addEventListener('blur', () => {
-            const warning = document.getElementById('warningOverlay');
-            if (testStarted && !isSubmitting) {
-                warning.style.display = 'flex';
+            if (testStarted && !isSubmitting && Date.now() > fullscreenGraceUntil) {
+                showSecurityOverlay(false);
             }
         });
 
@@ -886,10 +996,14 @@ $fullName = getFullName();
         document.addEventListener('paste', e => e.preventDefault());
 
         document.addEventListener('keydown', e => {
-            if (e.ctrlKey && ['c', 'v', 'x', 'u'].includes(e.key.toLowerCase())) {
+            const key = (e.key || '').toLowerCase();
+            // metaKey = Cmd on macOS
+            if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'u'].includes(key)) {
                 e.preventDefault();
             }
-            if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+            // Inspect: Ctrl+Shift+I / Cmd+Shift+I / Cmd+Option+I (Option changes e.key on Mac, so check e.code)
+            if (((e.ctrlKey || e.metaKey) && e.shiftKey && (key === 'i' || e.code === 'KeyI')) ||
+                (e.metaKey && e.altKey && e.code === 'KeyI')) {
                 e.preventDefault();
             }
             if (e.key === 'F12') {
@@ -911,6 +1025,7 @@ $fullName = getFullName();
                 submitBtn.innerText = 'Submitting...';
             }
 
+            document.getElementById('warningOverlay').style.display = 'none';
             document.getElementById('testUI').style.display = 'none';
             document.getElementById('resultsUI').style.display = 'flex';
 
@@ -920,7 +1035,7 @@ $fullName = getFullName();
                 formData.append('company_name', companyName);
                 formData.append('answers', JSON.stringify(userAnswers));
                 formData.append('questions', JSON.stringify(questions));
-                formData.append('task_id', "<?php echo $taskId; ?>");
+                formData.append('task_id', taskIdStr);
                 formData.append('time_taken', 40 * 60 - timeLeft); // Fix: Send actual time taken to coordinator dashboard
                 formData.append('proctor_token', proctorEngine ? (proctorEngine._token || '') : '');
                 formData.append('csrf_token', window.CSRF_TOKEN);
@@ -931,7 +1046,13 @@ $fullName = getFullName();
                     body: formData
                 });
 
-                const data = await response.json();
+                let data;
+                try {
+                    data = await response.json();
+                } catch (jsonErr) {
+                    data = { success: false, message: 'Invalid response from server. Please retry.' };
+                }
+
                 if (data.success) {
                     document.getElementById('finalScore').innerText = Math.round(data.score) + '%';
                     let breakdownText = `You answered ${data.correct} out of ${data.total} questions correctly.`;
@@ -951,7 +1072,7 @@ $fullName = getFullName();
                             const userAns = userAnswers[idx];
                             window.openQuestionReportModal({
                                 test_type: 'mock_ai',
-                                test_id: "<?php echo $taskId; ?>" || 'aptitude',
+                                test_id: (taskIdStr !== '0' ? taskIdStr : 'aptitude'),
                                 question_text: q.question,
                                 options: q.options,
                                 correct_answer: q.answer,
@@ -966,7 +1087,7 @@ $fullName = getFullName();
 
                             html += `<div class="review-card">
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
-                                    <div class="review-q">Q${idx + 1}: ${q.question}</div>
+                                    <div class="review-q">Q${idx + 1}: ${safeText(q.question)}</div>
                                     <button class="btn-control" style="padding: 4px 10px; font-size: 0.8rem; background: transparent; border-color: rgba(255,255,255,0.1); color: var(--secondary); cursor: pointer;" onclick="reportReviewQuestion(${idx})"><i class="fas fa-flag"></i> Report</button>
                                 </div>`;
 
@@ -982,12 +1103,12 @@ $fullName = getFullName();
                                     icon = '❌';
                                 }
 
-                                html += `<div class="${cls}"><span>${opt}</span> <span>${icon}</span></div>`;
+                                html += `<div class="${cls}"><span>${safeText(opt)}</span> <span>${icon}</span></div>`;
                             });
 
                             // Add Explanation
                             if (q.explanation) {
-                                html += `<div class="review-explanation"><strong>💡 Reason:</strong> ${q.explanation}</div>`;
+                                html += `<div class="review-explanation"><strong>💡 Reason:</strong> ${safeText(q.explanation)}</div>`;
                             }
 
                             html += `</div>`;
@@ -997,11 +1118,27 @@ $fullName = getFullName();
                         renderMath(document.getElementById('resultDetails'));
                     }
                 } else {
-                    document.getElementById('resultMsg').innerText = 'Submission failed but your progress was saved.';
+                    document.getElementById('resultMsg').innerHTML = `
+                        <span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> ${escapeHtml(data.message || 'Submission failed. Please click retry.')}</span>
+                        <div style="margin-top:15px;">
+                            <button onclick="retrySubmitTest()" class="btn-nav" style="background:var(--secondary);color:#000;border:none;font-weight:700;padding:10px 24px;cursor:pointer;">Retry Submission</button>
+                        </div>
+                    `;
                 }
             } catch (e) {
-                document.getElementById('resultMsg').innerText = 'Connection error on submission.';
+                document.getElementById('resultMsg').innerHTML = `
+                    <span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> Connection error on submission.</span>
+                    <div style="margin-top:15px;">
+                        <button onclick="retrySubmitTest()" class="btn-nav" style="background:var(--secondary);color:#000;border:none;font-weight:700;padding:10px 24px;cursor:pointer;">Retry Submission</button>
+                    </div>
+                `;
             }
+        }
+
+        function retrySubmitTest() {
+            isSubmitting = false;
+            document.getElementById('resultMsg').innerHTML = '<i class="fas fa-spinner fa-spin"></i> Re-attempting test submission...';
+            submitTest();
         }
     </script>
 </body>

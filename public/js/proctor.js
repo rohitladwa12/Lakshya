@@ -124,6 +124,11 @@ class ProctoringEngine {
         }
 
         try {
+            // A retry must not leave the previous camera stream running
+            if (this._stream) {
+                try { this._stream.getTracks().forEach(t => t.stop()); } catch (e) {}
+                this._stream = null;
+            }
             try {
                 this._stream = await navigator.mediaDevices.getUserMedia({
                     video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: 'user' },
@@ -137,15 +142,33 @@ class ProctoringEngine {
                 });
             }
 
+            const videoTrack = this._stream.getVideoTracks()[0];
+            if (videoTrack) {
+                // macOS briefly mutes the track while the camera warms up — that's not a lost camera
+                videoTrack.onmute = () => console.warn('[LakshyaProctor] Camera track temporarily muted.');
+                videoTrack.onended = () => {
+                    this._showError('Camera disconnected. Please reconnect your camera.');
+                    this._setPreviewStatusIndicator('warning');
+                };
+            }
+
             this._videoEl.srcObject = this._stream;
-            await new Promise(resolve => this._videoEl.onloadedmetadata = resolve);
-            this._videoEl.play();
+            // If metadata already loaded, onloadedmetadata never fires — don't hang forever
+            if (this._videoEl.readyState < 1) {
+                await new Promise(resolve => {
+                    this._videoEl.onloadedmetadata = resolve;
+                    setTimeout(resolve, 5000);
+                });
+            }
+            await this._videoEl.play().catch(e => console.warn('[LakshyaProctor] Video play deferred:', e));
+            // Warm the detector while the student reads the instructions
+            this._loadDetector();
             return true;
         } catch (err) {
             console.error("Proctor camera init error:", err);
             let msg = 'Camera access denied. Video monitoring is required for this assessment.';
             if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                msg = 'Camera permission was denied. Please allow camera access in your browser settings and refresh.';
+                msg = 'Camera permission was denied. Please allow camera access in your browser settings and refresh. On a Mac, also enable your browser under System Settings → Privacy & Security → Camera, then restart the browser.';
             } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
                 msg = 'No camera device found. Please connect a webcam to continue.';
             } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
@@ -200,13 +223,33 @@ class ProctoringEngine {
         let totalFrames = 0;
         let multiFaces = 0;
 
+        this._setStatus('Loading AI face detector…', 'checking');
         await this._loadDetector();
+        if (!this._detector) {
+            const reason = 'The AI face detector could not load. Check your internet connection, disable ad/content blockers for this site, and retry.';
+            this._baseline.status = 'CALIBRATION_FAILED';
+            this._setStatus('✗ Calibration failed', 'error');
+            this.onEnvCheckFail([reason]);
+            return { passed: false, reasons: [reason], baseline: this._baseline, identity: this._identityRef, gaze: this._gazeModel };
+        }
+
+        // macOS cameras can take a moment to deliver the first frame
+        const frameWaitStart = Date.now();
+        while ((this._videoEl.readyState < 2 || this._videoEl.videoWidth === 0) && Date.now() - frameWaitStart < 8000) {
+            this._videoEl.play().catch(() => {});
+            await this._sleep(250);
+        }
+
         this._setStatus('Calibrating posture, gaze & identity baseline…', 'checking');
 
         const start = Date.now();
         while (Date.now() - start < duration) {
-            totalFrames++;
             const detections = await this._detectFaces();
+            if (detections === null) {
+                await this._sleep(350);
+                continue;
+            }
+            totalFrames++;
             const lum = this._getFrameLuminance();
 
             if (detections.length === 1 && lum >= 25) {
@@ -230,15 +273,20 @@ class ProctoringEngine {
         }
 
         const validRatio = rawPoseSamples.length / Math.max(totalFrames, 1);
+        // A single stray multi-face frame (poster, reflection) shouldn't fail calibration
+        const multiFaceRatio = multiFaces / Math.max(totalFrames, 1);
 
-        if (validRatio >= 0.60 && multiFaces === 0) {
+        if (totalFrames === 0) {
+            this._baseline.status = 'CALIBRATION_FAILED';
+            reasons.push('No picture is coming from your camera. Close other apps using the camera (FaceTime, Zoom, Teams); on a Mac check System Settings → Privacy & Security → Camera.');
+        } else if (validRatio >= 0.60 && multiFaceRatio < 0.15) {
             this._baseline.status = 'CALIBRATION_READY';
-        } else if (validRatio >= 0.40 && multiFaces === 0) {
+        } else if (validRatio >= 0.40 && multiFaceRatio < 0.15) {
             this._baseline.status = 'CALIBRATION_DEGRADED';
         } else {
             this._baseline.status = 'CALIBRATION_FAILED';
-            if (multiFaces > 0) reasons.push('Multiple faces detected during calibration. Ensure only candidate is visible.');
-            if (validRatio < 0.40) reasons.push('Face not steadily visible or lighting is too dim. Please reposition camera.');
+            if (multiFaceRatio >= 0.15) reasons.push('Multiple faces detected during calibration. Ensure only candidate is visible.');
+            if (validRatio < 0.40) reasons.push('Face not steadily visible or lighting is too dim. Sit facing the screen with your whole face in the preview, and avoid a bright window behind you.');
         }
 
         const passed = (this._baseline.status !== 'CALIBRATION_FAILED');
@@ -364,7 +412,14 @@ class ProctoringEngine {
         const heartbeatInterval = this._settings.heartbeat_interval_ms || 15000;
 
         this._lastFrameTime = Date.now();
-        this._monitorLoop   = setInterval(() => this._monitorFrame(), monitorInterval);
+        // Skip a tick if the previous frame is still processing (slow CPU-delegate machines)
+        this._monitorLoop   = setInterval(() => {
+            if (this._frameBusy) return;
+            this._frameBusy = true;
+            this._monitorFrame()
+                .catch(e => console.warn('[LakshyaProctor] Frame check error:', e))
+                .finally(() => { this._frameBusy = false; });
+        }, monitorInterval);
         this._heartbeatLoop = setInterval(() => this._heartbeat(), heartbeatInterval);
 
         this._attachBrowserListeners();
@@ -414,8 +469,10 @@ class ProctoringEngine {
         const deltaTMs = this._lastFrameTime > 0 ? (now - this._lastFrameTime) : 1500;
         this._lastFrameTime = now;
 
-        const lum = this._getFrameLuminance();
         const detections = await this._detectFaces();
+        // No frame yet or detector still (re)loading — skip rather than report a false NO_FACE
+        if (detections === null) return;
+        const lum = this._getFrameLuminance();
         const faceCount = detections.length;
 
         // 1. Lighting / Scene Quality Gate (Non-punitive)
@@ -791,7 +848,7 @@ class ProctoringEngine {
                 seq:           this._seq,
                 timestamp:     Date.now(),
                 camera_active: Boolean(this._stream && this._stream.active),
-                fullscreen:    Boolean(document.fullscreenElement),
+                fullscreen:    Boolean(document.fullscreenElement || document.webkitFullscreenElement),
                 tab_focused:   !document.hidden
             });
 
@@ -845,10 +902,28 @@ class ProctoringEngine {
         return false;
     }
 
+    /**
+     * Pages call this right before requestFullscreen(): the macOS fullscreen transition
+     * can briefly blur the window, which must not count as a violation.
+     */
+    noteFullscreenRequest() {
+        this._focusGraceUntil = Date.now() + 1500;
+    }
+
+    // The server gives an instant strike per focus event, and one action (Cmd+Tab, Alt+Tab)
+    // fires blur + visibilitychange (+ fullscreenchange) together. Report it once.
+    _claimFocusLossReport() {
+        const now = Date.now();
+        if (now < (this._focusGraceUntil || 0)) return false;
+        if (now - (this._lastFocusLossReport || 0) < 3000) return false;
+        this._lastFocusLossReport = now;
+        return true;
+    }
+
     _attachBrowserListeners() {
         // INSTANT CAPTURE ON TAB SWITCH (Prioritizing desktop screen stream if active)
         this._onVisibilityChange = async () => {
-            if (document.hidden) {
+            if (document.hidden && this._isActive && this._claimFocusLossReport()) {
                 // Brief 120ms pause allows OS window manager to bring switched tab/window to foreground on screen stream
                 await this._sleep(120);
                 const instantSnapshot = this._captureSnapshot(true);
@@ -858,16 +933,22 @@ class ProctoringEngine {
 
         // INSTANT CAPTURE ON WINDOW BLUR (Focus Lost)
         this._onBlur = async () => {
-            if (this._isActive) {
+            if (this._isActive && this._claimFocusLossReport()) {
                 await this._sleep(120);
                 const instantSnapshot = this._captureSnapshot(true);
                 await this._reportObservation('WINDOW_BLUR', 1000, 1.0, instantSnapshot, { trigger: 'window_blur' });
             }
         };
 
-        // INSTANT CAPTURE ON FULLSCREEN EXIT
+        // INSTANT CAPTURE ON FULLSCREEN EXIT (webkit-prefixed for Safari < 16.4)
         this._onFullscreenChange = async () => {
-            if (!document.fullscreenElement) {
+            const fsEl = document.fullscreenElement || document.webkitFullscreenElement;
+            if (fsEl) {
+                // Entering fullscreen — ignore the focus flicker of the macOS transition
+                this.noteFullscreenRequest();
+                return;
+            }
+            if (this._isActive && this._claimFocusLossReport()) {
                 const instantSnapshot = this._captureSnapshot(true);
                 await this._reportObservation('FULLSCREEN_EXIT', 1000, 1.0, instantSnapshot, { trigger: 'fullscreen_exit' });
             }
@@ -876,6 +957,7 @@ class ProctoringEngine {
         document.addEventListener('visibilitychange', this._onVisibilityChange);
         window.addEventListener('blur', this._onBlur);
         document.addEventListener('fullscreenchange', this._onFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', this._onFullscreenChange);
     }
 
 
@@ -888,50 +970,88 @@ class ProctoringEngine {
         }
         if (this._onFullscreenChange) {
             document.removeEventListener('fullscreenchange', this._onFullscreenChange);
+            document.removeEventListener('webkitfullscreenchange', this._onFullscreenChange);
         }
     }
 
-    async _loadDetector() {
+    // init() warms the detector and runEnvCheck() awaits it — share one in-flight load
+    _loadDetector(delegates = ['GPU', 'CPU']) {
+        if (this._detector) return Promise.resolve();
+        if (!this._detectorLoading) {
+            this._detectorLoading = this._createDetector(delegates)
+                .finally(() => { this._detectorLoading = null; });
+        }
+        return this._detectorLoading;
+    }
+
+    async _createDetector(delegates) {
+        // Pinned so the JS bundle and the WASM files always come from the same release
+        const MEDIAPIPE_VERSION = '0.10.14';
         try {
             const { FaceDetector, FilesetResolver } = await import(
-                'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs'
+                `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/vision_bundle.mjs`
             );
             const vision = await FilesetResolver.forVisionTasks(
-                'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
+                `https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`
             );
-            this._detector = await FaceDetector.createFromOptions(vision, {
-                baseOptions: {
-                    modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite',
-                    delegate: 'GPU'
-                },
-                runningMode: 'IMAGE',
-                minDetectionConfidence: 0.5,
-            });
-            this._detectorMode = 'mediapipe';
+            // The GPU delegate fails on some Macs / Safari builds — without the CPU fallback
+            // no detector loads and calibration always fails with "face not visible"
+            for (const delegate of delegates) {
+                try {
+                    this._detector = await FaceDetector.createFromOptions(vision, {
+                        baseOptions: {
+                            modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite',
+                            delegate: delegate
+                        },
+                        runningMode: 'IMAGE',
+                        minDetectionConfidence: 0.5,
+                    });
+                    this._detectorMode = 'mediapipe';
+                    console.log(`[LakshyaProctor] MediaPipe face detector ready (${delegate}).`);
+                    return;
+                } catch (delegateErr) {
+                    console.warn(`[LakshyaProctor] MediaPipe ${delegate} delegate failed:`, delegateErr);
+                }
+            }
         } catch (e) {
-            console.warn('[LakshyaProctor] MediaPipe fallback initialized.');
+            console.warn('[LakshyaProctor] MediaPipe failed to load:', e);
         }
     }
 
     async _detectFaces() {
-        if (!this._videoEl || !this._canvasEl) return [];
-        const ctx = this._canvasEl.getContext('2d');
+        // null = "unknown" (no frame or no detector) — callers must not treat that as "no face"
+        if (!this._videoEl || !this._canvasEl) return null;
+        if (this._videoEl.readyState < 2 || this._videoEl.videoWidth === 0) return null;
+        const ctx = this._canvasEl.getContext('2d', { willReadFrequently: true });
         ctx.drawImage(this._videoEl, 0, 0, this._canvasEl.width, this._canvasEl.height);
 
         if (this._detectorMode === 'mediapipe' && this._detector) {
-            const result = this._detector.detect(this._canvasEl);
-            return result?.detections || [];
+            try {
+                const result = this._detector.detect(this._canvasEl);
+                return (result?.detections || []).map(d => ({
+                    ...d,
+                    // tasks-vision puts the score in categories[0]
+                    score: d.score ?? d.categories?.[0]?.score ?? 0.90
+                }));
+            } catch (e) {
+                // GPU context can be lost at runtime (common on Safari) — rebuild on CPU
+                console.warn('[LakshyaProctor] Face detection failed, switching to CPU:', e);
+                try { this._detector.close(); } catch (closeErr) {}
+                this._detector = null;
+                this._loadDetector(['CPU']);
+                return null;
+            }
         }
         if (this._detectorMode === 'faceapi' && typeof faceapi !== 'undefined') {
             const detections = await faceapi.detectAllFaces(this._canvasEl, new faceapi.TinyFaceDetectorOptions());
             return detections || [];
         }
-        return [];
+        return null;
     }
 
     _getFrameLuminance() {
         if (!this._canvasEl) return 100;
-        const ctx = this._canvasEl.getContext('2d');
+        const ctx = this._canvasEl.getContext('2d', { willReadFrequently: true });
         const data = ctx.getImageData(0, 0, this._canvasEl.width, this._canvasEl.height).data;
         let sum = 0;
         for (let i = 0; i < data.length; i += 16) {
@@ -942,18 +1062,22 @@ class ProctoringEngine {
 
     _captureSnapshot(preferScreen = false) {
         try {
-            if (!this._canvasEl) {
-                this._canvasEl = document.createElement('canvas');
+            // Own canvas: resizing the 320x240 analysis canvas to screen size (5K px on Retina Macs)
+            // made every following detection/luminance pass huge and slow
+            if (!this._snapshotCanvas) {
+                this._snapshotCanvas = document.createElement('canvas');
             }
+            const canvas = this._snapshotCanvas;
             const hasScreen = Boolean(this._screenVideoEl && this._screenVideoEl.videoWidth > 0);
             const hasWebcam = Boolean(this._videoEl && this._videoEl.videoWidth > 0);
 
             if (preferScreen && hasScreen) {
-                const sw = this._screenVideoEl.videoWidth || 1280;
-                const sh = this._screenVideoEl.videoHeight || 720;
-                this._canvasEl.width = sw;
-                this._canvasEl.height = sh;
-                const ctx = this._canvasEl.getContext('2d');
+                const screenScale = Math.min(1, 1600 / (this._screenVideoEl.videoWidth || 1280));
+                const sw = Math.round((this._screenVideoEl.videoWidth || 1280) * screenScale);
+                const sh = Math.round((this._screenVideoEl.videoHeight || 720) * screenScale);
+                canvas.width = sw;
+                canvas.height = sh;
+                const ctx = canvas.getContext('2d');
                 ctx.drawImage(this._screenVideoEl, 0, 0, sw, sh);
 
                 // Overlay webcam PiP in bottom-right corner if available
@@ -972,23 +1096,24 @@ class ProctoringEngine {
                     ctx.font = 'bold 13px sans-serif';
                     ctx.fillText('🔴 CAM + SCREEN EVIDENCE', pipX + 8, pipY + 20);
                 }
-                return this._canvasEl.toDataURL('image/jpeg', 0.80);
+                return canvas.toDataURL('image/jpeg', 0.80);
             }
 
             if (hasWebcam) {
-                this._canvasEl.width = this._videoEl.videoWidth || 640;
-                this._canvasEl.height = this._videoEl.videoHeight || 480;
-                const ctx = this._canvasEl.getContext('2d');
-                ctx.drawImage(this._videoEl, 0, 0, this._canvasEl.width, this._canvasEl.height);
-                return this._canvasEl.toDataURL('image/jpeg', 0.80);
+                canvas.width = this._videoEl.videoWidth || 640;
+                canvas.height = this._videoEl.videoHeight || 480;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(this._videoEl, 0, 0, canvas.width, canvas.height);
+                return canvas.toDataURL('image/jpeg', 0.80);
             }
 
             if (hasScreen) {
-                this._canvasEl.width = this._screenVideoEl.videoWidth || 1280;
-                this._canvasEl.height = this._screenVideoEl.videoHeight || 720;
-                const ctx = this._canvasEl.getContext('2d');
-                ctx.drawImage(this._screenVideoEl, 0, 0, this._canvasEl.width, this._canvasEl.height);
-                return this._canvasEl.toDataURL('image/jpeg', 0.80);
+                const screenScale = Math.min(1, 1600 / (this._screenVideoEl.videoWidth || 1280));
+                canvas.width = Math.round((this._screenVideoEl.videoWidth || 1280) * screenScale);
+                canvas.height = Math.round((this._screenVideoEl.videoHeight || 720) * screenScale);
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(this._screenVideoEl, 0, 0, canvas.width, canvas.height);
+                return canvas.toDataURL('image/jpeg', 0.80);
             }
 
             return null;
@@ -1092,18 +1217,27 @@ class ProctoringEngine {
             style.textContent = `
                 #proctor-preview {
                     position: fixed; bottom: 16px; right: 16px; z-index: 9000;
-                    width: 160px; border-radius: 12px; overflow: hidden;
+                    width: 150px; border-radius: 12px; overflow: hidden;
                     box-shadow: 0 8px 24px rgba(0,0,0,0.6); border: 2px solid rgba(255,255,255,0.15);
                     background: #090d16; font-family: 'Inter', sans-serif;
                     transition: border-color 0.3s ease;
+                    user-select: none; -webkit-user-select: none;
+                    cursor: grab;
+                    touch-action: none;
+                }
+                #proctor-preview.is-dragging {
+                    cursor: grabbing !important;
+                    opacity: 0.88;
+                    box-shadow: 0 16px 36px rgba(0,0,0,0.85);
                 }
                 #proctor-preview.hud-normal   { border-color: rgba(34, 197, 94, 0.6); }
                 #proctor-preview.hud-deviated { border-color: rgba(245, 158, 11, 0.8); }
                 #proctor-preview.hud-warning  { border-color: rgba(239, 68, 68, 0.9); }
-                #proctor-preview video { width: 100%; display: block; border-radius: 10px 10px 0 0; }
+                #proctor-preview video { width: 100%; display: block; border-radius: 10px 10px 0 0; pointer-events: none; transform: scaleX(-1); }
                 #proctor-status-bar {
                     display: flex; align-items: center; justify-content: space-between;
                     padding: 5px 8px; font-size: 10px; color: #fff; background: rgba(15,23,42,0.95);
+                    cursor: grab;
                 }
                 #proctor-status-bar .dot {
                     width: 8px; height: 8px; border-radius: 50%; background: #22c55e;
@@ -1130,16 +1264,18 @@ class ProctoringEngine {
             this._previewContainer = document.createElement('div');
             this._previewContainer.id = 'proctor-preview';
             this._previewContainer.className = 'hud-normal';
+            this._previewContainer.title = 'Drag to reposition camera anywhere';
             this._previewContainer.innerHTML = `
                 <video id="proctor-video" autoplay muted playsinline></video>
                 <div id="proctor-status-bar">
                     <span class="dot"></span>
-                    <span id="proctor-label">AI Monitored</span>
+                    <span id="proctor-label" style="display:flex;align-items:center;gap:3px;"><i class="fas fa-arrows-alt" style="font-size:9px;opacity:0.7;"></i> Cam</span>
                     <span id="proctor-risk">Strikes: 0/3</span>
                 </div>
             `;
             document.body.appendChild(this._previewContainer);
             this._videoEl = document.getElementById('proctor-video');
+            this._makeDraggable(this._previewContainer);
         }
 
         if (!this._canvasEl) {
@@ -1149,6 +1285,68 @@ class ProctoringEngine {
             this._canvasEl.style.display = 'none';
             document.body.appendChild(this._canvasEl);
         }
+    }
+
+    _makeDraggable(el) {
+        if (!el) return;
+        let isDragging = false;
+        let startX = 0, startY = 0, initialLeft = 0, initialTop = 0;
+
+        const onStart = (e) => {
+            if (e.target.tagName === 'BUTTON' || e.target.tagName === 'A') return;
+            isDragging = true;
+            el.classList.add('is-dragging');
+            const clientX = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY;
+
+            const rect = el.getBoundingClientRect();
+            initialLeft = rect.left;
+            initialTop = rect.top;
+            startX = clientX;
+            startY = clientY;
+
+            el.style.bottom = 'auto';
+            el.style.right = 'auto';
+            el.style.left = `${initialLeft}px`;
+            el.style.top = `${initialTop}px`;
+        };
+
+        const onMove = (e) => {
+            if (!isDragging) return;
+            const clientX = e.type.startsWith('touch') ? e.touches[0].clientX : e.clientX;
+            const clientY = e.type.startsWith('touch') ? e.touches[0].clientY : e.clientY;
+
+            const dx = clientX - startX;
+            const dy = clientY - startY;
+
+            let newLeft = initialLeft + dx;
+            let newTop = initialTop + dy;
+
+            const maxLeft = Math.max(0, window.innerWidth - el.offsetWidth - 8);
+            const maxTop = Math.max(0, window.innerHeight - el.offsetHeight - 8);
+
+            newLeft = Math.max(8, Math.min(maxLeft, newLeft));
+            newTop = Math.max(8, Math.min(maxTop, newTop));
+
+            el.style.left = `${newLeft}px`;
+            el.style.top = `${newTop}px`;
+
+            if (e.cancelable) e.preventDefault();
+        };
+
+        const onEnd = () => {
+            if (!isDragging) return;
+            isDragging = false;
+            el.classList.remove('is-dragging');
+        };
+
+        el.addEventListener('mousedown', onStart);
+        window.addEventListener('mousemove', onMove, { passive: false });
+        window.addEventListener('mouseup', onEnd);
+
+        el.addEventListener('touchstart', onStart, { passive: true });
+        window.addEventListener('touchmove', onMove, { passive: false });
+        window.addEventListener('touchend', onEnd);
     }
 
     _setPreviewStatusIndicator(state) {
@@ -1177,7 +1375,7 @@ class ProctoringEngine {
         div.className = `proctor-warning-overlay ${isFinal ? 'final' : 'warn'}`;
         div.innerHTML = `
             <div>${isFinal ? '🚨 FINAL INTEGRITY WARNING (Strike 2/3)' : `⚠️ INTEGRITY WARNING (Strike ${strikeCount}/3)`}</div>
-            <div style="font-size:12px;font-weight:400;margin-top:4px">${msg}</div>
+            <div style="font-size:12px;font-weight:400;margin-top:4px">${this._escapeHtml(msg)}</div>
         `;
         document.body.appendChild(div);
         setTimeout(() => div.remove(), 6000);
@@ -1189,10 +1387,14 @@ class ProctoringEngine {
         div.style.cssText += 'top:50%;transform:translate(-50%,-50%);padding:32px 48px;font-size:1.1rem;';
         div.innerHTML = `
             <div style="color:#ef4444;font-size:1.3rem;font-weight:700;">🔴 Assessment Terminated</div>
-            <div style="font-size:13px;font-weight:400;margin-top:8px;color:#cbd5e1;">${msg}</div>
+            <div style="font-size:13px;font-weight:400;margin-top:8px;color:#cbd5e1;">${this._escapeHtml(msg)}</div>
             <div style="font-size:11px;color:#94a3b8;margin-top:12px;">Auto-submitting your responses to the coordinator...</div>
         `;
         document.body.appendChild(div);
+    }
+
+    _escapeHtml(text) {
+        return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
     }
 
     _showError(msg) {

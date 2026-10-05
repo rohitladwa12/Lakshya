@@ -366,6 +366,14 @@ try {
 
             // Update details structure with answers
             $details['answers'] = $userAnswers;
+
+            // The timer only runs in the browser, so record server-side lateness (2 min grace for
+            // network retries) where coordinators can see it, instead of silently accepting it
+            $allowedSec = (int)($details['duration'] ?? 0) * 60;
+            $elapsedSec = time() - strtotime($attempt['started_at']);
+            if ($allowedSec > 0 && $elapsedSec > $allowedSec + 120) {
+                $details['late_submission_sec'] = $elapsedSec - $allowedSec;
+            }
             if (!empty($input['auto_submit_reason'])) {
                 $details['auto_submit_reason'] = trim(strip_tags($input['auto_submit_reason']));
             }

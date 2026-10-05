@@ -2246,10 +2246,22 @@ ANTI-DEVIATION & PROMPT INJECTION GUARDRAIL:
             ['role' => 'user', 'content' => "Generate 5 questions for '$certTitle' ($issuer)"]
         ];
 
-        return $this->callAPI($messages, [
+        $response = $this->callAPI($messages, [
             'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object']
         ]);
+
+        // Return {questions: [...]} at the top level — the page reads result.questions,
+        // which the raw callAPI wrapper kept under 'parsed'
+        if ($response['success']) {
+            $parsed = is_array($response['parsed']) ? $response['parsed'] : json_decode($response['content'], true);
+            if (!is_array($parsed) || empty($parsed['questions']) || !is_array($parsed['questions'])) {
+                return ['success' => false, 'message' => 'The questions could not be generated. Please try again.'];
+            }
+            return ['questions' => array_values($parsed['questions'])];
+        }
+
+        return $response;
     }
 
     /**
@@ -2270,10 +2282,23 @@ ANTI-DEVIATION & PROMPT INJECTION GUARDRAIL:
             ['role' => 'user', 'content' => "Evaluate the following transcript for $certTitle:\n\n$transcript"]
         ];
 
-        return $this->callAPI($messages, [
+        $response = $this->callAPI($messages, [
             'audit_method' => __FUNCTION__,
             'response_format' => ['type' => 'json_object']
         ]);
+
+        // Return {score, feedback} at the top level like evaluateProjectViva — the raw callAPI
+        // wrapper kept the score under 'parsed', so the page and save_viva_result always saw 0
+        if ($response['success']) {
+            $parsed = is_array($response['parsed']) ? $response['parsed'] : json_decode($response['content'], true);
+            if (!is_array($parsed) || !isset($parsed['score'])) {
+                return ['success' => false, 'message' => 'The evaluation could not be read. Please try again.'];
+            }
+            $parsed['score'] = max(0, min(100, (int)$parsed['score']));
+            return $parsed;
+        }
+
+        return $response;
     }
 
     /**
@@ -2281,6 +2306,40 @@ ANTI-DEVIATION & PROMPT INJECTION GUARDRAIL:
      */
     public function generateDriveRoundQuestions($roundType, $topics, $questionCount, $driveName = 'Company')
     {
+        // Each MCQ with its derivation costs ~250-350 output tokens. Asking for
+        // 40 in one call overflowed max_tokens (truncated JSON -> "Failed to parse
+        // AI response") and exceeded the 90s cURL timeout, so generate in batches.
+        $batchSize = 10;
+        $questionCount = max(1, (int) $questionCount);
+        $all = [];
+        $lastError = null;
+        $failedBatches = 0;
+
+        while (count($all) < $questionCount && $failedBatches < 2) {
+            $need = min($batchSize, $questionCount - count($all));
+            $avoid = array_slice(array_map(fn($q) => $q['question'] ?? '', $all), -30);
+            $res = $this->generateDriveRoundQuestionsBatch($roundType, $topics, $need, $driveName, $avoid);
+            if (!empty($res['success']) && !empty($res['questions'])) {
+                $all = array_merge($all, $res['questions']);
+            } else {
+                $failedBatches++;
+                $lastError = $res['message'] ?? 'Failed to parse AI response.';
+            }
+        }
+
+        if (empty($all)) {
+            return ['success' => false, 'message' => $lastError ?? 'Failed to parse AI response.'];
+        }
+        return ['success' => true, 'questions' => array_slice($all, 0, $questionCount)];
+    }
+
+    private function generateDriveRoundQuestionsBatch($roundType, $topics, $questionCount, $driveName, $avoidQuestions = [])
+    {
+        $avoidText = '';
+        if (!empty($avoidQuestions)) {
+            $avoidText = "\n        Do NOT repeat or paraphrase any of these already-generated questions:\n        - " . implode("\n        - ", $avoidQuestions);
+        }
+
         $systemPrompt = "You are an Elite Recruitment Question Architect for a recruitment drive named '$driveName'.
         Your task is to generate exactly $questionCount high-quality, professional, and unique Multiple Choice Questions (MCQs) for the **$roundType** round.
         
@@ -2303,7 +2362,7 @@ ANTI-DEVIATION & PROMPT INJECTION GUARDRAIL:
             \"explanation\": \"Brief explanation of why the answer is correct\",
             \"category\": \"Target Topic Name\"
         }
-        Do not include any markup like ```json in the raw response, return only valid JSON.";
+        Do not include any markup like ```json in the raw response, return only valid JSON.{$avoidText}";
 
         $messages = [
             ['role' => 'system', 'content' => $systemPrompt],
@@ -2311,9 +2370,9 @@ ANTI-DEVIATION & PROMPT INJECTION GUARDRAIL:
         ];
 
         $response = $this->callAPI($messages, [
-            'audit_method' => __FUNCTION__,
+            'audit_method' => 'generateDriveRoundQuestions',
             'response_format' => ['type' => 'json_object'],
-            'max_tokens' => 4000,
+            'max_tokens' => min(16000, 400 * $questionCount + 500),
             'temperature' => 0.5
         ]);
 

@@ -63,8 +63,9 @@ DirectoryIndex index.php
     RewriteCond %{HTTP_USER_AGENT} ^-?$
     RewriteRule .* - [F,L]
 
-    # Block requests for config/env files that should never be public
-    RewriteRule \.(env|git|htpasswd|gitignore|bak|sql|swp|log|ini|conf)$ - [F,L]
+    # Block requests for config/env/txt files that should never be public (except robots.txt)
+    RewriteCond %{REQUEST_URI} !robots\.txt$ [NC]
+    RewriteRule \.(txt|md|env|git|htpasswd|gitignore|bak|sql|swp|log|ini|conf)$ - [F,L]
 </IfModule>
 
 # ─── Request Size Limits (prevent oversized payload DoS) ────────────────────────

@@ -118,7 +118,7 @@ class ProctoringService
         $sessionToken = bin2hex(random_bytes(32));
 
         $stmt = $db->prepare("
-            INSERT INTO `proctor_sessions` 
+            INSERT INTO `proctor_sessions`
             (`session_token`, `student_id`, `assessment_id`, `assessment_type`, `status`, `suspicion_score`, `warnings_issued`, `strike_count`, `penalty_pct`, `last_seq`, `last_heartbeat_at`, `created_at`)
             VALUES (?, ?, ?, ?, 'active', 0.00, 0, 0, 0.00, 0, NOW(), NOW())
         ");
@@ -1095,5 +1095,101 @@ class ProctoringService
             'penalty_pct' => (float)$session['penalty_pct'],
             'suspicion_score' => (float)$session['suspicion_score']
         ];
+    }
+
+    // ─── Self-proctored pages (Project Defense, Skill Verification, Mock Interview) ───
+    // These pages log each strike to assessment_integrity_events. The server recounts them
+    // instead of trusting the strike_count the browser sends with the result.
+
+    /**
+     * The proctor session behind a submission. The token comes from the browser, so it must
+     * belong to this student; if it is missing or foreign, use the student's latest session of
+     * this assessment type (last 3 h) so leaving the token out can't skip strike penalties.
+     */
+    public static function resolveStudentProctorSession(PDO $db, $token, array $studentIds, $assessmentType)
+    {
+        $studentIds = array_values(array_unique(array_filter(array_map('strval', $studentIds), 'strlen')));
+        if (empty($studentIds)) return false;
+        $ph = implode(',', array_fill(0, count($studentIds), '?'));
+
+        $token = trim((string)$token);
+        if ($token !== '') {
+            $stmt = $db->prepare("SELECT * FROM proctor_sessions WHERE session_token = ? AND student_id IN ($ph) LIMIT 1");
+            $stmt->execute(array_merge([$token], $studentIds));
+            $row = $stmt->fetch(PDO::FETCH_ASSOC);
+            if ($row) return $row;
+        }
+
+        $stmt = $db->prepare("SELECT * FROM proctor_sessions WHERE student_id IN ($ph) AND assessment_type = ?
+                              AND created_at >= (NOW() - INTERVAL 3 HOUR) ORDER BY created_at DESC LIMIT 1");
+        $stmt->execute(array_merge($studentIds, [(string)$assessmentType]));
+        return $stmt->fetch(PDO::FETCH_ASSOC);
+    }
+
+    /** Event types the in-page strike system logs as a strike (CAMERA_LOST etc. are informational) */
+    const CLIENT_STRIKE_EVENTS = [
+        'TAB_SWITCH', 'WINDOW_BLUR', 'FULLSCREEN_EXIT', 'SCREEN_SHARE_STOPPED',
+        'NO_FACE', 'MULTI_FACE', 'GAZE_DEVIATION', 'LOOKING_AWAY', 'SECURITY_VIOLATION'
+    ];
+
+    /** Same 3 s window the pages use: one user action firing several events is one strike */
+    const CLIENT_STRIKE_DEBOUNCE_SEC = 3;
+
+    /** Database clock, so attempt windows compare against the same clock as created_at */
+    public static function dbNow(PDO $db)
+    {
+        return (string)$db->query("SELECT NOW()")->fetchColumn();
+    }
+
+    /**
+     * Where an attempt's events start. Returns the marker saved at calibration time for this
+     * attempt, or a 3-hour fallback (which can only include more events, never fewer).
+     */
+    public static function attemptWindowStart(PDO $db, $sessionKey, $portfolioId)
+    {
+        $marker = $_SESSION['integrity_attempt_start'][$sessionKey][(int)$portfolioId] ?? null;
+        if (is_string($marker) && $marker !== '') {
+            return $marker;
+        }
+        return (string)$db->query("SELECT NOW() - INTERVAL 3 HOUR")->fetchColumn();
+    }
+
+    /** Called when an attempt begins (calibration saved) */
+    public static function markAttemptStart(PDO $db, $sessionKey, $portfolioId)
+    {
+        $_SESSION['integrity_attempt_start'][$sessionKey][(int)$portfolioId] = self::dbNow($db);
+    }
+
+    /**
+     * Counts strikes logged for an attempt. $since = null means no time filter
+     * (used when portfolio_id is already unique per attempt, e.g. a mock session id).
+     */
+    public static function countAttemptStrikes(PDO $db, $studentId, $portfolioId, $since = null)
+    {
+        $types = self::CLIENT_STRIKE_EVENTS;
+        $placeholders = implode(',', array_fill(0, count($types), '?'));
+        $sql = "SELECT created_at FROM assessment_integrity_events
+                WHERE student_id = ? AND portfolio_id = ? AND severity = 'HIGH'
+                  AND event_type IN ($placeholders)";
+        $params = array_merge([(string)$studentId, (int)$portfolioId], $types);
+        if ($since !== null) {
+            $sql .= " AND created_at >= ?";
+            $params[] = $since;
+        }
+        $sql .= " ORDER BY created_at ASC, id ASC";
+
+        $stmt = $db->prepare($sql);
+        $stmt->execute($params);
+
+        $count = 0;
+        $lastCounted = null;
+        while (($createdAt = $stmt->fetchColumn()) !== false) {
+            $ts = strtotime($createdAt);
+            if ($lastCounted === null || $ts - $lastCounted >= self::CLIENT_STRIKE_DEBOUNCE_SEC) {
+                $count++;
+                $lastCounted = $ts;
+            }
+        }
+        return $count;
     }
 }

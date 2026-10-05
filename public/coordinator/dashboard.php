@@ -1,19 +1,21 @@
 <?php
 /**
  * Department Coordinator Dashboard
- * Clean and minimal overview
+ * Clean, modern overview with non-duplicated operations & analytics
  */
 
 require_once __DIR__ . '/../../config/bootstrap.php';
 
 requireRole(ROLE_DEPT_COORDINATOR);
 
+$coordinatorId = getUserId();
 $fullName = getFullName();
 $department = getDepartment() ?: 'General';
 list($deptGmu, $deptGmit) = getCoordinatorDisciplineFilters($department);
 $deptLabel = ($deptGmu !== $deptGmit) ? $deptGmu . ' (GMU) & ' . $deptGmit . ' (GMIT)' : $department;
 if (!$deptLabel) $deptLabel = 'General Dashboard';
 
+$db = getDB();
 $studentModel = new StudentProfile();
 $semester_filter_all = getCoordinatorSemesterFilters($department) ?: [1, 2, 3, 4, 5, 6, 7, 8];
 $discipline_filters = getCoordinatorDisciplineFilters($department);
@@ -23,18 +25,53 @@ $coordFilters = [
     'semesters' => $semester_filter_all
 ];
 
-// Use all active department semesters to accurately count Total Academic Strength
-$studentCount = $studentModel->getTotalAcademicStrength($coordFilters);
+// 1. Total Academic Strength
+$studentCount = (int)$studentModel->getTotalAcademicStrength($coordFilters);
 
-// Fetch recent feedback from department students
+// 2. Department student USNs for scoping queries
+$students = $studentModel->getAllWithUsers($coordFilters);
+$deptStudentUsns = [];
+foreach ($students as $s) {
+    $usn = trim((string)($s['usn'] ?? ''));
+    if (!empty($usn)) {
+        $deptStudentUsns[] = $usn;
+    }
+}
+$deptStudentUsns = array_values(array_unique(array_filter($deptStudentUsns)));
+if (empty($deptStudentUsns)) {
+    $deptStudentUsns = ['__NONE__'];
+}
+$usnPlaceholders = implode(',', array_fill(0, count($deptStudentUsns), '?'));
+
+// 3. Active Tasks created by coordinator
+$totalTasks = 0;
+try {
+    $stmt = $db->prepare("SELECT COUNT(*) FROM coordinator_tasks WHERE coordinator_id = ?");
+    $stmt->execute([$coordinatorId]);
+    $totalTasks = (int)$stmt->fetchColumn();
+} catch (Exception $e) {}
+
+// 4. Department Integrity Violations
+$totalViolations = 0;
+try {
+    $stmt = $db->prepare("SELECT COUNT(*) FROM assessment_integrity_events WHERE student_id IN ($usnPlaceholders)");
+    $stmt->execute($deptStudentUsns);
+    $totalViolations = (int)$stmt->fetchColumn();
+} catch (Exception $e) {}
+
+// 5. Department Student Feedback Count & Recent Entries
+$totalFeedback = 0;
 $feedbacks = [];
 if (!empty($discipline_filters)) {
     try {
-        $db = getDB();
         $placeholders = implode(',', array_fill(0, count($discipline_filters), '?'));
+        $stmt = $db->prepare("SELECT COUNT(*) FROM portal_feedback WHERE branch IN ($placeholders)");
+        $stmt->execute($discipline_filters);
+        $totalFeedback = (int)$stmt->fetchColumn();
+
         $stmt = $db->prepare("SELECT * FROM portal_feedback WHERE branch IN ($placeholders) ORDER BY created_at DESC LIMIT 5");
         $stmt->execute($discipline_filters);
-        $feedbacks = $stmt->fetchAll();
+        $feedbacks = $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
         error_log("Error fetching coordinator dashboard feedbacks: " . $e->getMessage());
     }
@@ -47,11 +84,12 @@ if (!empty($discipline_filters)) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coordinator Dashboard - <?php echo APP_NAME; ?></title>
     <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
-    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         :root {
             --primary-maroon: #800000;
+            --primary-maroon-dark: #600000;
             --primary-gold: #D4AF37;
             --primary-gold-dark: #b59228;
             --white: #ffffff;
@@ -78,22 +116,22 @@ if (!empty($discipline_filters)) {
         }
         
         .main-content { 
-            max-width: 1280px;
+            max-width: 1320px;
             margin: 0 auto;
-            padding: 40px 24px 80px 24px;
+            padding: 40px 28px 80px 28px;
         }
         
         .page-header { 
-            margin-bottom: 32px; 
+            margin-bottom: 30px; 
             border-bottom: 1px solid var(--border-color);
-            padding-bottom: 24px;
+            padding-bottom: 22px;
         }
         
         .page-header h2 { 
-            font-size: 32px; 
+            font-size: 30px; 
             color: var(--primary-maroon); 
             font-weight: 800;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             letter-spacing: -0.5px;
         }
         
@@ -102,72 +140,95 @@ if (!empty($discipline_filters)) {
             font-size: 14px; 
             font-weight: 500;
         }
-        
-        .stats-card {
+
+        /* Top 4 KPI Cards */
+        .kpi-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+            gap: 20px;
+            margin-bottom: 36px;
+        }
+
+        .kpi-card {
             background: var(--white);
-            padding: 24px;
+            padding: 22px 24px;
             border-radius: 16px;
             box-shadow: var(--shadow-md);
             border: 1px solid rgba(0, 0, 0, 0.03);
-            margin-bottom: 32px;
             display: flex;
             align-items: center;
-            gap: 20px;
+            gap: 18px;
             transition: var(--transition);
         }
-        
-        .stats-card:hover {
-            transform: translateY(-2px);
+
+        .kpi-card:hover {
+            transform: translateY(-3px);
             box-shadow: var(--shadow-lg);
         }
-        
-        .stats-icon {
-            width: 56px;
-            height: 56px;
-            background: linear-gradient(135deg, var(--primary-maroon), #600000);
+
+        .kpi-icon {
+            width: 52px;
+            height: 52px;
             border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: var(--white);
             font-size: 22px;
-            box-shadow: 0 4px 12px rgba(128, 0, 0, 0.2);
+            flex-shrink: 0;
         }
-        
-        .stats-info h3 {
-            font-size: 12px;
+
+        .kpi-info h3 {
+            font-size: 11.5px;
             color: var(--text-muted);
             font-weight: 700;
             text-transform: uppercase;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.6px;
             margin-bottom: 4px;
         }
-        
-        .stats-info p {
-            font-size: 32px;
+
+        .kpi-info p {
+            font-size: 28px;
             font-weight: 800;
             color: var(--text-main);
-            line-height: 1;
+            line-height: 1.1;
+        }
+
+        /* Section Headings */
+        .section-heading {
+            font-size: 13.5px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin: 32px 0 16px 0;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-heading i {
+            color: var(--primary-maroon);
+            font-size: 15px;
         }
         
-        .quick-actions {
+        .quick-actions-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
             gap: 20px;
         }
         
         .action-card {
             background: var(--white);
-            padding: 28px 24px;
+            padding: 24px 22px;
             border-radius: 16px;
             box-shadow: var(--shadow-md);
-            border: 1px solid rgba(0, 0, 0, 0.03);
+            border: 1px solid rgba(0, 0, 0, 0.04);
             text-decoration: none;
             color: var(--text-main);
             transition: var(--transition);
             display: flex;
             flex-direction: column;
-            gap: 12px;
+            gap: 10px;
             position: relative;
             overflow: hidden;
         }
@@ -175,11 +236,11 @@ if (!empty($discipline_filters)) {
         .action-card:hover {
             transform: translateY(-4px);
             box-shadow: var(--shadow-hover);
-            border-color: rgba(128, 0, 0, 0.1);
+            border-color: rgba(128, 0, 0, 0.15);
         }
         
         .action-card.primary {
-            background: linear-gradient(135deg, var(--primary-maroon), #600000);
+            background: linear-gradient(135deg, var(--primary-maroon), var(--primary-maroon-dark));
             color: var(--white);
             border: none;
         }
@@ -187,50 +248,33 @@ if (!empty($discipline_filters)) {
         .action-card.primary:hover {
             box-shadow: 0 15px 30px rgba(128, 0, 0, 0.25);
         }
-        
-        .action-card.secondary {
-            background: linear-gradient(135deg, var(--white), #fdfbf7);
-            border: 1px solid rgba(212, 175, 55, 0.2);
+
+        .action-card.primary .action-icon {
+            color: var(--primary-gold);
         }
         
-        .action-card.secondary:hover {
-            border-color: var(--primary-gold);
-            box-shadow: 0 15px 30px rgba(212, 175, 55, 0.15);
-        }
-        
-        .action-card.jobs-btn {
-            background: linear-gradient(135deg, #10b981, #047857);
+        .action-card.highlight {
+            background: linear-gradient(135deg, #059669, #047857);
             color: var(--white);
             border: none;
         }
         
-        .action-card.jobs-btn:hover {
-            box-shadow: 0 15px 30px rgba(16, 185, 129, 0.25);
+        .action-card.highlight:hover {
+            box-shadow: 0 15px 30px rgba(5, 150, 105, 0.25);
         }
-        
+
+        .action-card.highlight .action-icon {
+            color: #a7f3d0;
+        }
+
         .action-icon {
-            font-size: 26px;
+            font-size: 24px;
+            color: var(--primary-maroon);
             transition: var(--transition);
         }
         
         .action-card:hover .action-icon {
             transform: scale(1.1);
-        }
-        
-        .action-card.primary .action-icon {
-            color: var(--primary-gold);
-        }
-        
-        .action-card.secondary .action-icon {
-            color: var(--primary-gold-dark);
-        }
-        
-        .action-card.jobs-btn .action-icon {
-            color: #a7f3d0;
-        }
-        
-        .action-card:not(.primary):not(.secondary):not(.jobs-btn) .action-icon {
-            color: var(--primary-maroon);
         }
         
         .action-title {
@@ -242,18 +286,18 @@ if (!empty($discipline_filters)) {
         .action-desc {
             font-size: 13px;
             color: var(--text-muted);
-            line-height: 1.4;
+            line-height: 1.45;
         }
         
         .action-card.primary .action-desc,
-        .action-card.jobs-btn .action-desc {
-            color: rgba(255, 255, 255, 0.8);
+        .action-card.highlight .action-desc {
+            color: rgba(255, 255, 255, 0.85);
         }
         
         /* Feedback Section */
         .feedback-section {
             background: var(--white);
-            padding: 32px;
+            padding: 30px 28px;
             border-radius: 16px;
             box-shadow: var(--shadow-md);
             border: 1px solid rgba(0, 0, 0, 0.03);
@@ -264,13 +308,13 @@ if (!empty($discipline_filters)) {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 24px;
+            margin-bottom: 20px;
             border-bottom: 1px solid var(--border-color);
-            padding-bottom: 16px;
+            padding-bottom: 14px;
         }
         
         .feedback-header h3 {
-            font-size: 18px;
+            font-size: 17px;
             font-weight: 700;
             color: var(--text-main);
             display: flex;
@@ -308,16 +352,12 @@ if (!empty($discipline_filters)) {
         }
         
         .feedback-table td {
-            padding: 16px;
+            padding: 14px 16px;
             border-bottom: 1px solid rgba(0, 0, 0, 0.03);
             font-size: 13px;
             color: var(--text-muted);
             line-height: 1.5;
             vertical-align: middle;
-        }
-        
-        .feedback-table tr {
-            transition: var(--transition);
         }
         
         .feedback-table tr:hover td {
@@ -327,13 +367,13 @@ if (!empty($discipline_filters)) {
         .feedback-student-name {
             font-weight: 700;
             color: var(--text-main);
-            font-size: 14px;
+            font-size: 13.5px;
         }
         
         .feedback-student-meta {
             font-size: 11px;
             color: var(--text-light);
-            margin-top: 3px;
+            margin-top: 2px;
             font-weight: 500;
         }
     </style>
@@ -347,63 +387,118 @@ if (!empty($discipline_filters)) {
             <p><?php echo htmlspecialchars($deptLabel); ?> • Semesters <?php echo min($semester_filter_all) . '-' . max($semester_filter_all); ?></p>
         </div>
 
-        <div class="stats-card">
-            <div class="stats-icon">
-                <i class="fas fa-users"></i>
+        <!-- 4 Balanced KPI Cards -->
+        <div class="kpi-row">
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#fdf2f2; color:var(--primary-maroon);">
+                    <i class="fas fa-users"></i>
+                </div>
+                <div class="kpi-info">
+                    <h3>Total Students</h3>
+                    <p><?php echo number_format($studentCount); ?></p>
+                </div>
             </div>
-            <div class="stats-info">
-                <h3>Total Students</h3>
-                <p><?php echo (int) $studentCount; ?></p>
+
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#eff6ff; color:#2563eb;">
+                    <i class="fas fa-list-check"></i>
+                </div>
+                <div class="kpi-info">
+                    <h3>Assigned Tasks</h3>
+                    <p><?php echo number_format($totalTasks); ?></p>
+                </div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#fef2f2; color:#dc2626;">
+                    <i class="fas fa-shield-halved"></i>
+                </div>
+                <div class="kpi-info">
+                    <h3>Integrity Violations</h3>
+                    <p><?php echo number_format($totalViolations); ?></p>
+                </div>
+            </div>
+
+            <div class="kpi-card">
+                <div class="kpi-icon" style="background:#fffbeb; color:#d97706;">
+                    <i class="fas fa-comments"></i>
+                </div>
+                <div class="kpi-info">
+                    <h3>Student Feedback</h3>
+                    <p><?php echo number_format($totalFeedback); ?></p>
+                </div>
             </div>
         </div>
 
-        <div class="quick-actions">
+        <!-- Section 1: Academic & Assessment Management -->
+        <div class="section-heading">
+            <i class="fas fa-tasks"></i> Academic & Assessment Operations
+        </div>
+        <div class="quick-actions-grid">
             <a href="assign_task.php" class="action-card primary">
-                <div class="action-icon"><i class="fas fa-tasks"></i></div>
+                <div class="action-icon"><i class="fas fa-clipboard-list"></i></div>
                 <div class="action-title">Assign Tasks</div>
-                <div class="action-desc">Assign assessments to students</div>
+                <div class="action-desc">Assign assessments, quizzes & vivas to student batches</div>
             </a>
 
-            <a href="manage_tasks.php" class="action-card secondary">
+            <a href="manage_tasks.php" class="action-card">
                 <div class="action-icon"><i class="fas fa-chart-line"></i></div>
                 <div class="action-title">Manage Tasks</div>
-                <div class="action-desc">Track student progress</div>
-            </a>
-
-            <a href="analytics.php?reset=1" class="action-card secondary">
-                <div class="action-icon"><i class="fas fa-chart-pie"></i></div>
-                <div class="action-title">Department Analytics</div>
-                <div class="action-desc">Track department progress</div>
-            </a>
-
-            <a href="leaderboard.php" class="action-card secondary">
-                <div class="action-icon"><i class="fas fa-trophy"></i></div>
-                <div class="action-title">Student Leaderboard</div>
-                <div class="action-desc">Department & Global rankings</div>
-            </a>
-
-            <a href="students_report.php?section=details&inst=all" class="action-card">
-                <div class="action-icon"><i class="fas fa-list-check"></i></div>
-                <div class="action-title">All Students</div>
-                <div class="action-desc">View student details</div>
+                <div class="action-desc">Track student submission progress, scores & deadlines</div>
             </a>
 
             <a href="add_aptitude.php" class="action-card">
-                <div class="action-icon"><i class="fas fa-plus-circle"></i></div>
-                <div class="action-title">Add Aptitude</div>
-                <div class="action-desc">Create aptitude questions</div>
+                <div class="action-icon"><i class="fas fa-circle-question"></i></div>
+                <div class="action-title">Add Aptitude Questions</div>
+                <div class="action-desc">Create multiple choice quantitative and reasoning questions</div>
             </a>
 
             <a href="add_coding.php" class="action-card">
                 <div class="action-icon"><i class="fas fa-code"></i></div>
-                <div class="action-title">Add Coding</div>
-                <div class="action-desc">Create coding problems</div>
+                <div class="action-title">Add Coding Problems</div>
+                <div class="action-desc">Create programming challenges with test cases</div>
+            </a>
+        </div>
+
+        <!-- Section 2: AI Monitoring & Proctoring -->
+        <div class="section-heading">
+            <i class="fas fa-shield-halved"></i> AI Monitoring & Proctoring Audit
+        </div>
+        <div class="quick-actions-grid">
+            <a href="proctoring.php" class="action-card">
+                <div class="action-icon" style="color:#dc2626;"><i class="fas fa-shield-halved"></i></div>
+                <div class="action-title">AI Proctoring Audit</div>
+                <div class="action-desc">Review cheating telemetry, snapshot evidence & strike logs</div>
             </a>
 
-            <a href="jobs.php" class="action-card jobs-btn">
+            <a href="ai_monitor.php" class="action-card">
+                <div class="action-icon" style="color:#0284c7;"><i class="fas fa-robot"></i></div>
+                <div class="action-title">Live Student Monitor</div>
+                <div class="action-desc">Real-time student portal activity and online monitoring</div>
+            </a>
+        </div>
+
+        <!-- Section 3: Performance & Placements -->
+        <div class="section-heading">
+            <i class="fas fa-chart-pie"></i> Performance & Placements
+        </div>
+        <div class="quick-actions-grid">
+            <a href="analytics.php?reset=1" class="action-card">
+                <div class="action-icon"><i class="fas fa-chart-pie"></i></div>
+                <div class="action-title">Department Analytics</div>
+                <div class="action-desc">Comprehensive batch performance metrics & skill breakdowns</div>
+            </a>
+
+            <a href="leaderboard.php" class="action-card">
+                <div class="action-icon" style="color:var(--primary-gold-dark);"><i class="fas fa-trophy"></i></div>
+                <div class="action-title">Student Leaderboard</div>
+                <div class="action-desc">Department and institutional student rankings</div>
+            </a>
+
+            <a href="jobs.php" class="action-card highlight">
                 <div class="action-icon"><i class="fas fa-briefcase"></i></div>
                 <div class="action-title">Jobs & Internships</div>
-                <div class="action-desc">Track department applications</div>
+                <div class="action-desc">Track company placement drives & student applications</div>
             </a>
         </div>
 
@@ -442,7 +537,7 @@ if (!empty($discipline_filters)) {
                                     <?php echo $fb['general_comments'] ? htmlspecialchars(substr($fb['general_comments'], 0, 80)) . (strlen($fb['general_comments']) > 80 ? '...' : '') : '<span style="font-style:italic;opacity:0.6;">None</span>'; ?>
                                 </td>
                                 <td>
-                                    <?php if ($fb['new_feature_title']): ?>
+                                    <?php if (!empty($fb['new_feature_title'])): ?>
                                         <strong style="color: var(--primary-maroon); font-weight: 600;"><?php echo htmlspecialchars($fb['new_feature_title']); ?></strong>
                                     <?php else: ?>
                                         <span style="font-style:italic;opacity:0.6;">None</span>
@@ -455,7 +550,5 @@ if (!empty($discipline_filters)) {
             <?php endif; ?>
         </div>
     </div>
-
 </body>
 </html>
-

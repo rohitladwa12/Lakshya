@@ -164,6 +164,10 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         gap: 16px;
     }
 
+    .user-profile-wrapper {
+        position: relative;
+    }
+
     .user-profile {
         display: flex;
         align-items: center;
@@ -173,9 +177,13 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         border-radius: 12px;
         border: 1.5px solid #e2e8f0;
         transition: var(--transition);
+        cursor: pointer;
+        user-select: none;
     }
 
-    .user-profile:hover {
+    .user-profile:hover,
+    .user-profile-wrapper:hover .user-profile,
+    .user-profile-wrapper:focus-within .user-profile {
         background: #f1f5f9;
         border-color: #cbd5e1;
     }
@@ -212,6 +220,102 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
         color: var(--primary-gold);
         font-size: 16px;
         box-shadow: 0 2px 8px rgba(128, 0, 0, 0.2);
+    }
+
+    .profile-dropdown {
+        position: absolute;
+        top: calc(100% + 8px);
+        right: 0;
+        width: 240px;
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05);
+        padding: 8px;
+        display: none;
+        z-index: 1050;
+        animation: dropFadeIn 0.2s cubic-bezier(0.165, 0.84, 0.44, 1);
+    }
+
+    .user-profile-wrapper:hover .profile-dropdown,
+    .user-profile-wrapper:focus-within .profile-dropdown {
+        display: block;
+    }
+
+    @keyframes dropFadeIn {
+        from { opacity: 0; transform: translateY(-6px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+
+    .dropdown-header {
+        padding: 10px 12px;
+    }
+
+    .dropdown-header strong {
+        display: block;
+        font-size: 13.5px;
+        color: #0f172a;
+        font-weight: 700;
+    }
+
+    .dropdown-header span {
+        font-size: 11px;
+        color: #64748b;
+        font-weight: 500;
+    }
+
+    .dropdown-divider {
+        height: 1px;
+        background: #f1f5f9;
+        margin: 6px 0;
+    }
+
+    .dropdown-item {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 9px 12px;
+        color: #334155;
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 600;
+        border-radius: 8px;
+        transition: var(--transition);
+    }
+
+    .dropdown-item i {
+        font-size: 14px;
+        color: #64748b;
+        width: 18px;
+        text-align: center;
+        transition: var(--transition);
+    }
+
+    .dropdown-item:hover {
+        background: #f8fafc;
+        color: var(--primary-maroon);
+    }
+
+    .dropdown-item:hover i {
+        color: var(--primary-maroon);
+    }
+
+    .dropdown-item.active {
+        background: rgba(128, 0, 0, 0.06);
+        color: var(--primary-maroon);
+        font-weight: 700;
+    }
+
+    .dropdown-item.dropdown-logout {
+        color: #dc2626;
+    }
+
+    .dropdown-item.dropdown-logout i {
+        color: #dc2626;
+    }
+
+    .dropdown-item.dropdown-logout:hover {
+        background: #fef2f2;
     }
 
     .logout-btn {
@@ -291,35 +395,54 @@ include_once __DIR__ . '/../../includes/demo_protection.php';
                 </a>
             </li>
             <li>
+                <a href="manage_tasks.php"
+                    class="nav-link <?php echo in_array($currentPage, ['manage_tasks.php', 'assign_task.php'], true) ? 'active' : ''; ?>">
+                    <i class="fas fa-tasks"></i> Tasks
+                </a>
+            </li>
+            <li>
+                <a href="proctoring.php"
+                    class="nav-link <?php echo $currentPage == 'proctoring.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-shield-halved"></i> AI Proctoring
+                </a>
+            </li>
+            <li>
                 <a href="ai_monitor.php"
                     class="nav-link <?php echo $currentPage == 'ai_monitor.php' ? 'active' : ''; ?>">
                     <i class="fas fa-robot"></i> Student Monitor
-                </a>
-            </li>
-            <li>
-                <a href="feedback.php"
-                    class="nav-link <?php echo $currentPage == 'feedback.php' ? 'active' : ''; ?>">
-                    <i class="fas fa-comments"></i> Feedback
-                </a>
-            </li>
-
-            <li>
-                <a href="change_password.php"
-                    class="nav-link <?php echo $currentPage == 'change_password.php' ? 'active' : ''; ?>">
-                    <i class="fas fa-shield-halved"></i> Security
                 </a>
             </li>
         </ul>
     </div>
 
     <div class="nav-right">
-        <div class="user-profile">
-            <div class="user-info">
-                <span class="user-name"><?php echo htmlspecialchars($fullName); ?></span>
-                <span class="user-dept"><?php echo htmlspecialchars($department); ?></span>
+        <div class="user-profile-wrapper">
+            <div class="user-profile" tabindex="0">
+                <div class="user-info">
+                    <span class="user-name"><?php echo htmlspecialchars($fullName); ?></span>
+                    <span class="user-dept"><?php echo htmlspecialchars($department); ?></span>
+                </div>
+                <div class="avatar-ring">
+                    <i class="fas fa-user-shield"></i>
+                </div>
+                <i class="fas fa-chevron-down" style="font-size: 10px; color: #94a3b8; margin-left: 2px;"></i>
             </div>
-            <div class="avatar-ring">
-                <i class="fas fa-user-shield"></i>
+            <div class="profile-dropdown">
+                <div class="dropdown-header">
+                    <strong><?php echo htmlspecialchars($fullName); ?></strong>
+                    <span><?php echo htmlspecialchars($department); ?> Coordinator</span>
+                </div>
+                <div class="dropdown-divider"></div>
+                <a href="feedback.php" class="dropdown-item <?php echo $currentPage == 'feedback.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-comments"></i> Student Feedback
+                </a>
+                <a href="change_password.php" class="dropdown-item <?php echo $currentPage == 'change_password.php' ? 'active' : ''; ?>">
+                    <i class="fas fa-key"></i> Security & Password
+                </a>
+                <div class="dropdown-divider"></div>
+                <a href="../logout.php" class="dropdown-item dropdown-logout">
+                    <i class="fas fa-power-off"></i> Logout
+                </a>
             </div>
         </div>
         <a href="../logout.php" class="logout-btn">

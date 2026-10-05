@@ -30,15 +30,28 @@ try {
     $ai = new AIService();
     $studentModel = new StudentProfile();
 
+    // Every session action must belong to the logged-in student
+    $loadOwnedSession = function ($sessionId) use ($db, $studentIdForDb) {
+        $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ? AND student_id = ? AND assessment_type = 'NQT Technical'");
+        $stmt->execute([(int)$sessionId, $studentIdForDb]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$row) {
+            ob_clean();
+            echo json_encode(['success' => false, 'message' => 'Session not found']);
+            exit;
+        }
+        return $row;
+    };
+
 switch ($action) {
     case 'start_session':
         $sql = "INSERT INTO unified_ai_assessments (
-            student_id, institution, student_name, usn, aadhar, current_sem, branch, 
+            student_id, institution, student_name, usn, aadhar, current_sem, branch,
             assessment_type, company_name, status, details, started_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, 'NQT Technical', 'TCS NQT Practice', 'active', ?, CURRENT_TIMESTAMP)";
 
         $profile = $studentModel->getByUserId($userId);
-        
+
         $stmt = $db->prepare($sql);
         $stmt->execute([
             $studentIdForDb,
@@ -49,7 +62,7 @@ switch ($action) {
             $profile['semester'] ?? null,
             $profile['department'] ?? null,
             json_encode([
-                'role' => 'Software Engineer (NQT)', 
+                'role' => 'Software Engineer (NQT)',
                 'history' => [],
                 'task_id' => $input['task_id'] ?? null
             ])
@@ -59,8 +72,9 @@ switch ($action) {
         break;
 
     case 'get_question':
-        $sessionId = $input['session_id'];
-        
+        $sessionId = (int)($input['session_id'] ?? 0);
+        $loadOwnedSession($sessionId);
+
         // 1. Fetch random question from nqt_coding_questions
         $stmt = $db->query("SELECT * FROM nqt_coding_questions ORDER BY RAND() LIMIT 1");
         $baseQ = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -74,18 +88,20 @@ switch ($action) {
         // 2. Transmute the question via AI to be unique for this student
         session_write_close();
         $mutatedResponse = $ai->mutateCodingChallenge($baseQ);
-        
+
         if ($mutatedResponse['success']) {
             $aiData = $mutatedResponse['data'];
-            
-            // Store the generated question for history
-            $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ?");
-            $stmt->execute([$sessionId]);
-            $details = json_decode($stmt->fetchColumn(), true);
+
+            // Store the generated question for history (re-read: the AI call takes a while)
+            $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
+            $stmt->execute([$sessionId, $studentIdForDb]);
+            $details = json_decode((string)$stmt->fetchColumn(), true) ?: [];
             $details['history'][] = ['role' => 'system', 'content' => "Mutated Challenge: " . json_encode($aiData)];
-            
-            $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ?")
-               ->execute([json_encode($details), $sessionId]);
+            // Grading uses this server-side copy, not the problem text the browser sends back
+            $details['current_problem'] = (string)($aiData['problem_statement'] ?? '');
+
+            $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ? AND student_id = ?")
+               ->execute([json_encode($details), $sessionId, $studentIdForDb]);
 
             echo json_encode(['success' => true, 'data' => $aiData]);
         } else {
@@ -94,26 +110,36 @@ switch ($action) {
         break;
 
     case 'submit_code':
-        $code = $input['code'];
-        $language = $input['language'];
-        $problem = $input['problem_statement'];
-        $sessionId = $input['session_id'];
+        $code = (string)($input['code'] ?? '');
+        $language = (string)($input['language'] ?? 'python');
+        $sessionId = (int)($input['session_id'] ?? 0);
+        $sessionRow = $loadOwnedSession($sessionId);
+        $storedDetails = json_decode($sessionRow['details'] ?? '{}', true) ?: [];
+        // Grade against the problem the server issued; the client copy is only a fallback for older sessions
+        $problem = !empty($storedDetails['current_problem'])
+            ? $storedDetails['current_problem']
+            : (string)($input['problem_statement'] ?? '');
 
         session_write_close();
         $eval = $ai->evaluateCode($code, $language, $problem);
-        
+
         if ($eval['success']) {
             $result = json_decode($eval['content'], true);
-            
-            $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ?");
-            $stmt->execute([$sessionId]);
-            $details = json_decode($stmt->fetchColumn(), true);
-            
+            if (!is_array($result) || !isset($result['score']) || !is_numeric($result['score'])) {
+                ob_clean();
+                echo json_encode(['success' => false, 'message' => 'Evaluation failed']);
+                exit;
+            }
+
+            $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
+            $stmt->execute([$sessionId, $studentIdForDb]);
+            $details = json_decode((string)$stmt->fetchColumn(), true) ?: [];
+
             $details['history'][] = ['role' => 'user', 'content' => "Submitted Code ($language):\n$code"];
             $details['history'][] = ['role' => 'system', 'content' => "Evaluation: " . json_encode($result)];
 
-            $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', score = ?, details = ? WHERE id = ?")
-               ->execute([$result['score'] * 10, json_encode($details), $sessionId]);
+            $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', score = ?, details = ? WHERE id = ? AND student_id = ?")
+               ->execute([(float)$result['score'] * 10, json_encode($details), $sessionId, $studentIdForDb]);
 
             echo json_encode(['success' => true, 'result' => $result]);
         } else {
@@ -123,7 +149,7 @@ switch ($action) {
 
     case 'get_session_summary':
         $sessionId = $input['session_id'] ?? 0;
-        
+
         $stmt = $db->prepare("SELECT details, score, started_at, completed_at FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
         $stmt->execute([$sessionId, $studentIdForDb]);
         $row = $stmt->fetch(PDO::FETCH_ASSOC);
@@ -135,7 +161,7 @@ switch ($action) {
 
         $details = json_decode($row['details'], true) ?? [];
         $history = $details['history'] ?? [];
-        
+
         // Calculate summary from history
         $evaluations = [];
         $totalScore = 0;
@@ -155,8 +181,8 @@ switch ($action) {
         $avgScore = $count > 0 ? round(($totalScore / $count) * 10, 1) : $row['score'];
 
         // Update session as completed if it wasn't already
-        $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', score = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?")
-           ->execute([$avgScore, $sessionId]);
+        $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', score = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ? AND student_id = ?")
+           ->execute([$avgScore, $sessionId, $studentIdForDb]);
 
         echo json_encode([
             'success' => true,
@@ -171,16 +197,8 @@ switch ($action) {
         break;
 
     case 'generate_report_data':
-        $sessionId = $input['session_id'];
-        
-        $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ?");
-        $stmt->execute([$sessionId]);
-        $session = $stmt->fetch(PDO::FETCH_ASSOC);
-        
-        if (!$session) {
-            echo json_encode(['success' => false, 'message' => 'Session not found']);
-            exit;
-        }
+        $sessionId = (int)($input['session_id'] ?? 0);
+        $session = $loadOwnedSession($sessionId);
 
         $details = json_decode($session['details'], true);
         $role = $details['role'] ?? 'Software Engineer (NQT)';
@@ -189,10 +207,10 @@ switch ($action) {
         // Generate Text Report via AI
         session_write_close();
         $reportRes = $ai->generateTechnicalInterviewReport($role, $history, 'NQT Technical');
-        
+
         if ($reportRes['success']) {
             $reportText = $reportRes['content'];
-            
+
             // --- STRICT PERFORMANCE SCORING ---
             // Calculate actual average score from evaluation history
             $totalScore = 0;
@@ -215,8 +233,8 @@ switch ($action) {
             $filename = "{$session['usn']}_NQT_" . ($session['current_sem'] ?? 'Sem') . ".pdf";
 
             // Update DB with Final Strict Score
-            $db->prepare("UPDATE unified_ai_assessments SET score = ?, feedback = ? WHERE id = ?")
-               ->execute([$performanceScore, "Report Generated", $sessionId]);
+            $db->prepare("UPDATE unified_ai_assessments SET score = ?, feedback = ? WHERE id = ? AND student_id = ?")
+               ->execute([$performanceScore, "Report Generated", $sessionId, $studentIdForDb]);
 
             echo json_encode(['success' => true, 'report_html' => $html, 'filename' => $filename]);
         } else {
@@ -226,38 +244,47 @@ switch ($action) {
         break;
 
     case 'save_pdf_report':
-        $sessionId = $_POST['session_id'] ?? 0;
-        
+        $sessionId = (int)($_POST['session_id'] ?? 0);
+        $row = $loadOwnedSession($sessionId);
+
         if (isset($_FILES['pdf']) && $_FILES['pdf']['error'] === UPLOAD_ERR_OK) {
+            // Must really be a PDF: the client-supplied name/extension was trusted before,
+            // which allowed uploading e.g. a .php file into a web-served folder
+            $header = (string)@file_get_contents($_FILES['pdf']['tmp_name'], false, null, 0, 5);
+            if ($header !== '%PDF-') {
+                echo json_encode(['success' => false, 'message' => 'Invalid report file']);
+                exit;
+            }
+
             $dir = REPORTS_UPLOAD_PATH . '/technical/';
-            if (!is_dir($dir)) mkdir($dir, 0777, true);
-            
-            $filename = basename($_FILES['pdf']['name']);
+            if (!is_dir($dir)) mkdir($dir, 0755, true);
+
+            // Server-chosen name, unique per session, so students can't overwrite each other's reports
+            $safeUsn = preg_replace('/[^A-Za-z0-9_-]/', '', (string)($row['usn'] ?? 'student'));
+            $safeSem = preg_replace('/[^A-Za-z0-9_-]/', '', (string)($row['current_sem'] ?? 'Sem'));
+            $filename = "{$safeUsn}_NQT_{$safeSem}_{$sessionId}.pdf";
             $targetPath = $dir . $filename;
-            
+
             if (move_uploaded_file($_FILES['pdf']['tmp_name'], $targetPath)) {
                 $publicPath = "uploads/reports/technical/" . $filename;
-                
+
                 // Finalize DB
-                $stmt = $db->prepare("SELECT details, score FROM unified_ai_assessments WHERE id = ?");
-                $stmt->execute([$sessionId]);
-                $row = $stmt->fetch(PDO::FETCH_ASSOC);
-                $details = json_decode($row['details'], true);
+                $details = json_decode($row['details'] ?? '{}', true) ?: [];
                 $finalScore = $row['score'];
-                
+
                 $details['report_path'] = $publicPath;
-                
-                $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', details = ? WHERE id = ?")
-                   ->execute([json_encode($details), $sessionId]);
+
+                $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', details = ? WHERE id = ? AND student_id = ?")
+                   ->execute([json_encode($details), $sessionId, $studentIdForDb]);
 
                 // Update task completions if task_id exists
                 if (isset($details['task_id']) && $details['task_id']) {
                     $taskId = $details['task_id'];
-                    $stmtComp = $db->prepare("INSERT INTO task_completions 
-                                          (task_id, student_id, score, time_taken) 
+                    $stmtComp = $db->prepare("INSERT INTO task_completions
+                                          (task_id, student_id, score, time_taken)
                                           VALUES (?, ?, ?, ?)
-                                          ON DUPLICATE KEY UPDATE 
-                                          score = VALUES(score), 
+                                          ON DUPLICATE KEY UPDATE
+                                          score = VALUES(score),
                                           completed_at = CURRENT_TIMESTAMP");
                     $stmtComp->execute([$taskId, $studentIdForDb, $finalScore, 0]);
                 }
@@ -277,6 +304,10 @@ switch ($action) {
 }
 
 function generateReportHTML($usn, $sem, $name, $company, $score, $content) {
+    $esc = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+    $usn = $esc($usn); $sem = $esc($sem); $name = $esc($name); $company = $esc($company);
+    $score = is_numeric($score) ? (float)$score : 0;
+    $favicon = $esc(APP_URL . '/assets/img/favicon.png');
     // Simple Markdown-to-HTML conversion for a premium feel
     $htmlContent = htmlspecialchars($content);
     $htmlContent = preg_replace('/\*\*(.*?)\*\*/', '<strong>$1</strong>', $htmlContent);
@@ -287,7 +318,7 @@ function generateReportHTML($usn, $sem, $name, $company, $score, $content) {
     return "
     <html>
     <head>
-    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='{$favicon}'>
         <style>
             body { font-family: sans-serif; padding: 40px; line-height: 1.6; color: #333; }
             h1 { color: #800000; border-bottom: 2px solid #800000; padding-bottom: 10px; margin-bottom: 20px; }

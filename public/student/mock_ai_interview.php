@@ -24,8 +24,9 @@ if (isPost() && (isset($_POST['company']) || isset($_POST['type']))) {
 }
 
 $filters = SessionFilterHelper::getFilters('mock_ai');
-$companyName = $filters['company'] ?? 'General';
-$roundType = $filters['type'] ?? 'Technical';
+// Session filters come straight from $_POST, so escape them the same way as the GET values
+$companyName = !empty($_GET['company']) ? clean($_GET['company']) : clean((string)($filters['company'] ?? 'General'));
+$roundType = !empty($_GET['type']) ? clean($_GET['type']) : clean((string)($filters['type'] ?? 'Technical'));
 
 $compLower = strtolower($companyName);
 $primaryColor = '#800000'; // Default Maroon
@@ -70,6 +71,8 @@ if (strpos($compLower, 'google') !== false) {
 <html lang="en">
 <head>
 <title>Mock AI Interview | Lakshya</title>
+<!-- In-page replacements for the native alert / confirm popups (native popups blur the window and count as proctoring violations) -->
+<script src="../js/lakshya_dialogs.js?v=<?php echo APP_VERSION; ?>"></script>
 <!-- Resilience & Cache Busting -->
 <script src="resilience.js?v=<?php echo APP_VERSION; ?>"></script>
 <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -1447,6 +1450,7 @@ if (strpos($compLower, 'google') !== false) {
         height: 110px;
         object-fit: cover;
         background: #000;
+        transform: scaleX(-1); /* mirror preview like a selfie camera */
     }
     .proctor-widget-bar {
         padding: 6px 10px;
@@ -1874,7 +1878,7 @@ if (strpos($compLower, 'google') !== false) {
                 <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1.2rem;">
                     Enable your webcam feed to establish active proctoring during the AI interview session.
                 </p>
-                <video id="setupWebcamPreview" autoplay muted playsinline style="width: 220px; height: 145px; border-radius: 16px; background: #000; border: 2px solid rgba(255,255,255,0.15); margin: 0 auto 1.2rem; object-fit: cover; display: block;"></video>
+                <video id="setupWebcamPreview" autoplay muted playsinline style="width: 220px; height: 145px; border-radius: 16px; background: #000; border: 2px solid rgba(255,255,255,0.15); margin: 0 auto 1.2rem; object-fit: cover; display: block; transform: scaleX(-1);"></video>
                 <div id="setupCheckStatus" style="font-size: 0.85rem; font-weight: 700; color: #f59e0b; margin-bottom: 1.4rem;">
                     Requesting camera permission…
                 </div>
@@ -1889,10 +1893,15 @@ if (strpos($compLower, 'google') !== false) {
                 <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;" id="calibPromptText">
                     Look directly at the center target below.
                 </p>
+                <!-- Live face preview so the student can see themselves while calibrating -->
+                <video id="calibWebcamPreview" autoplay muted playsinline style="width: 220px; height: 145px; border-radius: 16px; background: #000; border: 2px solid rgba(255,255,255,0.15); margin: 0 auto 0.6rem; object-fit: cover; display: block; transform: scaleX(-1);"></video>
                 <div class="calib-target" id="calibTarget"></div>
                 <div id="calibProgressText" style="font-size: 0.9rem; font-weight: 700; color: var(--accent); margin-bottom: 1.4rem;">
                     Progress: Center (0/3s)
                 </div>
+                <button id="btnRetryCalib" onclick="startCalibrationFlow()" class="btn-continue hidden" style="padding: 12px 30px; font-size: 1rem;">
+                    <i class="fas fa-redo"></i> Retry Calibration
+                </button>
             </div>
 
             <!-- Step 3 View: Screen Share Setup -->
@@ -1972,6 +1981,9 @@ if (strpos($compLower, 'google') !== false) {
 
     <script>
         const CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
+        // json_encode keeps quotes/backslashes/closing script tags in these values from breaking the script
+        const ROUND_TYPE = <?php echo json_encode($roundType, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+        const COMPANY_NAME = <?php echo json_encode($companyName, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
         let currentSessionId = null;
         let selectedRole = '';
         let editor = null;
@@ -2245,7 +2257,8 @@ if (strpos($compLower, 'google') !== false) {
                 const div = document.createElement('div');
                 div.className = `chat-bubble bubble-${role === 'user' ? 'student' : (role === 'system' ? 'system' : 'interviewer')}`;
 
-                let formatted = content;
+                // AI / user / server text is escaped first so it can never inject HTML or scripts
+                let formatted = escapeHtml(String(content ?? ''));
                 if (role !== 'system') {
                     formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
                     formatted = formatted.replace(/\*(.*?)\*/g, '<em>$1</em>');
@@ -2317,8 +2330,8 @@ if (strpos($compLower, 'google') !== false) {
                     const div = document.createElement('div');
                     div.className = 'mcq-option';
                     div.innerHTML = `
-                    <div class="mcq-option-badge">${opt.key}</div>
-                    <div>${opt.text}</div>
+                    <div class="mcq-option-badge">${escapeHtml(String(opt.key ?? ''))}</div>
+                    <div>${escapeHtml(String(opt.text ?? ''))}</div>
                 `;
                     div.onclick = () => {
                         this.selectOption(opt.key, div);
@@ -2339,9 +2352,12 @@ if (strpos($compLower, 'google') !== false) {
             constructor(container, bus) {
                 this.bus = bus;
                 const SpeechRec = window.SpeechRecognition || window.webkitSpeechRecognition;
-                this.recognition = SpeechRec ? new SpeechRec() : null;
-                this.synth = window.speechSynthesis;
+                this.recognition = null;
+                try { this.recognition = SpeechRec ? new SpeechRec() : null; } catch (e) { console.warn("Speech recognition unavailable:", e); }
+                this.synth = window.speechSynthesis || null;
                 this.isSpeaking = false;
+                // Tracked on the instance (not in the persisted state) so a restored checkpoint can't leave the mic stuck "on"
+                this.isListening = false;
                 this.speechQueue = [];
                 this.setupRecognition();
 
@@ -2358,12 +2374,14 @@ if (strpos($compLower, 'google') !== false) {
                 this.recognition.interimResults = true;
                 this.recognition.lang = 'en-US';
                 this.recognition.onstart = () => {
+                    this.isListening = true;
                     const btnSpeak = document.getElementById('btnSpeak');
                     if (btnSpeak) btnSpeak.classList.add('active');
                     stateStore.update('voiceEnabled', true);
                     this.currentSpeechFinal = userInput.value;
                 };
                 this.recognition.onend = () => {
+                    this.isListening = false;
                     const btnSpeak = document.getElementById('btnSpeak');
                     if (btnSpeak) btnSpeak.classList.remove('active');
                     stateStore.update('voiceEnabled', false);
@@ -2384,18 +2402,21 @@ if (strpos($compLower, 'google') !== false) {
                 };
                 this.recognition.onerror = (e) => {
                     console.error("Speech recognition error", e.error);
+                    this.isListening = false;
                     const btnSpeak = document.getElementById('btnSpeak');
                     if (btnSpeak) btnSpeak.classList.remove('active');
                     stateStore.update('voiceEnabled', false);
-                    if (e.error === 'not-allowed') {
-                        alert('Microphone access was denied. Please allow microphone access to use voice input.');
+                    if (e.error === 'not-allowed' || e.error === 'service-not-allowed') {
+                        LakshyaDialog.alert('Microphone or speech recognition access was denied. Allow microphone access for this site in your browser and try again.\n\nOn a Mac, also check System Settings → Privacy & Security → Microphone (and Speech Recognition for Safari), then restart the browser.\n\nYou can still type your answers.', { type: 'warning', title: 'Voice Input Blocked' });
+                    } else if (e.error === 'audio-capture') {
+                        LakshyaDialog.alert('No microphone was found. Please connect a microphone, or type your answers instead.', { type: 'warning', title: 'No Microphone' });
                     }
                 };
             }
             startListening() {
                 if (this.recognition) {
                     try {
-                        if (stateStore.state.voiceEnabled) {
+                        if (this.isListening) {
                             this.recognition.stop();
                         } else {
                             this.recognition.start();
@@ -2404,8 +2425,15 @@ if (strpos($compLower, 'google') !== false) {
                         console.error("Speech toggle error:", e);
                     }
                 } else {
-                    alert("Speech recognition is not supported in this browser. Please use Google Chrome or Microsoft Edge.");
+                    LakshyaDialog.alert("Voice input is not supported in this browser. Please type your answers, or use the latest Google Chrome, Microsoft Edge or Safari for voice input.", { type: 'info', title: 'Voice Input Unavailable' });
                 }
+            }
+            stopListening() {
+                // Releases the microphone when the session ends
+                if (this.recognition && this.isListening) {
+                    try { this.recognition.abort(); } catch (e) {}
+                }
+                this.isListening = false;
             }
             speak(text) {
                 if (this.synth) {
@@ -2594,13 +2622,13 @@ if (strpos($compLower, 'google') !== false) {
             document.getElementById('diagTimer').innerText = `${stateStore.state.timerRemaining}s (FPS: ${stateStore.state.performance.fps})`;
             document.getElementById('diagEventsCount').innerText = `${stateStore.state.telemetry.events.length} (Latency: ${stateStore.state.performance.backendLatency}ms)`;
 
-            const hasSpeech = ('webkitSpeechRecognition' in window);
+            const hasSpeech = ('SpeechRecognition' in window) || ('webkitSpeechRecognition' in window);
             document.getElementById('diagSpeechAPI').innerText = hasSpeech ? 'Available' : 'Unsupported';
             document.getElementById('diagSpeaking').innerText = (runtime.components.voice && runtime.components.voice.isSpeaking) ? 'Yes' : 'No';
         }
 
         document.addEventListener('keydown', e => {
-            if (e.ctrlKey && e.shiftKey && e.key.toUpperCase() === 'D') {
+            if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key && e.key.toUpperCase() === 'D') {
                 e.preventDefault();
                 toggleDiagnostics();
             }
@@ -2668,19 +2696,39 @@ if (strpos($compLower, 'google') !== false) {
             consecutiveMultiFace: 0,
             consecutiveGazeDev: 0
         };
+        function resetProctorStats() {
+            proctorStats.totalFrames = 0;
+            proctorStats.validFaceFrames = 0;
+            proctorStats.consecutiveNoFace = 0;
+            proctorStats.consecutiveMultiFace = 0;
+            proctorStats.consecutiveGazeDev = 0;
+        }
 
         let warningCount = 0;
         let lastNoFaceWarningTime = 0;
         let lastMultiFaceWarningTime = 0;
         let lastGazeWarningTime = 0;
         let cameraSetupTimer = null;
-        let nativeFaceDetector = ('FaceDetector' in window) ? new window.FaceDetector({ fastMode: true, maxDetectedFaces: 3 }) : null;
+        let nativeFaceDetector = null;
+        try {
+            nativeFaceDetector = ('FaceDetector' in window) ? new window.FaceDetector({ fastMode: true, maxDetectedFaces: 3 }) : null;
+        } catch (e) { nativeFaceDetector = null; }
         let backendInitPromise = null;
+        // True when the student resumed an existing session (proctoring is set up again, but no new backend session)
+        let isResumingSession = false;
+        // Gaze threshold (fraction of frame width) — widened after calibration if the student's natural range is larger
+        let gazeDeviationThreshold = 0.32;
+        let isCalibrating = false;
+        let calibrationRunId = 0;
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
         function startInterviewWithCustomRole() {
             const concepts = document.getElementById('customConcepts').value.trim();
             const difficulty = document.getElementById('customDifficulty').value;
-            if (!concepts) return alert('Please specify at least one concept/topic to begin the session.');
+            if (!concepts) {
+                LakshyaDialog.alert('Please specify at least one concept/topic to begin the session.', { type: 'warning', title: 'Topic Required' });
+                return;
+            }
 
             p_role = concepts;
             p_difficulty = difficulty;
@@ -2693,7 +2741,7 @@ if (strpos($compLower, 'google') !== false) {
             document.getElementById('stepView2').classList.add('hidden');
             document.getElementById('stepView3').classList.add('hidden');
             const introTitle = document.getElementById('introTargetTitle');
-            if (introTitle) introTitle.innerText = `${concepts} (${difficulty}) • <?php echo htmlspecialchars($companyName); ?>`;
+            if (introTitle) introTitle.innerText = `${concepts} (${difficulty}) • ${COMPANY_NAME}`;
 
             initCameraSetup();
         }
@@ -2702,6 +2750,8 @@ if (strpos($compLower, 'google') !== false) {
             const statusEl = document.getElementById('setupCheckStatus');
             const btnEl = document.getElementById('btnGrantCamera');
             if (btnEl) btnEl.style.display = 'none';
+            if (cameraSetupTimer) { clearTimeout(cameraSetupTimer); cameraSetupTimer = null; }
+            goToStep(1);
 
             try {
                 if (statusEl) {
@@ -2710,7 +2760,8 @@ if (strpos($compLower, 'google') !== false) {
                 }
 
                 if (webcamStream) {
-                    try { webcamStream.getTracks().forEach(t => t.stop()); } catch(e){}
+                    try { webcamStream.getTracks().forEach(t => { t.onended = null; t.stop(); }); } catch(e){}
+                    webcamStream = null;
                 }
 
                 if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -2726,6 +2777,8 @@ if (strpos($compLower, 'google') !== false) {
                         audio: false
                     });
                 } catch (firstErr) {
+                    // A denied permission will fail again — only retry for constraint problems
+                    if (firstErr && (firstErr.name === 'NotAllowedError' || firstErr.name === 'PermissionDeniedError')) throw firstErr;
                     console.warn("Primary camera constraints failed, attempting fallback...", firstErr);
                     // Fallback to basic video stream if high-res or facingMode fails
                     webcamStream = await navigator.mediaDevices.getUserMedia({
@@ -2734,32 +2787,74 @@ if (strpos($compLower, 'google') !== false) {
                     });
                 }
 
+                const videoTrack = webcamStream.getVideoTracks()[0];
+                if (!videoTrack) throw new Error("No video track found.");
+
+                videoTrack.onended = () => {
+                    if (isSessionActive) {
+                        const statusLabelEl = document.getElementById('proctorWidgetLabel');
+                        if (statusLabelEl) statusLabelEl.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-video-slash"></i> Camera Disconnected</span>`;
+                        logProctoringEvent('CAMERA_LOST', 0, 1.0, 'HIGH', { reason: 'Camera track ended during session' });
+                    } else {
+                        handleCameraStreamLost();
+                    }
+                };
+                // macOS mutes the track for a moment while the FaceTime camera warms up or switches
+                // (Continuity Camera, video effects). That is not a lost camera — only 'ended' is fatal.
+                videoTrack.onmute = () => console.warn("[Lakshya AI] Camera track temporarily muted.");
+
                 const previewVideo = document.getElementById('setupWebcamPreview');
                 if (previewVideo) {
                     previewVideo.srcObject = webcamStream;
-                    await previewVideo.play().catch(() => {});
+                    previewVideo.onloadedmetadata = () => previewVideo.play().catch(() => {});
+                    previewVideo.play().catch(() => {});
                 }
 
                 initMediaPipeDetector();
 
                 let countdown = 3;
-                if (cameraSetupTimer) clearInterval(cameraSetupTimer);
-                
-                if (statusEl) {
-                    statusEl.style.color = '#10b981';
-                    statusEl.innerHTML = `✓ Camera Active! Position yourself comfortably.<br><span style="color:#f59e0b; font-size: 0.95rem; font-weight: 800;">Calibration starting in ${countdown} seconds…</span>`;
-                }
+                let waitedForFrames = 0;
+                const updateCountdown = () => {
+                    const track = webcamStream ? webcamStream.getVideoTracks()[0] : null;
+                    if (!track || track.readyState !== 'live') {
+                        handleCameraStreamLost();
+                        return;
+                    }
+                    if (previewVideo && previewVideo.paused) previewVideo.play().catch(() => {});
 
-                cameraSetupTimer = setInterval(() => {
-                    countdown--;
+                    // Don't start the countdown until the preview is actually showing a picture
+                    if (!previewVideo || previewVideo.videoWidth === 0 || track.muted) {
+                        waitedForFrames++;
+                        if (statusEl) {
+                            statusEl.style.color = '#f59e0b';
+                            statusEl.innerHTML = waitedForFrames < 10
+                                ? '<i class="fas fa-spinner fa-spin"></i> Waiting for camera picture…'
+                                : '<i class="fas fa-exclamation-triangle"></i> Camera opened but no picture is coming through.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Close other apps using the camera (FaceTime, Zoom, Teams). On a Mac, check System Settings → Privacy &amp; Security → Camera and make sure your browser is allowed.</span>';
+                        }
+                        if (waitedForFrames === 10 && btnEl) {
+                            btnEl.textContent = '↻ Retry Camera Setup';
+                            btnEl.style.display = 'inline-flex';
+                            btnEl.disabled = false;
+                        }
+                        cameraSetupTimer = setTimeout(updateCountdown, 500);
+                        return;
+                    }
+                    if (btnEl) btnEl.style.display = 'none';
+
                     if (countdown > 0) {
-                        if (statusEl) statusEl.innerHTML = `✓ Camera Active! Position yourself comfortably.<br><span style="color:#f59e0b; font-size: 0.95rem; font-weight: 800;">Calibration starting in ${countdown} seconds…</span>`;
+                        if (statusEl) {
+                            statusEl.style.color = '#10b981';
+                            statusEl.innerHTML = `✓ Camera Active! Position yourself comfortably.<br><span style="color:#f59e0b; font-size: 0.95rem; font-weight: 800;">Calibration starting in ${countdown} second${countdown > 1 ? 's' : ''}…</span>`;
+                        }
+                        countdown--;
+                        cameraSetupTimer = setTimeout(updateCountdown, 1000);
                     } else {
-                        clearInterval(cameraSetupTimer);
+                        cameraSetupTimer = null;
                         goToStep(2);
                         startCalibrationFlow();
                     }
-                }, 1000);
+                };
+                updateCountdown();
 
             } catch (err) {
                 console.error("Camera Error:", err);
@@ -2768,23 +2863,29 @@ if (strpos($compLower, 'google') !== false) {
         }
 
         function handleCameraStreamLost(err = null) {
-            if (cameraSetupTimer) clearInterval(cameraSetupTimer);
+            if (cameraSetupTimer) { clearTimeout(cameraSetupTimer); cameraSetupTimer = null; }
+            // Abort any calibration in progress and send the student back to the camera step
+            calibrationRunId++;
+            isCalibrating = false;
+            goToStep(1);
             const statusEl = document.getElementById('setupCheckStatus');
             const btnEl = document.getElementById('btnGrantCamera');
-            
+
             let errMsg = '❌ Camera stream lost or permission denied.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please enable webcam access in your browser and click Retry below.</span>';
 
             if (err) {
                 if (err.message === 'INSECURE_CONTEXT') {
                     errMsg = '❌ Camera blocked: Insecure Context.<br><span style="font-size:0.8rem; font-weight:600; color:#ef4444;">Browsers require HTTPS or localhost for camera access. Please use https:// or access via localhost.</span>';
                 } else if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
-                    errMsg = '❌ Camera permission was denied.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Click the 🔒 icon in your browser address bar, allow Camera access, and click Retry.</span>';
+                    errMsg = '❌ Camera permission was denied.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Click the 🔒 icon in your browser address bar, allow Camera access, and click Retry. On a Mac, also enable your browser under System Settings → Privacy &amp; Security → Camera, then quit and reopen the browser.</span>';
                 } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
                     errMsg = '❌ No camera device detected.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please plug in a webcam and click Retry below.</span>';
                 } else if (err.name === 'NotReadableError' || err.name === 'TrackStartError') {
-                    errMsg = '❌ Camera is currently in use.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Another app (Zoom, Teams, or another tab) is using the webcam. Please close it and click Retry.</span>';
+                    errMsg = '❌ Camera is currently in use.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Another app (FaceTime, Zoom, Teams, or another tab) is using the webcam. Please close it and click Retry.</span>';
                 } else if (err.name === 'SecurityError') {
                     errMsg = '❌ Camera access restricted by security policy.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Permissions policy or browser configuration is blocking camera access.</span>';
+                } else if (err.message === 'MEDIA_NOT_SUPPORTED') {
+                    errMsg = '❌ This browser does not support camera access.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please use the latest Chrome, Edge, Firefox or Safari.</span>';
                 }
             }
 
@@ -2816,44 +2917,157 @@ if (strpos($compLower, 'google') !== false) {
             if (t3) t3.style.color = stepNumber === 3 ? 'var(--primary)' : '#64748b';
         }
 
-        async function startCalibrationFlow() {
+        // Gives the AI detector a few seconds to finish loading before calibration relies on it
+        async function waitForFaceDetector(timeoutMs) {
+            const start = Date.now();
+            while (!mediaPipeDetector && isMediaPipeLoading && Date.now() - start < timeoutMs) {
+                await sleep(200);
+            }
+        }
+
+        // Samples the live camera for durationMs and reports how often a single face was seen
+        async function sampleCalibrationPose(durationMs, onTick) {
+            const videoEl = document.getElementById('calibWebcamPreview');
+            const canvasEl = document.getElementById('proctorAnalysisCanvas');
+            let frames = 0, faceFrames = 0, multiFrames = 0, source = 'none';
+            const centers = [];
+            const start = Date.now();
+
+            while (Date.now() - start < durationMs) {
+                await sleep(250);
+                if (onTick) onTick(Math.min(durationMs, Date.now() - start));
+                if (!videoEl || videoEl.readyState < 2 || videoEl.videoWidth === 0) continue;
+                let result;
+                try {
+                    result = await detectFaces(videoEl, canvasEl);
+                } catch (e) {
+                    console.warn("[Lakshya AI] Calibration frame failed:", e);
+                    continue;
+                }
+                frames++;
+                source = result.source;
+                if (result.count === 1) {
+                    faceFrames++;
+                    if (result.centerX !== null) centers.push(result.centerX);
+                } else if (result.count > 1) {
+                    multiFrames++;
+                }
+            }
+
+            return {
+                timestamp: Date.now(),
+                frames: frames,
+                confidence: frames > 0 ? Math.round((faceFrames / frames) * 100) / 100 : 0,
+                multi_face_frames: multiFrames,
+                face_center_x: centers.length ? centers.reduce((a, b) => a + b, 0) / centers.length : null,
+                detector: source
+            };
+        }
+
+        // Runs one pose, retrying until a face is visible. Returns the pose data, or null if the student must retry.
+        async function calibratePose(label, prompt, durationMs, runId) {
             const textEl = document.getElementById('calibPromptText');
             const progEl = document.getElementById('calibProgressText');
+            const maxAttempts = 3;
+
+            for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                if (runId !== calibrationRunId) return null;
+                textEl.textContent = prompt;
+                progEl.style.color = 'var(--accent)';
+                const pose = await sampleCalibrationPose(durationMs, (elapsed) => {
+                    progEl.textContent = `Calibrating ${label} Baseline (${Math.ceil(elapsed / 1000)}/${Math.round(durationMs / 1000)}s)`;
+                });
+                if (runId !== calibrationRunId) return null;
+
+                if (pose.frames === 0) {
+                    progEl.style.color = '#ef4444';
+                    progEl.innerHTML = '<i class="fas fa-exclamation-triangle"></i> No camera picture received. Retrying…';
+                } else if (pose.multi_face_frames > pose.frames / 2) {
+                    progEl.style.color = '#ef4444';
+                    progEl.innerHTML = '<i class="fas fa-users-slash"></i> More than one face detected. Only you should be in front of the camera.';
+                } else if (pose.confidence >= 0.4) {
+                    progEl.style.color = '#10b981';
+                    progEl.innerHTML = `<i class="fas fa-check-circle"></i> ${label} Baseline Saved!`;
+                    await sleep(700);
+                    return pose;
+                } else {
+                    progEl.style.color = '#ef4444';
+                    progEl.innerHTML = '<i class="fas fa-user-slash"></i> We can\'t see your face clearly.<br><span style="font-size:0.8rem; color:#94a3b8;">Sit facing the screen, keep your whole face inside the preview and make sure the room is well lit (avoid a bright window behind you).</span>';
+                }
+                await sleep(2500);
+            }
+            return null;
+        }
+
+        async function startCalibrationFlow() {
+            if (isCalibrating) return;
+            isCalibrating = true;
+            const runId = ++calibrationRunId;
+
+            const textEl = document.getElementById('calibPromptText');
+            const progEl = document.getElementById('calibProgressText');
+            const retryBtn = document.getElementById('btnRetryCalib');
+            const calibVideo = document.getElementById('calibWebcamPreview');
+            if (retryBtn) retryBtn.classList.add('hidden');
+
+            // Keep the face preview visible during calibration (the step-1 preview is hidden now)
+            if (calibVideo && webcamStream && calibVideo.srcObject !== webcamStream) {
+                calibVideo.srcObject = webcamStream;
+            }
+            if (calibVideo) calibVideo.play().catch(() => {});
 
             textEl.textContent = 'Get ready! Sit straight and face the screen.';
-            progEl.textContent = 'Calibration Starting in 2 seconds…';
-            await new Promise(r => setTimeout(r, 1000));
-            progEl.textContent = 'Calibration Starting in 1 second…';
-            await new Promise(r => setTimeout(r, 1000));
+            progEl.style.color = 'var(--accent)';
+            if (!mediaPipeDetector && isMediaPipeLoading) {
+                progEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading AI face detector…';
+                await waitForFaceDetector(10000);
+            }
+            for (let s = 2; s >= 1; s--) {
+                if (runId !== calibrationRunId) return;
+                progEl.textContent = `Calibration Starting in ${s} second${s > 1 ? 's' : ''}…`;
+                await sleep(1000);
+            }
 
-            // Step A: Center Calibration
-            textEl.textContent = 'Look directly at the center target below.';
-            progEl.textContent = 'Calibrating Center Baseline (1/3s)';
-            await new Promise(r => setTimeout(r, 1000));
-            progEl.textContent = 'Calibrating Center Baseline (2/3s)';
-            await new Promise(r => setTimeout(r, 1000));
-            progEl.textContent = 'Calibrating Center Baseline (3/3s)';
-            await new Promise(r => setTimeout(r, 1000));
-            calibrationData.center = capturePoseSnapshot();
-            progEl.textContent = '✓ Center Baseline Saved!';
-            await new Promise(r => setTimeout(r, 600));
+            // Step A: Center Calibration (must actually see a face)
+            const center = await calibratePose('Center', 'Look directly at the center target below.', 3000, runId);
+            if (runId !== calibrationRunId) return;
+            if (!center) {
+                isCalibrating = false;
+                textEl.textContent = 'Calibration could not detect your face.';
+                if (retryBtn) retryBtn.classList.remove('hidden');
+                return;
+            }
+            calibrationData.center = center;
 
-            // Step B: Left Baseline
+            // Step B / C: Side poses only widen the gaze tolerance, so a weak result there is not fatal
             textEl.textContent = 'Look slightly to your LEFT for 2 seconds.';
+            progEl.style.color = 'var(--accent)';
             progEl.textContent = 'Calibrating Left Baseline…';
-            await new Promise(r => setTimeout(r, 1800));
-            calibrationData.left = capturePoseSnapshot();
+            calibrationData.left = await sampleCalibrationPose(2000);
+            if (runId !== calibrationRunId) return;
 
-            // Step C: Right Baseline
             textEl.textContent = 'Look slightly to your RIGHT for 2 seconds.';
             progEl.textContent = 'Calibrating Right Baseline…';
-            await new Promise(r => setTimeout(r, 1800));
-            calibrationData.right = capturePoseSnapshot();
-            progEl.textContent = '✓ Calibration Completed!';
-            await new Promise(r => setTimeout(r, 800));
+            calibrationData.right = await sampleCalibrationPose(2000);
+            if (runId !== calibrationRunId) return;
 
-            // Save calibration to backend
+            const baseX = center.face_center_x;
+            const sideSpread = [calibrationData.left.face_center_x, calibrationData.right.face_center_x]
+                .filter(x => x !== null && baseX !== null)
+                .map(x => Math.abs(x - baseX));
+            if (sideSpread.length) {
+                gazeDeviationThreshold = Math.min(0.42, Math.max(0.32, Math.max(...sideSpread) + 0.08));
+            }
+
+            progEl.style.color = '#10b981';
+            progEl.textContent = '✓ Calibration Completed!';
+            await sleep(800);
+            isCalibrating = false;
+            if (runId !== calibrationRunId) return;
+
+            // Save calibration to backend (wait for the session id so it isn't stored against session 0)
             try {
+                if (backendInitPromise) await backendInitPromise;
                 await fetch('mock_ai_handler.php', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
@@ -2864,30 +3078,52 @@ if (strpos($compLower, 'google') !== false) {
             goToStep(3);
         }
 
-        function capturePoseSnapshot() {
-            return {
-                timestamp: Date.now(),
-                confidence: 0.95
-            };
+        // Safari < 16.4 only has the webkit-prefixed Fullscreen API
+        function getFullscreenElement() {
+            return document.fullscreenElement || document.webkitFullscreenElement || null;
+        }
+
+        // The fullscreen transition on macOS can briefly blur the window; don't count that as a violation
+        let fullscreenGraceUntil = 0;
+
+        function requestFullscreenCompat() {
+            fullscreenGraceUntil = Date.now() + 1500;
+            const el = document.documentElement;
+            if (el.requestFullscreen) return el.requestFullscreen();
+            if (el.webkitRequestFullscreen) {
+                el.webkitRequestFullscreen();
+                return Promise.resolve();
+            }
+            return Promise.reject(new Error('Fullscreen API not supported'));
         }
 
         async function enterFullscreen() {
-            const el = document.documentElement;
+            if (getFullscreenElement()) return;
             try {
-                if (!document.fullscreenElement && !document.webkitFullscreenElement) {
-                    if (el.requestFullscreen) {
-                        await el.requestFullscreen();
-                    } else if (el.webkitRequestFullscreen) {
-                        await el.webkitRequestFullscreen();
-                    } else if (el.mozRequestFullScreen) {
-                        await el.mozRequestFullScreen();
-                    } else if (el.msRequestFullscreen) {
-                        await el.msRequestFullscreen();
-                    }
-                }
+                await requestFullscreenCompat();
             } catch (e) {
                 console.warn("Fullscreen request error:", e);
             }
+        }
+
+        // Shown when fullscreen could not be entered automatically (e.g. Safari after the screen-share picker).
+        // This is NOT a strike.
+        function showFullscreenPrompt() {
+            const iconEl = document.getElementById('warningIcon');
+            const titleEl = document.getElementById('warningTitle');
+            const msgEl = document.getElementById('warningMessage');
+            const btnEl = document.getElementById('warningBtn');
+            if (iconEl) { iconEl.className = 'fas fa-expand'; iconEl.style.color = 'var(--accent)'; }
+            if (titleEl) titleEl.textContent = 'Full Screen Required';
+            if (msgEl) msgEl.innerHTML = 'Click the button below to enter full screen and begin your interview. This is not counted as a warning.';
+            if (btnEl) {
+                btnEl.textContent = 'ENTER FULL SCREEN';
+                btnEl.onclick = resumeFullscreen;
+                btnEl.style.display = 'inline-flex';
+                btnEl.style.background = 'var(--primary)';
+            }
+            const overlay = document.getElementById('warningOverlay');
+            if (overlay) overlay.classList.remove('hidden');
         }
 
         async function initScreenShareSetup() {
@@ -2895,10 +3131,13 @@ if (strpos($compLower, 'google') !== false) {
             const btnEl = document.getElementById('btnGrantScreen');
             if (btnEl) btnEl.disabled = true;
 
-            // Trigger fullscreen immediately in the synchronous user click event
-            enterFullscreen();
+            // Note: fullscreen is NOT requested before the picker. Requesting it first consumes the click's
+            // user activation, and Safari then rejects getDisplayMedia().
 
             try {
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+                    throw new Error('DISPLAY_MEDIA_NOT_SUPPORTED');
+                }
                 if (statusEl) {
                     statusEl.style.color = '#d97706';
                     statusEl.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Requesting entire screen stream…';
@@ -2945,7 +3184,8 @@ if (strpos($compLower, 'google') !== false) {
                     statusEl.innerHTML = '<i class="fas fa-check-circle"></i> Screen Share Active! Launching session…';
                 }
 
-
+                // May fail if the user activation expired while the picker was open (common in Safari);
+                // in that case an in-page "Enter Full Screen" prompt is shown below.
                 await enterFullscreen();
 
                 setTimeout(async () => {
@@ -2953,6 +3193,11 @@ if (strpos($compLower, 'google') !== false) {
 
                     const setupPreview = document.getElementById('setupWebcamPreview');
                     if (setupPreview) setupPreview.srcObject = null;
+                    const calibPreview = document.getElementById('calibWebcamPreview');
+                    if (calibPreview) calibPreview.srcObject = null;
+
+                    const proctorWidget = document.getElementById('proctorWidget');
+                    if (proctorWidget) proctorWidget.style.display = 'block';
 
                     const proctorVideo = document.getElementById('proctorWebcamVideo');
                     if (proctorVideo && webcamStream) {
@@ -2960,26 +3205,40 @@ if (strpos($compLower, 'google') !== false) {
                         await proctorVideo.play().catch(() => {});
                     }
 
-                    const proctorWidget = document.getElementById('proctorWidget');
-                    if (proctorWidget) proctorWidget.style.display = 'block';
-
                     const badgeNav = document.getElementById('warningBadgeNav');
                     if (badgeNav) badgeNav.style.display = 'inline-flex';
 
+                    resetProctorStats();
+                    lastStrikeTime = 0;
+                    if (!isResumingSession) warningCount = 0;
                     isSessionActive = true;
                     isProctoringActive = true;
+
+                    if (!getFullscreenElement()) showFullscreenPrompt();
 
                     if (proctorInterval) clearInterval(proctorInterval);
                     proctorInterval = setInterval(runProctoringCheckFrame, 1200);
 
-                    finalizeInterviewStart();
+                    if (isResumingSession) {
+                        // Session state was already restored when the student chose "Resume"
+                        sessionStatus.style.display = 'flex';
+                    } else {
+                        finalizeInterviewStart();
+                    }
                 }, 800);
 
             } catch (err) {
                 console.error("Screen Share Error:", err);
                 if (statusEl) {
                     statusEl.style.color = '#ef4444';
-                    statusEl.innerHTML = '❌ Screen share permission required to proceed.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please select your Entire Screen to continue.</span>';
+                    if (err && err.message === 'DISPLAY_MEDIA_NOT_SUPPORTED') {
+                        statusEl.innerHTML = '❌ This browser does not support screen sharing.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please use the latest Chrome, Edge, Firefox or Safari on a computer.</span>';
+                    } else if (err && err.name === 'NotAllowedError' && /system/i.test(err.message || '')) {
+                        // Chrome reports "Permission denied by system" when macOS Screen Recording access is off
+                        statusEl.innerHTML = '❌ Your computer blocked screen sharing.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">On a Mac: open System Settings → Privacy &amp; Security → Screen &amp; System Audio Recording, enable your browser, then fully quit and reopen the browser.</span>';
+                    } else {
+                        statusEl.innerHTML = '❌ Screen share permission required to proceed.<br><span style="font-size:0.8rem; font-weight:600; color:#94a3b8;">Please select your Entire Screen to continue. If the picker never appeared on a Mac, check System Settings → Privacy &amp; Security → Screen &amp; System Audio Recording.</span>';
+                    }
                 }
                 if (btnEl) {
                     btnEl.textContent = '↻ Retry Screen Share';
@@ -2988,22 +3247,34 @@ if (strpos($compLower, 'google') !== false) {
             }
         }
 
-        async function initMediaPipeDetector() {
+        // Pinned so the JS bundle and the WASM files always come from the same release
+        const MEDIAPIPE_VERSION = '0.10.14';
+
+        async function initMediaPipeDetector(delegates = ['GPU', 'CPU']) {
             if (mediaPipeDetector || isMediaPipeLoading) return;
             isMediaPipeLoading = true;
             try {
-                const vision = await import("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.mjs");
+                const vision = await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/vision_bundle.mjs`);
                 const { FaceDetector, FilesetResolver } = vision;
-                const filesetResolver = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/wasm");
+                const filesetResolver = await FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${MEDIAPIPE_VERSION}/wasm`);
 
-                mediaPipeDetector = await FaceDetector.createFromOptions(filesetResolver, {
-                    baseOptions: {
-                        modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
-                        delegate: "GPU"
-                    },
-                    runningMode: "IMAGE",
-                    minDetectionConfidence: 0.55
-                });
+                // The GPU delegate fails on some Macs / Safari builds, so fall back to CPU
+                for (const delegate of delegates) {
+                    try {
+                        mediaPipeDetector = await FaceDetector.createFromOptions(filesetResolver, {
+                            baseOptions: {
+                                modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite",
+                                delegate: delegate
+                            },
+                            runningMode: "IMAGE",
+                            minDetectionConfidence: 0.5
+                        });
+                        console.log(`[Lakshya AI] MediaPipe face detector initialized (${delegate}).`);
+                        break;
+                    } catch (delegateErr) {
+                        console.warn(`[Lakshya AI] MediaPipe ${delegate} delegate failed:`, delegateErr);
+                    }
+                }
             } catch (err) {
                 console.warn("[Lakshya AI] MediaPipe fallback:", err);
             } finally {
@@ -3011,8 +3282,65 @@ if (strpos($compLower, 'google') !== false) {
             }
         }
 
+        /**
+         * Counts faces in the current video frame.
+         * Returns { count, centerX (0..1 of frame width, or null), source }.
+         */
+        async function detectFaces(videoEl, canvasEl) {
+            // 1. Primary AI Vision Engine: MediaPipe BlazeFace (Google AI)
+            if (mediaPipeDetector) {
+                try {
+                    const mpResult = mediaPipeDetector.detect(videoEl);
+                    const detections = (mpResult && mpResult.detections) || [];
+                    const box = detections.length === 1 ? detections[0].boundingBox : null;
+                    return {
+                        count: detections.length,
+                        centerX: box && videoEl.videoWidth ? (box.originX + box.width / 2) / videoEl.videoWidth : null,
+                        source: 'mediapipe'
+                    };
+                } catch (e) {
+                    // GPU context can be lost at runtime (common on Safari) — rebuild on CPU
+                    console.warn("[Lakshya AI] MediaPipe detect failed, switching to CPU:", e);
+                    try { mediaPipeDetector.close(); } catch (closeErr) {}
+                    mediaPipeDetector = null;
+                    initMediaPipeDetector(['CPU']);
+                }
+            }
+
+            const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
+            ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
+
+            // 2. Native Browser FaceDetector Fallback
+            if (nativeFaceDetector) {
+                try {
+                    const detected = await nativeFaceDetector.detect(canvasEl);
+                    const box = detected.length === 1 ? detected[0].boundingBox : null;
+                    return {
+                        count: detected.length,
+                        centerX: box ? (box.x + box.width / 2) / canvasEl.width : null,
+                        source: 'native'
+                    };
+                } catch (e) {}
+            }
+
+            // 3. Heuristic YCbCr skin-pixel fallback (if ML models are offline).
+            // It cannot tell one close face from two, so it never reports more than one face.
+            const data = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height).data;
+            let skinPixelCount = 0;
+            for (let i = 0; i < data.length; i += 16) {
+                const r = data[i], g = data[i+1], b = data[i+2];
+                const y  = 0.299 * r + 0.587 * g + 0.114 * b;
+                const cb = 128 - (0.168736 * r) - (0.331264 * g) + (0.5 * b);
+                const cr = 128 + (0.5 * r) - (0.418688 * g) - (0.081312 * b);
+                if (y > 30 && cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173) skinPixelCount++;
+            }
+            const skinRatio = skinPixelCount / (data.length / 16);
+            return { count: skinRatio >= 0.025 ? 1 : 0, centerX: null, source: 'heuristic' };
+        }
+
+        let isCheckingFrame = false;
         async function runProctoringCheckFrame() {
-            if (!isSessionActive || !webcamStream) return;
+            if (!isSessionActive || !webcamStream || isCheckingFrame) return;
 
             const videoEl = document.getElementById('proctorWebcamVideo');
             const canvasEl = document.getElementById('proctorAnalysisCanvas');
@@ -3022,96 +3350,36 @@ if (strpos($compLower, 'google') !== false) {
             if (!videoEl || !canvasEl) return;
 
             if (videoEl.paused || videoEl.ended || videoEl.videoWidth === 0 || videoEl.videoHeight === 0) {
-                try {
-                    videoEl.play();
-                } catch (e) {}
+                videoEl.play().catch(() => {});
                 return;
             }
 
-            const ctx = canvasEl.getContext('2d', { willReadFrequently: true });
-            ctx.drawImage(videoEl, 0, 0, canvasEl.width, canvasEl.height);
-            const imgData = ctx.getImageData(0, 0, canvasEl.width, canvasEl.height);
-            const data = imgData.data;
+            isCheckingFrame = true;
+            let detection;
+            try {
+                detection = await detectFaces(videoEl, canvasEl);
+            } catch (e) {
+                console.warn("[Lakshya AI] Proctoring frame check failed:", e);
+                return;
+            } finally {
+                isCheckingFrame = false;
+            }
+            if (!isSessionActive) return;
 
             proctorStats.totalFrames++;
 
-            let facesDetected = -1;
+            const facesDetected = detection.count;
+            // The pixel heuristic is unreliable (lighting, skin tone), so it needs a longer streak before a strike
+            const noFaceStrikeFrames = detection.source === 'heuristic' ? 6 : 3;
+
+            // Compare against the student's own calibrated position, not the frame centre,
+            // so sitting slightly off-centre (common with laptop cameras) isn't flagged as looking away
             let gazeDeviated = false;
-
-            // 1. Primary AI Vision Engine: MediaPipe BlazeFace (Google AI)
-            if (mediaPipeDetector) {
-                try {
-                    const mpResult = mediaPipeDetector.detect(videoEl);
-                    if (mpResult && mpResult.detections) {
-                        facesDetected = mpResult.detections.length;
-                        if (facesDetected === 1 && mpResult.detections[0].boundingBox) {
-                            const box = mpResult.detections[0].boundingBox;
-                            const centerX = box.originX + (box.width / 2);
-                            const videoCenterX = videoEl.videoWidth / 2;
-                            if (Math.abs(centerX - videoCenterX) > (videoEl.videoWidth * 0.32)) {
-                                gazeDeviated = true;
-                            }
-                        }
-                    }
-                } catch (e) {}
-            }
-
-            // 2. Native Browser FaceDetector Fallback
-            if (facesDetected === -1 && nativeFaceDetector) {
-                try {
-                    const detected = await nativeFaceDetector.detect(canvasEl);
-                    facesDetected = detected.length;
-                    if (facesDetected === 1 && detected[0].boundingBox) {
-                        const box = detected[0].boundingBox;
-                        const centerX = box.x + (box.width / 2);
-                        const frameCenterX = canvasEl.width / 2;
-                        if (Math.abs(centerX - frameCenterX) > (canvasEl.width * 0.35)) {
-                            gazeDeviated = true;
-                        }
-                    }
-                } catch (e) {}
-            }
-
-            // 3. Heuristic YCbCr Pixel Fallback (if ML models are offline)
-            let lumSum = 0;
-            let skinPixelCount = 0;
-            let leftEdgeCount = 0;
-            let centerCount = 0;
-            let rightEdgeCount = 0;
-            const totalPixels = data.length / 4;
-            const width = canvasEl.width;
-
-            for (let i = 0; i < data.length; i += 16) {
-                const pixelIdx = i / 4;
-                const x = pixelIdx % width;
-                const r = data[i], g = data[i+1], b = data[i+2];
-                const y  = 0.299 * r + 0.587 * g + 0.114 * b;
-                const cb = 128 - (0.168736 * r) - (0.331264 * g) + (0.5 * b);
-                const cr = 128 + (0.5 * r) - (0.418688 * g) - (0.081312 * b);
-
-                lumSum += y;
-                if (y > 30 && cb >= 77 && cb <= 127 && cr >= 133 && cr <= 173) {
-                    skinPixelCount++;
-                    if (x < width * 0.30) leftEdgeCount++;
-                    else if (x > width * 0.70) rightEdgeCount++;
-                    else if (x >= width * 0.40 && x <= width * 0.60) centerCount++;
-                }
-            }
-
-            const sampleTotal = totalPixels / 4;
-            const skinRatio = skinPixelCount / sampleTotal;
-            const leftEdgeRatio = leftEdgeCount / (sampleTotal * 0.30);
-            const rightEdgeRatio = rightEdgeCount / (sampleTotal * 0.30);
-            const centerRatio = centerCount / (sampleTotal * 0.20);
-
-            if (facesDetected === -1) {
-                if ((leftEdgeRatio > 0.08 && rightEdgeRatio > 0.08 && centerRatio < 0.03) || skinRatio > 0.38) {
-                    facesDetected = 2;
-                } else if (skinRatio >= 0.025) {
-                    facesDetected = 1;
-                } else {
-                    facesDetected = 0;
-                }
+            if (facesDetected === 1 && detection.centerX !== null) {
+                const baselineX = (calibrationData.center && calibrationData.center.face_center_x !== null && calibrationData.center.face_center_x !== undefined)
+                    ? calibrationData.center.face_center_x
+                    : 0.5;
+                gazeDeviated = Math.abs(detection.centerX - baselineX) > gazeDeviationThreshold;
             }
 
             // 4. Evaluate Detection Results & Fire Strike Warnings
@@ -3122,7 +3390,7 @@ if (strpos($compLower, 'google') !== false) {
                 if (facesDetected > 1) {
                     proctorStats.consecutiveMultiFace++;
                     if (statusLabelEl) statusLabelEl.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-users-slash"></i> Multi-Face (${facesDetected})</span>`;
-                    
+
                     if (proctorStats.consecutiveMultiFace >= 2 && (Date.now() - lastMultiFaceWarningTime) > 7000) {
                         lastMultiFaceWarningTime = Date.now();
                         triggerWarning(`Multiple faces (${facesDetected}) detected in camera stream. Assessment must be taken alone.`, 'MULTI_FACE');
@@ -3151,7 +3419,7 @@ if (strpos($compLower, 'google') !== false) {
 
                 if (statusLabelEl) statusLabelEl.innerHTML = `<span style="color:#ef4444;"><i class="fas fa-user-slash"></i> NO FACE DETECTED</span>`;
 
-                if (proctorStats.consecutiveNoFace >= 3 && (Date.now() - lastNoFaceWarningTime) > 7000) {
+                if (proctorStats.consecutiveNoFace >= noFaceStrikeFrames && (Date.now() - lastNoFaceWarningTime) > 7000) {
                     lastNoFaceWarningTime = Date.now();
                     triggerWarning('No face detected in camera stream. Candidate must remain visible throughout the interview.', 'NO_FACE');
                 }
@@ -3164,16 +3432,21 @@ if (strpos($compLower, 'google') !== false) {
             }
         }
 
+        // Separate canvas for evidence snapshots: resizing the 320x240 analysis canvas to screen size
+        // (5K px on Retina Macs) made every later face-check frame huge and slow
+        let snapshotCanvas = null;
+
         async function logProctoringEvent(eventType, duration = 0, confidence = 1.0, severity = 'LOW', metadata = {}) {
             try {
                 let snapshot = null;
                 const videoEl = document.getElementById('proctorWebcamVideo');
-                const canvasEl = document.getElementById('proctorAnalysisCanvas');
+                const canvasEl = snapshotCanvas || (snapshotCanvas = document.createElement('canvas'));
                 const isTabOrScreenEvent = ['TAB_SWITCH', 'WINDOW_BLUR', 'FULLSCREEN_EXIT', 'SCREEN_SHARE_STOPPED'].includes(eventType);
 
-                if (isTabOrScreenEvent && screenVideoEl && screenVideoEl.videoWidth > 0 && canvasEl) {
-                    const sw = screenVideoEl.videoWidth || 1280;
-                    const sh = screenVideoEl.videoHeight || 720;
+                if (isTabOrScreenEvent && screenVideoEl && screenVideoEl.videoWidth > 0) {
+                    const screenScale = Math.min(1, 1600 / (screenVideoEl.videoWidth || 1280));
+                    const sw = Math.round((screenVideoEl.videoWidth || 1280) * screenScale);
+                    const sh = Math.round((screenVideoEl.videoHeight || 720) * screenScale);
                     canvasEl.width = sw;
                     canvasEl.height = sh;
                     const ctx = canvasEl.getContext('2d');
@@ -3193,7 +3466,7 @@ if (strpos($compLower, 'google') !== false) {
                         ctx.fillText('🔴 CAM + SCREEN EVIDENCE', pipX + 8, pipY + 20);
                     }
                     snapshot = canvasEl.toDataURL('image/jpeg', 0.82);
-                } else if (videoEl && canvasEl && videoEl.videoWidth > 0) {
+                } else if (videoEl && videoEl.videoWidth > 0) {
                     canvasEl.width = videoEl.videoWidth || 640;
                     canvasEl.height = videoEl.videoHeight || 480;
                     const ctx = canvasEl.getContext('2d');
@@ -3218,9 +3491,9 @@ if (strpos($compLower, 'google') !== false) {
             } catch (e) {}
         }
 
-        // Window & Tab switching detection
+        // Window & Tab switching detection (ignored briefly after we request fullscreen — the macOS transition blurs the window)
         document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'hidden' && isSessionActive) {
+            if (document.visibilityState === 'hidden' && isSessionActive && Date.now() > fullscreenGraceUntil) {
                 setTimeout(() => {
                     triggerWarning('Tab or application switch detected. Candidate navigated away from interview screen.', 'TAB_SWITCH');
                 }, 120);
@@ -3228,16 +3501,20 @@ if (strpos($compLower, 'google') !== false) {
         });
 
         window.addEventListener('blur', () => {
-            if (isSessionActive) {
+            if (isSessionActive && Date.now() > fullscreenGraceUntil) {
                 setTimeout(() => {
                     triggerWarning('Window focus lost. Candidate clicked outside interview window.', 'WINDOW_BLUR');
                 }, 120);
             }
         });
 
+        let lastStrikeTime = 0;
 
         function triggerWarning(reason, eventType = 'SECURITY_VIOLATION') {
             if (!isSessionActive) return;
+            // One action (e.g. Cmd+Tab) fires blur, visibilitychange and fullscreenchange together — count it once
+            if (Date.now() - lastStrikeTime < 3000) return;
+            lastStrikeTime = Date.now();
             warningCount++;
             logProctoringEvent(eventType, 0, 1.0, 'HIGH', { strike_count: warningCount, reason: reason });
 
@@ -3256,6 +3533,8 @@ if (strpos($compLower, 'google') !== false) {
             const msgEl = document.getElementById('warningMessage');
             const btnEl = document.getElementById('warningBtn');
             const overlay = document.getElementById('warningOverlay');
+            // The fullscreen prompt may have swapped the icon, so always restore it
+            if (iconEl) iconEl.className = 'fas fa-exclamation-triangle';
 
             if (warningCount === 1) {
                 if (iconEl) iconEl.style.color = '#f59e0b';
@@ -3353,8 +3632,8 @@ if (strpos($compLower, 'google') !== false) {
                         role: concepts,
                         concept: concepts,
                         difficulty: difficulty,
-                        company: "<?php echo addslashes($companyName); ?>",
-                        type: "<?php echo $roundType; ?>"
+                        company: COMPANY_NAME,
+                        type: ROUND_TYPE
                     })
                 });
                 const text = await res.text();
@@ -3373,13 +3652,13 @@ if (strpos($compLower, 'google') !== false) {
 
         async function executeFinalLaunch() {
             if (!backendInitData) {
-                alert("Connection error. Please try again.");
+                await LakshyaDialog.alert("Connection error. Please try again.", { type: 'error', title: 'Connection Error' });
                 window.location.reload();
                 return;
             }
 
             if (!backendInitData.success) {
-                alert('Session initiation failed: ' + backendInitData.message);
+                await LakshyaDialog.alert('Session initiation failed: ' + (backendInitData.message || 'Unknown error.'), { type: 'error', title: 'Session Not Started' });
                 window.location.reload();
                 return;
             }
@@ -3419,19 +3698,25 @@ if (strpos($compLower, 'google') !== false) {
                         currentSessionId = data.session_id;
                         document.getElementById('roleSelection').style.display = 'none';
                         sessionStatus.style.display = 'flex';
-                        isSessionActive = true;
-                        isProctoringActive = true;
+                        // Proctoring (camera, calibration, screen share, fullscreen) is set up again below;
+                        // the session only becomes active once that completes.
+                        isResumingSession = true;
 
                         const restored = stateStore.restore(data.session_id);
                         if (restored) {
+                            stateStore.state.voiceEnabled = false;
+                            if (!Array.isArray(stateStore.state.chatHistory)) stateStore.state.chatHistory = [];
                             if (stateStore.state.currentStep) {
                                 runtime.applyStep(stateStore.state.currentStep);
                             }
                             if (stateStore.state.chatHistory.length > 0) {
                                 const container = document.getElementById('chatHistory');
                                 container.innerHTML = '';
-                                stateStore.state.chatHistory.forEach(m => {
-                                    eventBus.emit('MESSAGE_RECEIVED', { role: m.role, content: m.content });
+                                // addBubble() appends to chatHistory, so replay from a copy to avoid doubling it
+                                const savedMessages = stateStore.state.chatHistory.slice();
+                                stateStore.state.chatHistory = [];
+                                savedMessages.forEach(m => {
+                                    addMessage(m.role, m.content);
                                 });
                             }
                             if (stateStore.state.editor.code && runtime.components.editor) {
@@ -3447,19 +3732,27 @@ if (strpos($compLower, 'google') !== false) {
                             runtime.speakText("Resuming session. Let's continue.");
                         }
 
-                        if ("<?php echo $roundType; ?>" === "Technical") {
+                        if (ROUND_TYPE === "Technical") {
                             toggleWorkspaceBtn.style.display = 'flex';
                         }
+
+                        document.getElementById('introOverlay').style.display = 'flex';
+                        goToStep(1);
+                        initCameraSetup();
                     };
 
                     document.getElementById('btnStartFresh').onclick = async () => {
                         modal.style.display = 'none';
                         localStorage.removeItem(`lar_session_${data.session_id}`);
-                        await fetch('mock_ai_handler.php', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
-                            body: JSON.stringify({ action: 'end_session', session_id: data.session_id, company: '<?php echo addslashes($companyName); ?>', type: '<?php echo $roundType; ?>' })
-                        });
+                        try {
+                            await fetch('mock_ai_handler.php', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': CSRF_TOKEN },
+                                body: JSON.stringify({ action: 'end_session', session_id: data.session_id, company: COMPANY_NAME, type: ROUND_TYPE })
+                            });
+                        } catch (e) {
+                            console.warn("Could not close previous session", e);
+                        }
                         document.getElementById('roleSelection').style.display = 'flex';
                     };
                 }
@@ -3471,7 +3764,15 @@ if (strpos($compLower, 'google') !== false) {
                 await backendInitPromise;
             }
             if (!backendInitData || !backendInitData.success) {
-                alert("Error: Backend initialization data missing or failed.");
+                // Stop proctoring first so the error itself can't cause strikes
+                isSessionActive = false;
+                isProctoringActive = false;
+                if (proctorInterval) clearInterval(proctorInterval);
+                const reason = (backendInitData && backendInitData.message) ? backendInitData.message : 'Could not reach the server.';
+                await LakshyaDialog.alert('The interview session could not be started: ' + reason + '\n\nThe page will reload so you can try again.', { type: 'error', title: 'Session Not Started' });
+                if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
+                if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+                window.location.reload();
                 return;
             }
 
@@ -3496,7 +3797,7 @@ if (strpos($compLower, 'google') !== false) {
             isSessionActive = true;
             isProctoringActive = true;
 
-            if ("<?php echo $roundType; ?>" === "Technical") {
+            if (ROUND_TYPE === "Technical") {
                 toggleWorkspaceBtn.style.display = 'flex';
             }
 
@@ -3595,7 +3896,7 @@ if (strpos($compLower, 'google') !== false) {
                     action: 'chat',
                     session_id: currentSessionId,
                     message: msg,
-                    type: "<?php echo $roundType; ?>"
+                    type: ROUND_TYPE
                 }
             };
 
@@ -3653,7 +3954,7 @@ if (strpos($compLower, 'google') !== false) {
                 if (data.success && data.job_id) {
                     const pollInterval = setInterval(async () => {
                         try {
-                            const statusRes = await fetch(`ai_job_status.php?job_id=${data.job_id}`).then(r => r.json());
+                            const statusRes = await fetch(`ai_job_status.php?job_id=${encodeURIComponent(data.job_id)}`).then(r => r.json());
                             if (statusRes.success && statusRes.status === 'completed') {
                                 clearInterval(pollInterval);
                                 const result = statusRes.result;
@@ -3668,7 +3969,7 @@ if (strpos($compLower, 'google') !== false) {
                                 }
                             } else if (statusRes.status === 'failed') {
                                 clearInterval(pollInterval);
-                                alert("AI generation failed: " + statusRes.error);
+                                LakshyaDialog.alert("AI generation failed: " + (statusRes.error || 'Unknown error.') + "\nPlease send your answer again.", { type: 'error', title: 'AI Error' });
                             }
                         } catch (e) {
                             console.error("Polling error:", e);
@@ -3722,7 +4023,7 @@ if (strpos($compLower, 'google') !== false) {
         async function runCodeSimulation() {
             const code = runtime.getEditorValue();
             if (!code || !code.trim()) {
-                alert('Please write some code before running.');
+                LakshyaDialog.alert('Please write some code before running.', { type: 'warning', title: 'No Code' });
                 return;
             }
 
@@ -3777,14 +4078,14 @@ if (strpos($compLower, 'google') !== false) {
                 if (data.success && data.evaluation) {
                     const ev = data.evaluation;
                     consoleOut.className = 'console-out ' + (ev.passed ? 'console-success' : 'console-error');
-                    consoleOut.innerHTML = `[Result] Status: ${ev.passed ? 'PASSED ✓' : 'FAILED ✗'}\n` +
+                    consoleOut.textContent = `[Result] Status: ${ev.passed ? 'PASSED ✓' : 'FAILED ✗'}\n` +
                         `[Score] ${ev.score}/10\n` +
                         `[Feedback] ${ev.feedback}\n` +
                         (ev.suggestions ? `[Suggestions] ${ev.suggestions}` : '');
 
                     addMessage('system', `💡 **Code Evaluation Result:** ${ev.passed ? 'PASSED' : 'NEEDS IMPROVEMENT'} (${ev.score}/10)\n${ev.feedback}`);
                 } else {
-                    consoleOut.innerHTML = `[Error] ${data.message || 'Evaluation failed. Please try again.'}`;
+                    consoleOut.textContent = `[Error] ${data.message || 'Evaluation failed. Please try again.'}`;
                     consoleOut.className = 'console-out console-error';
                 }
             } catch (err) {
@@ -3798,6 +4099,11 @@ if (strpos($compLower, 'google') !== false) {
         }
 
         function addMessage(role, text) {
+            text = (text === null || text === undefined) ? '' : String(text);
+            // Make sure the chat window exists even if the current step didn't list it
+            if (!runtime.components.chat) {
+                runtime.components.chat = registry.create('chat_window', document.getElementById('chatHistory'), eventBus);
+            }
             if (text.includes('[SHOW_WORKSPACE]')) {
                 toggleWorkspaceBtn.style.display = 'flex';
                 if (window.innerWidth >= 1200) toggleCodingPanel();
@@ -3806,15 +4112,19 @@ if (strpos($compLower, 'google') !== false) {
             eventBus.emit('MESSAGE_RECEIVED', { role, content: text });
         }
 
+        let isEndingSession = false;
         async function endSessionManual(isAuto = false) {
+            if (isEndingSession) return;
             if (!currentSessionId) {
                 window.location.href = 'dashboard.php';
                 return;
             }
 
-            if (!isAuto && !confirm('Warning: Ending the session now will stop the interview. AI will generate a report based on the conversation and proctoring logs. Proceed?')) {
-                return;
+            if (!isAuto) {
+                const proceed = await LakshyaDialog.confirm('Ending the session now will stop the interview. AI will generate a report based on the conversation and proctoring logs. Proceed?', { title: 'End Interview?', type: 'warning', okText: 'End Session', cancelText: 'Continue Interview', danger: true });
+                if (!proceed || isEndingSession) return;
             }
+            isEndingSession = true;
 
             isSessionActive = false;
             isProctoringActive = false;
@@ -3825,8 +4135,10 @@ if (strpos($compLower, 'google') !== false) {
             const warnOverlay = document.getElementById('warningOverlay');
             if (warnOverlay) warnOverlay.classList.add('hidden');
 
-            if (webcamStream) webcamStream.getTracks().forEach(t => t.stop());
-            if (screenStream) screenStream.getTracks().forEach(t => t.stop());
+            if (webcamStream) webcamStream.getTracks().forEach(t => { t.onended = null; t.stop(); });
+            if (screenStream) screenStream.getTracks().forEach(t => { t.onended = null; t.stop(); });
+            // Release the microphone used by voice input
+            if (runtime.components.voice && runtime.components.voice.stopListening) runtime.components.voice.stopListening();
 
             document.getElementById('reportLoading').style.display = 'flex';
             const reportLoadText = document.querySelector('#reportLoading h2');
@@ -3860,8 +4172,8 @@ if (strpos($compLower, 'google') !== false) {
                     body: JSON.stringify({
                         action: 'end_session',
                         session_id: snapshotSessionId,
-                        company: '<?php echo addslashes($companyName); ?>',
-                        type: '<?php echo $roundType; ?>',
+                        company: COMPANY_NAME,
+                        type: ROUND_TYPE,
                         strike_count: warningCount,
                         auto_submitted: isAuto ? 1 : 0,
                         client_face_presence_pct: clientFacePct
@@ -3879,8 +4191,9 @@ if (strpos($compLower, 'google') !== false) {
 
                 if (data && data.success) {
                     if (data.is_incomplete) {
-                        alert(data.message);
                         currentSessionId = null;
+                        document.getElementById('reportLoading').style.display = 'none';
+                        await LakshyaDialog.alert(data.message || 'The session ended before enough answers were recorded to generate a report.', { type: 'warning', title: 'Session Incomplete' });
                         window.location.href = 'mock_ai_interview.php';
                         return;
                     }
@@ -3932,10 +4245,10 @@ if (strpos($compLower, 'google') !== false) {
 
                     if (data.integrity_report) {
                         const rpt = data.integrity_report;
-                        if (document.getElementById('rptScreenShare')) document.getElementById('rptScreenShare').innerText = (rpt.screen_sharing_active_pct || 100) + '%';
-                        if (document.getElementById('rptCameraAvail')) document.getElementById('rptCameraAvail').innerText = (rpt.camera_availability_pct || 100) + '%';
-                        if (document.getElementById('rptFacePres')) document.getElementById('rptFacePres').innerText = (rpt.face_presence_pct || 100) + '%';
-                        if (document.getElementById('rptGazeConf')) document.getElementById('rptGazeConf').innerText = (rpt.gaze_confidence_pct || 92) + '%';
+                        if (document.getElementById('rptScreenShare')) document.getElementById('rptScreenShare').innerText = (rpt.screen_sharing_active_pct ?? 100) + '%';
+                        if (document.getElementById('rptCameraAvail')) document.getElementById('rptCameraAvail').innerText = (rpt.camera_availability_pct ?? 100) + '%';
+                        if (document.getElementById('rptFacePres')) document.getElementById('rptFacePres').innerText = (rpt.face_presence_pct ?? 100) + '%';
+                        if (document.getElementById('rptGazeConf')) document.getElementById('rptGazeConf').innerText = (rpt.gaze_confidence_pct ?? 92) + '%';
                         if (document.getElementById('rptAttnDev')) document.getElementById('rptAttnDev').innerText = rpt.attention_deviations || 0;
                         if (document.getElementById('rptLongestDev')) document.getElementById('rptLongestDev').innerText = (rpt.longest_deviation_sec || 0) + 's';
                         if (document.getElementById('rptScreenInt')) document.getElementById('rptScreenInt').innerText = rpt.screen_interruptions || 0;
@@ -3955,18 +4268,21 @@ if (strpos($compLower, 'google') !== false) {
                     modal.style.display = 'flex';
                     currentSessionId = null;
                 } else {
-                    alert('Session error: ' + (data ? data.message : 'No response from server.'));
                     currentSessionId = null;
+                    document.getElementById('reportLoading').style.display = 'none';
+                    await LakshyaDialog.alert('Session error: ' + ((data && data.message) ? data.message : 'No response from server.'), { type: 'error', title: 'Session Error' });
                     window.location.href = 'dashboard.php';
                 }
             } catch (err) {
                 clearTimeout(endTimeout);
+                currentSessionId = null;
+                document.getElementById('reportLoading').style.display = 'none';
                 if (err.name === 'AbortError') {
-                    alert('Report generation timed out. Your session data is saved.');
+                    await LakshyaDialog.alert('Report generation timed out. Your session data is saved.', { type: 'warning', title: 'Report Delayed' });
                 } else {
                     console.error(err);
+                    await LakshyaDialog.alert('Could not reach the server to finish the session. Your session data is saved.', { type: 'error', title: 'Connection Error' });
                 }
-                currentSessionId = null;
                 window.location.href = 'dashboard.php';
             }
         }
@@ -3983,7 +4299,7 @@ if (strpos($compLower, 'google') !== false) {
         function sendCodeToAI() {
             const code = runtime.getEditorValue();
             if (!code || !code.trim()) {
-                alert('Please write some code before submitting.');
+                LakshyaDialog.alert('Please write some code before submitting.', { type: 'warning', title: 'No Code' });
                 return;
             }
             sendMessage("Here is my code solution:\n```\n" + code + "\n```");
@@ -4009,26 +4325,29 @@ if (strpos($compLower, 'google') !== false) {
             if (this.value === '') this.style.height = 'auto';
         });
         btnSend.onclick = sendMessage;
-        window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+        if (window.speechSynthesis) {
+            window.speechSynthesis.onvoiceschanged = () => { window.speechSynthesis.getVoices(); };
+        }
 
-        document.addEventListener('fullscreenchange', () => {
-            if (!document.fullscreenElement && isSessionActive) {
+        function onFullscreenChange() {
+            if (!getFullscreenElement() && isSessionActive) {
                 triggerWarning('Full screen mode was deactivated.', 'FULLSCREEN_EXIT');
             }
-        });
+        }
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
-        async function resumeFullscreen() {
-            try {
-                if (document.documentElement.requestFullscreen) {
-                    await document.documentElement.requestFullscreen();
-                } else if (document.documentElement.webkitRequestFullscreen) {
-                    await document.documentElement.webkitRequestFullscreen();
-                }
+        function resumeFullscreen() {
+            requestFullscreenCompat().then(() => {
                 const warnOverlay = document.getElementById('warningOverlay');
                 if (warnOverlay) warnOverlay.classList.add('hidden');
-            } catch (e) {
-                alert("Please press F11 to resume Full Screen mode manually.");
-            }
+            }).catch(e => {
+                // A native alert popup would blur the window and cause another strike, so show the hint inline
+                const msgEl = document.getElementById('warningMessage');
+                if (msgEl && !msgEl.querySelector('.fs-blocked-hint')) {
+                    msgEl.innerHTML += '<br><br><span class="fs-blocked-hint" style="color:#f59e0b;">Your browser blocked full screen. Please click the button again and allow full screen if your browser asks (Mac: Ctrl+Cmd+F, Windows: F11).</span>';
+                }
+            });
         }
 
     </script>

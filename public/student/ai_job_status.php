@@ -37,14 +37,14 @@ if (!$status) {
 if (isset($status['user_id'])) {
     $jobOwnerId = trim($status['user_id']);
     $currentUser = trim((string)getUserId());
-    
+
     if ($jobOwnerId !== $currentUser) {
         $resolved = false;
         $db = getDB();
         try {
             $gmuPrefix = DB_GMU_PREFIX;
             $gmitPrefix = DB_GMIT_PREFIX;
-            
+
             // Get usn and aadhar for current user
             $stmt = $db->prepare("
                 SELECT usn, aadhar FROM (
@@ -55,19 +55,19 @@ if (isset($status['user_id'])) {
             ");
             $stmt->execute([$currentUser, $currentUser, $currentUser]);
             $currRow = $stmt->fetch(PDO::FETCH_ASSOC);
-            
+
             if ($currRow) {
                 $currUsn = $currRow['usn'];
                 $currAadhar = $currRow['aadhar'];
-                
+
                 // Get usn and aadhar for job owner
                 $stmt->execute([$jobOwnerId, $jobOwnerId, $jobOwnerId]);
                 $ownerRow = $stmt->fetch(PDO::FETCH_ASSOC);
-                
+
                 if ($ownerRow) {
                     $ownerUsn = $ownerRow['usn'];
                     $ownerAadhar = $ownerRow['aadhar'];
-                    
+
                     if (($currUsn && $currUsn === $ownerUsn) || ($currAadhar && $currAadhar === $ownerAadhar)) {
                         $resolved = true;
                     }
@@ -76,7 +76,7 @@ if (isset($status['user_id'])) {
         } catch (Exception $e) {
             // Ignore
         }
-        
+
         if (!$resolved) {
             ob_clean();
             echo json_encode(['success' => false, 'message' => 'Unauthorized access to job status.']);
@@ -85,12 +85,29 @@ if (isset($status['user_id'])) {
     }
 }
 
-if ($status['status'] === 'completed' && !empty($status['result'])) {
+// A job whose worker died mid-run stays 'processing' forever. The longest
+// legitimate run is ~272s (3 retries x 90s cURL timeout), so past 330s report
+// it as failed and let the page retry / fall back instead of spinning.
+if (($status['status'] ?? '') === 'processing' && !empty($status['started_at'])
+    && time() - (int) $status['started_at'] > 330) {
+    QueueService::updateJob($jobId, [
+        'status' => 'failed',
+        'error' => 'The AI worker stopped while processing this request. Please retry.',
+        'completed_at' => time()
+    ]);
+    $status['status'] = 'failed';
+    $status['error'] = 'The AI worker stopped while processing this request. Please retry.';
+}
+
+// Only aptitude question generation feeds the aptitude answer registry
+$isAptitudeQuestionJob = (($status['method'] ?? '') === 'generateDriveRoundQuestions');
+
+if ($isAptitudeQuestionJob && $status['status'] === 'completed' && !empty($status['result'])) {
     // Re-open session to store the dynamically generated questions
     if (session_status() === PHP_SESSION_NONE) {
         session_start();
     }
-    
+
     $resultPayload = $status['result'];
     $aiQuestions = [];
     if (is_array($resultPayload)) {
@@ -128,11 +145,27 @@ if ($status['status'] === 'completed' && !empty($status['result'])) {
     session_write_close();
 }
 
-// Return status and result
+// Return status and result. Generated test questions go out without their answers;
+// the answer key stays in the session registry used for grading.
+$publicResult = $status['result'] ?? null;
+if ($isAptitudeQuestionJob && is_array($publicResult)) {
+    $strip = function ($list) {
+        if (!is_array($list)) return $list;
+        return array_map(fn($q) => is_array($q) ? array_diff_key($q, ['answer' => true, 'explanation' => true]) : $q, $list);
+    };
+    if (isset($publicResult['questions'])) {
+        $publicResult['questions'] = $strip($publicResult['questions']);
+    } elseif (isset($publicResult['result'])) {
+        $publicResult['result'] = $strip($publicResult['result']);
+    } elseif (isset($publicResult[0])) {
+        $publicResult = $strip($publicResult);
+    }
+}
+
 ob_clean();
 echo json_encode([
     'success' => true,
     'status' => $status['status'],
-    'result' => $status['result'] ?? null,
+    'result' => $publicResult,
     'error' => $status['error'] ?? null
 ]);

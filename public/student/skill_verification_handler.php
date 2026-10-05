@@ -74,6 +74,10 @@ function ensureIntegrityTablesExist(PDO $db) {
 
 try {
     switch ($action) {
+        case 'ping':
+            // Keep-alive while the student types answers (no other requests for a long time)
+            ob_clean(); echo json_encode(['success' => true]);
+            exit;
 
         case 'save_calibration':
             $portfolioId = (int)($input['portfolio_id'] ?? 0);
@@ -81,6 +85,9 @@ try {
 
             $stmt = $db->prepare("INSERT INTO assessment_calibrations (student_id, portfolio_id, calibration_json, created_at) VALUES (?, ?, ?, NOW())");
             $stmt->execute([$username, $portfolioId, json_encode($calibrationData)]);
+
+            // Calibration starts an attempt: strikes are counted from here on
+            \App\Services\ProctoringService::markAttemptStart($db, 'skill_quiz', $portfolioId);
 
             ob_clean(); echo json_encode([
                 'success' => true,
@@ -298,8 +305,16 @@ try {
             }
 
             $rawScore = ($correctCount / count($questions)) * 100;
-            $autoSubmitted = !empty($input['auto_submitted']);
-            $strikeCount = (int)($input['strike_count'] ?? 0);
+            // Server recount of logged strikes; the browser's figure can only raise it
+            $attemptSince = \App\Services\ProctoringService::attemptWindowStart($db, 'skill_quiz', $portfolioId);
+            $serverStrikes = 0;
+            try {
+                $serverStrikes = \App\Services\ProctoringService::countAttemptStrikes($db, $username, $portfolioId, $attemptSince);
+            } catch (\Throwable $e) {
+                error_log("Skill quiz strike recount failed: " . $e->getMessage());
+            }
+            $strikeCount = max($serverStrikes, (int)($input['strike_count'] ?? 0));
+            $autoSubmitted = !empty($input['auto_submitted']) || $strikeCount >= 3;
             $penaltyPct = ($strikeCount === 1) ? 5.0 : (($strikeCount === 2) ? 10.0 : ($strikeCount >= 3 || $autoSubmitted ? 100.0 : 0.0));
             $score = max(0.0, round($rawScore - $penaltyPct, 1));
             $isPassed = ($score >= 70 && !$autoSubmitted && $strikeCount < 3); // 70% to pass after proctoring penalty
@@ -322,8 +337,9 @@ try {
 
 
             try {
-                $eventStmt = $db->prepare("SELECT event_type, duration, confidence, severity FROM assessment_integrity_events WHERE student_id = ? AND portfolio_id = ?");
-                $eventStmt->execute([$username, $portfolioId]);
+                // Only this attempt's events — portfolio_id is shared by every retry of the same item
+                $eventStmt = $db->prepare("SELECT event_type, duration, confidence, severity FROM assessment_integrity_events WHERE student_id = ? AND portfolio_id = ? AND created_at >= ?");
+                $eventStmt->execute([$username, $portfolioId, $attemptSince]);
                 $events = $eventStmt->fetchAll(PDO::FETCH_ASSOC);
 
                 $totalEvents = count($events);
@@ -357,10 +373,9 @@ try {
                     $integrityReport['face_presence_pct'] = round(min($integrityReport['face_presence_pct'], $cFacePct), 1);
                 }
 
-                $autoSubmitted = !empty($input['auto_submitted']);
-                $strikeCount = (int)($input['strike_count'] ?? 0);
                 $integrityReport['auto_submitted'] = $autoSubmitted;
                 $integrityReport['strike_count'] = $strikeCount;
+                $integrityReport['server_strike_count'] = $serverStrikes;
 
                 if ($autoSubmitted || $strikeCount >= 3) {
                     $integrityReport['integrity_status'] = 'Auto-Submitted: Maximum Security Violations (3/3) Exceeded';

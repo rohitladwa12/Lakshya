@@ -109,6 +109,7 @@ if (!$hasSkillsOrProjects) {
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="../js/lakshya_dialogs.js?v=<?php echo APP_VERSION; ?>"></script>
     <style>
         :root {
             --primary-maroon: #800000;
@@ -492,6 +493,11 @@ if (!$hasSkillsOrProjects) {
     <script>
         let charts = {};
 
+        // AI responses are untrusted text; escape before inserting into innerHTML
+        function esc(str) {
+            return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
             switchTab('market'); // Load default
         });
@@ -499,7 +505,7 @@ if (!$hasSkillsOrProjects) {
         async function switchTab(tab) {
             // UI state
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.glass-card').forEach(c => c.classList.remove('active'));
+            document.querySelectorAll('main.container > .glass-card').forEach(c => c.classList.remove('active'));
             
             // Activate current tab button
             document.querySelector(`.tab-btn[onclick*="'${tab}'"]`)?.classList.add('active');
@@ -527,7 +533,7 @@ if (!$hasSkillsOrProjects) {
                     result = JSON.parse(text);
                 } catch (parseError) {
                     console.error("Invalid Server Response:", text);
-                    alert("Analysis Error: The system received an invalid response. Check console logs.");
+                    LakshyaDialog.alert("The system received an invalid response. Please try again.", { type: 'error', title: 'Analysis Error' });
                     return;
                 }
                 
@@ -536,20 +542,20 @@ if (!$hasSkillsOrProjects) {
                     else if (mode === 'target') renderTarget(result.analysis, result.cached);
                     else if (mode === 'career') renderCareer(result.analysis, result.cached);
                 } else {
-                    alert('AI Error: ' + result.message);
+                    LakshyaDialog.alert(result.message || 'The AI could not complete the analysis. Please try again.', { type: 'error', title: 'AI Error' });
                 }
             } catch (e) {
                 console.error(e);
-                alert('Connection Error');
+                LakshyaDialog.alert('Could not reach the server or render the analysis. Please check your connection and try again.', { type: 'error', title: 'Connection Error' });
             } finally {
                 hideLoading();
             }
         }
 
         async function runTargetAnalysis() {
-            const company = document.getElementById('targetCompany').value;
-            const role = document.getElementById('targetRole').value;
-            if (!company || !role) return alert('Please enter both company and role');
+            const company = document.getElementById('targetCompany').value.trim();
+            const role = document.getElementById('targetRole').value.trim();
+            if (!company || !role) return LakshyaDialog.alert('Please enter both company and role', { type: 'warning', title: 'Missing Details' });
             runAnalysis('target', `&company=${encodeURIComponent(company)}&role=${encodeURIComponent(role)}`);
         }
 
@@ -570,15 +576,15 @@ if (!$hasSkillsOrProjects) {
 
                 tableBody.innerHTML += `
                     <tr style="border-bottom: 1px solid #f8f9fa; transition: background 0.2s;">
-                        <td style="padding: 12px; font-weight: 600; font-size: 0.9rem; color: var(--text-main);">${label}</td>
+                        <td style="padding: 12px; font-weight: 600; font-size: 0.9rem; color: var(--text-main);">${esc(label)}</td>
                         <td style="padding: 12px;">
-                            <div style="font-weight: 700; color: var(--primary-maroon); font-size: 1rem;">${student}%</div>
+                            <div style="font-weight: 700; color: var(--primary-maroon); font-size: 1rem;">${esc(student)}%</div>
                         </td>
                         <td style="padding: 12px;">
                             <div style="display: flex; align-items: center; gap: 10px;">
-                                <span style="font-weight: 600; color: var(--text-muted); font-size: 0.9rem;">${avg}%</span>
+                                <span style="font-weight: 600; color: var(--text-muted); font-size: 0.9rem;">${esc(avg)}%</span>
                                 <span style="font-size: 0.75rem; font-weight: 800; color: ${trendColor}; background: ${trendColor}15; padding: 2px 8px; border-radius: 50px; display: flex; align-items: center; gap: 4px;">
-                                    <i class="fas ${trendIcon}"></i> ${Math.abs(diff)}%
+                                    <i class="fas ${trendIcon}"></i> ${esc(Math.abs(diff))}%
                                 </span>
                             </div>
                         </td>
@@ -587,14 +593,14 @@ if (!$hasSkillsOrProjects) {
             });
 
             const benchmarkList = document.getElementById('benchmarkList');
-            benchmarkList.innerHTML = data.market_benchmarks.map(b => `
+            benchmarkList.innerHTML = (data.market_benchmarks || []).map(b => `
                 <div class="benchmark-card" style="margin-bottom: 12px; padding: 12px; border: 1px solid #f0f0f0; border-radius: 12px;">
                     <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-                        <h4 style="font-size: 0.9rem; font-weight: 700;">${b.category}</h4>
-                        <span class="match-badge" style="background: ${getScoreColor(b.match_percentage)}; color: white; padding: 2px 10px; font-size: 0.8rem;">${b.match_percentage}%</span>
+                        <h4 style="font-size: 0.9rem; font-weight: 700;">${esc(b.category)}</h4>
+                        <span class="match-badge" style="background: ${getScoreColor(b.match_percentage)}; color: white; padding: 2px 10px; font-size: 0.8rem;">${esc(b.match_percentage)}%</span>
                     </div>
                     <div style="display: flex; flex-wrap: wrap; gap: 5px;">
-                        ${b.missing_keys.slice(0, 4).map(k => `<span style="font-size: 0.65rem; background: #fff0f0; color: #c0392b; padding: 2px 6px; border-radius: 4px;">+ ${k}</span>`).join('')}
+                        ${(b.missing_keys || []).slice(0, 4).map(k => `<span style="font-size: 0.65rem; background: #fff0f0; color: #c0392b; padding: 2px 6px; border-radius: 4px;">+ ${esc(k)}</span>`).join('')}
                     </div>
                 </div>
             `).join('');
@@ -696,11 +702,11 @@ if (!$hasSkillsOrProjects) {
                     return `
                         <div style="border-left: 4px solid ${pColor}; padding: 12px 15px; margin-bottom: 12px; background: #fafafa; border-radius: 0 12px 12px 0;">
                             <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 5px;">
-                                <h4 style="font-size: 0.9rem; font-weight: 700; color: var(--text-main); font-family: 'Outfit';">${a.step}</h4>
-                                <span style="font-size: 0.7rem; font-weight: 800; color: white; background: ${pColor}; padding: 2px 8px; border-radius: 50px;">${a.priority}</span>
+                                <h4 style="font-size: 0.9rem; font-weight: 700; color: var(--text-main); font-family: 'Outfit';">${esc(a.step)}</h4>
+                                <span style="font-size: 0.7rem; font-weight: 800; color: white; background: ${pColor}; padding: 2px 8px; border-radius: 50px;">${esc(a.priority)}</span>
                             </div>
-                            <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 8px;">${a.task}</p>
-                            <div style="font-size: 0.75rem; color: var(--primary-maroon); font-weight: 600;"><i class="fas fa-clock"></i> Target: ${a.timeframe}</div>
+                            <p style="font-size: 0.85rem; color: var(--text-muted); line-height: 1.4; margin-bottom: 8px;">${esc(a.task)}</p>
+                            <div style="font-size: 0.75rem; color: var(--primary-maroon); font-weight: 600;"><i class="fas fa-clock"></i> Target: ${esc(a.timeframe)}</div>
                         </div>
                     `;
                 }).join('');
@@ -716,14 +722,14 @@ if (!$hasSkillsOrProjects) {
             scoreEl.style.color = getScoreColor(data.fit_score);
 
             const verdictEl = document.getElementById('targetVerdict');
-            verdictEl.innerHTML = data.verdict + (isCached ? ' <span style="font-size:0.6rem; opacity:0.8; display:block; margin-top:4px;">CACHED RESULT</span>' : '');
+            verdictEl.innerHTML = esc(data.verdict) + (isCached ? ' <span style="font-size:0.6rem; opacity:0.8; display:block; margin-top:4px;">CACHED RESULT</span>' : '');
             verdictEl.style.background = getScoreColor(data.fit_score);
             verdictEl.style.color = 'white';
 
-            document.getElementById('targetAlign').innerHTML = `<strong>Culture:</strong> ${data.company_culture_alignment}<br><br><strong>Tech:</strong> ${data.technical_alignment}`;
-            document.getElementById('targetGaps').innerHTML = data.missing_critical_skills.map(s => `<span style="background: white; color: #c0392b; padding: 5px 12px; border-radius: 5px; font-size: 0.8rem; font-weight: 600;">${s}</span>`).join('');
+            document.getElementById('targetAlign').innerHTML = `<strong>Culture:</strong> ${esc(data.company_culture_alignment)}<br><br><strong>Tech:</strong> ${esc(data.technical_alignment)}`;
+            document.getElementById('targetGaps').innerHTML = (data.missing_critical_skills || []).map(s => `<span style="background: white; color: #c0392b; padding: 5px 12px; border-radius: 5px; font-size: 0.8rem; font-weight: 600;">${esc(s)}</span>`).join('');
             document.getElementById('targetAdvice').textContent = data.custom_advice;
-            document.getElementById('targetPrep').innerHTML = data.interview_prep_topics.map(t => `<span style="background: rgba(255,255,255,0.2); padding: 5px 15px; border-radius: 5px; font-size: 0.85rem;">${t}</span>`).join('');
+            document.getElementById('targetPrep').innerHTML = (data.interview_prep_topics || []).map(t => `<span style="background: rgba(255,255,255,0.2); padding: 5px 15px; border-radius: 5px; font-size: 0.85rem;">${esc(t)}</span>`).join('');
 
             // Target Bar Chart
             if (charts.target) charts.target.destroy();
@@ -755,7 +761,7 @@ if (!$hasSkillsOrProjects) {
 
         function renderCareer(data, isCached = false) {
             const titleEl = document.getElementById('primaryPathTitle');
-            titleEl.innerHTML = data.primary_path.title + (isCached ? ' <i class="fas fa-history" style="font-size:1rem; opacity:0.5; margin-left:10px;" title="Retrieved from cache"></i>' : '');
+            titleEl.innerHTML = esc(data.primary_path.title) + (isCached ? ' <i class="fas fa-history" style="font-size:1rem; opacity:0.5; margin-left:10px;" title="Retrieved from cache"></i>' : '');
             document.getElementById('primaryPathWhy').textContent = data.primary_path.why;
             document.getElementById('careerGrowth').textContent = data.primary_path.growth_potential;
             document.getElementById('longTermVision').textContent = data.long_term_projection;
@@ -780,21 +786,21 @@ if (!$hasSkillsOrProjects) {
                 }
             });
 
-            document.getElementById('altPaths').innerHTML = data.alternative_paths.map(p => `
+            document.getElementById('altPaths').innerHTML = (data.alternative_paths || []).map(p => `
                 <div style="margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid #f0f0f0;">
-                    <div style="font-weight: 700; color: var(--primary-maroon);">${p.title}</div>
-                    <div style="font-size: 0.8rem; color: #777;">${p.why}</div>
+                    <div style="font-weight: 700; color: var(--primary-maroon);">${esc(p.title)}</div>
+                    <div style="font-size: 0.8rem; color: #777;">${esc(p.why)}</div>
                 </div>
             `).join('');
 
-            document.getElementById('idealTitles').innerHTML = data.ideal_job_titles.map(t => `
-                <span style="background: #eef2ff; color: #4f46e5; padding: 5px 12px; border-radius: 5px; font-size: 0.8rem; font-weight: 600;">${t}</span>
+            document.getElementById('idealTitles').innerHTML = (data.ideal_job_titles || []).map(t => `
+                <span style="background: #eef2ff; color: #4f46e5; padding: 5px 12px; border-radius: 5px; font-size: 0.8rem; font-weight: 600;">${esc(t)}</span>
             `).join('');
         }
 
         async function applyMarketContext() {
-            const company = document.getElementById('marketCompany').value;
-            if (!company) return alert('Please enter a company name');
+            const company = document.getElementById('marketCompany').value.trim();
+            if (!company) return LakshyaDialog.alert('Please enter a company name', { type: 'warning', title: 'Missing Details' });
             runAnalysis('market', `&company=${encodeURIComponent(company)}`);
         }
 

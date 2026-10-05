@@ -18,8 +18,8 @@ session_write_close();
 
 $action = post('action');
 
-// Rate Limit: 10 requests per minute
-if (!checkRateLimit("ai_aptitude_api_" . getUserId(), 10, 60)) {
+// Rate Limit: 30 requests per minute for non-submission actions (submissions must never be blocked)
+if ($action !== 'submit_test' && !checkRateLimit("ai_aptitude_api_" . getUserId(), 30, 60)) {
     ob_clean();
     echo json_encode(['success' => false, 'message' => 'Too many requests. Please wait a minute.']);
     exit;
@@ -29,6 +29,14 @@ $studentModel = new StudentProfile();
 set_time_limit(300);
 
 header('Content-Type: application/json');
+
+// The browser only ever gets question text + options. Answers/explanations stay in the
+// session registry and are returned after grading (they were sent up front before).
+function aptitudePublicQuestions(array $questions) {
+    return array_values(array_map(function ($q) {
+        return is_array($q) ? array_diff_key($q, ['answer' => true, 'explanation' => true]) : $q;
+    }, $questions));
+}
 
 try {
     switch ($action) {
@@ -92,7 +100,7 @@ try {
                         session_write_close();
 
                         ob_clean();
-                        echo json_encode(['success' => true, 'questions' => $questions]);
+                        echo json_encode(['success' => true, 'questions' => aptitudePublicQuestions($questions)]);
                         break;
                     } elseif ($task['question_source'] === 'ai') {
                         $isAITask = true;
@@ -128,9 +136,9 @@ try {
                     if ($jobId) {
                         // Fetch the 40 random questions as fallback in case AI worker fails
                         $db = getDB();
-                        $stmt = $db->query("SELECT question, option_a, option_b, option_c, option_d, correct_option as answer, topic as category 
-                                           FROM aptitude_questions 
-                                           ORDER BY RAND() 
+                        $stmt = $db->query("SELECT question, option_a, option_b, option_c, option_d, correct_option as answer, topic as category
+                                           FROM aptitude_questions
+                                           ORDER BY RAND()
                                            LIMIT 40");
                         $dbQuestions = $stmt->fetchAll(PDO::FETCH_ASSOC);
                         foreach ($dbQuestions as &$q) {
@@ -152,7 +160,7 @@ try {
                         echo json_encode([
                             'success' => true,
                             'job_id' => $jobId,
-                            'db_questions' => $dbQuestions,
+                            'db_questions' => aptitudePublicQuestions($dbQuestions),
                             'message' => 'Queued AI question generation based on the concept: ' . $concept
                         ]);
                         break;
@@ -191,7 +199,7 @@ try {
                         ob_clean();
                         echo json_encode([
                             'success' => true,
-                            'questions' => $aiQuestions,
+                            'questions' => aptitudePublicQuestions($aiQuestions),
                             'message' => 'Generated questions synchronously with AI based on the concept: ' . $concept
                         ]);
                         break;
@@ -203,9 +211,9 @@ try {
 
             // 1. Fetch 40 random questions from aptitude_questions table
             $db = getDB();
-            $stmt = $db->query("SELECT question, option_a, option_b, option_c, option_d, correct_option as answer, topic as category 
-                               FROM aptitude_questions 
-                               ORDER BY RAND() 
+            $stmt = $db->query("SELECT question, option_a, option_b, option_c, option_d, correct_option as answer, topic as category
+                               FROM aptitude_questions
+                               ORDER BY RAND()
                                LIMIT 40");
             $dbQuestions = $stmt->fetchAll(PDO::FETCH_ASSOC);
 
@@ -237,12 +245,15 @@ try {
             ob_clean();
             echo json_encode([
                 'success' => true,
-                'questions' => $dbQuestions,
+                'questions' => aptitudePublicQuestions($dbQuestions),
                 'message' => 'Loaded questions from database.'
             ]);
             break;
 
         case 'submit_test':
+            // $db was previously only assigned in get_questions, so the proctor
+            // lookup below crashed every submission that carried a proctor token.
+            $db = getDB();
             $answers = json_decode($_POST['answers'] ?? '[]', true);
             $questions = json_decode($_POST['questions'] ?? '[]', true);
             $companyName = $_POST['company_name'] ?? 'Unknown';
@@ -282,20 +293,36 @@ try {
                 return 0;
             };
 
+            $registrySource = [];
+            $registryCounts = ['db' => 0, 'ai' => 0];
             if (isset($_SESSION['aptitude_db_questions']) && is_array($_SESSION['aptitude_db_questions'])) {
                 foreach ($_SESSION['aptitude_db_questions'] as $sq) {
-                    $key = $normalizeKey($sq['question']);
-                    $correctAnswersMap[$key] = $sq['answer'];
+                    $key = $normalizeKey($sq['question'] ?? '');
+                    $correctAnswersMap[$key] = $sq['answer'] ?? null;
                     $explanationsMap[$key] = $sq['explanation'] ?? '';
+                    $registrySource[$key] = 'db';
+                    $registryCounts['db']++;
                 }
             }
             if (isset($_SESSION['aptitude_ai_questions']) && is_array($_SESSION['aptitude_ai_questions'])) {
                 foreach ($_SESSION['aptitude_ai_questions'] as $sq) {
-                    $key = $normalizeKey($sq['question']);
-                    $correctAnswersMap[$key] = $sq['answer'];
+                    $key = $normalizeKey($sq['question'] ?? '');
+                    $correctAnswersMap[$key] = $sq['answer'] ?? null;
                     $explanationsMap[$key] = $sq['explanation'] ?? '';
+                    $registrySource[$key] = 'ai';
+                    $registryCounts['ai']++;
                 }
             }
+
+            // Grading needs the server's answer key; without it the only answers available
+            // would be ones the browser made up
+            if (empty($correctAnswersMap)) {
+                ob_clean();
+                echo json_encode(['success' => false, 'message' => 'Your test session has expired. Please start the test again.']);
+                exit;
+            }
+            $matchedFrom = ['db' => 0, 'ai' => 0];
+            $seenKeys = [];
 
             $score = 0;
             $gradedQuestions = [];
@@ -306,18 +333,21 @@ try {
 
                 // Retrieve correct answer from session lookup map
                 $normalizedQText = $normalizeKey($qText);
-                if (isset($correctAnswersMap[$normalizedQText])) {
+                $isKnownQuestion = isset($correctAnswersMap[$normalizedQText]) && !isset($seenKeys[$normalizedQText]);
+                if ($isKnownQuestion) {
+                    $seenKeys[$normalizedQText] = true;
+                    $matchedFrom[$registrySource[$normalizedQText]]++;
                     $correctAnswer = $parseAnswerIndex($correctAnswersMap[$normalizedQText]);
-                    $explanation = $explanationsMap[$normalizedQText] ?? ($q['explanation'] ?? '');
+                    $explanation = $explanationsMap[$normalizedQText] ?? '';
                 } else {
-                    // Fallback to client data but log a warning
+                    // Not a question we issued (or a duplicate): never trust the client's answer key
                     error_log("Aptitude grading warning: Question not found in session registry. Question: " . substr($qText, 0, 100));
-                    $correctAnswer = isset($q['answer']) ? $parseAnswerIndex($q['answer']) : 0;
-                    $explanation = $q['explanation'] ?? '';
+                    $correctAnswer = -1;
+                    $explanation = 'This question could not be verified and was not scored.';
                 }
 
                 // Validate correct answer index
-                if ($correctAnswer < 0 || $correctAnswer >= count($options)) {
+                if ($isKnownQuestion && ($correctAnswer < 0 || $correctAnswer >= count($options))) {
                     error_log("Invalid correct answer index for question: " . json_encode($q));
                     $correctAnswer = 0;
                 }
@@ -331,7 +361,7 @@ try {
                     }
                 }
 
-                if ($userAnswer !== null && $correctAnswer === $userAnswer) {
+                if ($isKnownQuestion && $userAnswer !== null && $correctAnswer === $userAnswer) {
                     $score++;
                 }
 
@@ -352,7 +382,10 @@ try {
             session_write_close();
             $questions = $gradedQuestions;
 
-            $percentage = ($score / count($questions)) * 100;
+            // Out of the full set the student was given, not just the questions they chose to send
+            $issuedSet = ($matchedFrom['ai'] > $matchedFrom['db'] && $registryCounts['ai'] > 0) ? 'ai' : 'db';
+            $totalQuestions = max(count($questions), $registryCounts[$issuedSet] ?: count($questions));
+            $percentage = $totalQuestions > 0 ? ($score / $totalQuestions) * 100 : 0;
             error_log("Score calculated: $score/" . count($questions) . " ($percentage%)");
 
             // Use standard student identifier helper
@@ -398,15 +431,26 @@ try {
                 'integrity_status' => 'Clean — Verified Academic Integrity'
             ];
 
+            // The token comes from the browser: it must belong to this student, and leaving it
+            // out must not skip penalties — fall back to the student's latest aptitude session
+            $proctorOwnerIds = array_values(array_unique(array_filter([(string)getUsername(), (string)getUserId()])));
+            $ownerPh = implode(',', array_fill(0, count($proctorOwnerIds), '?'));
+            $pSess = false;
             if (!empty($proctorToken)) {
-                $pStmt = $db->prepare("SELECT * FROM proctor_sessions WHERE session_token = ? LIMIT 1");
-                $pStmt->execute([$proctorToken]);
+                $pStmt = $db->prepare("SELECT * FROM proctor_sessions WHERE session_token = ? AND student_id IN ($ownerPh) LIMIT 1");
+                $pStmt->execute(array_merge([$proctorToken], $proctorOwnerIds));
                 $pSess = $pStmt->fetch(PDO::FETCH_ASSOC);
-                if ($pSess) {
-                    $penaltyPct = (float)$pSess['penalty_pct'];
-                    $strikeCount = (int)$pSess['strike_count'];
-                    $isTerminated = ($pSess['status'] === 'terminated' || $strikeCount >= 3);
-                }
+            }
+            if (!$pSess) {
+                $pStmt = $db->prepare("SELECT * FROM proctor_sessions WHERE student_id IN ($ownerPh) AND assessment_type = 'aptitude' AND created_at >= (NOW() - INTERVAL 3 HOUR) ORDER BY created_at DESC LIMIT 1");
+                $pStmt->execute($proctorOwnerIds);
+                $pSess = $pStmt->fetch(PDO::FETCH_ASSOC);
+                if ($pSess) $proctorToken = $pSess['session_token'];
+            }
+            if ($pSess) {
+                $penaltyPct = (float)$pSess['penalty_pct'];
+                $strikeCount = (int)$pSess['strike_count'];
+                $isTerminated = ($pSess['status'] === 'terminated' || $strikeCount >= 3);
             }
 
             // Check assessment integrity events for session
@@ -458,40 +502,50 @@ try {
             ]);
 
             $db = getDB();
-            $sql = "INSERT INTO unified_ai_assessments 
-                    (student_id, usn, student_name, assessment_type, company_name, score, total_marks, details, status, started_at, completed_at, institution) 
+            $sql = "INSERT INTO unified_ai_assessments
+                    (student_id, usn, student_name, assessment_type, company_name, score, total_marks, details, status, started_at, completed_at, institution)
                     VALUES (?, ?, ?, 'Aptitude', ?, ?, ?, ?, 'completed', NOW(), NOW(), ?)";
+
+            $usn = !empty($student['usn']) ? $student['usn'] : getUsername();
+            $studentName = !empty($student['name']) ? $student['name'] : (getFullName() ?: $usn);
+            $studentId = $studentId ?: $usn;
+            $companyName = !empty($companyName) ? $companyName : 'General';
+            $instVal = !empty($inst) ? $inst : (getInstitution() ?: 'GMU');
 
             $stmt = $db->prepare($sql);
             $res = $stmt->execute([
                 $studentId,
-                $student['usn'],
-                $student['name'],
+                $usn,
+                $studentName,
                 $companyName,
                 $finalPercentage,
-                count($questions),
+                $totalQuestions,
                 $detailsJson,
-                $inst
+                $instVal
             ]);
 
             error_log("DB Insertion " . ($res ? "SUCCESS" : "FAILED"));
 
             if ($res) {
-                error_log("Aptitude Submission Completed successfully for " . $student['usn']);
+                error_log("Aptitude Submission Completed successfully for " . $usn);
 
                 // Check if this is a coordinator task and record completion
-                $taskId = $_POST['task_id'] ?? null;
-                if ($taskId) {
-                    $timeTaken = $_POST['time_taken'] ?? 0;
-                    $stmt = $db->prepare("INSERT INTO task_completions 
-                                          (task_id, student_id, score, time_taken) 
-                                          VALUES (?, ?, ?, ?)
-                                          ON DUPLICATE KEY UPDATE 
-                                          score = VALUES(score), 
-                                          time_taken = VALUES(time_taken),
-                                          completed_at = CURRENT_TIMESTAMP");
-                    $stmt->execute([$taskId, $student['usn'], $finalPercentage, $timeTaken]);
-                    error_log("Task completion recorded for USN: {$student['usn']}, Task: $taskId");
+                $taskId = isset($_POST['task_id']) ? (int)$_POST['task_id'] : 0;
+                if ($taskId > 0) {
+                    try {
+                        $timeTaken = isset($_POST['time_taken']) ? (int)$_POST['time_taken'] : 0;
+                        $stmt = $db->prepare("INSERT INTO task_completions
+                                              (task_id, student_id, score, time_taken)
+                                              VALUES (?, ?, ?, ?)
+                                              ON DUPLICATE KEY UPDATE
+                                              score = VALUES(score),
+                                              time_taken = VALUES(time_taken),
+                                              completed_at = CURRENT_TIMESTAMP");
+                        $stmt->execute([$taskId, $usn, $finalPercentage, $timeTaken]);
+                        error_log("Task completion recorded for USN: {$usn}, Task: $taskId");
+                    } catch (\Throwable $tErr) {
+                        error_log("Task completion record warning: " . $tErr->getMessage());
+                    }
                 }
 
                 ob_clean();
@@ -502,7 +556,7 @@ try {
                     'penalty_pct' => $penaltyPct,
                     'strike_count' => $strikeCount,
                     'correct' => $score,
-                    'total' => count($questions),
+                    'total' => $totalQuestions,
                     'results' => [
                         'questions' => $questions,
                         'user_answers' => $answers

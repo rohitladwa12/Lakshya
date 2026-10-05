@@ -20,6 +20,8 @@ $fullName = getFullName();
     <title>TCS NQT Practice - Lakshya</title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- In-page dialogs (replaces native alert/confirm popups) -->
+    <script src="../js/lakshya_dialogs.js?v=<?php echo APP_VERSION; ?>"></script>
     <!-- KaTeX for equation rendering -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
@@ -363,6 +365,20 @@ $fullName = getFullName();
         let timeLeft = 0;
         let timerInterval;
         let selectedMode = '';
+        let testStarted = false;
+        let isSubmitting = false;
+
+        // Question text may contain comparisons like "a<b" — raw innerHTML swallowed the rest of the
+        // question and allowed markup injection. Escape, then re-allow simple formatting tags.
+        function safeText(s) {
+            return String(s ?? '')
+                .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                .replace(/&lt;(\/?(?:b|i|u|br|sup|sub|strong|em|small))\s*\/?&gt;/gi, '<$1>');
+        }
+
+        function escapeHtml(text) {
+            return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
 
         function renderMath(element) {
             if (typeof renderMathInElement === 'function') {
@@ -395,9 +411,16 @@ $fullName = getFullName();
         }
 
         async function startTest() {
+            if (!selectedMode || testStarted) return;
+            // Double clicks used to load two question sets and start two timers
+            testStarted = true;
+            document.getElementById('startBtn').disabled = true;
             try {
-                if (document.documentElement.requestFullscreen) {
-                    await document.documentElement.requestFullscreen();
+                const el = document.documentElement;
+                if (el.requestFullscreen) {
+                    await el.requestFullscreen();
+                } else if (el.webkitRequestFullscreen) {
+                    el.webkitRequestFullscreen(); // Safari < 16.4
                 }
             } catch (e) {}
 
@@ -423,16 +446,32 @@ $fullName = getFullName();
                 });
                 
                 const data = await response.json();
-                if (data.success) {
+                if (data.success && Array.isArray(data.questions) && data.questions.length > 0) {
                     questions = data.questions;
                     renderQuestion();
                     startTimer();
                 } else {
-                    alert('Error: ' + data.message);
+                    showLoadError(data.success ? 'No questions are available for this module.' : ('Error: ' + (data.message || 'Failed to load questions.')));
                 }
             } catch (e) {
-                alert('Connection error. Please try again.');
+                showLoadError('Connection error. Please try again.');
             }
+        }
+
+        // Previously only a popup was shown and the loader kept spinning with no way to retry
+        function showLoadError(msg) {
+            document.getElementById('questionArea').innerHTML = `
+                <div style="text-align:center; max-width: 500px;">
+                    <i class="fas fa-triangle-exclamation" style="font-size:2.5rem; color:var(--error); margin-bottom:15px;"></i>
+                    <p style="margin-bottom:20px; color:#eee;">${escapeHtml(msg)}</p>
+                    <button class="btn-start" onclick="retryLoadQuestions()">Retry Loading Questions</button>
+                </div>`;
+            LakshyaDialog.alert(msg, { type: 'error', title: 'Could Not Load Questions' });
+        }
+
+        function retryLoadQuestions() {
+            document.getElementById('questionArea').innerHTML = '<div class="loader"></div><p>Initializing NQT Engine and generating cognitive challenges...</p>';
+            loadQuestions();
         }
 
         window.reportCurrentQuestion = function() {
@@ -450,20 +489,25 @@ $fullName = getFullName();
         function renderQuestion() {
             const q = questions[currentIdx];
             const area = document.getElementById('questionArea');
-            
+            if (!q || !Array.isArray(q.options)) {
+                console.error('Malformed question at index', currentIdx, q);
+                showLoadError('This question could not be displayed. Please retry.');
+                return;
+            }
+
             let optionsHtml = '';
             q.options.forEach((opt, i) => {
                 const isSelected = userAnswers[currentIdx] === i ? 'selected' : '';
-                optionsHtml += `<button class="option-btn ${isSelected}" onclick="selectOption(${i})">${opt}</button>`;
+                optionsHtml += `<button class="option-btn ${isSelected}" onclick="selectOption(${i})">${safeText(opt)}</button>`;
             });
 
             area.innerHTML = `
                 <div class="question-card">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
-                        <span style="color: var(--secondary); letter-spacing: 2px; font-weight: 600;">${q.category.toUpperCase()}</span>
+                        <span style="color: var(--secondary); letter-spacing: 2px; font-weight: 600;">${safeText(String(q.category || 'General').toUpperCase())}</span>
                         <a href="javascript:void(0)" onclick="reportCurrentQuestion()" style="color: var(--secondary); text-decoration: none; font-size: 0.9rem; font-weight: 600;"><i class="fas fa-flag"></i> Report Issue</a>
                     </div>
-                    <h2 class="q-text">${q.question}</h2>
+                    <h2 class="q-text">${safeText(q.question)}</h2>
                     <div class="options-grid">${optionsHtml}</div>
                 </div>
             `;
@@ -496,6 +540,7 @@ $fullName = getFullName();
         function prevQuestion() { if (currentIdx > 0) { currentIdx--; renderQuestion(); } }
 
         function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
             timerInterval = setInterval(() => {
                 timeLeft--;
                 const mins = Math.floor(timeLeft / 60);
@@ -506,7 +551,11 @@ $fullName = getFullName();
         }
 
         async function submitTest() {
+            // Timer expiry + a click could submit twice
+            if (isSubmitting) return;
+            isSubmitting = true;
             clearInterval(timerInterval);
+            document.getElementById('resultMsg').innerText = 'Analyzing results...';
             document.getElementById('testUI').style.display = 'none';
             document.getElementById('resultsUI').style.display = 'flex';
             
@@ -550,23 +599,39 @@ $fullName = getFullName();
                             const correctAns = parseInt(q.answer);
                             html += `<div class="review-card">
                                 <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 10px;">
-                                    <div style="font-weight: 600;">Q${idx+1}: ${q.question}</div>
+                                    <div style="font-weight: 600;">Q${idx+1}: ${safeText(q.question)}</div>
                                     <button class="btn-control" style="padding: 4px 10px; font-size: 0.8rem; background: transparent; border-color: rgba(255,255,255,0.1); color: var(--secondary); cursor: pointer;" onclick="reportReviewQuestion(${idx})"><i class="fas fa-flag"></i> Report</button>
                                 </div>`;
-                            q.options.forEach((opt, optIdx) => {
+                            (Array.isArray(q.options) ? q.options : []).forEach((opt, optIdx) => {
                                 let cls = 'review-opt';
                                 let icon = '';
                                 if (optIdx === correctAns) { cls += ' correct'; icon = '✅'; }
                                 else if (optIdx == userAns) { cls += ' wrong'; icon = '❌'; }
-                                html += `<div class="${cls}"><span>${opt}</span><span>${icon}</span></div>`;
+                                html += `<div class="${cls}"><span>${safeText(opt)}</span><span>${icon}</span></div>`;
                             });
                             html += `</div>`;
                         });
                         document.getElementById('resultDetails').innerHTML = html;
                         renderMath(document.getElementById('resultDetails'));
                     }
+                } else {
+                    // Previously the page stayed on "Analyzing results..." forever
+                    showSubmitError(data.message || 'Submission failed.');
                 }
-            } catch (e) { document.getElementById('resultMsg').innerText = 'Error saving results.'; }
+            } catch (e) { showSubmitError('Error saving results.'); }
+        }
+
+        function showSubmitError(msg) {
+            document.getElementById('resultMsg').innerHTML = `
+                <span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> ${escapeHtml(msg)}</span>
+                <div style="margin-top:15px;">
+                    <button onclick="retrySubmitTest()" class="btn-nav" style="background:var(--secondary);color:#000;border:none;font-weight:700;padding:10px 24px;cursor:pointer;">Retry Submission</button>
+                </div>`;
+        }
+
+        function retrySubmitTest() {
+            isSubmitting = false;
+            submitTest();
         }
     </script>
 </body>

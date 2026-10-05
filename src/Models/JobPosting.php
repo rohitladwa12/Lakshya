@@ -12,7 +12,7 @@ class JobPosting extends Model {
         'company_id', 'academic_year', 'title', 'description', 'requirements', 'responsibilities',
         'location', 'job_type', 'work_mode', 'salary_min', 'salary_max',
         'min_cgpa', 'eligible_courses', 'eligible_branches', 'eligible_years', 'eligible_gender',
-        'application_mode', 'external_url', 'custom_fields', 'posted_date',
+        'application_mode', 'external_url', 'attachment_url', 'custom_fields', 'posted_date',
         'application_deadline', 'status', 'posted_by'
     ];
 

@@ -67,6 +67,10 @@ if (!checkRateLimit("project_viva_{$userId}", 15, 60)) {
 
 try {
     switch ($action) {
+        case 'ping':
+            // Keep-alive while the student types answers (no other requests for a long time)
+            ob_clean(); echo json_encode(['success' => true]);
+            exit;
 
         case 'save_calibration':
             $portfolioId = (int)($input['portfolio_id'] ?? 0);
@@ -74,6 +78,9 @@ try {
 
             $stmt = $db->prepare("INSERT INTO assessment_calibrations (student_id, portfolio_id, calibration_json, created_at) VALUES (?, ?, ?, NOW())");
             $stmt->execute([$username, $portfolioId, json_encode($calibrationData)]);
+
+            // Calibration starts an attempt: strikes are counted from here on
+            \App\Services\ProctoringService::markAttemptStart($db, 'project_viva', $portfolioId);
 
             ob_clean(); echo json_encode([
                 'success' => true,
@@ -177,8 +184,10 @@ try {
             require_once ROOT_PATH . '/src/Services/AIService.php';
 
             if (\App\Services\QueueService::isQueueAvailable()) {
-                session_write_close();
                 $jobId = \App\Services\QueueService::pushJob('evaluateProjectViva', [$item['title'], $history], $userId);
+                // Remember this attempt's evaluation so save_viva_result uses the server-side score
+                $_SESSION['viva_eval_pending'][(int)$portfolioId] = ['job_id' => $jobId, 'history' => $history];
+                session_write_close();
                 ob_clean(); echo json_encode([
                     'success' => true, 
                     'job_id' => $jobId,
@@ -188,6 +197,7 @@ try {
             } else {
                 $aiService = new \App\Services\AIService();
                 $eval = $aiService->evaluateProjectViva($item['title'], $history);
+                $_SESSION['viva_eval_pending'][(int)$portfolioId] = ['result' => $eval, 'history' => $history];
                 ob_clean(); echo json_encode([
                     'success' => true,
                     'result' => $eval,
@@ -198,9 +208,6 @@ try {
 
         case 'save_viva_result':
             $portfolioId = (int)($input['portfolio_id'] ?? 0);
-            $score = (float)($input['score'] ?? 0);
-            $feedback = $input['feedback'] ?? '';
-            $history = $input['history'] ?? [];
 
             // 1. Verify ownership
             $stmt = $db->prepare("SELECT * FROM student_portfolio WHERE id = ? AND (student_id = ? OR UPPER(student_id) = UPPER(?))");
@@ -212,7 +219,34 @@ try {
                 exit;
             }
 
+            // Use the score from the server's own evaluation of this attempt. The browser's
+            // `score` was trusted before, so anyone could post 100 and mark the item verified.
+            $pendingEval = $_SESSION['viva_eval_pending'][$portfolioId] ?? null;
+            $serverEval = null;
+            if (is_array($pendingEval) && isset($pendingEval['result'])) {
+                $serverEval = $pendingEval['result'];
+            } elseif (is_array($pendingEval) && !empty($pendingEval['job_id'])) {
+                require_once ROOT_PATH . '/src/Services/QueueService.php';
+                $job = \App\Services\QueueService::getJobStatus($pendingEval['job_id']);
+                if ($job && ($job['status'] ?? '') === 'completed' && trim((string)($job['user_id'] ?? '')) === trim((string)$userId)) {
+                    $serverEval = $job['result'] ?? null;
+                }
+            }
+            if (!is_array($serverEval) || !isset($serverEval['score']) || !is_numeric($serverEval['score'])) {
+                ob_clean(); echo json_encode(['success' => false, 'message' => 'No completed evaluation was found for this attempt. Please submit your answers again.']);
+                exit;
+            }
+            $score = max(0.0, min(100.0, (float)$serverEval['score']));
+            $feedback = (string)($serverEval['feedback'] ?? '');
+            $history = $pendingEval['history'] ?? [];
+            unset($_SESSION['viva_eval_pending'][$portfolioId]);
+
             // 2. Build Integrity Report
+            $attemptSince = \App\Services\ProctoringService::attemptWindowStart($db, 'project_viva', $portfolioId);
+            // Defaults in case the report block below fails part-way
+            $strikeCount = max(0, (int)($input['strike_count'] ?? 0));
+            $autoSubmitted = !empty($input['auto_submitted']) || $strikeCount >= 3;
+            $finalScore = ($strikeCount >= 3 || $autoSubmitted) ? 0.0 : max(0.0, $score);
             $integrityReport = [
                 'screen_sharing_active_pct' => 100.0,
                 'camera_availability_pct' => 100.0,
@@ -226,8 +260,9 @@ try {
             ];
 
             try {
-                $eventStmt = $db->prepare("SELECT event_type, duration, confidence, severity FROM assessment_integrity_events WHERE student_id = ? AND portfolio_id = ?");
-                $eventStmt->execute([$username, $portfolioId]);
+                // Only this attempt's events — portfolio_id is shared by every retry of the same item
+                $eventStmt = $db->prepare("SELECT event_type, duration, confidence, severity FROM assessment_integrity_events WHERE student_id = ? AND portfolio_id = ? AND created_at >= ?");
+                $eventStmt->execute([$username, $portfolioId, $attemptSince]);
                 $events = $eventStmt->fetchAll(PDO::FETCH_ASSOC);
 
                 $totalEvents = count($events);
@@ -260,8 +295,11 @@ try {
                     $integrityReport['face_presence_pct'] = round(min($integrityReport['face_presence_pct'], $cFacePct), 1);
                 }
 
-                $autoSubmitted = !empty($input['auto_submitted']);
-                $strikeCount = (int)($input['strike_count'] ?? 0);
+                // Server recount of logged strikes; the browser's figure can only raise it
+                $serverStrikes = \App\Services\ProctoringService::countAttemptStrikes($db, $username, $portfolioId, $attemptSince);
+                $strikeCount = max($serverStrikes, (int)($input['strike_count'] ?? 0));
+                $autoSubmitted = !empty($input['auto_submitted']) || $strikeCount >= 3;
+                $integrityReport['server_strike_count'] = $serverStrikes;
                 $penaltyPct = ($strikeCount === 1) ? 5.0 : (($strikeCount === 2) ? 10.0 : ($strikeCount >= 3 || $autoSubmitted ? 100.0 : 0.0));
                 $rawScore = $score;
                 $finalScore = max(0.0, round($rawScore - $penaltyPct, 1));
@@ -324,7 +362,7 @@ try {
                     $profile['department'] ?? null,
                     'Project Defense',
                     $item['title'],
-                    $score,
+                    $finalScore,
                     100,
                     $feedback,
                     json_encode([
@@ -342,6 +380,8 @@ try {
             ob_clean(); echo json_encode([
                 'success' => true, 
                 'message' => 'Result saved successfully.',
+                'final_score' => $finalScore,
+                'is_verified' => (bool)$isVerified,
                 'integrity_report' => $integrityReport
             ]);
             exit;

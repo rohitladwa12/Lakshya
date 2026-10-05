@@ -753,9 +753,12 @@ function getSynonymBranches($branchName) {
         ['MECH', 'ME', 'MECHANICAL', 'DIP MECH', 'ED'],
         ['CIVIL', 'CV', 'CE', 'DIP CIVIL'],
         ['BT', 'BIOTECH', 'BIOTECHNOLOGY'],
-        ['CSBS'],
+        ['CSBS', 'CSE-BS', 'CS-BS', 'CSE - BS'],
         ['DS', 'CSE-DS'],
-        ['CSE-IT', 'IOT', 'CSE-IOT']
+        ['CSE-IT', 'IOT', 'CSE-IOT'],
+        ['CSE-CC', 'CC'],
+        ['CSE-CY', 'CY', 'CYBER'],
+        ['CSE-IY', 'IY']
     ];
     
     foreach ($groups as $group) {

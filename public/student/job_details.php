@@ -329,6 +329,36 @@ if (isPost() && isset($_POST['apply'])) {
                     </div>
                 </div></div><?php endif; ?>
 
+                <?php if (!empty($job['attachment_url'])): 
+                    $attPath = $job['attachment_url'];
+                    $attUrl = (strpos($attPath, 'http') === 0) ? $attPath : APP_URL . '/' . ltrim($attPath, '/');
+                    $attExt = strtolower(pathinfo($attPath, PATHINFO_EXTENSION));
+                    $iconClass = match($attExt) {
+                        'pdf' => 'fa-file-pdf text-danger',
+                        'doc', 'docx' => 'fa-file-word text-primary',
+                        'ppt', 'pptx' => 'fa-file-powerpoint text-warning',
+                        default => 'fa-file-lines text-secondary'
+                    };
+                ?>
+                <div class="card"><div class="card-pad">
+                    <div class="section-title"><i class="fas fa-paperclip"></i> Job Description / Brochure</div>
+                    <div style="display:flex;align-items:center;justify-content:space-between;background:#f8fafc;padding:16px 20px;border-radius:14px;border:1px solid #e2e8f0;flex-wrap:wrap;gap:12px;">
+                        <div style="display:flex;align-items:center;gap:14px;">
+                            <div style="width:42px;height:42px;border-radius:10px;background:#fee2e2;display:flex;align-items:center;justify-content:center;font-size:20px;color:#dc2626;">
+                                <i class="fas <?php echo $iconClass; ?>"></i>
+                            </div>
+                            <div>
+                                <div style="font-weight:700;font-size:14px;color:#0f172a;">Official Job Attachment</div>
+                                <div style="font-size:12px;color:#64748b;">Review complete job brochure, roles & guidelines</div>
+                            </div>
+                        </div>
+                        <a href="<?php echo htmlspecialchars($attUrl); ?>" target="_blank" download class="btn-builder" style="background:var(--brand);color:#fff;text-decoration:none;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:700;display:inline-flex;align-items:center;gap:8px;">
+                            <i class="fas fa-download"></i> View / Download
+                        </a>
+                    </div>
+                </div></div>
+                <?php endif; ?>
+
                 <?php if (!empty($job['company_description'])): ?>
                 <div class="card"><div class="card-pad">
                     <div class="section-title"><i class="fas fa-building"></i> About <?php echo htmlspecialchars($job['company_name'] ?? ''); ?></div>

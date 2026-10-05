@@ -53,6 +53,7 @@ if (!$hasApplied) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title><?php echo $roundType; ?> Assessment | <?php echo htmlspecialchars($drive['drive_name']); ?></title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script src="../js/lakshya_dialogs.js?v=<?php echo APP_VERSION; ?>"></script>
     <!-- KaTeX for equation rendering -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.css">
     <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.8/dist/katex.min.js"></script>
@@ -497,7 +498,7 @@ if (!$hasApplied) {
     <script>
         window.CSRF_TOKEN = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
         const driveId = <?php echo $driveId; ?>;
-        const roundType = '<?php echo $roundType; ?>';
+        const roundType = <?php echo json_encode((string)$roundType, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
         
         let attemptId = null;
         let questions = [];
@@ -506,8 +507,22 @@ if (!$hasApplied) {
         let remainingSeconds = 0;
         let timerInterval = null;
         let tabSwitchCount = 0;
+        let isSubmitting = false; // guards against double submission (button + timer + tab-switch)
+        let lastClipboardWarn = 0;
 
-        function renderMath(element) {
+        function escapeHtml(str) {
+            return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+        }
+
+        function warnClipboard(msg) {
+            // One user action can fire several clipboard events; avoid stacking dialogs
+            const now = Date.now();
+            if (now - lastClipboardWarn < 1500) return;
+            lastClipboardWarn = now;
+            LakshyaDialog.alert(msg, { type: 'warning', title: 'Not Allowed' });
+        }
+
+        function renderMath(element, attempt = 0) {
             if (typeof renderMathInElement === 'function') {
                 renderMathInElement(element, {
                     delimiters: [
@@ -518,24 +533,28 @@ if (!$hasApplied) {
                     ],
                     throwOnError: false
                 });
-            } else {
-                setTimeout(() => renderMath(element), 100);
+            } else if (attempt < 50) {
+                // KaTeX is deferred; retry for a few seconds, then give up (e.g. CDN blocked)
+                setTimeout(() => renderMath(element, attempt + 1), 100);
             }
         }
 
         // --- ANTI-CHEAT SYSTEM ---
         document.addEventListener('contextmenu', event => event.preventDefault());
-        document.addEventListener('copy', event => { event.preventDefault(); alert("Copying is strictly prohibited during the assessment."); });
-        document.addEventListener('cut', event => { event.preventDefault(); alert("Cutting is strictly prohibited."); });
-        document.addEventListener('paste', event => { event.preventDefault(); alert("Pasting is strictly prohibited."); });
+        document.addEventListener('copy', event => { event.preventDefault(); warnClipboard("Copying is strictly prohibited during the assessment."); });
+        document.addEventListener('cut', event => { event.preventDefault(); warnClipboard("Cutting is strictly prohibited."); });
+        document.addEventListener('paste', event => { event.preventDefault(); warnClipboard("Pasting is strictly prohibited."); });
         document.addEventListener('visibilitychange', () => {
+            // Only count switches while an attempt is actually in progress
+            if (!attemptId || isSubmitting) return;
             if (document.visibilityState === 'hidden') {
                 tabSwitchCount++;
                 if (tabSwitchCount >= 2) {
-                    alert('You have switched tabs multiple times. Your assessment will now be auto-submitted due to a violation of the test rules.');
+                    // Submit immediately; the dialog is informational only
                     submitAssessment(true, 'Screen switching detected (Tab switched multiple times)');
+                    LakshyaDialog.alert('You have switched tabs multiple times. Your assessment will now be auto-submitted due to a violation of the test rules.', { type: 'error', title: 'Assessment Auto-Submitted' });
                 } else {
-                    alert('WARNING: Tab switching is strictly prohibited! If you switch away from this screen again, your assessment will be automatically submitted.');
+                    LakshyaDialog.alert('Tab switching is strictly prohibited! If you switch away from this screen again, your assessment will be automatically submitted.', { type: 'warning', title: 'Warning' });
                 }
             }
         });
@@ -543,6 +562,11 @@ if (!$hasApplied) {
 
         window.reportCurrentQuestion = function() {
             const q = questions[currentIdx];
+            if (!q) return;
+            if (typeof window.openQuestionReportModal !== 'function') {
+                LakshyaDialog.alert('Reporting utility is loading or not available.', { type: 'info' });
+                return;
+            }
             window.openQuestionReportModal({
                 test_type: 'campus_drive',
                 test_id: driveId,
@@ -577,9 +601,10 @@ if (!$hasApplied) {
                     remainingSeconds = data.remaining_seconds;
                     
                     // Recover from session storage or default array of nulls
-                    const storedAnswers = sessionStorage.getItem(`drive_ans_${attemptId}`);
-                    if (storedAnswers) {
-                        answers = JSON.parse(storedAnswers);
+                    let storedAnswers = null;
+                    try { storedAnswers = JSON.parse(sessionStorage.getItem(`drive_ans_${attemptId}`)); } catch (e) { storedAnswers = null; }
+                    if (Array.isArray(storedAnswers) && storedAnswers.length === questions.length) {
+                        answers = storedAnswers;
                     } else {
                         answers = Array(questions.length).fill(null);
                     }
@@ -592,14 +617,14 @@ if (!$hasApplied) {
                     renderQuestion();
                     startTimer();
                 } else {
-                    alert(data.message || 'Error loading assessment.');
-                    window.location.href = 'student_drive.php?drive_id=' + driveId;
+                    LakshyaDialog.alert(data.message || 'Error loading assessment.', { type: 'error' })
+                        .then(() => { window.location.href = 'student_drive.php?drive_id=' + driveId; });
                 }
             })
             .catch(err => {
                 console.error(err);
-                alert('Connection failure or error setting up exam environment.');
-                window.location.href = 'student_drive.php?drive_id=' + driveId;
+                LakshyaDialog.alert('Connection failure or error setting up exam environment.', { type: 'error', title: 'Connection Error' })
+                    .then(() => { window.location.href = 'student_drive.php?drive_id=' + driveId; });
             });
         }
 
@@ -732,15 +757,17 @@ if (!$hasApplied) {
 
                 if (remainingSeconds <= 0) {
                     clearInterval(timerInterval);
-                    alert('Time limit reached! Your assessment will now be auto-submitted.');
+                    // Submit right away; do not wait for the student to acknowledge the dialog
                     submitAssessment(true, 'Time limit reached');
+                    LakshyaDialog.alert('Time limit reached! Your assessment will now be auto-submitted.', { type: 'warning', title: "Time's Up" });
                 }
             }, 1000);
         }
 
         function updateTimerDisplay() {
-            const minutes = Math.floor(remainingSeconds / 60);
-            const seconds = remainingSeconds % 60;
+            const safeSeconds = Math.max(0, remainingSeconds);
+            const minutes = Math.floor(safeSeconds / 60);
+            const seconds = safeSeconds % 60;
             
             const padMinutes = String(minutes).padStart(2, '0');
             const padSeconds = String(seconds).padStart(2, '0');
@@ -755,7 +782,8 @@ if (!$hasApplied) {
             }
         }
 
-        function confirmSubmit() {
+        async function confirmSubmit() {
+            if (!attemptId || isSubmitting) return;
             saveCurrentResponse();
             
             const unanswered = answers.filter(a => a === null).length;
@@ -764,12 +792,15 @@ if (!$hasApplied) {
                 msg = `You have ${unanswered} unanswered questions. ${msg}`;
             }
 
-            if (confirm(msg)) {
+            const ok = await LakshyaDialog.confirm(msg, { title: 'Submit Assessment', okText: 'Submit', cancelText: 'Keep Working' });
+            if (ok) {
                 submitAssessment(false);
             }
         }
 
         function submitAssessment(isAuto = false, reason = null) {
+            if (isSubmitting || !attemptId) return;
+            isSubmitting = true;
             if (timerInterval) clearInterval(timerInterval);
 
             // Show submitting screen
@@ -798,14 +829,14 @@ if (!$hasApplied) {
                 if (data.success) {
                     showReport(data);
                 } else {
-                    alert(data.message || 'Error saving answers.');
-                    window.location.href = 'student_drive.php?drive_id=' + driveId;
+                    LakshyaDialog.alert(data.message || 'Error saving answers.', { type: 'error' })
+                        .then(() => { window.location.href = 'student_drive.php?drive_id=' + driveId; });
                 }
             })
             .catch(err => {
                 console.error(err);
-                alert('Network connection lost. Please contact coordinator if score is not recorded.');
-                window.location.href = 'student_drive.php?drive_id=' + driveId;
+                LakshyaDialog.alert('Network connection lost. Please contact coordinator if score is not recorded.', { type: 'error', title: 'Connection Error' })
+                    .then(() => { window.location.href = 'student_drive.php?drive_id=' + driveId; });
             });
         }
 
@@ -819,8 +850,9 @@ if (!$hasApplied) {
             body.style.padding = '40px';
             body.style.background = '#fff';
 
-            const questions = data.details.questions || [];
-            const userAnswers = data.details.answers || [];
+            const details = data.details || {};
+            const questions = details.questions || [];
+            const userAnswers = details.answers || [];
 
             let html = `
                 <div style="max-width: 800px; margin: 0 auto;">
@@ -840,11 +872,11 @@ if (!$hasApplied) {
 
                 html += `
                     <div style="background: #fafafa; border: 1px solid #eee; border-radius: 12px; padding: 25px; margin-bottom: 25px; border-left: 5px solid ${isCorrect ? 'var(--success-color)' : '#ef4444'};">
-                        <div style="font-weight: bold; margin-bottom: 15px; font-size: 16px;">${idx + 1}. ${q.question}</div>
+                        <div style="font-weight: bold; margin-bottom: 15px; font-size: 16px;">${idx + 1}. ${escapeHtml(q.question)}</div>
                         <div style="display: flex; flex-direction: column; gap: 10px;">
                 `;
 
-                q.options.forEach((opt, oIdx) => {
+                (q.options || []).forEach((opt, oIdx) => {
                     let optStyle = "padding: 12px; border-radius: 8px; border: 1px solid #ddd; background: #fff;";
                     let icon = "";
                     
@@ -856,7 +888,7 @@ if (!$hasApplied) {
                         icon = '<i class="fas fa-times-circle" style="float: right;"></i>';
                     }
 
-                    html += `<div style="${optStyle}">${opt} ${icon}</div>`;
+                    html += `<div style="${optStyle}">${escapeHtml(opt)} ${icon}</div>`;
                 });
 
                 html += `

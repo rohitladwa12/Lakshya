@@ -15,7 +15,7 @@ if ($driveId > 0) {
     $usn = getUsername();
     // Fetch drive details
     $stmt = $db->prepare("
-        SELECT cd.*, jp.title as job_title, jp.id as job_id, c.name as company_name 
+        SELECT cd.*, jp.title as job_title, jp.id as job_id, c.name as company_name
         FROM campus_drives cd
         JOIN job_postings jp ON cd.job_id = jp.id
         LEFT JOIN companies c ON jp.company_id = c.id
@@ -28,7 +28,7 @@ if ($driveId > 0) {
     }
     // Enforce applied check
     $stmt = $db->prepare("
-        SELECT COUNT(*) FROM job_applications 
+        SELECT COUNT(*) FROM job_applications
         WHERE job_id = ? AND student_id = ?
     ");
     $stmt->execute([$drive['job_id'], $usn]);
@@ -56,9 +56,9 @@ if ($driveId > 0) {
     }
 
     $filters = SessionFilterHelper::getFilters('ai_hr_round');
-    $companyName = $filters['company'] ?? 'General';
-    $taskId = $filters['task_id'] ?? 0;
-    $concept = $filters['concept'] ?? '';
+    $companyName = !empty($_GET['company']) ? clean($_GET['company']) : ($filters['company'] ?? 'General');
+    $taskId = isset($_GET['task_id']) ? (int)$_GET['task_id'] : (int)($filters['task_id'] ?? 0);
+    $concept = !empty($_GET['concept']) ? clean($_GET['concept']) : ($filters['concept'] ?? '');
     if (empty($concept) && $taskId) {
         try {
             $db = getDB();
@@ -77,6 +77,8 @@ if ($driveId > 0) {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HR Round - <?php echo htmlspecialchars($companyName); ?></title>
+    <!-- In-page dialogs (replace native alert/confirm popups) -->
+    <script src="../js/lakshya_dialogs.js?v=<?php echo APP_VERSION; ?>"></script>
     <!-- Resilience & Cache Busting -->
     <script src="resilience.js?v=<?php echo APP_VERSION; ?>"></script>
     <script src="../js/proctor.js?v=<?php echo APP_VERSION; ?>"></script>
@@ -617,6 +619,17 @@ if ($driveId > 0) {
             color: var(--accent);
         }
 
+        /* Proctor camera preview: mirrored like a selfie view, and enlarged while calibrating
+           so the student can see their face is framed (the snapshot canvas is not mirrored). */
+        #proctor-preview video {
+            transform: scaleX(-1);
+        }
+
+        body.hr-calibrating #proctor-preview {
+            width: 260px;
+            z-index: 9500;
+        }
+
         @media (max-width: 1200px) {
             .transcript-panel {
                 position: relative;
@@ -637,16 +650,19 @@ if ($driveId > 0) {
     <div id="introOverlay" class="overlay">
         <div
             style="text-align: center; max-width: 600px; padding: 40px; background: #1e1e1e; border-radius: 16px; border: 1px solid #333;">
-            <div style="font-size: 4rem; margin-bottom: 20px;">🤝</div>
+            <div style="font-size: 3.5rem; margin-bottom: 15px;">🤝</div>
             <h1 style="color: var(--accent);">HR Round</h1>
-            <p>Role: <strong><?php echo htmlspecialchars($companyName); ?></strong></p>
-            <p style="color: #aaa; margin: 20px 0;">
+            <p>Company: <strong><?php echo htmlspecialchars($companyName); ?></strong></p>
+            <p style="color: #aaa; margin: 15px 0;">
                 This is a speech-to-speech behavioral interview.<br>
                 The AI will assess your communication confidence, cultural fit, and problem-solving examples.<br>
                 <strong>Please allow Microphone Access.</strong>
             </p>
-            <input type="text" id="roleInput" placeholder="Specific Role (e.g. Manager)"
-                value="<?php echo htmlspecialchars($roleName); ?>"
+            <div style="margin-bottom: 20px; <?php echo $driveId > 0 ? 'display:none;' : ''; ?>">
+                <input type="text" id="roleInput" placeholder="Specific Role (e.g. Software Engineer)"
+                    value="<?php echo htmlspecialchars($roleName); ?>"
+                    style="padding: 10px 14px; width: 100%; max-width: 320px; text-align: center; border-radius: 8px; border: 1px solid #444; background: #2a2a2a; color: #fff;">
+            </div>
             <div id="proctor-env-box" style="margin-bottom: 20px; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; text-align: left; font-size: 0.9rem;">
                 <div style="font-weight: 600; color: var(--accent);"><i class="fas fa-shield-alt"></i> AI Proctoring & Video Active</div>
                 <div id="proctor-env-status" style="margin-top: 4px; color: #aaa; font-size: 0.85rem;">Camera & baseline calibration will initialize on start.</div>
@@ -685,11 +701,11 @@ if ($driveId > 0) {
     <!-- Security Warning Overlay -->
     <div id="warningOverlay" class="overlay hidden">
         <div style="text-align: center;">
-            <i class="fas fa-exclamation-triangle"
+            <i id="warningIcon" class="fas fa-exclamation-triangle"
                 style="color: var(--primary); font-size: 4rem; margin-bottom: 20px;"></i>
-            <h2 style="color: #fff;">Video/Audio Integrity Check</h2>
-            <p style="color: #ccc;">Please return to full screen to continue the interview.</p>
-            <button onclick="resumeFullscreen()"
+            <h2 id="warningTitle" style="color: #fff;">Video/Audio Integrity Check</h2>
+            <p id="warningMessage" style="color: #ccc; max-width: 520px; margin: 0 auto;">Please return to full screen to continue the interview.</p>
+            <button id="warningBtn" onclick="resumeFullscreen()"
                 style="padding: 10px 30px; background: var(--primary); color: white; border: none; border-radius: 5px; margin-top: 20px; cursor: pointer;">RESUME</button>
         </div>
     </div>
@@ -752,7 +768,7 @@ if ($driveId > 0) {
         // Initialize Proctoring Engine
         try {
             proctorEngine = new ProctoringEngine({
-                studentId: "<?php echo addslashes(getUsername()); ?>",
+                studentId: <?php echo json_encode((string) getUsername(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
                 assessmentId: <?php echo (int)($taskId ?: ($driveId ?: 1)); ?>,
                 assessmentType: 'hr',
                 apiEndpoint: 'proctor_handler.php',
@@ -782,7 +798,7 @@ if ($driveId > 0) {
         function submitTextAnswer() {
             const input = document.getElementById('textInput');
             const text = input?.value?.trim();
-            if (!text) return;
+            if (!text || isEnding) return;
             input.value = '';
             if (currentState === State.LISTENING || currentState === State.WAITING || currentState === State.ERROR) {
                 finalizeUserTranscriptLine(text);
@@ -820,9 +836,12 @@ if ($driveId > 0) {
 
         let currentState = State.IDLE;
         let sessionId = null;
-        let company = "<?php echo addslashes($companyName); ?>";
-        let driveId = <?php echo $driveId; ?>;
-        let concept = "<?php echo addslashes($concept); ?>";
+        // json_encode: addslashes() left newlines / closing script tags in DB values able to break this script
+        let company = <?php echo json_encode((string) $companyName, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+        let driveId = <?php echo (int) $driveId; ?>;
+        let concept = <?php echo json_encode((string) $concept, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+        let isEnding = false;              // endSession() in flight — ignore late question responses
+        let micAutoRetryDisabled = false;  // set after repeated mic drops; the mic button re-enables it
         let isSessionActive = false;
         let recognition;
         let synth = window.speechSynthesis;
@@ -962,32 +981,103 @@ if ($driveId > 0) {
         let lastFrameTime = 0;
         const FRAME_INTERVAL_MS = 66;
 
+        const IS_MAC = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '');
+
+        function escapeHtml(text) {
+            return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
+
+        // Safari only lets an AudioContext / speechSynthesis start from a user gesture.
+        // Called synchronously from the Start click (before any await) and on later clicks.
+        function unlockAudioOnGesture() {
+            try {
+                const AC = window.AudioContext || window.webkitAudioContext;
+                if (!audioCtx && AC) audioCtx = new AC();
+                if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => { });
+            } catch (e) { console.warn('AudioContext unlock failed:', e); }
+            try {
+                if (synth && !synth.speaking) {
+                    const u = new SpeechSynthesisUtterance(' ');
+                    u.volume = 0;
+                    synth.speak(u);
+                }
+            } catch (e) { }
+        }
+        document.addEventListener('click', () => {
+            if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume().catch(() => { });
+        });
+
+        function micPermissionMessage(err) {
+            const name = err && err.name;
+            if (name === 'NotAllowedError' || name === 'PermissionDeniedError' || name === 'SecurityError') {
+                return 'Microphone permission was denied. Allow the microphone for this site (lock icon in the address bar → Microphone → Allow) and refresh.' +
+                    (IS_MAC ? ' On a Mac, also enable your browser under System Settings → Privacy & Security → Microphone, then restart the browser.' : '') +
+                    ' You can type your answers in the box below meanwhile.';
+            }
+            if (name === 'NotFoundError' || name === 'DevicesNotFoundError') return 'No microphone was found. Connect a microphone and refresh, or type your answers below.';
+            if (name === 'NotReadableError' || name === 'TrackStartError') return 'Your microphone is being used by another application. Close it and refresh, or type your answers below.';
+            return 'Microphone access denied or unavailable. You can type your answers using the text box below.';
+        }
+
+        // Returns a Promise<boolean>. Requested BEFORE proctoring starts so the browser's
+        // permission prompt (which blurs the window) is never reported as a focus violation.
         function initializeSessionAudio() {
-            if (audioCtx) return;
+            if (micStream && micStream.getAudioTracks().some(t => t.readyState === 'live')) return Promise.resolve(true);
             if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-                showMicError('Your browser does not support microphone access. Please use Chrome or Edge.');
-                return;
+                showMicError('Your browser does not support microphone access. Please use an up-to-date Chrome, Edge or Safari, or type your answers below.');
+                return Promise.resolve(false);
             }
 
-            navigator.mediaDevices.getUserMedia({ audio: true })
+            return navigator.mediaDevices.getUserMedia({ audio: true })
                 .then((stream) => {
                     micStream = stream;
-                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-                    micSource = audioCtx.createMediaStreamSource(stream);
-                    analyser = audioCtx.createAnalyser();
-                    analyser.fftSize = 512;
+                    try {
+                        if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                        if (audioCtx.state === 'suspended') audioCtx.resume().catch(() => { });
+                        micSource = audioCtx.createMediaStreamSource(stream);
+                        analyser = audioCtx.createAnalyser();
+                        analyser.fftSize = 512;
 
-                    micSource.connect(analyser);
+                        micSource.connect(analyser);
 
-                    setTimeout(() => calibrateNoiseFloor(), 1000);
+                        setTimeout(() => calibrateNoiseFloor(), 1000);
+                    } catch (e) {
+                        // The analyser is only used for telemetry — never block the interview on it
+                        console.warn('Audio analyser setup failed:', e);
+                        analyser = null;
+                    }
+                    return true;
                 })
                 .catch((err) => {
                     console.error("Audio Context initialization failed:", err);
-                    if (err && (err.name === 'NotAllowedError' || err.name === 'NotFoundError' || err.name === 'NotReadableError')) {
+                    if (err && (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError' || err.name === 'NotFoundError' || err.name === 'NotReadableError')) {
                         micPermanentlyBlocked = true;
                     }
-                    showMicError('Microphone access denied or unavailable. You can type your answers using the text box below.');
+                    showMicError(micPermissionMessage(err));
+                    return false;
                 });
+        }
+
+        // Safari asks a separate "use speech recognition" permission on the first start().
+        // Trigger it before proctoring starts so the prompt doesn't count as a focus loss.
+        function primeSpeechRecognition() {
+            return new Promise((resolve) => {
+                if (!recognition || micPermanentlyBlocked) return resolve(false);
+                let done = false;
+                const finish = (ok) => {
+                    if (done) return;
+                    done = true;
+                    recognition.removeEventListener('start', onStart);
+                    recognition.removeEventListener('error', onErr);
+                    resolve(ok);
+                };
+                const onStart = () => { try { recognition.abort(); } catch (e) { } finish(true); };
+                const onErr = () => finish(false);
+                recognition.addEventListener('start', onStart);
+                recognition.addEventListener('error', onErr);
+                try { recognition.start(); } catch (e) { finish(false); }
+                setTimeout(() => { try { recognition.abort(); } catch (e) { } finish(false); }, 15000);
+            });
         }
 
         function calibrateNoiseFloor() {
@@ -1083,11 +1173,13 @@ if ($driveId > 0) {
 
                 case State.WAITING:
                     timeStateTransitionToListening = Date.now();
-                    if (micPermanentlyBlocked || !recognition) {
+                    if (micPermanentlyBlocked || !recognition || micAutoRetryDisabled) {
                         // Mic unusable — stay in WAITING and rely on the text-input
                         // fallback (submitTextAnswer accepts the WAITING state).
                         updateState("Type your answer below", "neutral");
-                        showMicError('Microphone is unavailable. Type your answer in the box below and press Enter.');
+                        showMicError(micAutoRetryDisabled && recognition && !micPermanentlyBlocked
+                            ? 'The microphone keeps disconnecting. Type your answer below, or click the mic button to try voice again.'
+                            : 'Microphone is unavailable. Type your answer in the box below and press Enter.');
                         break;
                     }
                     updateState("Preparing...", "neutral");
@@ -1144,19 +1236,48 @@ if ($driveId > 0) {
         }
 
         window.onload = () => {
+            // Voices load asynchronously (Safari/Chrome); refresh the cache when they arrive
+            if (synth) {
+                const loadVoices = () => { voices = synth.getVoices(); cachedVoice = null; };
+                loadVoices();
+                if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
+            }
+
+            // Page-level focus/fullscreen listeners only show the non-strike overlay;
+            // strikes are reported (and debounced) by proctor.js. Registered before the
+            // speech-recognition check, which previously returned early and skipped them.
+            document.addEventListener('fullscreenchange', onPageFullscreenChange);
+            document.addEventListener('webkitfullscreenchange', onPageFullscreenChange);
+
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'hidden' && isSessionActive && Date.now() > fullscreenGraceUntil) {
+                    showWarningOverlay('Interview Window Left', 'Please stay on the interview window. Click below to continue in full screen.');
+                }
+            });
+
+            window.addEventListener('blur', () => {
+                if (isSessionActive && Date.now() > fullscreenGraceUntil) {
+                    showWarningOverlay('Window Lost Focus', 'Please remain inside the interview window. Click below to continue in full screen.');
+                }
+            });
+
+            window.addEventListener('beforeunload', () => {
+                // Cleanup only — never preventDefault/returnValue (that shows the native "Leave site?" popup)
+                if (isSessionActive) transitionTo(State.ENDED);
+                releaseAudioResources(); // always stop mic tracks, even after ENDED
+            });
+
             const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
             if (!SpeechRecognition) {
-                alert("Web Speech API not supported.");
+                // Firefox (and some embedded browsers) have no speech recognition — the interview
+                // still works with typed answers, so inform instead of dead-ending the page.
+                LakshyaDialog.alert('Voice answers are not supported in this browser, so you will type your answers instead. For voice answers, use Google Chrome, Microsoft Edge or Safari.', { title: 'Voice Input Unavailable', type: 'warning' });
                 return;
             }
             recognition = new SpeechRecognition();
             recognition.continuous = true;
             recognition.interimResults = true;
             recognition.lang = 'en-US';
-
-            const loadVoices = () => { voices = synth.getVoices(); };
-            loadVoices();
-            if (synth.onvoiceschanged !== undefined) synth.onvoiceschanged = loadVoices;
 
             recognition.onstart = () => {
                 logTelemetryEvent("MIC_OPEN");
@@ -1214,7 +1335,13 @@ if ($driveId > 0) {
                     // Permission denied or no usable microphone — recovery attempts
                     // are pointless; surface it and switch to the text fallback.
                     micPermanentlyBlocked = true;
-                    showMicError('Microphone access is blocked or no microphone was found. Enable it in your browser (lock icon → Site settings → Microphone → Allow) and refresh, or type your answers below.');
+                    let msg = 'Microphone access is blocked or no microphone was found. Enable it in your browser (lock icon → Site settings → Microphone → Allow) and refresh, or type your answers below.';
+                    if (event.error === 'service-not-allowed' && IS_MAC) {
+                        msg = 'Voice recognition is turned off on this Mac. Allow speech recognition for this site, enable Dictation (System Settings → Keyboard → Dictation) and allow your browser under System Settings → Privacy & Security → Microphone / Speech Recognition, then restart the browser — or type your answers below.';
+                    } else if (IS_MAC) {
+                        msg += ' On a Mac, also enable your browser under System Settings → Privacy & Security → Microphone, then restart the browser.';
+                    }
+                    showMicError(msg);
                     updateState("Mic unavailable — type your answer", "neutral");
                     return;
                 }
@@ -1223,78 +1350,191 @@ if ($driveId > 0) {
                     transitionTo(State.ERROR);
                 }
             };
-
-            document.addEventListener('fullscreenchange', () => {
-                const warning = document.getElementById('warningOverlay');
-                if (!document.fullscreenElement && isSessionActive) {
-                    warning.classList.remove('hidden');
-                    speak("Please return to full screen.");
-                } else if (document.fullscreenElement) warning.classList.add('hidden');
-            });
-
-            document.addEventListener('visibilitychange', () => {
-                const warning = document.getElementById('warningOverlay');
-                if (document.visibilityState === 'hidden' && isSessionActive) {
-                    warning.classList.remove('hidden');
-                    speak("Please return to the test window.");
-                }
-            });
-
-            window.addEventListener('blur', () => {
-                const warning = document.getElementById('warningOverlay');
-                if (isSessionActive) {
-                    warning.classList.remove('hidden');
-                    speak("Window lost focus. Please remain inside the test window.");
-                }
-            });
-
-            window.addEventListener('beforeunload', () => {
-                if (isSessionActive) transitionTo(State.ENDED);
-                releaseAudioResources(); // always stop mic tracks, even after ENDED
-            });
         };
 
+        // --- Fullscreen helpers (Safari < 16.4 only has the webkit-prefixed API) ---
+        // The macOS fullscreen transition briefly blurs the window; ignore blur during this grace window.
+        let fullscreenGraceUntil = 0;
+
+        function getFullscreenElement() {
+            return document.fullscreenElement || document.webkitFullscreenElement || null;
+        }
+
+        function isFullscreenSupported() {
+            const el = document.documentElement;
+            return !!(el.requestFullscreen || el.webkitRequestFullscreen);
+        }
+
+        function requestFullscreenCompat() {
+            fullscreenGraceUntil = Date.now() + 1500;
+            if (proctorEngine && typeof proctorEngine.noteFullscreenRequest === 'function') {
+                try { proctorEngine.noteFullscreenRequest(); } catch (e) { }
+            }
+            const el = document.documentElement;
+            try {
+                if (el.requestFullscreen) return Promise.resolve(el.requestFullscreen());
+                if (el.webkitRequestFullscreen) {
+                    el.webkitRequestFullscreen();
+                    return Promise.resolve();
+                }
+            } catch (e) {
+                return Promise.reject(e);
+            }
+            return Promise.reject(new Error('Fullscreen API not supported'));
+        }
+
+        function showWarningOverlay(title, message) {
+            const titleEl = document.getElementById('warningTitle');
+            const msgEl = document.getElementById('warningMessage');
+            const btnEl = document.getElementById('warningBtn');
+            if (titleEl) titleEl.textContent = title;
+            if (msgEl) msgEl.textContent = message;
+            if (btnEl) btnEl.textContent = 'RESUME';
+            document.getElementById('warningOverlay').classList.remove('hidden');
+        }
+
+        // Shown (not counted as a violation) when fullscreen could not be entered automatically
+        function showFullscreenPrompt() {
+            if (!isFullscreenSupported()) return;
+            showWarningOverlay('Full Screen Required', 'Click the button below to continue the interview in full screen. This is not counted as a warning.');
+            const btnEl = document.getElementById('warningBtn');
+            if (btnEl) btnEl.textContent = 'ENTER FULL SCREEN';
+        }
+
+        function onPageFullscreenChange() {
+            const warning = document.getElementById('warningOverlay');
+            if (!getFullscreenElement() && isSessionActive) {
+                showWarningOverlay('Full Screen Exited', 'Please return to full screen to continue the interview.');
+            } else if (getFullscreenElement()) {
+                warning.classList.add('hidden');
+            }
+        }
+
         function resumeFullscreen() {
-            document.documentElement.requestFullscreen().then(() => {
+            if (!isFullscreenSupported()) {
+                // e.g. iPad Safari — nothing to resume, never leave the student stuck behind the overlay
                 document.getElementById('warningOverlay').classList.add('hidden');
+                return;
+            }
+            requestFullscreenCompat().then(() => {
+                document.getElementById('warningOverlay').classList.add('hidden');
+            }).catch((e) => {
+                console.warn('Fullscreen request failed:', e);
+                const msgEl = document.getElementById('warningMessage');
+                if (msgEl && !msgEl.querySelector('.fs-blocked-hint')) {
+                    const hint = document.createElement('span');
+                    hint.className = 'fs-blocked-hint';
+                    hint.style.cssText = 'display:block;margin-top:12px;color:#f59e0b;';
+                    hint.textContent = 'Your browser blocked full screen. Please click the button again, and allow full screen if your browser asks.';
+                    msgEl.appendChild(hint);
+                }
             });
         }
 
+        // Proctoring setup progress, so a retry after a failure doesn't re-open the camera
+        // (leaking the first stream) or start a second set of monitoring loops/listeners.
+        let proctorCalibrated = false;
+        let proctorMonitoringStarted = false;
+        let sessionStarting = false;
+
+        function proctorCameraLive() {
+            const s = proctorEngine && proctorEngine._stream;
+            return !!(s && s.getVideoTracks().some(t => t.readyState === 'live'));
+        }
+
+        function setEnvStatusError(statusEl, message) {
+            if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> ${escapeHtml(message)}</span>`;
+        }
+
         async function startSession() {
+            if (sessionStarting || isSessionActive) return; // double-click guard
+            sessionStarting = true;
+            // Must run synchronously inside the click (Safari gesture requirement)
+            unlockAudioOnGesture();
+
             const role = document.getElementById('roleInput').value;
             const startBtn = document.getElementById('btnStartHR') || document.querySelector('#introOverlay button');
             const statusEl = document.getElementById('proctor-env-status');
+            const resetStart = (label) => {
+                sessionStarting = false;
+                if (startBtn) {
+                    startBtn.disabled = false;
+                    if (label) startBtn.textContent = label;
+                }
+            };
+            if (startBtn) startBtn.disabled = true;
 
-            // 1. Initialize Proctoring & Camera
-            if (proctorEngine) {
-                if (startBtn) startBtn.disabled = true;
+            // 1. Microphone first: its permission prompt blurs the window, which must
+            //    happen before proctoring starts counting focus loss.
+            if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Requesting microphone access...';
+            await initializeSessionAudio();
+
+            // 2. Initialize Proctoring & Camera
+            if (proctorEngine && !proctorMonitoringStarted) {
                 if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Initializing camera & proctoring session...';
 
                 try {
-                    const camReady = await proctorEngine.init();
-                    if (!camReady) {
-                        if (startBtn) startBtn.disabled = false;
-                        if (statusEl) statusEl.innerHTML = '<span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> Camera access required. Please allow camera in browser and retry.</span>';
-                        return;
+                    if (!proctorCameraLive()) {
+                        // A previous camera attempt may have left a dead stream — release it first
+                        if (proctorEngine._stream) {
+                            try { proctorEngine._stream.getTracks().forEach(t => t.stop()); } catch (e) { }
+                            proctorEngine._stream = null;
+                        }
+                        proctorCalibrated = false;
+                        const camReady = await proctorEngine.init();
+                        if (!camReady) {
+                            // proctor.js already wrote the specific (macOS-aware) reason into the status box
+                            const engineMsg = (statusEl && statusEl.textContent.trim()) || '';
+                            let msg = engineMsg && !/Initializing camera/i.test(engineMsg) ? engineMsg : 'Camera access required. Please allow the camera in your browser and retry.';
+                            if (IS_MAC && !/System Settings/i.test(msg)) msg += ' On a Mac, also enable your browser under System Settings → Privacy & Security → Camera, then restart the browser.';
+                            setEnvStatusError(statusEl, msg);
+                            resetStart('Retry Camera');
+                            return;
+                        }
                     }
 
-                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Calibrating posture & identity baseline... (keep face centered)';
-                    const envCheck = await proctorEngine.runEnvCheck();
-                    if (!envCheck.passed) {
-                        if (startBtn) startBtn.disabled = false;
-                        const reason = (envCheck.reasons && envCheck.reasons.length) ? envCheck.reasons.join(' ') : 'Camera calibration failed. Please ensure face is centered and lighting is adequate.';
-                        if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> ${reason}</span>`;
-                        return;
+                    if (!proctorCalibrated) {
+                        if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Calibrating posture & identity baseline... keep your face centred in the camera preview (bottom-right).';
+                        document.body.classList.add('hr-calibrating');
+                        let envCheck;
+                        try {
+                            envCheck = await proctorEngine.runEnvCheck();
+                        } finally {
+                            document.body.classList.remove('hr-calibrating');
+                        }
+                        if (!envCheck || !envCheck.passed) {
+                            const reason = (envCheck && envCheck.reasons && envCheck.reasons.length) ? envCheck.reasons.join(' ') : 'Camera calibration failed. Please ensure your face is centred and lighting is adequate.';
+                            setEnvStatusError(statusEl, reason + ' Then click "Retry Calibration".');
+                            resetStart('Retry Calibration');
+                            return;
+                        }
+                        proctorCalibrated = true;
                     }
+
+                    // 3. Safari's speech-recognition permission prompt, also before monitoring starts
+                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Preparing voice recognition...';
+                    await primeSpeechRecognition();
 
                     proctorEngine.start();
+                    proctorMonitoringStarted = true;
                 } catch (pErr) {
+                    // e.g. the proctor server session could not be created — the interview
+                    // continues without AI proctoring (existing fail-open behaviour).
                     console.warn("Proctor init warning:", pErr);
                 }
+            } else if (!proctorEngine) {
+                await primeSpeechRecognition();
             }
 
             document.getElementById('introOverlay').classList.add('hidden');
-            if (document.documentElement.requestFullscreen) await document.documentElement.requestFullscreen().catch(e => e);
+            // The user gesture has usually expired after calibration, so this often fails —
+            // show an in-page (non-strike) prompt instead of silently staying windowed.
+            if (!getFullscreenElement()) {
+                await requestFullscreenCompat().catch((e) => {
+                    console.warn('Automatic fullscreen failed:', e);
+                    showFullscreenPrompt();
+                });
+            }
 
             // Resume an active session if one exists — a refresh mid-interview
             // previously orphaned the row and reset the 20-minute lock.
@@ -1302,6 +1542,7 @@ if ($driveId > 0) {
             if (checkRes.success && checkRes.has_active) {
                 sessionId = checkRes.session_id;
                 isSessionActive = true;
+                sessionStarting = false;
                 startTime = Date.now() - ((checkRes.elapsed_seconds || 0) * 1000);
                 initializeSessionAudio();
                 startTimer();
@@ -1323,6 +1564,7 @@ if ($driveId > 0) {
             if (res.success) {
                 sessionId = res.session_id;
                 isSessionActive = true;
+                sessionStarting = false;
                 startTime = Date.now();
                 initializeSessionAudio();
                 startTimer();
@@ -1335,15 +1577,20 @@ if ($driveId > 0) {
                 transitionTo(State.AI_SPEAKING);
                 loadNextQuestion("");
             } else {
-                // Previously a failed start left a dead black screen with no feedback
-                alert('Could not start the interview: ' + (res.message || 'Unknown error') + '\nPlease try again.');
+                // Previously a failed start left a dead black screen with no feedback,
+                // and the Start button stayed disabled so the student could not retry.
+                document.getElementById('warningOverlay').classList.add('hidden');
                 document.getElementById('introOverlay').classList.remove('hidden');
                 document.getElementById('introOverlay').style.opacity = '1';
+                setEnvStatusError(statusEl, 'Could not start the interview. Please try again.');
+                resetStart('Start Interview');
+                await LakshyaDialog.alert('Could not start the interview: ' + (res.message || 'Unknown error') + '\nPlease try again.', { title: 'Interview Not Started', type: 'error' });
             }
         }
 
         let totalDurationTimer = null;
         function startTimer() {
+            if (totalDurationTimer) clearInterval(totalDurationTimer);
             totalDurationTimer = setInterval(() => {
                 if (!isSessionActive) return;
                 const elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -1367,6 +1614,7 @@ if ($driveId > 0) {
         const QUESTION_POLL_TIMEOUT_MS = 300000;
 
         async function loadNextQuestion(userMsg, isRetry = false) {
+            if (isEnding || currentState === State.ENDED) return;
             transitionTo(State.PROCESSING);
             hideRetryButton();
             const payload = { action: 'get_question', session_id: sessionId, message: userMsg };
@@ -1383,6 +1631,7 @@ if ($driveId > 0) {
         }
 
         function handleQuestionPayload(data) {
+            if (isEnding || currentState === State.ENDED) return; // report generation in progress
             if (typeof data === 'string') {
                 try { data = JSON.parse(data); } catch (e) { }
             }
@@ -1433,7 +1682,7 @@ if ($driveId > 0) {
         function handleQuestionFailure(msg) {
             console.error('Question load failed:', msg);
             logTelemetryEvent("QUESTION_LOAD_FAILED");
-            if (currentState === State.ENDED) return;
+            if (currentState === State.ENDED || isEnding) return;
             // WAITING re-arms the mic AND makes the text-input fallback accept
             // submissions (it only fires in WAITING/LISTENING).
             transitionTo(State.WAITING);
@@ -1476,7 +1725,7 @@ if ($driveId > 0) {
         }
 
         function submitVoiceAnswer() {
-            if (currentState !== State.LISTENING && currentState !== State.WAITING) return;
+            if (isEnding || (currentState !== State.LISTENING && currentState !== State.WAITING)) return;
             const text = (currentUtterance || accumulatedTranscript || '').trim();
             if (!text) {
                 // Also check the text input fallback
@@ -1518,6 +1767,7 @@ if ($driveId > 0) {
             // `voices` was loaded via onvoiceschanged but never applied — pick a
             // stable English voice once so pronunciation is consistent across chunks.
             if (cachedVoice) return cachedVoice;
+            if (!synth) return null;
             if (!voices || voices.length === 0) voices = synth.getVoices();
             if (!voices || voices.length === 0) return null;
             cachedVoice =
@@ -1532,6 +1782,11 @@ if ($driveId > 0) {
         function speak(text) {
             if (!text || !String(text).trim()) {
                 // Nothing to say — go straight to listening instead of hanging in AI_SPEAKING
+                if (isSessionActive && currentState !== State.ENDED) transitionTo(State.WAITING);
+                return;
+            }
+            if (!synth) {
+                // No speech synthesis — show the question in the transcript and go straight to answering
                 if (isSessionActive && currentState !== State.ENDED) transitionTo(State.WAITING);
                 return;
             }
@@ -1550,6 +1805,9 @@ if ($driveId > 0) {
             }
             const chunk = speechQueue.shift();
             const utterance = new SpeechSynthesisUtterance(chunk);
+            // Safari garbage-collects unreferenced utterances before onend fires
+            window._hrActiveUtterance = utterance;
+            utterance.lang = 'en-US';
             const voice = pickVoice();
             if (voice) utterance.voice = voice;
             let advanced = false;
@@ -1585,6 +1843,9 @@ if ($driveId > 0) {
             if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
                 // Previously recursed forever; now give up and hand the user the
                 // text-input fallback so the interview can continue.
+                // micAutoRetryDisabled stops WAITING from immediately re-starting the mic,
+                // which otherwise looped start/end endlessly; the mic button re-enables it.
+                micAutoRetryDisabled = true;
                 showMicError('The microphone keeps disconnecting. You can type your answers below instead.');
                 updateState("Mic unstable — type your answer", "neutral");
                 transitionTo(State.WAITING);
@@ -1592,7 +1853,9 @@ if ($driveId > 0) {
             }
             recoveryInProgress = true;
             setTimeout(() => {
-                if (currentState === State.ENDED || micPermanentlyBlocked) { recoveryInProgress = false; return; }
+                // The student may have typed an answer meanwhile (ERROR -> PROCESSING); don't
+                // re-open the mic in the middle of question processing.
+                if (currentState !== State.ERROR || micPermanentlyBlocked) { recoveryInProgress = false; return; }
                 try {
                     recognition.start();
                     transitionTo(State.LISTENING);
@@ -1608,7 +1871,10 @@ if ($driveId > 0) {
         function toggleMic() {
             if (currentState === State.PROCESSING || currentState === State.ENDED) return; // don't interrupt an in-flight question
             if (currentState === State.LISTENING) processUserAnswer(currentUtterance || document.getElementById('textInput')?.value || '');
-            else transitionTo(State.WAITING);
+            else {
+                if (micAutoRetryDisabled) { micAutoRetryDisabled = false; reconnectAttempts = 0; }
+                transitionTo(State.WAITING);
+            }
         }
 
         function updateState(status, visualState) {
@@ -1616,15 +1882,15 @@ if ($driveId > 0) {
             document.getElementById('avatar').className = 'avatar-container ' + (visualState === 'speaking' ? 'state-speaking' : visualState === 'listening' ? 'state-listening' : '');
         }
 
-        function stopSpeaking() { if (synth.speaking) synth.cancel(); }
+        function stopSpeaking() { if (synth && synth.speaking) synth.cancel(); }
 
         function showCaption(text) { /* removed — right-side transcript panel handles real-time display */ }
 
         function appendToTranscript(who, text, isInterim) {
             const scroll = document.getElementById('transcriptScroll');
             const el = document.createElement('div');
-            el.className = 'transcript-msg ' + who;
-            el.innerHTML = `<b>${who === 'ai' ? 'AI' : 'You'}</b><div>${text}</div>`;
+            el.className = 'transcript-line transcript-msg ' + who;
+            el.innerHTML = `<b>${who === 'ai' ? 'AI' : 'You'}</b><div>${escapeHtml(text)}</div>`;
             scroll.appendChild(el);
             scroll.scrollTop = scroll.scrollHeight;
         }
@@ -1632,9 +1898,11 @@ if ($driveId > 0) {
         function addUserInterimLine(text) {
             const scroll = document.getElementById('transcriptScroll');
             userInterimEl = document.createElement('div');
-            userInterimEl.className = 'transcript-msg user interim';
-            userInterimEl.innerHTML = `<b>You</b><div class="text">${text}</div>`;
+            userInterimEl.className = 'transcript-line transcript-msg user interim';
+            userInterimEl.innerHTML = `<b>You</b><div class="text"></div>`;
+            userInterimEl.querySelector('.text').textContent = text;
             scroll.appendChild(userInterimEl);
+            scroll.scrollTop = scroll.scrollHeight;
         }
 
         function updateUserInterimLine(text) { if (userInterimEl) userInterimEl.querySelector('.text').textContent = text; }
@@ -1654,10 +1922,25 @@ if ($driveId > 0) {
         function stopHealthMonitor() { clearInterval(healthCheckInterval); }
 
         async function endSession(forceAutoSubmit = false) {
-            if (!forceAutoSubmit && !confirm("End Interview?")) return;
-            if (proctorEngine) {
-                try { proctorEngine.stop(); } catch (e) { }
+            if (isEnding || currentState === State.ENDED) return; // double-click / auto-submit race
+            if (!forceAutoSubmit) {
+                const ok = await LakshyaDialog.confirm('Your answers will be submitted and evaluated. You cannot continue the interview after this.', {
+                    title: 'End Interview?', type: 'warning', okText: 'End Interview', cancelText: 'Continue Interview', danger: true
+                });
+                // The proctor may have auto-submitted while the dialog was open
+                if (!ok || isEnding || currentState === State.ENDED) return;
             }
+            if (!sessionId) {
+                // Terminated before the interview session was created — nothing to score
+                isSessionActive = false;
+                if (proctorEngine) { try { proctorEngine.stop(); } catch (e) { } }
+                transitionTo(State.ENDED);
+                releaseAudioResources();
+                await LakshyaDialog.alert('The assessment was ended before the interview started.', { title: 'Interview Ended', type: 'warning' });
+                closeSession();
+                return;
+            }
+            isEnding = true;
             releaseAudioResources();
             // Do NOT enter the terminal ENDED state before the report succeeds —
             // a failure (e.g. minimum-duration check) must leave the session usable.
@@ -1672,9 +1955,14 @@ if ($driveId > 0) {
             document.getElementById('loadingOverlay').classList.add('hidden');
             if (res.success) {
                 isSessionActive = false;
+                // Proctoring is stopped only once the report is saved, so a failed submission
+                // no longer resumes the interview with the camera/monitoring switched off.
+                if (proctorEngine) {
+                    try { proctorEngine.stop(); } catch (e) { }
+                }
                 transitionTo(State.ENDED);
                 document.getElementById('finalScoreNum').innerText = res.score;
-                
+
                 const penaltyBox = document.getElementById('proctorPenaltyBox');
                 if (res.penalty_pct > 0 && penaltyBox) {
                     document.getElementById('rawScoreVal').innerText = (res.raw_score || res.score) + '%';
@@ -1684,7 +1972,15 @@ if ($driveId > 0) {
 
                 document.getElementById('scoreModal').classList.remove('hidden');
             } else {
-                alert(res.message || 'Report generation failed. Please try ending the session again.');
+                isEnding = false;
+                if (forceAutoSubmit) {
+                    // Auto-terminated by proctoring: the interview cannot resume, so retry the submission
+                    await LakshyaDialog.alert((res.message || 'Report generation failed.') + '\nClick Retry to submit again.', { title: 'Submission Failed', type: 'error', okText: 'Retry' });
+                    endSession(true);
+                    return;
+                }
+                await LakshyaDialog.alert(res.message || 'Report generation failed. Please try ending the session again.', { title: 'Could Not End Interview', type: 'error' });
+                initializeSessionAudio(); // the mic/analyser were released above
                 transitionTo(State.WAITING); // resume the interview
             }
 
@@ -1694,6 +1990,8 @@ if ($driveId > 0) {
             try {
                 const formData = new FormData();
                 for (const k in data) formData.append(k, data[k]);
+                // Tells the handler whether session_id is a drive attempt or a practice session
+                if (!('drive_id' in data)) formData.append('drive_id', driveId);
                 const response = await fetch('ai_hr_handler.php', {
                     method: 'POST',
                     headers: { 'X-CSRF-TOKEN': window.CSRF_TOKEN },

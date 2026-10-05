@@ -47,8 +47,7 @@ $appModel = new InternshipApplication();
 $hasApplied = $appModel->hasApplied($id, $usn);
 
 $deadline = $internship['application_deadline'];
-$today = date('Y-m-d');
-$isEnded = ($internship['status'] === 'Closed' || ($deadline && $deadline < $today));
+$isEnded = ($internship['status'] === 'Closed' || (!empty($deadline) && strtotime($deadline) < time()));
 
 $message = '';
 $error = '';
@@ -790,7 +789,17 @@ if (isPost() && isset($_POST['apply'])) {
                         <div class="stat-icon" style="background:#fff; color:#e53e3e;"><i class="fas fa-hourglass-end"></i></div>
                         <div class="stat-content">
                             <span class="stat-label" style="color:#c53030;">Deadline</span>
-                            <span class="stat-value" style="color:#c53030;"><?php echo date('d M Y', strtotime($internship['application_deadline'])); ?></span>
+                            <?php 
+                                $dlTime = !empty($internship['application_deadline']) ? strtotime($internship['application_deadline']) : null;
+                                $dlText = 'Open / Ongoing';
+                                if ($dlTime) {
+                                    $dlText = date('d M Y', $dlTime);
+                                    if (date('H:i', $dlTime) !== '00:00') {
+                                        $dlText .= ' at ' . date('h:i A', $dlTime);
+                                    }
+                                }
+                            ?>
+                            <span class="stat-value" style="color:#c53030; font-size: 0.9rem;"><?php echo $dlText; ?></span>
                         </div>
                     </div>
                 </div>

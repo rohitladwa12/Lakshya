@@ -22,7 +22,7 @@ if (isPost() && (isset($_POST['id']))) {
 }
 
 $filters = SessionFilterHelper::getFilters('certification_viva');
-$portfolioId = $filters['id'] ?? 0;
+$portfolioId = isset($_GET['id']) ? (int)$_GET['id'] : ($filters['id'] ?? 0);
 
 // Fetch certification details
 $stmt = getDB()->prepare("SELECT * FROM student_portfolio WHERE id = ? AND student_id = ?");

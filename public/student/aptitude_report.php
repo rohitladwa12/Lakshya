@@ -25,10 +25,12 @@ if (isPost() && isset($_POST['id'])) {
 }
 
 $filters = SessionFilterHelper::getFilters('aptitude_report');
-$id = $filters['id'] ?? 0;
+$id = isset($_GET['id']) ? (int)$_GET['id'] : ($filters['id'] ?? 0);
+$isDrive = isset($_GET['drive']) ? (bool)$_GET['drive'] : (!empty($filters['is_drive']));
 
 $isStaff = isLoggedIn() && in_array(getRole(), [ROLE_ADMIN, ROLE_PLACEMENT_OFFICER, ROLE_HOD, ROLE_DEPT_COORDINATOR, ROLE_VC, ROLE_DEMO]);
 
+$assessment = null;
 if ($isDrive) {
     if ($isStaff) {
         $stmt = $db->prepare("
@@ -55,7 +57,10 @@ if ($isDrive) {
         ");
         $stmt->execute([$id, $studentIdForDb]);
     }
-} else {
+    $assessment = $stmt->fetch(PDO::FETCH_ASSOC);
+}
+
+if (empty($assessment)) {
     if ($isStaff) {
         $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ?");
         $stmt->execute([$id]);
@@ -63,8 +68,8 @@ if ($isDrive) {
         $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
         $stmt->execute([$id, $studentIdForDb]);
     }
+    $assessment = $stmt->fetch(PDO::FETCH_ASSOC);
 }
-$assessment = $stmt->fetch(PDO::FETCH_ASSOC);
 
 if (!$assessment) {
     die("Assessment record not found or access denied.");
@@ -84,6 +89,7 @@ $reportContent = $details['report_content'] ?? null;
     <title>AI Assessment Report - <?php echo htmlspecialchars($assessment['company_name']); ?></title>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="../js/lakshya_dialogs.js?v=<?php echo APP_VERSION; ?>"></script>
     <script src="report_question.js?v=<?php echo APP_VERSION; ?>"></script>
     <style>
         :root {
@@ -383,10 +389,10 @@ $reportContent = $details['report_content'] ?? null;
 </div>
 
 <script>
-    const questions = <?php echo json_encode($questions); ?>;
-    const userAnswers = <?php echo json_encode($userAnswers); ?>;
-    const testId = <?php echo json_encode($id); ?>;
-    const testType = <?php echo json_encode($assessment['assessment_type']); ?>;
+    const questions = <?php echo json_encode($questions, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+    const userAnswers = <?php echo json_encode($userAnswers, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+    const testId = <?php echo json_encode($id, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
+    const testType = <?php echo json_encode($assessment['assessment_type'], JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
 
     window.reportReportQuestion = function(idx) {
         const q = questions[idx];

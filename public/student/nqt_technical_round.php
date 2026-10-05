@@ -25,7 +25,7 @@ if (isPost() && (isset($_POST['company']) || isset($_POST['task_id']))) {
 
 $filters = SessionFilterHelper::getFilters('nqt_technical');
 $companyName = $filters['company'] ?? 'TCS NQT Practice';
-$taskId = $filters['task_id'] ?? 0;
+$taskId = (int)($filters['task_id'] ?? 0); // comes from raw POST and is echoed into JS
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -37,7 +37,9 @@ $taskId = $filters['task_id'] ?? 0;
     <!-- Fonts & Icons -->
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
-    
+    <!-- In-page dialogs (replaces native alert/confirm popups) -->
+    <script src="../js/lakshya_dialogs.js?v=<?php echo APP_VERSION; ?>"></script>
+
     <!-- Code Mirror -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
@@ -253,7 +255,7 @@ $taskId = $filters['task_id'] ?? 0;
                 This assessment uses AI-proctoring. Ensure you are in a quiet environment. 
                 Exiting fullscreen or switching tabs will result in a security violation.
             </p>
-            <button onclick="beginSession()" class="btn btn-gold" style="width:100%; padding: 15px; justify-content: center; font-size: 1.1rem;">
+            <button id="btnBegin" onclick="beginSession()" class="btn btn-gold" style="width:100%; padding: 15px; justify-content: center; font-size: 1.1rem;">
                 ENTER WORKSPACE
             </button>
         </div>
@@ -263,12 +265,12 @@ $taskId = $filters['task_id'] ?? 0;
     <div id="securityOverlay" class="overlay security-overlay">
         <div class="glass-card" style="border-color: var(--primary);">
             <i class="fas fa-exclamation-triangle" style="font-size: 4rem; color: var(--primary); margin-bottom: 20px;"></i>
-            <h2 style="color: #fff;">Protocol Violation</h2>
-            <p style="opacity: 0.8; margin-top: 15px; margin-bottom: 30px;">
-                Assessment paused. You have exited the secure fullscreen environment. 
+            <h2 id="securityTitle" style="color: #fff;">Protocol Violation</h2>
+            <p id="securityText" style="opacity: 0.8; margin-top: 15px; margin-bottom: 30px;">
+                Assessment paused. You have exited the secure fullscreen environment.
                 Please return to proceed. Continued violations will be logged.
             </p>
-            <button onclick="requestFullscreen()" class="btn btn-gold" style="width:100%; justify-content: center;">RESUME ROUND</button>
+            <button id="securityBtn" onclick="resumeFullscreen()" class="btn btn-gold" style="width:100%; justify-content: center;">RESUME ROUND</button>
         </div>
     </div>
 
@@ -277,7 +279,7 @@ $taskId = $filters['task_id'] ?? 0;
         <div class="glass-card" style="border-color: var(--primary);">
             <i class="fas fa-clock" style="font-size: 4rem; color: var(--primary); margin-bottom: 20px;"></i>
             <h2 style="color: #fff;">Time is over please exit</h2>
-            <button onclick="endSession()" class="btn btn-gold" style="width:100%; justify-content: center; margin-top:20px;">EXIT ASSESSMENT</button>
+            <button onclick="endSession(true)" class="btn btn-gold" style="width:100%; justify-content: center; margin-top:20px;">EXIT ASSESSMENT</button>
         </div>
     </div>
 
@@ -297,6 +299,13 @@ $taskId = $filters['task_id'] ?? 0;
         let isAssessmentActive = false;
         let timeRemaining = 3600;
         let timerInterval;
+        let isQuestionLoading = false;
+        let isSubmittingCode = false;
+        let isEndingSession = false;
+
+        function escapeHtml(text) {
+            return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
 
         function renderMath(element) {
             if (typeof renderMathInElement === 'function') {
@@ -315,6 +324,7 @@ $taskId = $filters['task_id'] ?? 0;
         }
 
         function startTimer() {
+            if (timerInterval) clearInterval(timerInterval);
             timerInterval = setInterval(() => {
                 timeRemaining--;
                 let m = Math.floor(timeRemaining / 60).toString().padStart(2, '0');
@@ -345,6 +355,8 @@ $taskId = $filters['task_id'] ?? 0;
         };
 
         async function beginSession() {
+            const beginBtn = document.getElementById('btnBegin');
+            if (beginBtn) beginBtn.disabled = true;
             document.getElementById('startOverlay').style.display = 'none';
             try {
                 await requestFullscreen();
@@ -353,31 +365,53 @@ $taskId = $filters['task_id'] ?? 0;
         }
 
         async function startAPISession() {
-            const res = await apiCall({ action: 'start_session', task_id: "<?php echo $taskId; ?>" });
+            showLoader("PREPARING WORKSPACE...");
+            const res = await apiCall({ action: 'start_session', task_id: "<?php echo (int)$taskId; ?>" });
+            hideLoader();
             if (res.success) {
                 sessionId = res.session_id;
                 isAssessmentActive = true;
                 startTimer();
+                // Fullscreen can be refused (e.g. Safari); ask for a click instead of running without it
+                setTimeout(() => {
+                    if (isAssessmentActive && !getFullscreenElement()) showSecurityOverlay(true);
+                }, 700);
                 addMessage('ai', "Welcome. I have prepared your first technical challenge. Focus on efficiency and edge cases.");
                 loadQuestion();
+            } else {
+                // Previously a failed start left an empty workspace with no feedback
+                document.getElementById('startOverlay').style.display = 'flex';
+                const beginBtn = document.getElementById('btnBegin');
+                if (beginBtn) beginBtn.disabled = false;
+                LakshyaDialog.alert("Could not start the technical round: " + (res.message || "Unknown error") + "\nPlease try again.", { type: 'error', title: 'Could Not Start' });
             }
         }
 
         async function loadQuestion(userMsg = '') {
-            const res = await apiCall({ action: 'get_question', session_id: sessionId, message: userMsg });
+            if (isQuestionLoading) return;
+            isQuestionLoading = true;
+            let res;
+            try {
+                res = await apiCall({ action: 'get_question', session_id: sessionId, message: userMsg });
+            } finally {
+                isQuestionLoading = false;
+            }
             if (res.success && res.data) {
                 const q = res.data;
                 currentProblem = q.problem_statement;
-                
+
+                // AI text is escaped: code like vector<int> was parsed as HTML (and could inject markup)
                 document.getElementById('pText').innerHTML = `
-                    <div style="font-weight: 600; color: #fff; margin-bottom: 10px;">${q.title || 'Coding Challenge'}</div>
-                    ${q.problem_statement}<br><br>
-                    <strong>Input:</strong> <code style="color: var(--secondary);">${q.example_input || 'N/A'}</code><br>
-                    <strong>Output:</strong> <code style="color: var(--secondary);">${q.example_output || 'N/A'}</code>
+                    <div style="font-weight: 600; color: #fff; margin-bottom: 10px;">${escapeHtml(q.title || 'Coding Challenge')}</div>
+                    ${escapeHtml(q.problem_statement).replace(/\n/g, '<br>')}<br><br>
+                    <strong>Input:</strong> <code style="color: var(--secondary);">${escapeHtml(q.example_input || 'N/A')}</code><br>
+                    <strong>Output:</strong> <code style="color: var(--secondary);">${escapeHtml(q.example_output || 'N/A')}</code>
                 `;
                 renderMath(document.getElementById('pText'));
-                
+
                 addMessage('ai', q.question || "Implement the logic described in the panel above.");
+            } else {
+                addMessage('ai', "⚠️ " + (res.message || "Could not load the challenge.") + " Please send a message to try again.");
             }
         }
 
@@ -385,16 +419,26 @@ $taskId = $filters['task_id'] ?? 0;
             const input = document.getElementById('userInput');
             const msg = input.value.trim();
             if(!msg) return;
+            if (isQuestionLoading) {
+                LakshyaDialog.alert("The AI is still responding. Please wait a moment, then send your message.", { type: 'info', title: 'Please Wait' });
+                return;
+            }
             addMessage('user', msg);
             input.value = "";
             loadQuestion(msg);
         }
 
         async function submitCode() {
+            if (!sessionId) {
+                LakshyaDialog.alert("The session has not started yet.", { type: 'info', title: 'Not Started' });
+                return;
+            }
+            if (isSubmittingCode) return;
+            isSubmittingCode = true;
             showLoader("VALIDATING LOGIC...");
             const code = editor.getValue();
             const lang = document.getElementById('langSelect').value;
-            
+
             const res = await apiCall({
                 action: 'submit_code',
                 session_id: sessionId,
@@ -402,30 +446,46 @@ $taskId = $filters['task_id'] ?? 0;
                 language: lang,
                 problem_statement: currentProblem
             });
-            
+
             hideLoader();
-            if (res.success) {
-                const eval = res.result;
-                addMessage('ai', `<strong>Evaluation Result:</strong> ${eval.score}/10<br>${eval.feedback}`);
-                if (eval.score >= 8) {
+            isSubmittingCode = false;
+            if (res.success && res.result) {
+                // 'eval' is a reserved name in strict mode; renamed
+                const evaluation = res.result;
+                const score = Number(evaluation.score) || 0;
+                addMessage('ai', `<strong>Evaluation Result:</strong> ${score}/10<br>${escapeHtml(evaluation.feedback || '').replace(/\n/g, '<br>')}`, true);
+                if (score >= 8) {
                     addMessage('ai', "Great work. Preparing your next challenge...");
                     setTimeout(() => {
                         editor.setValue("");
                         loadQuestion("Proceed to next.");
                     }, 2500);
                 }
+            } else {
+                addMessage('ai', "⚠️ Evaluation failed: " + (res.message || "Unknown error") + ". Please try RUN & SUBMIT again.");
             }
         }
 
-        async function endSession() {
-            if(!confirm("Are you sure? This will finalize your results and generate the report.")) return;
-            
+        async function endSession(skipConfirm = false) {
+            if (isEndingSession) return;
+            if (!skipConfirm) {
+                const ok = await LakshyaDialog.confirm("Are you sure? This will finalize your results and generate the report.", {
+                    title: 'Finish Assessment?', type: 'warning', okText: 'Finish & Generate Report', cancelText: 'Keep Working'
+                });
+                if (!ok || isEndingSession) return;
+            }
+            isEndingSession = true;
+
             isAssessmentActive = false;
-            if(document.fullscreenElement) document.exitFullscreen().catch(()=>{});
-            
+            if (timerInterval) clearInterval(timerInterval);
+            document.getElementById('securityOverlay').style.display = 'none';
+            document.getElementById('timeUpOverlay').style.display = 'none';
+            if (document.exitFullscreen && document.fullscreenElement) document.exitFullscreen().catch(()=>{});
+            else if (document.webkitExitFullscreen && document.webkitFullscreenElement) document.webkitExitFullscreen();
+
             showLoader("GENERATING PERFORMANCE REPORT...");
             const res = await apiCall({ action: 'generate_report_data', session_id: sessionId });
-            
+
             if (res.success) {
                 // ... (rest of the logic remains same, just replacing the fail block below)
                 const element = document.createElement('div');
@@ -444,22 +504,31 @@ $taskId = $filters['task_id'] ?? 0;
                     formData.append('action', 'save_pdf_report');
                     formData.append('session_id', sessionId);
                     formData.append('pdf', blob, res.filename);
-                    
+
                     const upload = await fetch('nqt_technical_handler', { method: 'POST', body: formData });
                     const uploadRes = await upload.json();
-                    
+
                     hideLoader();
                     if (uploadRes.success) {
                         html2pdf().set(opt).from(element).save();
-                        alert("Assessment Completed. Your report has been saved.");
-                        setTimeout(() => { window.location.href = 'dashboard'; }, 1500);
+                        // Redirect only after the student has read the message
+                        await LakshyaDialog.alert("Assessment Completed. Your report has been saved.", { type: 'success', title: 'Assessment Completed', okText: 'Go to Dashboard' });
+                        window.location.href = 'dashboard';
                     } else {
-                        alert("Failed to save report to server: " + (uploadRes.message || "Unknown error"));
+                        isEndingSession = false;
+                        LakshyaDialog.alert("Failed to save report to server: " + (uploadRes.message || "Unknown error"), { type: 'error', title: 'Report Not Saved' });
                     }
+                }).catch((err) => {
+                    // PDF render / upload / JSON failure used to leave the loader spinning forever
+                    console.error(err);
+                    hideLoader();
+                    isEndingSession = false;
+                    LakshyaDialog.alert("Could not generate or upload the report. Please click FINISH ASSESSMENT to try again.", { type: 'error', title: 'Report Failed' });
                 });
             } else {
                 hideLoader();
-                alert("Critical Failure: " + (res.message || "Report generation failed. Please try again or contact support."));
+                isEndingSession = false;
+                LakshyaDialog.alert("Critical Failure: " + (res.message || "Report generation failed. Please try again or contact support."), { type: 'error', title: 'Report Generation Failed' });
             }
         }
 
@@ -482,10 +551,11 @@ $taskId = $filters['task_id'] ?? 0;
             }
         }
 
-        function addMessage(role, text) {
+        // isHtml = true only for markup built by this page (with AI/user parts already escaped)
+        function addMessage(role, text, isHtml = false) {
             const div = document.createElement('div');
             div.className = `bubble ${role}`;
-            div.innerHTML = text.replace(/\n/g, '<br>');
+            div.innerHTML = isHtml ? String(text) : escapeHtml(text).replace(/\n/g, '<br>');
             document.getElementById('chatHistory').appendChild(div);
             renderMath(div);
             document.getElementById('chatHistory').scrollTop = document.getElementById('chatHistory').scrollHeight;
@@ -497,27 +567,59 @@ $taskId = $filters['task_id'] ?? 0;
         }
         function hideLoader() { document.getElementById('loader').style.display = 'none'; }
 
+        function getFullscreenElement() {
+            return document.fullscreenElement || document.webkitFullscreenElement || null;
+        }
+
         function requestFullscreen() {
             const el = document.documentElement;
             if (el.requestFullscreen) return el.requestFullscreen();
-            if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
-            if (el.msRequestFullscreen) return el.msRequestFullscreen();
+            // Old Safari: webkitRequestFullscreen returns undefined, not a promise
+            if (el.webkitRequestFullscreen) { el.webkitRequestFullscreen(); return Promise.resolve(); }
+            if (el.msRequestFullscreen) { el.msRequestFullscreen(); return Promise.resolve(); }
+            return Promise.reject(new Error('Fullscreen API not supported'));
         }
 
-        document.addEventListener('fullscreenchange', () => {
-            if (!document.fullscreenElement && isAssessmentActive) {
-                document.getElementById('securityOverlay').style.display = 'flex';
+        // isPrompt = true: plain "enter full screen" request (browser refused it at start), not a violation
+        function showSecurityOverlay(isPrompt) {
+            document.getElementById('securityTitle').textContent = isPrompt ? 'Full Screen Required' : 'Protocol Violation';
+            document.getElementById('securityText').textContent = isPrompt
+                ? 'Click the button below to enter full screen and begin. This is not counted as a violation.'
+                : 'Assessment paused. You have exited the secure fullscreen environment. Please return to proceed. Continued violations will be logged.';
+            document.getElementById('securityBtn').textContent = isPrompt ? 'ENTER FULL SCREEN' : 'RESUME ROUND';
+            document.getElementById('securityOverlay').style.display = 'flex';
+        }
+
+        function resumeFullscreen() {
+            requestFullscreen().then(() => {
+                document.getElementById('securityOverlay').style.display = 'none';
+            }).catch(() => {
+                // Previously an unhandled rejection; explain inline instead of a native popup
+                const textEl = document.getElementById('securityText');
+                if (textEl && !textEl.querySelector('.fs-blocked-hint')) {
+                    textEl.insertAdjacentHTML('beforeend', '<br><br><span class="fs-blocked-hint" style="color:#f59e0b;">Your browser blocked full screen. Please click the button again, and allow full screen if your browser asks.</span>');
+                }
+            });
+        }
+
+        function onFullscreenChange() {
+            if (!getFullscreenElement() && isAssessmentActive) {
+                showSecurityOverlay(false);
             } else {
                 document.getElementById('securityOverlay').style.display = 'none';
             }
-        });
+        }
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', onFullscreenChange);
 
         // Anti-Cheat
         document.addEventListener('contextmenu', e => e.preventDefault());
         document.addEventListener('copy', e => e.preventDefault());
+        document.addEventListener('cut', e => e.preventDefault());
         document.addEventListener('paste', e => e.preventDefault());
         document.addEventListener('keydown', e => {
-            if (e.ctrlKey && ['c','v','x','u'].includes(e.key.toLowerCase())) e.preventDefault();
+            // metaKey = Cmd on macOS. Other editor shortcuts (Cmd+Z/A/S, arrows) keep working.
+            if ((e.ctrlKey || e.metaKey) && ['c','v','x','u'].includes((e.key || '').toLowerCase())) e.preventDefault();
             if (e.key === 'F12') e.preventDefault();
         });
 

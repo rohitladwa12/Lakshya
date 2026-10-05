@@ -74,12 +74,17 @@ switch ($action) {
         break;
 
     case 'get_question':
-        $sessionId = $input['session_id'];
+        $sessionId = (int)($input['session_id'] ?? 0);
         $userMessage = $input['message'] ?? '';
         
-        $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ?");
-        $stmt->execute([$sessionId]);
+        // Only the student who owns the session may continue it
+        $stmt = $db->prepare("SELECT * FROM unified_ai_assessments WHERE id = ? AND student_id = ? AND assessment_type = 'NQT HR'");
+        $stmt->execute([$sessionId, $studentIdForDb]);
         $session = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$session) {
+            echo json_encode(['success' => false, 'message' => 'Session not found']);
+            exit;
+        }
         $details = json_decode($session['details'], true);
         $history = $details['history'] ?? [];
         $projects = $details['projects'] ?? [];
@@ -131,8 +136,8 @@ switch ($action) {
             $history[] = ['role' => 'assistant', 'content' => $cleanQuestion];
             
             $details['history'] = $history;
-            $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ?")
-               ->execute([json_encode($details), $sessionId]);
+            $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ? AND student_id = ?")
+               ->execute([json_encode($details), $sessionId, $studentIdForDb]);
 
             echo json_encode(['success' => true, 'data' => $aiData]);
         } else {
@@ -141,18 +146,23 @@ switch ($action) {
         break;
 
     case 'submit_interview':
-        $sessionId = $input['session_id'];
+        $sessionId = (int)($input['session_id'] ?? 0);
         $telemetry = isset($input['telemetry']) ? json_decode($input['telemetry'], true) : null;
         
-        $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ?");
-        $stmt->execute([$sessionId]);
-        $details = json_decode($stmt->fetchColumn() ?? '{}', true);
+        $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
+        $stmt->execute([$sessionId, $studentIdForDb]);
+        $rawDetails = $stmt->fetchColumn();
+        if ($rawDetails === false) {
+            echo json_encode(['success' => false, 'message' => 'Session not found']);
+            exit;
+        }
+        $details = json_decode($rawDetails ?: '{}', true) ?: [];
         if ($telemetry) {
             $details['telemetry'] = $telemetry;
         }
         
-        $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', completed_at = NOW(), details = ? WHERE id = ?")
-           ->execute([json_encode($details), $sessionId]);
+        $db->prepare("UPDATE unified_ai_assessments SET status = 'completed', completed_at = NOW(), details = ? WHERE id = ? AND student_id = ?")
+           ->execute([json_encode($details), $sessionId, $studentIdForDb]);
         echo json_encode(['success' => true]);
         break;
 
@@ -207,26 +217,43 @@ switch ($action) {
         break;
 
     case 'save_pdf_report':
-        $sessionId = $_POST['session_id'] ?? 0;
+        $sessionId = (int)($_POST['session_id'] ?? 0);
+
+        // Ownership check before accepting any file for this session
+        $stmt = $db->prepare("SELECT details, usn, current_sem FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
+        $stmt->execute([$sessionId, $studentIdForDb]);
+        $sessionRow = $stmt->fetch(PDO::FETCH_ASSOC);
+        if (!$sessionRow) {
+            echo json_encode(['success' => false, 'message' => 'Session not found']);
+            exit;
+        }
         
         if (isset($_FILES['pdf']) && $_FILES['pdf']['error'] === UPLOAD_ERR_OK) {
+            // Must really be a PDF — the client-supplied name/extension was trusted before,
+            // which allowed uploading e.g. a .php file into a web-served folder
+            $header = (string)@file_get_contents($_FILES['pdf']['tmp_name'], false, null, 0, 5);
+            if ($header !== '%PDF-') {
+                echo json_encode(['success' => false, 'message' => 'Invalid report file']);
+                exit;
+            }
+
             $dir = REPORTS_UPLOAD_PATH . '/hr/';
-            if (!is_dir($dir)) mkdir($dir, 0777, true);
+            if (!is_dir($dir)) mkdir($dir, 0755, true);
             
-            $filename = basename($_FILES['pdf']['name']);
+            // Server-chosen name, unique per session, so students can't overwrite each other's reports
+            $safeUsn = preg_replace('/[^A-Za-z0-9_-]/', '', (string)($sessionRow['usn'] ?? 'student'));
+            $safeSem = preg_replace('/[^A-Za-z0-9_-]/', '', (string)($sessionRow['current_sem'] ?? 'Sem'));
+            $filename = "{$safeUsn}_NQT_HR_{$safeSem}_{$sessionId}.pdf";
             $targetPath = $dir . $filename;
             
             if (move_uploaded_file($_FILES['pdf']['tmp_name'], $targetPath)) {
                 $publicPath = "uploads/reports/hr/" . $filename;
                 
-                $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ?");
-                $stmt->execute([$sessionId]);
-                $details = json_decode($stmt->fetchColumn(), true);
-                
+                $details = json_decode($sessionRow['details'] ?? '{}', true) ?: [];
                 $details['report_path'] = $publicPath;
                 
-                $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ?")
-                   ->execute([json_encode($details), $sessionId]);
+                $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ? AND student_id = ?")
+                   ->execute([json_encode($details), $sessionId, $studentIdForDb]);
 
                 echo json_encode(['success' => true, 'path' => $publicPath]);
             } else {
@@ -239,10 +266,15 @@ switch ($action) {
 }
 
 function generateReportHTML($usn, $sem, $name, $type, $score, $content) {
+    // Escape student-controlled fields; $content is the AI report body and is sanitized client-side
+    $esc = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
+    $usn = $esc($usn); $sem = $esc($sem); $name = $esc($name); $type = $esc($type);
+    $score = is_numeric($score) ? (float)$score : 0;
+    $favicon = $esc(APP_URL . '/assets/img/favicon.png');
     return "
     <html>
     <head>
-    <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
+    <link rel='icon' type='image/png' href='{$favicon}'>
         <style>
             body { font-family: sans-serif; padding: 40px; line-height: 1.6; color: #333; }
             h1 { color: #800000; border-bottom: 2px solid #800000; padding-bottom: 10px; margin-bottom: 20px; }

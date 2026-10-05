@@ -134,7 +134,7 @@ foreach ($jobs as $j) {
                 <h1>Placements Pipeline</h1>
                 <p>Managing direct campus drives and job application processing</p>
             </div>
-                        <a href="#" class="btn-action btn-add"><i class="fas fa-plus-circle"></i> Create New Posting</a>
+            <a href="../officer/jobs.php" class="btn-action btn-add"><i class="fas fa-plus-circle"></i> Create New Posting</a>
         </header>
 
         <div class="stats-grid">
@@ -216,8 +216,8 @@ foreach ($jobs as $j) {
                                             <i class="fas <?php echo $job['status'] === 'Active' ? 'fa-lock' : 'fa-lock-open'; ?>"></i>
                                         </button>
                                     </form>
-                                    <a href="#" class="btn-action btn-secondary"><i class="fas fa-pen-to-square"></i></a>
-                                    <a href="#" class="btn-action btn-primary">Apps <i class="fas fa-arrow-right"></i></a>
+                                    <a href="../officer/jobs.php" class="btn-action btn-secondary" title="Manage / Edit in Officer Portal"><i class="fas fa-pen-to-square"></i></a>
+                                    <a href="../officer/job_students.php?id=<?php echo $job['id']; ?>&type=job" class="btn-action btn-primary" title="View Applied & Eligible Students">Apps <i class="fas fa-arrow-right"></i></a>
                                 </div>
                             </td>
                         </tr>

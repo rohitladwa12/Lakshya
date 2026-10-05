@@ -75,6 +75,16 @@ while (true) {
         workerLog("Max jobs ($maxJobs) reached. Restarting...");
         exit(0);
     }
+    // Graceful restart: scripts/run_5_workers_hourly.bat sets this key and starts
+    // fresh workers; older workers exit here, between jobs, instead of being
+    // force-killed mid-job (which left jobs stuck in 'processing' forever).
+    try {
+        $restartAt = (int) ($redisHelper && $redisHelper->isConnected() ? $redisHelper->getClient()->get('ai_workers_restart_at') : 0);
+        if ($restartAt > $startTime) {
+            workerLog("Graceful restart requested. Exiting between jobs...");
+            exit(0);
+        }
+    } catch (Throwable $e) {}
 
     // 1. Pop Job ID
     $jobId = QueueService::popJob(30); // Block for 30s
@@ -147,7 +157,9 @@ while (true) {
         if (!$dispatched) {
             throw new Exception("Method $method not found in any registered service");
         }
-    } catch (Exception $e) {
+    } catch (Throwable $e) {
+        // Throwable, not Exception: a PHP Error (TypeError etc.) used to kill the
+        // worker and leave the job 'processing' with the student polling forever.
         workerLog("Error: Job $jobId failed - " . $e->getMessage());
         QueueService::updateJob($jobId, [
             'status' => 'failed',

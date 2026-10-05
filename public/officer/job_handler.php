@@ -173,6 +173,26 @@ switch ($action) {
                 'posted_by' => getUserId()
             ];
 
+            // File Upload: Job Attachment / Brochure (PDF, DOC, DOCX, PPT, PPTX)
+            if (!empty($_FILES['job_attachment']['name']) && $_FILES['job_attachment']['error'] === UPLOAD_ERR_OK) {
+                $ext = strtolower(pathinfo($_FILES['job_attachment']['name'], PATHINFO_EXTENSION));
+                $allowed = ['pdf', 'doc', 'docx', 'ppt', 'pptx'];
+                if (in_array($ext, $allowed)) {
+                    if ($_FILES['job_attachment']['size'] > 10 * 1024 * 1024) {
+                        throw new Exception("Job attachment exceeds 10MB limit.");
+                    }
+                    $attName = 'job_brochure_' . time() . '_' . uniqid() . '.' . $ext;
+                    $uploadDir = DOCUMENT_UPLOAD_PATH . '/';
+                    if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+
+                    if (move_uploaded_file($_FILES['job_attachment']['tmp_name'], $uploadDir . $attName)) {
+                        $jobData['attachment_url'] = 'uploads/documents/' . $attName;
+                    }
+                } else {
+                    throw new Exception("Invalid job attachment format. Allowed formats: PDF, DOC, DOCX, PPT, PPTX.");
+                }
+            }
+
             if ($action === 'create') {
                 // Check for duplicate job entry
                 $dupCheck = $db->prepare("SELECT id FROM job_postings WHERE company_id = ? AND title = ? AND status = 'Active'");

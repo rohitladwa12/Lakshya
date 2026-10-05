@@ -582,15 +582,20 @@ try {
             break;
 
         case 'autosave':
-            $sessionId = $input['session_id'] ?? 0;
+            $sessionId = (int)($input['session_id'] ?? 0);
             $checkpoint = $input['checkpoint'] ?? [];
 
             $_SESSION["lar_checkpoint_{$sessionId}"] = $checkpoint;
 
             try {
-                $db->exec("ALTER TABLE mock_ai_interview_sessions ADD COLUMN IF NOT EXISTS checkpoint TEXT NULL");
-                $sql = "UPDATE mock_ai_interview_sessions SET checkpoint = ? WHERE id = ?";
-                $db->prepare($sql)->execute([json_encode($checkpoint), $sessionId]);
+                // Schema check once per login session, not on every 20s autosave
+                if (empty($_SESSION['lar_checkpoint_column_checked'])) {
+                    $db->exec("ALTER TABLE mock_ai_interview_sessions ADD COLUMN IF NOT EXISTS checkpoint TEXT NULL");
+                    $_SESSION['lar_checkpoint_column_checked'] = true;
+                }
+                // Scope to the logged-in student so one student cannot overwrite another's checkpoint
+                $sql = "UPDATE mock_ai_interview_sessions SET checkpoint = ? WHERE id = ? AND student_id = ?";
+                $db->prepare($sql)->execute([json_encode($checkpoint), $sessionId, $studentIdForDb]);
             } catch (\Exception $e) {
                 error_log("LAR autosave db write bypassed: " . $e->getMessage());
             }
@@ -695,8 +700,16 @@ try {
                 }
             }
 
-            // 5% Score Deduction Per Strike / Flag Calculation
-            $strikeCount = (int)($input['strike_count'] ?? 0);
+            // 5% Score Deduction Per Strike / Flag Calculation.
+            // Server recount of logged strikes (portfolio_id holds the session id, so no time window);
+            // the browser's figure can only raise it.
+            $serverStrikes = 0;
+            try {
+                $serverStrikes = \App\Services\ProctoringService::countAttemptStrikes($db, $studentIdForDb, (int)$sessionId);
+            } catch (\Throwable $e) {
+                error_log("Mock interview strike recount failed: " . $e->getMessage());
+            }
+            $strikeCount = max($serverStrikes, (int)($input['strike_count'] ?? 0));
             $penaltyPct = min(100, $strikeCount * 5);
             $rawScore = $overallScore !== null ? (float)$overallScore : 0.0;
             $adjustedScore = max(0.0, round($rawScore - $penaltyPct));
@@ -753,8 +766,9 @@ try {
                     $integrityReport['face_presence_pct'] = round(min($integrityReport['face_presence_pct'], $cFacePct), 1);
                 }
 
-                $autoSubmitted = !empty($input['auto_submitted']);
+                $autoSubmitted = !empty($input['auto_submitted']) || $strikeCount >= 3;
                 $integrityReport['auto_submitted'] = $autoSubmitted;
+                $integrityReport['server_strike_count'] = $serverStrikes;
 
                 if ($autoSubmitted || $strikeCount >= 3) {
                     $integrityReport['integrity_status'] = 'Auto-Submitted: Maximum Security Violations (3/3) Exceeded';

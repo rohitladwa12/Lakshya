@@ -55,10 +55,14 @@ $usn = getUsername();
 
 $isDrive = false;
 if (!empty($input['session_id'])) {
-    $stmt = $db->prepare("SELECT drive_id FROM student_drive_attempts WHERE id = ?");
-    $stmt->execute([(int) $input['session_id']]);
+    // Drive attempts and practice sessions use separate id sequences, so the same id can exist
+    // in both tables. Only the student's own attempt counts, and when the page says which mode
+    // it is in (drive_id is sent with every call) that decides it.
+    $stmt = $db->prepare("SELECT drive_id FROM student_drive_attempts WHERE id = ? AND student_id = ?");
+    $stmt->execute([(int) $input['session_id'], $usn]);
     $driveAttempt = $stmt->fetch(PDO::FETCH_ASSOC);
-    if ($driveAttempt) {
+    $clientDriveId = isset($input['drive_id']) ? (int) $input['drive_id'] : null;
+    if ($driveAttempt && ($clientDriveId === null || $clientDriveId === (int) $driveAttempt['drive_id'])) {
         $isDrive = true;
         $driveId = (int) $driveAttempt['drive_id'];
     }
@@ -70,15 +74,15 @@ try {
             $company = $input['company'] ?? 'General';
 
             if ($driveId > 0) {
-                $stmt = $db->prepare("SELECT id, details, started_at FROM student_drive_attempts 
-                                 WHERE student_id = ? AND drive_id = ? AND round_type = 'Technical' 
-                                 AND status = 'In Progress' 
+                $stmt = $db->prepare("SELECT id, details, started_at FROM student_drive_attempts
+                                 WHERE student_id = ? AND drive_id = ? AND round_type = 'Technical'
+                                 AND status = 'In Progress'
                                  ORDER BY started_at DESC LIMIT 1");
                 $stmt->execute([$usn, $driveId]);
             } else {
-                $stmt = $db->prepare("SELECT id, details, started_at FROM unified_ai_assessments 
-                                 WHERE student_id = ? AND assessment_type = 'Technical' 
-                                 AND company_name = ? AND status = 'active' 
+                $stmt = $db->prepare("SELECT id, details, started_at FROM unified_ai_assessments
+                                 WHERE student_id = ? AND assessment_type = 'Technical'
+                                 AND company_name = ? AND status = 'active'
                                  ORDER BY started_at DESC LIMIT 1");
                 $stmt->execute([$studentIdForDb, $company]);
             }
@@ -162,7 +166,7 @@ try {
             if ($driveId > 0) {
                 // Select next attempt number
                 $stmt = $db->prepare("
-                SELECT MAX(attempt_number) FROM student_drive_attempts 
+                SELECT MAX(attempt_number) FROM student_drive_attempts
                 WHERE drive_id = ? AND student_id = ? AND round_type = 'Technical'
             ");
                 $stmt->execute([$driveId, $usn]);
@@ -171,7 +175,7 @@ try {
                 try {
                     // Get student info snapshot
                     $stmt = $db->prepare("
-                    SELECT ads.*, u.NAME as name, u.DISCIPLINE as branch 
+                    SELECT ads.*, u.NAME as name, u.DISCIPLINE as branch
                     FROM ad_student_approved ads
                     JOIN users u ON ads.usn = u.ID
                     WHERE ads.usn = ?
@@ -191,7 +195,7 @@ try {
                 }
 
                 $sql = "INSERT INTO student_drive_attempts (
-                drive_id, round_type, attempt_number, academic_year, student_id, student_name, branch, sem, 
+                drive_id, round_type, attempt_number, academic_year, student_id, student_name, branch, sem,
                 status, details, started_at
             ) VALUES (?, 'Technical', ?, ?, ?, ?, ?, ?, 'In Progress', ?, CURRENT_TIMESTAMP)";
 
@@ -214,7 +218,7 @@ try {
                 ]);
             } else {
                 $sql = "INSERT INTO unified_ai_assessments (
-                student_id, institution, student_name, usn, aadhar, current_sem, branch, 
+                student_id, institution, student_name, usn, aadhar, current_sem, branch,
                 assessment_type, company_name, status, details, started_at
             ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Technical', ?, 'active', ?, CURRENT_TIMESTAMP)";
 
@@ -466,8 +470,16 @@ try {
             $history = $details['history'];
             $taskId = $details['task_id'] ?? null;
 
+            // A proctor auto-termination must always be able to submit, even
+            // before the 20-minute minimum (it used to be rejected here).
+            $proctorTerminated = false;
+            $pRow = \App\Services\ProctoringService::resolveStudentProctorSession(
+                $db, $input['proctor_token'] ?? '', [getUsername(), getUserId()], 'technical'
+            );
+            $proctorTerminated = $pRow && ($pRow['status'] === 'terminated' || (int) $pRow['strike_count'] >= 3);
+
             // Check Minimum Time Requirement (20 mins = 1200 seconds) for assigned tasks
-            if ($taskId && !$isDrive) {
+            if ($taskId && !$isDrive && !$proctorTerminated) {
                 $startTime = strtotime($session['started_at']);
                 $elapsed = time() - $startTime;
                 if ($elapsed < 1200) {
@@ -505,21 +517,17 @@ try {
 
             try {
                 // Retrieve Proctoring Session & calculate authoritative penalty deduction
-                $proctorToken = trim($input['proctor_token'] ?? '');
-
                 $penaltyPct = 0.0;
                 $strikeCount = 0;
                 $isTerminated = false;
 
-                if (!empty($proctorToken)) {
-                    $pStmt = $db->prepare("SELECT * FROM proctor_sessions WHERE session_token = ? LIMIT 1");
-                    $pStmt->execute([$proctorToken]);
-                    $pSess = $pStmt->fetch(PDO::FETCH_ASSOC);
-                    if ($pSess) {
-                        $penaltyPct = (float)$pSess['penalty_pct'];
-                        $strikeCount = (int)$pSess['strike_count'];
-                        $isTerminated = ($pSess['status'] === 'terminated' || $strikeCount >= 3);
-                    }
+                $pSess = $pRow ?: \App\Services\ProctoringService::resolveStudentProctorSession(
+                    $db, $input['proctor_token'] ?? '', [getUsername(), getUserId()], 'technical'
+                );
+                if ($pSess) {
+                    $penaltyPct = (float)$pSess['penalty_pct'];
+                    $strikeCount = (int)$pSess['strike_count'];
+                    $isTerminated = ($pSess['status'] === 'terminated' || $strikeCount >= 3);
                 }
 
                 $rawScore = $score;
@@ -540,8 +548,8 @@ try {
                     $details['final_score'] = $finalScore;
 
                     // Finalize Status immediately
-                    $db->prepare("UPDATE student_drive_attempts 
-                              SET score = ?, status = 'Completed', completed_at = CURRENT_TIMESTAMP, details = ? 
+                    $db->prepare("UPDATE student_drive_attempts
+                              SET score = ?, status = 'Completed', completed_at = CURRENT_TIMESTAMP, details = ?
                               WHERE id = ?")
                         ->execute([$finalScore, json_encode($details), $sessionId]);
                 } else {
@@ -560,8 +568,8 @@ try {
                     $details['final_score'] = $finalScore;
 
                     // Finalize Status immediately so closing the browser doesn't orphan the completion
-                    $db->prepare("UPDATE unified_ai_assessments 
-                              SET score = ?, feedback = ?, status = 'completed', completed_at = CURRENT_TIMESTAMP, details = ? 
+                    $db->prepare("UPDATE unified_ai_assessments
+                              SET score = ?, feedback = ?, status = 'completed', completed_at = CURRENT_TIMESTAMP, details = ?
                               WHERE id = ?")
                         ->execute([$finalScore, "Report Generated", json_encode($details), $sessionId]);
 
@@ -571,12 +579,12 @@ try {
                         $studentUsn = $sessionData['usn'] ?? getUsername();
                         $timeTaken = time() - strtotime($sessionData['started_at']);
 
-                        $stmtComp = $db->prepare("INSERT INTO task_completions 
-                                          (task_id, student_id, score, time_taken) 
+                        $stmtComp = $db->prepare("INSERT INTO task_completions
+                                          (task_id, student_id, score, time_taken)
                                           VALUES (?, ?, ?, ?)
-                                          ON DUPLICATE KEY UPDATE 
+                                          ON DUPLICATE KEY UPDATE
                                           score = VALUES(score),
-                                          time_taken = VALUES(time_taken), 
+                                          time_taken = VALUES(time_taken),
                                           completed_at = CURRENT_TIMESTAMP");
                         $stmtComp->execute([$taskId, $studentUsn, $finalScore, $timeTaken]);
                         error_log("Task completion auto-recorded for Technical round. Task: $taskId, USN: $studentUsn");
@@ -584,7 +592,7 @@ try {
                 }
                 ob_clean();
                 echo json_encode([
-                    'success' => true, 
+                    'success' => true,
                     'score' => $finalScore,
                     'raw_score' => $rawScore,
                     'penalty_pct' => $penaltyPct,
@@ -657,12 +665,12 @@ try {
                             $studentUsn = $sessionData['usn'] ?? getUsername();
                             $timeTaken = time() - strtotime($sessionData['started_at']);
 
-                            $stmtComp = $db->prepare("INSERT INTO task_completions 
-                                              (task_id, student_id, score, time_taken) 
+                            $stmtComp = $db->prepare("INSERT INTO task_completions
+                                              (task_id, student_id, score, time_taken)
                                               VALUES (?, ?, ?, ?)
-                                              ON DUPLICATE KEY UPDATE 
+                                              ON DUPLICATE KEY UPDATE
                                               score = VALUES(score),
-                                              time_taken = VALUES(time_taken), 
+                                              time_taken = VALUES(time_taken),
                                               completed_at = CURRENT_TIMESTAMP");
                             $stmtComp->execute([$taskId, $studentUsn, $finalScore, $timeTaken]);
                             error_log("Task completion recorded for technical round. Task: $taskId, USN: $studentUsn, Score: $finalScore, Time: $timeTaken");

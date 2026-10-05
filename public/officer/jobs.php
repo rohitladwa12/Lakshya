@@ -900,6 +900,18 @@ $fullName = getFullName();
                             <label>Requirements / Qualifications</label>
                             <textarea name="requirements" id="requirements" class="form-control" rows="2" placeholder="e.g. Strong DSA, proficiency in Python..."></textarea>
                         </div>
+                        <div class="form-group" style="grid-column: span 2;">
+                            <label style="display: flex; justify-content: space-between; align-items: center;">
+                                <span><i class="fas fa-paperclip" style="color: var(--primary-maroon);"></i> Job Description / Brochure Attachment</span>
+                                <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">PDF, DOC, DOCX, PPT, PPTX (Max 10MB)</span>
+                            </label>
+                            <input type="file" name="job_attachment" id="jobAttachment" class="form-control" accept=".pdf,.doc,.docx,.ppt,.pptx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation">
+                            <div id="jobAttachmentPreviewContainer" style="margin-top: 8px; display: none; align-items: center; gap: 10px; background: #eef2ff; border: 1px solid #c7d2fe; padding: 8px 14px; border-radius: 8px;">
+                                <i class="fas fa-file-arrow-down" style="color: #4318ff; font-size: 16px;"></i>
+                                <a id="jobAttachmentLink" href="#" target="_blank" style="font-size: 13px; font-weight: 600; color: #4318ff; text-decoration: none;">View Attached Brochure</a>
+                                <span style="font-size: 11px; color: #64748b; margin-left: auto;">(Upload new file to replace)</span>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Eligible Years -->
@@ -1002,7 +1014,7 @@ $fullName = getFullName();
                 'MCA': ['MCA']
             },
             'GMU': {
-                'BTECH': ['CSE', 'CSE-AIML', 'ISE', 'ECE', 'EEE', 'MECH', 'CIVIL', 'BT', 'AIDS', 'CSBS', 'DS', 'CSE-DS', 'CSE-IT', 'CSE-IOT'],
+                'BTECH': ['CSE', 'CSE-AIML', 'CSE-BS', 'CSBS', 'CSE-CC', 'CSE-CY', 'CSE-DS', 'CSE-IT', 'CSE-IY', 'CSE-IOT', 'AIDS', 'DS', 'ISE', 'ECE', 'EEE', 'MECH', 'CIVIL', 'BT'],
                 'MBA': ['MBA', 'MBA-ADV', 'MBA-AM', 'MBA-IB', 'MBA-IE', 'MBA-INTNL', 'MBA-PF'],
                 'BBA': ['BBA', 'BBA-AI&BA', 'BBA-AM', 'BBA-B&F', 'BBA-BA', 'BBA-DM&E-COM', 'BBA-DMSM', 'BBA-GM', 'BBA-HM', 'BBA-HRM', 'BBA-IE', 'BBA-LSCM', 'BBA-MS', 'BBA-TH&EM'],
                 'BCA': ['BCA', 'BCA-AIDA', 'BCA-CS', 'BCA-CY', 'BCA-DS', 'BCA-GENERAL'],
@@ -1150,6 +1162,8 @@ $fullName = getFullName();
             form.reset();
             document.getElementById('companyLogoPreviewContainer').style.display = 'none';
             document.getElementById('companyLogoPreview').src = '';
+            document.getElementById('jobAttachmentPreviewContainer').style.display = 'none';
+            document.getElementById('jobAttachment').value = '';
             document.getElementById('companyId').value = '';
             document.getElementById('companySearch').value = '';
             document.getElementById('academicYear').value = '';
@@ -1197,6 +1211,18 @@ $fullName = getFullName();
             document.getElementById('description').value = job.description || '';
             document.getElementById('requirements').value = job.requirements || '';
             
+            // Job Attachment preview
+            const attPreview = document.getElementById('jobAttachmentPreviewContainer');
+            const attLink = document.getElementById('jobAttachmentLink');
+            document.getElementById('jobAttachment').value = '';
+            if (job.attachment_url) {
+                const baseUrl = '<?php echo APP_URL; ?>/';
+                attLink.href = job.attachment_url.startsWith('http') ? job.attachment_url : baseUrl + job.attachment_url.replace(/^\/+/, '');
+                attPreview.style.display = 'flex';
+            } else {
+                attPreview.style.display = 'none';
+            }
+
             document.getElementById('companyId').value = job.company_id;
             document.getElementById('companyName').value = job.company_name;
             document.getElementById('companySearch').value = job.company_name;

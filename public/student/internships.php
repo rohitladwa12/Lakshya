@@ -14,8 +14,7 @@ $internships = $internshipModel->getActiveInternships();
  * Helper to determine status badge
  */
 function getStatusBadge($deadline) {
-    $today = date('Y-m-d');
-    if ($deadline < $today) {
+    if (!empty($deadline) && strtotime($deadline) < time()) {
         return '<span class="tag tag-status-ended">Ended</span>';
     }
     return '<span class="tag tag-status-open">Open</span>';
@@ -357,9 +356,9 @@ function getStatusBadge($deadline) {
         </div>
         
         <?php
-        $today = date('Y-m-d');
-        $openCount = count(array_filter($internships, fn($i) => $i['application_deadline'] >= $today));
-        $endedCount = count(array_filter($internships, fn($i) => $i['application_deadline'] < $today));
+        $now = time();
+        $openCount = count(array_filter($internships, fn($i) => empty($i['application_deadline']) || strtotime($i['application_deadline']) >= $now));
+        $endedCount = count(array_filter($internships, fn($i) => !empty($i['application_deadline']) && strtotime($i['application_deadline']) < $now));
         ?>
         <div class="filter-strip">
             <button class="filter-btn active" onclick="filterCards('all', this)">
@@ -383,8 +382,11 @@ function getStatusBadge($deadline) {
             </div>
         <?php else: ?>
             <div class="internship-grid">
-                <?php foreach ($internships as $i): ?>
-                    <div class="internship-card" data-status="<?php echo ($today <= $i['application_deadline']) ? 'open' : 'ended'; ?>">
+                <?php foreach ($internships as $i): 
+                    $dlTimestamp = !empty($i['application_deadline']) ? strtotime($i['application_deadline']) : null;
+                    $isCardEnded = ($dlTimestamp && $dlTimestamp < $now);
+                ?>
+                    <div class="internship-card" data-status="<?php echo $isCardEnded ? 'ended' : 'open'; ?>">
                         <div class="card-header-flex">
                             <div class="logo-box">
                                 <?php 
@@ -427,7 +429,16 @@ function getStatusBadge($deadline) {
                         </div>
 
                         <div class="deadline-warning">
-                            <i class="fas fa-hourglass-half"></i> Deadline: <?php echo date('M d, Y', strtotime($i['application_deadline'])); ?>
+                            <i class="fas fa-hourglass-half"></i> Deadline: <?php 
+                                if ($dlTimestamp) {
+                                    echo date('M d, Y', $dlTimestamp);
+                                    if (date('H:i', $dlTimestamp) !== '00:00') {
+                                        echo ', ' . date('h:i A', $dlTimestamp);
+                                    }
+                                } else {
+                                    echo 'Open / Ongoing';
+                                }
+                            ?>
                         </div>
                         
                         <div class="stats-mini">

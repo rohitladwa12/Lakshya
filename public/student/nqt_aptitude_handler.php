@@ -34,25 +34,25 @@ try {
             $numQuestions = 40; // 40 Questions for 40 Mins
 
             // 1. Fetch questions from nqt_aptitude_questions
-            $stmt = $db->query("SELECT id, question, option_a, option_b, option_c, option_d, correct_option as answer, topic as category 
-                               FROM nqt_aptitude_questions 
-                               ORDER BY RAND() 
+            $stmt = $db->query("SELECT id, question, option_a, option_b, option_c, option_d, correct_option as answer, topic as category
+                               FROM nqt_aptitude_questions
+                               ORDER BY RAND()
                                LIMIT 30"); // Fetch more from NQT specific table
             $nqtQuestions = $stmt->fetchAll(PDO::FETCH_ASSOC);
-            
+
             // 2. If not enough, fetch from aptitude_questions
             $remaining = $numQuestions - count($nqtQuestions);
             $dbQuestions = [];
             if ($remaining > 0) {
-                $stmt = $db->query("SELECT id, question, option_a, option_b, option_c, option_d, correct_option as answer, topic as category 
-                                   FROM aptitude_questions 
-                                   ORDER BY RAND() 
+                $stmt = $db->query("SELECT id, question, option_a, option_b, option_c, option_d, correct_option as answer, topic as category
+                                   FROM aptitude_questions
+                                   ORDER BY RAND()
                                    LIMIT $remaining");
                 $dbQuestions = $stmt->fetchAll(PDO::FETCH_ASSOC);
             }
 
             $allQuestions = array_merge($nqtQuestions, $dbQuestions);
-            
+
             // Format Questions for Mutation
             $mutationPool = [];
             foreach ($allQuestions as $q) {
@@ -81,8 +81,11 @@ try {
             // Store in session for secure verification on submission
             $_SESSION['nqt_questions'] = $finalSet;
 
+            // The browser gets question text + options only; the answer key stays in the session
+            $publicSet = array_map(fn($q) => array_diff_key($q, ['answer' => true, 'explanation' => true]), $finalSet);
+
             ob_clean();
-            echo json_encode(['success' => true, 'questions' => $finalSet]);
+            echo json_encode(['success' => true, 'questions' => array_values($publicSet)]);
             break;
 
         case 'submit_test':
@@ -97,38 +100,53 @@ try {
             }
 
             $correctAnswersMap = [];
+            $explanationsMap = [];
             if (isset($_SESSION['nqt_questions']) && is_array($_SESSION['nqt_questions'])) {
                 foreach ($_SESSION['nqt_questions'] as $sq) {
                     $correctAnswersMap[trim($sq['question'])] = $sq['answer'];
+                    $explanationsMap[trim($sq['question'])] = $sq['explanation'] ?? '';
                 }
             }
+            // Without the server's answer key the only answers available would be the browser's own
+            if (empty($correctAnswersMap)) {
+                jsonError("Your test session has expired. Please start the test again.");
+            }
+            $issuedCount = count($correctAnswersMap);
+            $seenKeys = [];
 
             $score = 0;
             $gradedQuestions = [];
             foreach ($questions as $qIdx => $q) {
                 $userAnswer = isset($answers[$qIdx]) ? (int)$answers[$qIdx] : null;
                 $qText = trim($q['question'] ?? '');
-                
-                if (isset($correctAnswersMap[$qText])) {
+
+                $isKnownQuestion = isset($correctAnswersMap[$qText]) && !isset($seenKeys[$qText]);
+                if ($isKnownQuestion) {
+                    $seenKeys[$qText] = true;
                     $correctAnswer = (int)$correctAnswersMap[$qText];
+                    $q['explanation'] = $explanationsMap[$qText] ?? '';
                 } else {
+                    // Not a question we issued (or a duplicate): never score it from client data
                     error_log("NQT grading warning: Question not found in session registry: " . substr($qText, 0, 100));
-                    $correctAnswer = isset($q['answer']) ? (int)$q['answer'] : 0;
+                    $correctAnswer = -1;
+                    $q['explanation'] = 'This question could not be verified and was not scored.';
                 }
 
-                if ($userAnswer !== null && $correctAnswer === $userAnswer) {
+                if ($isKnownQuestion && $userAnswer !== null && $correctAnswer === $userAnswer) {
                     $score++;
                 }
 
                 $q['answer'] = $correctAnswer;
                 $gradedQuestions[$qIdx] = $q;
             }
-            
+
             // Clean up session
             unset($_SESSION['nqt_questions']);
             $questions = $gradedQuestions;
-            
-            $percentage = ($score / count($questions)) * 100;
+
+            // Out of every question issued, not only the ones the browser chose to send back
+            $totalQuestions = max(count($questions), $issuedCount);
+            $percentage = $totalQuestions > 0 ? ($score / $totalQuestions) * 100 : 0;
             $studentId = getStudentIdForAssessment();
             $inst = getInstitution();
             $student = $studentModel->getByUserId(getUserId(), $inst);
@@ -136,11 +154,11 @@ try {
             if (!$student) jsonError("Student profile not found.");
 
             $detailsJson = json_encode(['questions' => $questions, 'user_answers' => $answers, 'mode' => $mode]);
-            
-            $sql = "INSERT INTO unified_ai_assessments 
-                    (student_id, usn, student_name, branch, current_sem, assessment_type, company_name, score, total_marks, details, status, started_at, completed_at, institution) 
+
+            $sql = "INSERT INTO unified_ai_assessments
+                    (student_id, usn, student_name, branch, current_sem, assessment_type, company_name, score, total_marks, details, status, started_at, completed_at, institution)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', NOW(), NOW(), ?)";
-            
+
             $stmt = $db->prepare($sql);
             $res = $stmt->execute([
                 $studentId,
@@ -162,7 +180,7 @@ try {
                     'success' => true,
                     'score' => $percentage,
                     'correct' => $score,
-                    'total' => count($questions),
+                    'total' => $totalQuestions,
                     'results' => ['questions' => $questions, 'user_answers' => $answers]
                 ]);
             } else {

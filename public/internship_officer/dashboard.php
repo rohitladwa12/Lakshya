@@ -1,642 +1,1348 @@
 <?php
 /**
- * Internship Officer Dashboard (Overhauled)
+ * Executive Light-Theme Internship Dashboard for Officers
+ * Clean, structured, and modern administrative interface.
  */
 
 require_once __DIR__ . '/../../config/bootstrap.php';
 requireRole('internship_officer');
 
 $userId = getUserId();
-$fullName = getFullName();
-
-$internshipModel = new Internship();
-
-// Global Stats (for cards) - we need all items for this or separate queries
-// Instead of fetching all internships into memory, let's just do quick queries for stats
+$fullName = getFullName() ?: 'Internship Officer';
 $db = getDB();
-$activeCount = $db->query("SELECT COUNT(*) FROM internships WHERE status = 'Active' AND created_by IS NOT NULL")->fetchColumn();
-$totalCount = $db->query("SELECT COUNT(*) FROM internships WHERE created_by IS NOT NULL")->fetchColumn();
-$appCount = $db->query("SELECT COUNT(*) FROM internship_applications ia JOIN internships i ON ia.internship_id = i.id WHERE i.created_by IS NOT NULL")->fetchColumn();
 
-$stats = [
-    'active' => $activeCount,
-    'total_applications' => $appCount,
-    'total_internships' => $totalCount
-];
+// --- 1. Global KPI Metrics (Instant Cacheable Aggregates) ---
+$totalCount = (int)$db->query("SELECT COUNT(*) FROM internships WHERE created_by IS NOT NULL")->fetchColumn();
+$activeCount = (int)$db->query("SELECT COUNT(*) FROM internships WHERE status = 'Active' AND (application_deadline IS NULL OR application_deadline >= NOW()) AND created_by IS NOT NULL")->fetchColumn();
+$totalApps = (int)$db->query("SELECT COUNT(*) FROM internship_applications ia JOIN internships i ON ia.internship_id = i.id WHERE i.created_by IS NOT NULL")->fetchColumn();
+$shortlistedCount = (int)$db->query("SELECT COUNT(*) FROM internship_applications ia JOIN internships i ON ia.internship_id = i.id WHERE i.created_by IS NOT NULL AND ia.status IN ('Shortlisted', 'Interview')")->fetchColumn();
+$selectedCount = (int)$db->query("SELECT COUNT(*) FROM internship_applications ia JOIN internships i ON ia.internship_id = i.id WHERE i.created_by IS NOT NULL AND ia.status = 'Selected'")->fetchColumn();
 
-// Pagination logic
+// Conversion Rate Calculation
+$conversionRate = ($totalApps > 0) ? round(($selectedCount / $totalApps) * 100, 1) : 0;
+
+// Mode Distribution Stats
+$modeStmt = $db->query("SELECT mode, COUNT(*) as cnt FROM internships WHERE created_by IS NOT NULL GROUP BY mode");
+$modesCount = $modeStmt ? $modeStmt->fetchAll(PDO::FETCH_KEY_PAIR) : [];
+
+// --- 2. Filters & Search Handling ---
+$search = trim($_GET['q'] ?? '');
+$statusFilter = strtolower($_GET['status'] ?? 'all');
+$modeFilter = $_GET['mode'] ?? 'all';
 $page = isset($_GET['page']) ? max(1, (int)$_GET['page']) : 1;
-$perPage = 10;
-$paginatedData = $internshipModel->getPortalInternshipsPaginated($page, $perPage);
-$internships = $paginatedData['items'];
-$pagination = $paginatedData['pagination'];
+$perPage = isset($_GET['per_page']) ? min(50, max(5, (int)$_GET['per_page'])) : 10;
 
-foreach ($internships as &$i) {
-    if ($i['status'] === 'Active' && strtotime($i['application_deadline']) < strtotime('today')) {
-        $i['status'] = 'Ended'; // Virtual status for display
+$where = ["i.created_by IS NOT NULL"];
+$params = [];
+
+if ($search !== '') {
+    $where[] = "(i.internship_title LIKE ? OR i.company_name LIKE ? OR i.location LIKE ? OR i.stipend LIKE ? OR i.targeted_students LIKE ?)";
+    $term = "%{$search}%";
+    $params[] = $term;
+    $params[] = $term;
+    $params[] = $term;
+    $params[] = $term;
+    $params[] = $term;
+}
+
+if ($statusFilter === 'active') {
+    $where[] = "i.status = 'Active' AND (i.application_deadline IS NULL OR i.application_deadline >= NOW())";
+} elseif ($statusFilter === 'ended') {
+    $where[] = "(i.status != 'Active' OR (i.application_deadline IS NOT NULL AND i.application_deadline < NOW()))";
+} elseif ($statusFilter === 'draft') {
+    $where[] = "i.status = 'Draft'";
+}
+
+if ($modeFilter !== 'all' && in_array($modeFilter, ['On-Site', 'Remote', 'Hybrid', 'Virtual', 'Online'])) {
+    $where[] = "i.mode = ?";
+    $params[] = $modeFilter;
+}
+
+$whereClause = implode(' AND ', $where);
+
+// Count Total Matching Records
+$countSql = "SELECT COUNT(*) FROM internships i WHERE {$whereClause}";
+$countStmt = $db->prepare($countSql);
+$countStmt->execute($params);
+$totalRecords = (int)$countStmt->fetchColumn();
+
+$totalPages = max(1, (int)ceil($totalRecords / $perPage));
+$page = min($page, $totalPages);
+$offset = ($page - 1) * $perPage;
+
+// Fetch Filtered & Paginated Records with Funnel Details
+$sql = "SELECT i.*, 
+               (SELECT COUNT(*) FROM internship_applications ia WHERE ia.internship_id = i.id) as application_count,
+               (SELECT COUNT(*) FROM internship_applications ia WHERE ia.internship_id = i.id AND ia.status IN ('Shortlisted', 'Interview')) as shortlisted_count,
+               (SELECT COUNT(*) FROM internship_applications ia WHERE ia.internship_id = i.id AND ia.status = 'Selected') as selected_count
+        FROM internships i
+        WHERE {$whereClause}
+        ORDER BY i.created_at DESC
+        LIMIT {$perPage} OFFSET {$offset}";
+
+$stmt = $db->prepare($sql);
+$stmt->execute($params);
+$internships = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Normalize Display Status
+foreach ($internships as &$item) {
+    if ($item['status'] === 'Active' && !empty($item['application_deadline']) && strtotime($item['application_deadline']) < time()) {
+        $item['status'] = 'Ended';
     }
 }
-unset($i);
+unset($item);
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Officer Dashboard - <?php echo APP_NAME; ?></title>
+    <title>Internship Management Console - <?php echo APP_NAME; ?></title>
     <link rel="icon" type="image/png" href="../assets/img/favicon.png">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/all.min.css">
+    
+    <!-- Premium Fonts & Icons -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Outfit:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    
     <style>
         :root {
-            --primary: #800000;
-            --primary-light: #fef2f2;
-            --primary-soft: rgba(128, 0, 0, 0.05);
-            --primary-hover: #600000;
-            --bg-body: #f1f5f9;
-            --card-bg: #ffffff;
-            --text-main: #0f172a;
-            --text-muted: #64748b;
-            --border-color: #e2e8f0;
-            --success: #10b981;
-            --info: #3b82f6;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-            --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
-            --shadow-md: 0 10px 15px -3px rgb(0 0 0 / 0.05), 0 4px 6px -4px rgb(0 0 0 / 0.05);
-            --shadow-lg: 0 20px 25px -5px rgb(0 0 0 / 0.05), 0 8px 10px -6px rgb(0 0 0 / 0.05);
+            --primary-maroon: #800000;
+            --primary-maroon-dark: #580000;
+            --primary-maroon-light: #fef2f2;
+            --primary-maroon-subtle: rgba(128, 0, 0, 0.06);
+            --navy-950: #0b0f19;
+            --navy-900: #0f172a;
+            --navy-800: #1e293b;
+            --slate-600: #475569;
+            --slate-500: #64748b;
+            --slate-400: #94a3b8;
+            --slate-300: #cbd5e1;
+            --slate-200: #e2e8f0;
+            --slate-100: #f1f5f9;
+            --slate-50: #f8fafc;
+            --white: #ffffff;
+            --emerald-600: #059669;
+            --emerald-500: #10b981;
+            --emerald-50: #ecfdf5;
+            --emerald-200: #a7f3d0;
+            --amber-600: #d97706;
+            --amber-500: #f59e0b;
+            --amber-50: #fffbeb;
+            --amber-200: #fde68a;
+            --blue-600: #2563eb;
+            --blue-50: #eff6ff;
+            --purple-600: #7c3aed;
+            --purple-50: #faf5ff;
+            --rose-600: #e11d48;
+            --rose-50: #fff1f2;
+            --shadow-card: 0 4px 20px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+            --shadow-hover: 0 12px 28px -4px rgba(15, 23, 42, 0.09), 0 4px 10px -2px rgba(15, 23, 42, 0.04);
             --radius-md: 12px;
-            --radius-lg: 20px;
-            --radius-xl: 30px;
+            --radius-lg: 16px;
+            --radius-xl: 20px;
+            --transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        body { 
-            background: var(--bg-body); 
-            font-family: 'Inter', sans-serif; 
-            margin: 0; 
-            color: var(--text-main);
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            background-color: var(--slate-50);
+            color: var(--navy-900);
+            font-family: 'Inter', sans-serif;
+            min-height: 100vh;
             line-height: 1.5;
             -webkit-font-smoothing: antialiased;
         }
 
-        .container {
-            max-width: 1280px;
+        .dashboard-container {
+            max-width: 1440px;
             margin: 0 auto;
-            padding: 3rem 2rem;
+            padding: 2.25rem 2rem 4rem 2rem;
         }
 
-        /* Welcome Section */
-        .header-section {
+        /* --- Header Section --- */
+        .executive-header {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 3rem;
-            animation: fadeInDown 0.6s ease-out;
-        }
-
-        @keyframes fadeInDown {
-            from { opacity: 0; transform: translateY(-20px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .welcome-text h1 {
-            font-size: 2.25rem;
-            font-weight: 800;
-            margin: 0;
-            letter-spacing: -0.05em;
-            color: var(--text-main);
-            background: linear-gradient(135deg, var(--text-main) 0%, #475569 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-        }
-
-        .welcome-text p {
-            color: var(--text-muted);
-            margin: 0.5rem 0 0 0;
-            font-size: 1.1rem;
-            font-weight: 500;
-        }
-
-        .btn-primary {
-            background: var(--primary);
-            color: white;
-            padding: 0.875rem 1.75rem;
-            border-radius: var(--radius-md);
-            text-decoration: none;
-            font-weight: 700;
-            font-size: 0.95rem;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.75rem;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            box-shadow: 0 4px 12px rgba(128, 0, 0, 0.2);
-        }
-
-        .btn-primary:hover {
-            background: var(--primary-hover);
-            transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(128, 0, 0, 0.3);
-        }
-
-        /* Stats Grid */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            margin-bottom: 2rem;
             gap: 1.5rem;
-            margin-bottom: 3rem;
+            flex-wrap: wrap;
         }
 
-        .stat-card {
-            background: var(--card-bg);
-            padding: 2rem;
-            border-radius: var(--radius-lg);
-            border: 1px solid var(--border-color);
-            display: flex;
-            align-items: center;
-            gap: 1.5rem;
-            transition: all 0.3s ease;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .stat-card::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(45deg, transparent, rgba(255,255,255,0.4), transparent);
-            transform: translateX(-100%);
-            transition: 0.5s;
-        }
-
-        .stat-card:hover::before {
-            transform: translateX(100%);
-        }
-
-        .stat-card:hover {
-            transform: translateY(-5px);
-            box-shadow: var(--shadow-lg);
-            border-color: var(--primary-soft);
-        }
-
-        .stat-icon {
-            width: 64px;
-            height: 64px;
-            border-radius: 18px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 1.75rem;
-            flex-shrink: 0;
-        }
-
-        .icon-maroon { background: #fef2f2; color: var(--primary); }
-        .icon-blue { background: #eff6ff; color: var(--info); }
-        .icon-green { background: #f0fdf4; color: var(--success); }
-
-        .stat-info p {
-            margin: 0;
-            color: var(--text-muted);
-            font-size: 0.875rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-        }
-
-        .stat-info h3 {
-            font-size: 2.25rem;
+        .header-title-block h1 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2rem;
             font-weight: 800;
-            margin: 0.125rem 0 0 0;
-            letter-spacing: -0.025em;
-            color: var(--text-main);
-        }
-
-        /* Content Card */
-        .content-card {
-            background: var(--card-bg);
-            border-radius: var(--radius-xl);
-            box-shadow: var(--shadow-md);
-            border: 1px solid var(--border-color);
-            overflow: hidden;
-            animation: fadeInUp 0.8s ease-out;
-        }
-
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(30px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .card-header {
-            padding: 2rem 2.5rem;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            background: #fafafa;
-        }
-
-        .card-header h2 {
-            font-size: 1.5rem;
-            font-weight: 700;
-            margin: 0;
+            color: var(--navy-900);
+            letter-spacing: -0.03em;
             display: flex;
             align-items: center;
-            gap: 1rem;
-            color: var(--text-main);
+            gap: 12px;
         }
 
-        .card-header .subtitle {
-            font-size: 0.95rem;
-            color: var(--text-muted);
-            font-weight: 500;
-        }
-
-        /* Table Styling */
-        .table-container {
-            padding: 1rem 1.5rem 2rem 1.5rem;
-        }
-
-        .custom-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 0 1rem;
-        }
-
-        .custom-table th {
-            text-align: left;
-            padding: 0.75rem 1.5rem;
-            color: var(--text-muted);
-            font-size: 0.8rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-        }
-
-        .custom-table tbody tr {
-            transition: all 0.2s ease;
-        }
-
-        .custom-table tbody td {
-            background: #fff;
-            padding: 1.5rem;
-            border-top: 1px solid var(--border-color);
-            border-bottom: 1px solid var(--border-color);
-        }
-
-        .custom-table tbody td:first-child {
-            border-left: 1px solid var(--border-color);
-            border-top-left-radius: 16px;
-            border-bottom-left-radius: 16px;
-        }
-
-        .custom-table tbody td:last-child {
-            border-right: 1px solid var(--border-color);
-            border-top-right-radius: 16px;
-            border-bottom-right-radius: 16px;
-        }
-
-        .custom-table tbody tr:hover td {
-            background: #fdfdfd;
-            border-color: #cbd5e1;
-            transform: scale(1.002);
-            box-shadow: 0 4px 12px rgba(0,0,0,0.03);
-        }
-
-        .company-info { display: flex; align-items: center; gap: 1rem; }
-        .company-logo {
-            width: 48px;
-            height: 48px;
-            border-radius: 12px;
-            object-fit: contain;
-            background: white;
-            padding: 6px;
-            border: 1px solid var(--border-color);
-            box-shadow: var(--shadow-sm);
-        }
-
-        .company-initials {
-            width: 48px;
-            height: 48px;
-            border-radius: 12px;
-            background: var(--primary-light);
-            color: var(--primary);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-weight: 800;
-            font-size: 1rem;
-        }
-        
-        .title-text { font-weight: 700; color: var(--text-main); font-size: 1.05rem; }
-        .subtitle-text { font-size: 0.9rem; color: var(--text-muted); margin-top: 0.25rem; }
-
-        .badge {
-            padding: 0.5rem 1rem;
-            border-radius: 30px;
+        .header-title-block h1 .badge-session {
+            font-family: 'Inter', sans-serif;
             font-size: 0.75rem;
             font-weight: 700;
+            background: var(--primary-maroon-light);
+            color: var(--primary-maroon);
+            border: 1px solid rgba(128, 0, 0, 0.15);
+            padding: 4px 10px;
+            border-radius: 20px;
             text-transform: uppercase;
             letter-spacing: 0.05em;
         }
 
-        .badge-active { background: #dcfce7; color: #15803d; }
-        .badge-inactive { background: #f1f5f9; color: #475569; }
+        .header-title-block p {
+            color: var(--slate-500);
+            font-size: 0.95rem;
+            margin-top: 4px;
+            font-weight: 500;
+        }
 
-        .app-count-badge {
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .btn-primary-action {
+            background: linear-gradient(135deg, var(--primary-maroon), var(--primary-maroon-dark));
+            color: var(--white);
+            padding: 0.75rem 1.4rem;
+            border-radius: var(--radius-md);
+            font-weight: 700;
+            font-size: 0.92rem;
+            text-decoration: none;
             display: inline-flex;
             align-items: center;
-            justify-content: center;
-            background: #f0f9ff;
-            color: #0369a1;
-            padding: 0.4rem 0.8rem;
-            border-radius: 10px;
-            font-weight: 700;
-            font-size: 0.9rem;
-            gap: 0.5rem;
+            gap: 8px;
+            box-shadow: 0 4px 14px rgba(128, 0, 0, 0.25);
+            transition: var(--transition);
+            border: none;
+            cursor: pointer;
         }
 
-        .action-group {
-            display: flex;
-            justify-content: flex-end;
-            gap: 0.75rem;
-        }
-
-        .btn-icon {
-            width: 40px;
-            height: 40px;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            text-decoration: none;
-            transition: all 0.2s;
-            border: 1px solid var(--border-color);
-            background: white;
-            color: var(--text-muted);
-        }
-
-        .btn-icon:hover {
+        .btn-primary-action:hover {
             transform: translateY(-2px);
-            box-shadow: var(--shadow-md);
+            box-shadow: 0 6px 20px rgba(128, 0, 0, 0.35);
+            color: var(--white);
         }
 
-        .btn-view:hover { color: var(--info); border-color: var(--info); background: #eff6ff; }
-        .btn-edit:hover { color: var(--warning); border-color: var(--warning); background: #fffbeb; }
-        .btn-delete:hover { color: var(--danger); border-color: var(--danger); background: #fef2f2; }
-        .btn-wa:hover { color: #25d366; border-color: #25d366; background: #e8f9ed; }
-        
-        .empty-state {
-            padding: 6rem 2rem;
-            text-align: center;
+        .btn-secondary-action {
+            background: var(--white);
+            color: var(--navy-800);
+            padding: 0.75rem 1.3rem;
+            border-radius: var(--radius-md);
+            font-weight: 600;
+            font-size: 0.92rem;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--slate-200);
+            box-shadow: var(--shadow-card);
+            transition: var(--transition);
         }
 
-        .empty-icon {
-            font-size: 4rem;
-            color: var(--border-color);
+        .btn-secondary-action:hover {
+            background: var(--slate-50);
+            border-color: var(--slate-300);
+            color: var(--primary-maroon);
+            transform: translateY(-2px);
+        }
+
+        .btn-secondary-action .counter-badge {
+            background: var(--primary-maroon-light);
+            color: var(--primary-maroon);
+            font-weight: 800;
+            font-size: 0.75rem;
+            padding: 2px 7px;
+            border-radius: 12px;
+        }
+
+        /* --- KPI Grid (5-Card Metrics Architecture) --- */
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 1.25rem;
             margin-bottom: 2rem;
         }
 
-        /* Pagination Styles */
-        .pagination-wrapper {
-            margin-top: 2rem;
+        .metric-card {
+            background: var(--white);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--slate-200);
+            padding: 1.25rem 1.25rem 1.15rem 1.25rem;
+            box-shadow: var(--shadow-card);
+            transition: var(--transition);
+            position: relative;
+            overflow: hidden;
             display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .metric-card:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--shadow-hover);
+            border-color: var(--slate-300);
+        }
+
+        .metric-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+        }
+
+        .metric-label {
+            font-size: 0.78rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--slate-500);
+        }
+
+        .metric-icon-box {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
             justify-content: center;
-            border-top: 1px solid var(--border-color);
-            padding-top: 1.5rem;
+            font-size: 1.1rem;
         }
 
-        .pagination {
+        .icon-maroon { background: var(--primary-maroon-light); color: var(--primary-maroon); }
+        .icon-emerald { background: var(--emerald-50); color: var(--emerald-600); }
+        .icon-blue { background: var(--blue-50); color: var(--blue-600); }
+        .icon-amber { background: var(--amber-50); color: var(--amber-600); }
+        .icon-purple { background: var(--purple-50); color: var(--purple-600); }
+
+        .metric-value-row {
             display: flex;
-            list-style: none;
-            padding: 0;
-            margin: 0;
-            gap: 0.5rem;
+            align-items: baseline;
+            gap: 8px;
         }
 
-        .pagination a {
+        .metric-value {
+            font-family: 'Outfit', sans-serif;
+            font-size: 2rem;
+            font-weight: 800;
+            color: var(--navy-900);
+            line-height: 1;
+        }
+
+        .metric-meta {
+            font-size: 0.75rem;
+            color: var(--slate-400);
+            font-weight: 500;
+            margin-top: 6px;
+        }
+
+        /* --- Quick Analytics Sub-bar --- */
+        .analytics-subbar {
+            background: var(--white);
+            border: 1px solid var(--slate-200);
+            border-radius: var(--radius-md);
+            padding: 0.85rem 1.25rem;
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+            box-shadow: var(--shadow-card);
+        }
+
+        .subbar-left {
+            display: flex;
+            align-items: center;
+            gap: 1.25rem;
+            flex-wrap: wrap;
+        }
+
+        .subbar-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.84rem;
+            color: var(--slate-600);
+        }
+
+        .subbar-pill {
+            padding: 3px 8px;
+            border-radius: 6px;
+            font-size: 0.76rem;
+            font-weight: 700;
+        }
+
+        .pill-onsite { background: var(--blue-50); color: var(--blue-600); border: 1px solid #bfdbfe; }
+        .pill-remote { background: var(--purple-50); color: var(--purple-600); border: 1px solid #ddd6fe; }
+        .pill-hybrid { background: var(--amber-50); color: var(--amber-600); border: 1px solid #fde68a; }
+
+        /* --- Main Content Panel --- */
+        .panel-card {
+            background: var(--white);
+            border-radius: var(--radius-xl);
+            border: 1px solid var(--slate-200);
+            box-shadow: var(--shadow-card);
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 1.5rem 2rem;
+            border-bottom: 1px solid var(--slate-200);
+            background: var(--white);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+        }
+
+        .panel-title-group h2 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--navy-900);
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-title-group p {
+            font-size: 0.85rem;
+            color: var(--slate-500);
+            margin-top: 2px;
+        }
+
+        /* --- Filters & Search Toolbar --- */
+        .filter-toolbar {
+            padding: 1.25rem 2rem;
+            background: var(--slate-50);
+            border-bottom: 1px solid var(--slate-200);
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+        }
+
+        .search-box-wrapper {
+            position: relative;
+            flex: 1;
+            min-width: 280px;
+            max-width: 480px;
+        }
+
+        .search-box-wrapper i {
+            position: absolute;
+            left: 14px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--slate-400);
+            font-size: 0.95rem;
+        }
+
+        .search-input {
+            width: 100%;
+            padding: 0.65rem 1rem 0.65rem 2.4rem;
+            background: var(--white);
+            border: 1px solid var(--slate-300);
+            border-radius: var(--radius-md);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.88rem;
+            color: var(--navy-900);
+            transition: var(--transition);
+        }
+
+        .search-input:focus {
+            outline: none;
+            border-color: var(--primary-maroon);
+            box-shadow: 0 0 0 3px rgba(128, 0, 0, 0.08);
+        }
+
+        .filter-controls-group {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+        }
+
+        .select-filter {
+            padding: 0.62rem 2rem 0.62rem 0.9rem;
+            background: var(--white) url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3e%3cpath fill='none' stroke='%2364748b' stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='m2 5 6 6 6-6'/%3e%3c/svg%3e") no-repeat right 0.75rem center/10px 10px;
+            border: 1px solid var(--slate-300);
+            border-radius: var(--radius-md);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            font-weight: 500;
+            color: var(--navy-800);
+            appearance: none;
+            cursor: pointer;
+            transition: var(--transition);
+        }
+
+        .select-filter:focus {
+            outline: none;
+            border-color: var(--primary-maroon);
+        }
+
+        .status-pill-tabs {
+            display: flex;
+            background: var(--slate-200);
+            padding: 3px;
+            border-radius: 10px;
+            gap: 2px;
+        }
+
+        .tab-btn {
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--slate-600);
+            text-decoration: none;
+            transition: var(--transition);
+        }
+
+        .tab-btn.active {
+            background: var(--white);
+            color: var(--primary-maroon);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.06);
+        }
+
+        /* --- High-Density Table Layout --- */
+        .table-responsive {
+            width: 100%;
+            overflow-x: auto;
+        }
+
+        .opportunity-table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        .opportunity-table th {
+            background: var(--slate-50);
+            padding: 0.9rem 1.5rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: var(--slate-500);
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            border-bottom: 1px solid var(--slate-200);
+            white-space: nowrap;
+        }
+
+        .opportunity-table td {
+            padding: 1.15rem 1.5rem;
+            border-bottom: 1px solid var(--slate-100);
+            vertical-align: middle;
+            background: var(--white);
+            transition: background 0.15s ease;
+        }
+
+        .opportunity-table tr:hover td {
+            background: #fafcff;
+        }
+
+        /* Opportunity Row Components */
+        .company-cell {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .company-badge-logo {
+            width: 44px;
+            height: 44px;
+            border-radius: 12px;
+            border: 1px solid var(--slate-200);
+            background: var(--slate-50);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Outfit', sans-serif;
+            font-weight: 800;
+            font-size: 1rem;
+            color: var(--primary-maroon);
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        .company-badge-logo img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            padding: 4px;
+        }
+
+        .company-meta-name {
+            font-weight: 700;
+            font-size: 0.96rem;
+            color: var(--navy-900);
+        }
+
+        .company-meta-loc {
+            font-size: 0.8rem;
+            color: var(--slate-500);
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-top: 2px;
+        }
+
+        .role-title {
+            font-weight: 700;
+            font-size: 0.94rem;
+            color: var(--navy-900);
+            margin-bottom: 3px;
+        }
+
+        .role-tags-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+
+        .pill-badge {
+            font-size: 0.72rem;
+            font-weight: 600;
+            padding: 2px 7px;
+            border-radius: 6px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .pill-stipend { background: var(--emerald-50); color: var(--emerald-600); border: 1px solid var(--emerald-200); }
+        .pill-duration { background: var(--slate-100); color: var(--slate-600); border: 1px solid var(--slate-200); }
+        .pill-target { background: #fdf2f8; color: #be185d; border: 1px solid #fbcfe8; }
+
+        /* Status Pills */
+        .status-indicator-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.76rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .badge-status-active {
+            background: var(--emerald-50);
+            color: var(--emerald-600);
+            border: 1px solid var(--emerald-200);
+        }
+
+        .badge-status-active .pulse-dot {
+            width: 7px;
+            height: 7px;
+            background: var(--emerald-500);
+            border-radius: 50%;
+            box-shadow: 0 0 0 2px rgba(16, 185, 129, 0.2);
+            animation: pulseDot 2s infinite;
+        }
+
+        @keyframes pulseDot {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3); opacity: 0.5; }
+        }
+
+        .badge-status-ended {
+            background: var(--slate-100);
+            color: var(--slate-500);
+            border: 1px solid var(--slate-200);
+        }
+
+        .badge-status-draft {
+            background: var(--amber-50);
+            color: var(--amber-600);
+            border: 1px solid var(--amber-200);
+        }
+
+        /* Funnel Progress Pill */
+        .funnel-metric-box {
+            display: inline-flex;
+            flex-direction: column;
+            gap: 3px;
+        }
+
+        .funnel-count-main {
+            font-weight: 800;
+            font-size: 0.95rem;
+            color: var(--navy-900);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .funnel-substats {
+            font-size: 0.74rem;
+            color: var(--slate-500);
+            display: flex;
+            gap: 8px;
+        }
+
+        .funnel-substats span.shortlisted { color: var(--blue-600); font-weight: 600; }
+        .funnel-substats span.selected { color: var(--emerald-600); font-weight: 700; }
+
+        /* Deadline Display */
+        .deadline-cell {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+
+        .deadline-date {
+            font-weight: 600;
+            font-size: 0.88rem;
+            color: var(--navy-900);
+        }
+
+        .deadline-countdown {
+            font-size: 0.74rem;
+            font-weight: 600;
+        }
+
+        .countdown-safe { color: var(--emerald-600); }
+        .countdown-warning { color: var(--amber-600); font-weight: 700; }
+        .countdown-expired { color: var(--slate-400); }
+
+        /* Action Buttons Cluster */
+        .actions-cluster {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 6px;
+        }
+
+        .btn-action-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 10px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            padding: 0.5rem 1rem;
-            min-width: 2rem;
-            height: 2.5rem;
-            border-radius: var(--radius-md);
             text-decoration: none;
-            color: var(--text-muted);
+            font-size: 0.88rem;
+            border: 1px solid var(--slate-200);
+            background: var(--white);
+            color: var(--slate-500);
+            transition: var(--transition);
+            cursor: pointer;
+        }
+
+        .btn-action-icon:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 10px rgba(15, 23, 42, 0.08);
+        }
+
+        .btn-action-view:hover { color: var(--blue-600); border-color: #bfdbfe; background: var(--blue-50); }
+        .btn-action-edit:hover { color: var(--amber-600); border-color: #fde68a; background: var(--amber-50); }
+        .btn-action-wa:hover { color: #16a34a; border-color: #bbf7d0; background: #f0fdf4; }
+        .btn-action-copy:hover { color: var(--purple-600); border-color: #ddd6fe; background: var(--purple-50); }
+        .btn-action-delete:hover { color: var(--rose-600); border-color: #fecdd3; background: var(--rose-50); }
+
+        /* --- Pagination Controls --- */
+        .pagination-container {
+            padding: 1.25rem 2rem;
+            background: var(--white);
+            border-top: 1px solid var(--slate-200);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 1rem;
+            flex-wrap: wrap;
+        }
+
+        .pagination-info {
+            font-size: 0.85rem;
+            color: var(--slate-500);
+        }
+
+        .pagination-info strong {
+            color: var(--navy-900);
+        }
+
+        .pagination-nav {
+            display: flex;
+            list-style: none;
+            gap: 4px;
+        }
+
+        .pagination-link {
+            padding: 6px 12px;
+            min-width: 34px;
+            height: 34px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            font-size: 0.84rem;
             font-weight: 600;
+            color: var(--slate-600);
+            text-decoration: none;
+            border: 1px solid var(--slate-200);
+            background: var(--white);
+            transition: var(--transition);
+        }
+
+        .pagination-link:hover {
+            border-color: var(--slate-300);
+            background: var(--slate-50);
+            color: var(--navy-900);
+        }
+
+        .pagination-link.active {
+            background: var(--primary-maroon);
+            color: var(--white);
+            border-color: var(--primary-maroon);
+            box-shadow: 0 2px 8px rgba(128, 0, 0, 0.2);
+        }
+
+        .pagination-link.disabled {
+            opacity: 0.4;
+            pointer-events: none;
+        }
+
+        /* --- Empty State --- */
+        .empty-dataset-card {
+            text-align: center;
+            padding: 5rem 2rem;
+        }
+
+        .empty-illustration {
+            width: 72px;
+            height: 72px;
+            background: var(--slate-100);
+            border-radius: 20px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--slate-400);
+            font-size: 2rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .empty-dataset-card h3 {
+            font-family: 'Outfit', sans-serif;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--navy-900);
+            margin-bottom: 6px;
+        }
+
+        .empty-dataset-card p {
+            color: var(--slate-500);
             font-size: 0.9rem;
-            transition: all 0.2s;
-            border: 1px solid transparent;
-            gap: 0.5rem;
+            max-width: 420px;
+            margin: 0 auto 1.5rem auto;
         }
 
-        .pagination a:hover {
-            background: #f1f5f9;
-            color: var(--text-main);
+        /* Toast notification */
+        #toastContainer {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
         }
 
-        .pagination a.active {
-            background: var(--primary);
-            color: white;
-            border-color: var(--primary);
-            box-shadow: 0 4px 6px rgba(128, 0, 0, 0.15);
+        .toast-msg {
+            background: var(--navy-900);
+            color: var(--white);
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 0.88rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            animation: toastSlideIn 0.3s ease-out;
         }
 
-        @media (max-width: 1024px) {
-            .container { padding: 2rem 1rem; }
-            .header-section { flex-direction: column; align-items: flex-start; gap: 1.5rem; }
+        @keyframes toastSlideIn {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+
+        @media (max-width: 1280px) {
+            .metrics-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+
+        @media (max-width: 900px) {
+            .metrics-grid { grid-template-columns: repeat(2, 1fr); }
+            .dashboard-container { padding: 1.5rem 1rem; }
+        }
+
+        @media (max-width: 600px) {
+            .metrics-grid { grid-template-columns: 1fr; }
+            .executive-header { flex-direction: column; align-items: flex-start; }
+            .header-actions { width: 100%; }
+            .btn-primary-action, .btn-secondary-action { width: 100%; justify-content: center; }
         }
     </style>
 </head>
 <body>
     <?php include 'navbar.php'; ?>
-    
-    <div class="container">
+
+    <div class="dashboard-container">
         
-        <div class="header-section">
-            <div class="welcome-text">
-                <h1>Welcome back, <?php echo htmlspecialchars((string)$fullName); ?></h1>
-                <p>Monitor your active internships and track student applications.</p>
-            </div>
-            <div style="display: flex; gap: 1rem;">
-                <a href="internship_placed.php" class="btn-primary" style="background: var(--card-bg); color: var(--primary); border: 1px solid var(--primary); box-shadow: none;">
-                    <i class="fas fa-user-graduate"></i> Placed Students
-                </a>
-                <a href="add_internship.php" class="btn-primary">
-                    <i class="fas fa-plus"></i> Post New Internship
-                </a>
-            </div>
-        </div>
-
-        <div class="stats-grid">
-            <div class="stat-card">
-                <div class="stat-icon icon-maroon"><i class="fas fa-briefcase"></i></div>
-                <div class="stat-info">
-                    <p>Total Postings</p>
-                    <h3><?php echo $stats['total_internships']; ?></h3>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon icon-blue"><i class="fas fa-bolt-lightning"></i></div>
-                <div class="stat-info">
-                    <p>Active Now</p>
-                    <h3><?php echo $stats['active']; ?></h3>
-                </div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-icon icon-green"><i class="fas fa-user-graduate"></i></div>
-                <div class="stat-info">
-                    <p>Applications</p>
-                    <h3><?php echo $stats['total_applications']; ?></h3>
-                </div>
-            </div>
-        </div>
-
-        <div class="content-card">
-            <div class="card-header">
-                <h2><i class="fas fa-list-ul" style="color: var(--primary);"></i> Recent Postings</h2>
-                <div class="subtitle">
-                    Showing <?php echo count($internships); ?> internships
-                </div>
+        <!-- 1. Executive Top Header -->
+        <div class="executive-header">
+            <div class="header-title-block">
+                <h1>
+                    Internship Dashboard
+                    <span class="badge-session">Academic Drive 2025-26</span>
+                </h1>
+                <p>Real-time corporate recruitment pipeline, applicant telemetry, and placement conversions.</p>
             </div>
             
-            <div class="table-container">
-                <?php if (empty($internships)): ?>
-                    <div class="empty-state">
-                        <div class="empty-icon">
-                            <i class="fas fa-folder-open"></i>
-                        </div>
-                        <h3>No internship postings yet</h3>
-                        <p style="color: var(--text-muted); margin-bottom: 2rem;">Get started by posting your first internship opportunity for the students.</p>
-                        <a href="add_internship.php" class="btn-primary">Post Internship</a>
-                    </div>
-                <?php
-else: ?>
-                    <div style="overflow-x: auto;">
-                        <table class="custom-table">
-                            <thead>
-                                <tr>
-                                    <th>Company</th>
-                                    <th>Position Details</th>
-                                    <th>Deadline</th>
-                                    <th>Applicants</th>
-                                    <th style="text-align: center;">Status</th>
-                                    <th style="text-align: right;">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($internships as $i): 
-                                    $shareUrl = APP_URL . '/student/internship_details.php?code=' . encryptInternshipId($i['id']);
-                                    $waMessage = "*📢 New Internship Opportunity!*\n\n"
-                                               . "*Company:* " . $i['company_name'] . "\n"
-                                               . "*Role:* " . $i['internship_title'] . "\n"
-                                               . "*Location:* " . $i['location'] . "\n"
-                                               . "*Stipend:* " . $i['stipend'] . "\n"
-                                               . "*Mode:* " . $i['mode'] . "\n"
-                                               . "*Duration:* " . $i['duration'] . "\n"
-                                               . "*Deadline:* " . date('M d, Y', strtotime($i['application_deadline'])) . "\n\n"
-                                               . "*Apply here:* " . $shareUrl . "\n\n"
-                                               . "_Lakshya Placement Portal_";
-                                    $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
-                                ?>
-                                    <tr>
-                                        <td>
-                                            <div class="company-info">
-                                                <?php if (!empty($i['company_logo'])): ?>
-                                                    <img src="../<?php echo $i['company_logo']; ?>" class="company-logo" alt="Logo">
-                                                <?php
-        else: ?>
-                                                    <div class="company-initials">
-                                                        <?php echo strtoupper(substr($i['company_name'], 0, 2)); ?>
-                                                    </div>
-                                                <?php
-        endif; ?>
-                                                <div>
-                                                    <div class="title-text"><?php echo htmlspecialchars($i['company_name']); ?></div>
-                                                    <div class="subtitle-text"><?php echo htmlspecialchars($i['location']); ?></div>
-                                                </div>
-                                            </div>
-                                        </td>
-                                        <td>
-                                            <div class="title-text"><?php echo htmlspecialchars($i['internship_title']); ?></div>
-                                            <div class="subtitle-text"><?php echo htmlspecialchars($i['duration']); ?> • <?php echo htmlspecialchars($i['stipend']); ?></div>
-                                        </td>
-                                        <td>
-                                            <div class="title-text">
-                                                <?php echo date('M d, Y', strtotime($i['application_deadline'])); ?>
-                                            </div>
-                                            <div class="subtitle-text">Posted <?php echo date('j M', strtotime($i['created_at'])); ?></div>
-                                        </td>
-                                        <td>
-                                            <div class="app-count-badge">
-                                                <i class="fas fa-users"></i>
-                                                <?php echo $i['application_count']; ?>
-                                            </div>
-                                        </td>
-                                        <td style="text-align: center;">
-                                            <span class="badge <?php echo $i['status'] === 'Active' ? 'badge-active' : 'badge-inactive'; ?>">
-                                                <?php echo $i['status']; ?>
-                                            </span>
-                                        </td>
-                                        <td style="text-align: right;">
-                                            <div class="action-group">
-                                                <a href="<?php echo $waUrl; ?>" target="_blank" class="btn-icon btn-wa" title="Share on WhatsApp">
-                                                    <i class="fab fa-whatsapp"></i>
-                                                </a>
-                                                <a href="applications.php?id=<?php echo $i['id']; ?>" class="btn-icon btn-view" title="View Applicants">
-                                                    <i class="fas fa-users-viewfinder"></i>
-                                                </a>
-                                                <a href="edit_internship.php?id=<?php echo $i['id']; ?>" class="btn-icon btn-edit" title="Edit Position">
-                                                    <i class="fas fa-pen-to-square"></i>
-                                                </a>
-                                                <a href="javascript:void(0)" onclick="confirmDelete(<?php echo $i['id']; ?>, '<?php echo addslashes($i['internship_title']); ?>')" class="btn-icon btn-delete" title="Remove Position">
-                                                    <i class="fas fa-trash-can"></i>
-                                                </a>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                <?php
-    endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                    
-                    <?php if ($pagination['total_pages'] > 1): ?>
-                        <div class="pagination-wrapper">
-                            <ul class="pagination">
-                                <?php if ($pagination['has_prev']): ?>
-                                    <li><a href="?page=<?php echo $pagination['current_page'] - 1; ?>"><i class="fas fa-chevron-left"></i> Previous</a></li>
-                                <?php endif; ?>
-                                
-                                <?php for ($p = 1; $p <= $pagination['total_pages']; $p++): ?>
-                                    <li>
-                                        <a href="?page=<?php echo $p; ?>" class="<?php echo $p == $pagination['current_page'] ? 'active' : ''; ?>">
-                                            <?php echo $p; ?>
-                                        </a>
-                                    </li>
-                                <?php endfor; ?>
-                                
-                                <?php if ($pagination['has_next']): ?>
-                                    <li><a href="?page=<?php echo $pagination['current_page'] + 1; ?>">Next <i class="fas fa-chevron-right"></i></a></li>
-                                <?php endif; ?>
-                            </ul>
-                        </div>
-                    <?php endif; ?>
-                    
-                <?php
-endif; ?>
+            <div class="header-actions">
+                <a href="internship_placed.php" class="btn-secondary-action" title="View all verified placed students">
+                    <i class="fas fa-user-graduate" style="color: var(--primary-maroon);"></i>
+                    <span>Placed Registry</span>
+                    <span class="counter-badge"><?php echo number_format($selectedCount); ?></span>
+                </a>
+                
+                <a href="add_internship.php" class="btn-primary-action">
+                    <i class="fas fa-plus-circle"></i>
+                    <span>Post New Internship</span>
+                </a>
             </div>
         </div>
 
-        <script>
-            function confirmDelete(id, title) {
-                if (confirm('Are you sure you want to delete the internship "' + title + '"? This action cannot be undone.')) {
-                    window.location.href = 'delete_internship.php?id=' + id;
-                }
-            }
-        </script>
+        <!-- 2. Five-Card Performance KPI Grid -->
+        <div class="metrics-grid">
+            
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <span class="metric-label">Total Postings</span>
+                    <div class="metric-icon-box icon-maroon"><i class="fas fa-briefcase"></i></div>
+                </div>
+                <div>
+                    <div class="metric-value-row">
+                        <span class="metric-value"><?php echo number_format($totalCount); ?></span>
+                    </div>
+                    <div class="metric-meta">Combined corporate drives</div>
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <span class="metric-label">Active Drives</span>
+                    <div class="metric-icon-box icon-emerald"><i class="fas fa-bolt-lightning"></i></div>
+                </div>
+                <div>
+                    <div class="metric-value-row">
+                        <span class="metric-value"><?php echo number_format($activeCount); ?></span>
+                    </div>
+                    <div class="metric-meta">Accepting student applications</div>
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <span class="metric-label">Total Applications</span>
+                    <div class="metric-icon-box icon-blue"><i class="fas fa-users-viewfinder"></i></div>
+                </div>
+                <div>
+                    <div class="metric-value-row">
+                        <span class="metric-value"><?php echo number_format($totalApps); ?></span>
+                    </div>
+                    <div class="metric-meta">Across all departments</div>
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <span class="metric-label">In Review / Shortlist</span>
+                    <div class="metric-icon-box icon-amber"><i class="fas fa-filter-circle-dollar"></i></div>
+                </div>
+                <div>
+                    <div class="metric-value-row">
+                        <span class="metric-value"><?php echo number_format($shortlistedCount); ?></span>
+                    </div>
+                    <div class="metric-meta">Advancing in selection rounds</div>
+                </div>
+            </div>
+
+            <div class="metric-card">
+                <div class="metric-card-header">
+                    <span class="metric-label">Offers Placed</span>
+                    <div class="metric-icon-box icon-purple"><i class="fas fa-award"></i></div>
+                </div>
+                <div>
+                    <div class="metric-value-row">
+                        <span class="metric-value"><?php echo number_format($selectedCount); ?></span>
+                    </div>
+                    <div class="metric-meta">Conversion rate: <strong><?php echo $conversionRate; ?>%</strong></div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- 3. Quick Analytics Sub-bar -->
+        <div class="analytics-subbar">
+            <div class="subbar-left">
+                <div class="subbar-item">
+                    <i class="fas fa-layer-group" style="color: var(--slate-400);"></i>
+                    <span>Engagement Modes:</span>
+                </div>
+                <span class="subbar-pill pill-onsite"><i class="fas fa-building"></i> On-Site (<?php echo $modesCount['On-Site'] ?? 0; ?>)</span>
+                <span class="subbar-pill pill-remote"><i class="fas fa-house-laptop"></i> Remote (<?php echo $modesCount['Remote'] ?? 0; ?>)</span>
+                <span class="subbar-pill pill-hybrid"><i class="fas fa-shuffle"></i> Hybrid (<?php echo $modesCount['Hybrid'] ?? 0; ?>)</span>
+            </div>
+            <div class="subbar-right" style="font-size: 0.82rem; color: var(--slate-500); font-weight: 500;">
+                <i class="fas fa-clock-rotate-left" style="margin-right: 4px;"></i> Real-time sync with candidate applicant telemetry
+            </div>
+        </div>
+
+        <!-- 4. Opportunities Panel -->
+        <div class="panel-card">
+            
+            <div class="panel-header">
+                <div class="panel-title-group">
+                    <h2>
+                        <i class="fas fa-table-list" style="color: var(--primary-maroon);"></i>
+                        Internship Opportunities
+                    </h2>
+                    <p>Showing <?php echo count($internships); ?> of <?php echo number_format($totalRecords); ?> matched corporate listings</p>
+                </div>
+
+                <div class="status-pill-tabs">
+                    <a href="?status=all<?php echo $search ? '&q=' . urlencode($search) : ''; ?><?php echo $modeFilter !== 'all' ? '&mode=' . urlencode($modeFilter) : ''; ?>" class="tab-btn <?php echo $statusFilter === 'all' ? 'active' : ''; ?>">All (<?php echo $totalCount; ?>)</a>
+                    <a href="?status=active<?php echo $search ? '&q=' . urlencode($search) : ''; ?><?php echo $modeFilter !== 'all' ? '&mode=' . urlencode($modeFilter) : ''; ?>" class="tab-btn <?php echo $statusFilter === 'active' ? 'active' : ''; ?>">Active (<?php echo $activeCount; ?>)</a>
+                    <a href="?status=ended<?php echo $search ? '&q=' . urlencode($search) : ''; ?><?php echo $modeFilter !== 'all' ? '&mode=' . urlencode($modeFilter) : ''; ?>" class="tab-btn <?php echo $statusFilter === 'ended' ? 'active' : ''; ?>">Ended / Closed</a>
+                </div>
+            </div>
+
+            <!-- Filter & Search Toolbar -->
+            <form method="GET" action="dashboard.php" class="filter-toolbar">
+                <?php if ($statusFilter !== 'all'): ?>
+                    <input type="hidden" name="status" value="<?php echo htmlspecialchars($statusFilter); ?>">
+                <?php endif; ?>
+
+                <div class="search-box-wrapper">
+                    <i class="fas fa-magnifying-glass"></i>
+                    <input type="text" name="q" value="<?php echo htmlspecialchars($search); ?>" class="search-input" placeholder="Search by role, company, location, stipend..." oninput="debounceSearch(this.form)">
+                </div>
+
+                <div class="filter-controls-group">
+                    <select name="mode" class="select-filter" onchange="this.form.submit()">
+                        <option value="all" <?php echo $modeFilter === 'all' ? 'selected' : ''; ?>>All Work Modes</option>
+                        <option value="On-Site" <?php echo $modeFilter === 'On-Site' ? 'selected' : ''; ?>>On-Site Only</option>
+                        <option value="Remote" <?php echo $modeFilter === 'Remote' ? 'selected' : ''; ?>>Remote Only</option>
+                        <option value="Hybrid" <?php echo $modeFilter === 'Hybrid' ? 'selected' : ''; ?>>Hybrid Only</option>
+                    </select>
+
+                    <select name="per_page" class="select-filter" onchange="this.form.submit()">
+                        <option value="10" <?php echo $perPage == 10 ? 'selected' : ''; ?>>10 / Page</option>
+                        <option value="20" <?php echo $perPage == 20 ? 'selected' : ''; ?>>20 / Page</option>
+                        <option value="50" <?php echo $perPage == 50 ? 'selected' : ''; ?>>50 / Page</option>
+                    </select>
+
+                    <?php if ($search !== '' || $statusFilter !== 'all' || $modeFilter !== 'all'): ?>
+                        <a href="dashboard.php" class="btn-action-icon" title="Reset all active filters" style="width: auto; padding: 0 12px; gap: 6px; font-weight: 600; font-size: 0.8rem;">
+                            <i class="fas fa-rotate-left"></i> Reset
+                        </a>
+                    <?php endif; ?>
+                </div>
+            </form>
+
+            <!-- Table View -->
+            <div class="table-responsive">
+                <?php if (empty($internships)): ?>
+                    <div class="empty-dataset-card">
+                        <div class="empty-illustration">
+                            <i class="fas fa-briefcase"></i>
+                        </div>
+                        <h3>No Internship Postings Found</h3>
+                        <p>No listings matched your active filter criteria. Try adjusting your search keyword or clearing the filters.</p>
+                        <a href="add_internship.php" class="btn-primary-action">
+                            <i class="fas fa-plus"></i> Post An Internship
+                        </a>
+                    </div>
+                <?php else: ?>
+                    <table class="opportunity-table">
+                        <thead>
+                            <tr>
+                                <th>Company & Location</th>
+                                <th>Opportunity & Stipend</th>
+                                <th>Target Cohort</th>
+                                <th>Applications Funnel</th>
+                                <th>Application Deadline</th>
+                                <th style="text-align: center;">Status</th>
+                                <th style="text-align: right;">Quick Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($internships as $i): 
+                                $shareUrl = APP_URL . '/student/internship_details.php?code=' . encryptInternshipId($i['id']);
+                                // WhatsApp formatted deadline
+                                $deadlineRaw = $i['application_deadline'] ?? null;
+                                $deadlineTime = !empty($deadlineRaw) ? strtotime($deadlineRaw) : null;
+                                $formattedDlWa = 'Open / Ongoing';
+                                if ($deadlineTime) {
+                                    $formattedDlWa = (date('H:i', $deadlineTime) !== '00:00') ? date('M d, Y \a\t h:i A', $deadlineTime) : date('M d, Y', $deadlineTime);
+                                }
+
+                                $waMessage = "*📢 New Internship Opportunity!*\n\n"
+                                           . "*Company:* " . $i['company_name'] . "\n"
+                                           . "*Role:* " . $i['internship_title'] . "\n"
+                                           . "*Location:* " . $i['location'] . "\n"
+                                           . "*Stipend:* " . $i['stipend'] . "\n"
+                                           . "*Mode:* " . $i['mode'] . "\n"
+                                           . "*Duration:* " . $i['duration'] . "\n"
+                                           . "*Deadline:* " . $formattedDlWa . "\n\n"
+                                           . "*Apply on Lakshya:* " . $shareUrl;
+                                $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
+
+                                // Deadline Math
+                                $daysLeft = $deadlineTime ? (int)ceil(($deadlineTime - time()) / 86400) : null;
+                            ?>
+                                <tr>
+                                    <!-- 1. Company Column -->
+                                    <td>
+                                        <div class="company-cell">
+                                            <div class="company-badge-logo">
+                                                <?php if (!empty($i['company_logo'])): ?>
+                                                    <img src="../<?php echo htmlspecialchars($i['company_logo']); ?>" alt="Logo">
+                                                <?php else: ?>
+                                                    <?php echo strtoupper(substr($i['company_name'], 0, 2)); ?>
+                                                <?php endif; ?>
+                                            </div>
+                                            <div>
+                                                <div class="company-meta-name"><?php echo htmlspecialchars($i['company_name']); ?></div>
+                                                <div class="company-meta-loc">
+                                                    <i class="fas fa-location-dot" style="font-size: 0.75rem; color: var(--slate-400);"></i>
+                                                    <span><?php echo htmlspecialchars($i['location'] ?: 'Unspecified'); ?></span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    <!-- 2. Opportunity Column -->
+                                    <td>
+                                        <div class="role-title"><?php echo htmlspecialchars($i['internship_title']); ?></div>
+                                        <div class="role-tags-row">
+                                            <span class="pill-badge pill-stipend">
+                                                <i class="fas fa-indian-rupee-sign"></i> <?php echo htmlspecialchars($i['stipend'] ?: 'Competitive'); ?>
+                                            </span>
+                                            <span class="pill-badge pill-duration">
+                                                <i class="far fa-clock"></i> <?php echo htmlspecialchars($i['duration'] ?: 'Standard'); ?>
+                                            </span>
+                                            <span class="pill-badge <?php echo $i['mode'] === 'Remote' ? 'pill-remote' : ($i['mode'] === 'Hybrid' ? 'pill-hybrid' : 'pill-onsite'); ?>">
+                                                <i class="fas <?php echo $i['mode'] === 'Remote' ? 'fa-house-laptop' : ($i['mode'] === 'Hybrid' ? 'fa-shuffle' : 'fa-building'); ?>"></i>
+                                                <?php echo htmlspecialchars($i['mode']); ?>
+                                            </span>
+                                        </div>
+                                    </td>
+
+                                    <!-- 3. Target Cohort -->
+                                    <td>
+                                        <?php if (!empty($i['targeted_students'])): ?>
+                                            <span class="pill-badge pill-target" title="Eligible Target Cohort">
+                                                <i class="fas fa-graduation-cap"></i> <?php echo htmlspecialchars($i['targeted_students']); ?>
+                                            </span>
+                                        <?php else: ?>
+                                            <span style="font-size: 0.78rem; color: var(--slate-400);">Open for all courses</span>
+                                        <?php endif; ?>
+                                    </td>
+
+                                    <!-- 4. Funnel Metrics -->
+                                    <td>
+                                        <div class="funnel-metric-box">
+                                            <div class="funnel-count-main">
+                                                <i class="fas fa-user-group" style="color: var(--primary-maroon); font-size: 0.85rem;"></i>
+                                                <span><?php echo number_format($i['application_count']); ?> Applied</span>
+                                            </div>
+                                            <div class="funnel-substats">
+                                                <span class="shortlisted"><?php echo $i['shortlisted_count']; ?> Shortlisted</span>
+                                                <span>•</span>
+                                                <span class="selected"><?php echo $i['selected_count']; ?> Offers</span>
+                                            </div>
+                                        </div>
+                                    </td>
+
+                                    <!-- 5. Deadline -->
+                                    <td>
+                                        <div class="deadline-cell">
+                                            <div class="deadline-date">
+                                                <?php 
+                                                    if ($deadlineTime) {
+                                                        echo date('M d, Y', $deadlineTime);
+                                                        if (date('H:i', $deadlineTime) !== '00:00') {
+                                                            echo '<span style="display:block; font-size: 0.74rem; color: var(--slate-500); font-weight: 600; margin-top: 1px;"><i class="far fa-clock" style="font-size:0.7rem;"></i> ' . date('h:i A', $deadlineTime) . '</span>';
+                                                        }
+                                                    } else {
+                                                        echo 'Open / Ongoing';
+                                                    }
+                                                ?>
+                                            </div>
+                                            <?php if ($deadlineTime): ?>
+                                                <?php if ($daysLeft < 0): ?>
+                                                    <span class="deadline-countdown countdown-expired">Closed</span>
+                                                <?php elseif ($daysLeft <= 3): ?>
+                                                    <span class="deadline-countdown countdown-warning"><i class="fas fa-fire"></i> <?php echo $daysLeft == 0 ? 'Closes Today' : $daysLeft . 'd remaining'; ?></span>
+                                                <?php else: ?>
+                                                    <span class="deadline-countdown countdown-safe"><?php echo $daysLeft; ?> days remaining</span>
+                                                <?php endif; ?>
+                                            <?php endif; ?>
+                                        </div>
+                                    </td>
+
+                                    <!-- 6. Status -->
+                                    <td style="text-align: center;">
+                                        <?php if ($i['status'] === 'Active'): ?>
+                                            <span class="status-indicator-badge badge-status-active">
+                                                <span class="pulse-dot"></span> Active
+                                            </span>
+                                        <?php elseif ($i['status'] === 'Ended'): ?>
+                                            <span class="status-indicator-badge badge-status-ended">
+                                                <i class="fas fa-circle-xmark"></i> Ended
+                                            </span>
+                                        <?php else: ?>
+                                            <span class="status-indicator-badge badge-status-draft">
+                                                <i class="fas fa-file-lines"></i> <?php echo htmlspecialchars($i['status']); ?>
+                                            </span>
+                                        <?php endif; ?>
+                                    </td>
+
+                                    <!-- 7. Actions Toolbar -->
+                                    <td style="text-align: right;">
+                                        <div class="actions-cluster">
+                                            <button type="button" class="btn-action-icon btn-action-copy" title="Copy student application link" onclick="copyLink('<?php echo $shareUrl; ?>')">
+                                                <i class="fas fa-link"></i>
+                                            </button>
+
+                                            <a href="<?php echo $waUrl; ?>" target="_blank" class="btn-action-icon btn-action-wa" title="Share circular on WhatsApp">
+                                                <i class="fab fa-whatsapp"></i>
+                                            </a>
+
+                                            <a href="applications.php?id=<?php echo $i['id']; ?>" class="btn-action-icon btn-action-view" title="View Applicants & Selection Pipeline">
+                                                <i class="fas fa-users-viewfinder"></i>
+                                            </a>
+
+                                            <a href="edit_internship.php?id=<?php echo $i['id']; ?>" class="btn-action-icon btn-action-edit" title="Edit Posting Details">
+                                                <i class="fas fa-pen-to-square"></i>
+                                            </a>
+
+                                            <button type="button" class="btn-action-icon btn-action-delete" title="Archive / Delete Posting" onclick="confirmDelete(<?php echo $i['id']; ?>, '<?php echo addslashes($i['internship_title']); ?>')">
+                                                <i class="fas fa-trash-can"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                <?php endif; ?>
+            </div>
+
+            <!-- Pagination Footer -->
+            <?php if ($totalPages > 1): ?>
+                <div class="pagination-container">
+                    <div class="pagination-info">
+                        Showing <strong><?php echo $offset + 1; ?></strong> to <strong><?php echo min($offset + $perPage, $totalRecords); ?></strong> of <strong><?php echo number_format($totalRecords); ?></strong> internships
+                    </div>
+
+                    <ul class="pagination-nav">
+                        <li>
+                            <a href="?page=<?php echo max(1, $page - 1); ?>&status=<?php echo urlencode($statusFilter); ?>&mode=<?php echo urlencode($modeFilter); ?>&q=<?php echo urlencode($search); ?>&per_page=<?php echo $perPage; ?>" class="pagination-link <?php echo $page <= 1 ? 'disabled' : ''; ?>" title="Previous Page">
+                                <i class="fas fa-chevron-left"></i>
+                            </a>
+                        </li>
+
+                        <?php
+                        $startPage = max(1, $page - 2);
+                        $endPage = min($totalPages, $page + 2);
+                        if ($startPage > 1) {
+                            echo '<li><a href="?page=1&status=' . urlencode($statusFilter) . '&mode=' . urlencode($modeFilter) . '&q=' . urlencode($search) . '&per_page=' . $perPage . '" class="pagination-link">1</a></li>';
+                            if ($startPage > 2) echo '<li><span class="pagination-link disabled">...</span></li>';
+                        }
+
+                        for ($p = $startPage; $p <= $endPage; $p++) {
+                            $activeClass = ($p == $page) ? 'active' : '';
+                            echo '<li><a href="?page=' . $p . '&status=' . urlencode($statusFilter) . '&mode=' . urlencode($modeFilter) . '&q=' . urlencode($search) . '&per_page=' . $perPage . '" class="pagination-link ' . $activeClass . '">' . $p . '</a></li>';
+                        }
+
+                        if ($endPage < $totalPages) {
+                            if ($endPage < $totalPages - 1) echo '<li><span class="pagination-link disabled">...</span></li>';
+                            echo '<li><a href="?page=' . $totalPages . '&status=' . urlencode($statusFilter) . '&mode=' . urlencode($modeFilter) . '&q=' . urlencode($search) . '&per_page=' . $perPage . '" class="pagination-link">' . $totalPages . '</a></li>';
+                        }
+                        ?>
+
+                        <li>
+                            <a href="?page=<?php echo min($totalPages, $page + 1); ?>&status=<?php echo urlencode($statusFilter); ?>&mode=<?php echo urlencode($modeFilter); ?>&q=<?php echo urlencode($search); ?>&per_page=<?php echo $perPage; ?>" class="pagination-link <?php echo $page >= $totalPages ? 'disabled' : ''; ?>" title="Next Page">
+                                <i class="fas fa-chevron-right"></i>
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            <?php endif; ?>
+
+        </div>
+
     </div>
+
+    <!-- Toast Notification Overlay -->
+    <div id="toastContainer"></div>
+
+    <script>
+        // Copy share link helper
+        function copyLink(url) {
+            navigator.clipboard.writeText(url).then(() => {
+                showToast('Link copied to clipboard!');
+            }).catch(() => {
+                // Fallback prompt
+                prompt('Copy this link:', url);
+            });
+        }
+
+        // Lightweight Toast notification
+        function showToast(message) {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = 'toast-msg';
+            toast.innerHTML = '<i class="fas fa-circle-check" style="color: #10b981;"></i> ' + message;
+            container.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(10px)';
+                toast.style.transition = 'all 0.3s ease';
+                setTimeout(() => toast.remove(), 300);
+            }, 2500);
+        }
+
+        // Live Debounced Search
+        let searchTimeout = null;
+        function debounceSearch(form) {
+            clearTimeout(searchTimeout);
+            searchTimeout = setTimeout(() => {
+                form.submit();
+            }, 600);
+        }
+
+        // Delete confirmation
+        function confirmDelete(id, title) {
+            if (confirm('Are you sure you want to delete the internship position:\n\n"' + title + '"\n\nThis will remove the listing and archive candidate records.')) {
+                window.location.href = 'delete_internship.php?id=' + id;
+            }
+        }
+    </script>
 </body>
 </html>

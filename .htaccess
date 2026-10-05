@@ -13,6 +13,13 @@ DirectoryIndex index.php
     # Block access to sensitive/internal dirs if requested
     RewriteRule ^(src|config|database|storage|vendor|logs|tmp)/ - [F,L]
 
+    # Block access to credentials/passwords reference files
+    RewriteRule ^(passwords_reference\.txt|credentials.*\.txt|\.env.*) - [F,L]
+
+    # Block direct browser access to sensitive files (except robots.txt)
+    RewriteCond %{REQUEST_URI} !^/Lakshya/robots\.txt$ [NC]
+    RewriteRule \.(txt|md|sql|log|ini|conf|bak|swp)$ - [F,L]
+
     # Block hidden files (except Google Search Console verification files)
     RewriteCond %{REQUEST_URI} !^/Lakshya/google[a-f0-9]+\.html$ [NC]
     RewriteRule (^\.|/\.) - [F,L]

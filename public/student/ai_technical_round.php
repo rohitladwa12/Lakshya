@@ -15,7 +15,7 @@ if ($driveId > 0) {
     $usn = getUsername();
     // Fetch drive details
     $stmt = $db->prepare("
-        SELECT cd.*, jp.title as job_title, jp.id as job_id, c.name as company_name 
+        SELECT cd.*, jp.title as job_title, jp.id as job_id, c.name as company_name
         FROM campus_drives cd
         JOIN job_postings jp ON cd.job_id = jp.id
         LEFT JOIN companies c ON jp.company_id = c.id
@@ -28,7 +28,7 @@ if ($driveId > 0) {
     }
     // Enforce applied check
     $stmt = $db->prepare("
-        SELECT COUNT(*) FROM job_applications 
+        SELECT COUNT(*) FROM job_applications
         WHERE job_id = ? AND student_id = ?
     ");
     $stmt->execute([$drive['job_id'], $usn]);
@@ -57,9 +57,9 @@ if ($driveId > 0) {
     }
 
     $filters = SessionFilterHelper::getFilters('ai_technical_round');
-    $companyName = $filters['company'] ?? 'General';
-    $taskId = $filters['task_id'] ?? 0;
-    $concept = $filters['concept'] ?? '';
+    $companyName = !empty($_GET['company']) ? clean($_GET['company']) : ($filters['company'] ?? 'General');
+    $taskId = isset($_GET['task_id']) ? (int)$_GET['task_id'] : (int)($filters['task_id'] ?? 0);
+    $concept = !empty($_GET['concept']) ? clean($_GET['concept']) : ($filters['concept'] ?? '');
     if (empty($concept) && $taskId) {
         try {
             $db = getDB();
@@ -83,6 +83,8 @@ if ($driveId > 0) {
         href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@300;400;600&display=swap"
         rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <!-- In-page dialogs (replaces native alert/confirm popups) -->
+    <script src="../js/lakshya_dialogs.js?v=<?php echo APP_VERSION; ?>"></script>
     <!-- Code Mirror for Editor -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/codemirror.min.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.2/theme/dracula.min.css">
@@ -505,7 +507,7 @@ if ($driveId > 0) {
         <div
             style="text-align: center; max-width: 600px; padding: 40px; background: #1e1e1e; border-radius: 16px; border: 1px solid #333;">
             <h1 style="color: var(--accent);">Technical Round</h1>
-            <p>Role: <strong><?php echo htmlspecialchars($companyName); ?></strong></p>
+            <p>Company: <strong><?php echo htmlspecialchars($companyName); ?></strong></p>
             <p style="color: #aaa; margin: 20px 0;">
                 Prepare for a rigorous technical assessment.<br>
                 The AI interviewer is strict and expects precise answers.<br>
@@ -515,13 +517,13 @@ if ($driveId > 0) {
             <div style="margin-bottom: 20px; <?php echo $driveId > 0 ? 'display:none;' : ''; ?>">
                 <input type="text" id="roleInput" placeholder="Enter specific role (e.g. Backend Dev)"
                     value="<?php echo htmlspecialchars($roleName); ?>"
-                    style="padding: 10px; width: 100%; max-width: 300px; text-align: center;">
+                    style="padding: 10px 14px; width: 100%; max-width: 320px; text-align: center; border-radius: 8px; border: 1px solid #444; background: #2a2a2a; color: #fff;">
+            </div>
             <div id="proctor-env-box" style="margin-bottom: 20px; padding: 12px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1); border-radius: 8px; text-align: left; font-size: 0.9rem;">
                 <div style="font-weight: 600; color: var(--accent);"><i class="fas fa-shield-alt"></i> AI Proctoring Active</div>
                 <div id="proctor-env-status" style="margin-top: 4px; color: #aaa; font-size: 0.85rem;">Camera & baseline calibration will initialize on start.</div>
             </div>
-            <button id="btnStartTech" onclick="startSession()" class="btn-send" style="padding: 15px 40px; font-size: 1.1rem;">Start
-                Interface</button>
+            <button id="btnStartTech" onclick="startSession()" class="btn-send" style="padding: 15px 40px; font-size: 1.1rem; border-radius: 8px; cursor: pointer;">Start Interface</button>
         </div>
     </div>
 
@@ -632,12 +634,12 @@ if ($driveId > 0) {
             style="text-align: center; max-width: 500px; padding: 30px; border: 2px solid var(--primary); background: #000; border-radius: 12px;">
             <i class="fas fa-exclamation-triangle"
                 style="color: var(--primary); font-size: 3rem; margin-bottom: 20px;"></i>
-            <h2 style="color: #fff; margin-bottom: 10px;">Security Violation</h2>
-            <p style="color: #ccc; margin-bottom: 25px;">
-                You have exited Full Screen mode. This is a violation of the assessment protocols.<br>
+            <h2 id="warningTitle" style="color: #fff; margin-bottom: 10px;">Security Violation</h2>
+            <p id="warningText" style="color: #ccc; margin-bottom: 25px;">
+                You left the assessment window or exited Full Screen mode. This is a violation of the assessment protocols.<br>
                 Please return to full screen immediately to continue.
             </p>
-            <button onclick="resumeFullscreen()" class="btn-send" style="width: 100%;">RESUME ASSESSMENT</button>
+            <button id="warningBtn" onclick="resumeFullscreen()" class="btn-send" style="width: 100%;">RESUME ASSESSMENT</button>
         </div>
     </div>
 
@@ -660,9 +662,10 @@ if ($driveId > 0) {
             }
         }
         let sessionId = null;
-        let company = "<?php echo addslashes($companyName); ?>";
+        // json_encode (not addslashes) so a value containing a closing script tag or a line break can't break the script
+        let company = <?php echo json_encode((string)$companyName, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
         let driveId = <?php echo $driveId; ?>;
-        let concept = "<?php echo addslashes($concept); ?>";
+        let concept = <?php echo json_encode((string)$concept, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
         let editor;
         let currentProblem = null;
         let isSessionActive = false; // Track session state
@@ -671,11 +674,19 @@ if ($driveId > 0) {
         let isTaskId = <?php echo $taskId ? 'true' : 'false'; ?>;
         const MIN_REQUIRED_TIME = 20 * 60; // 20 minutes in seconds
         let proctorEngine = null;
+        let proctorReady = false;      // camera calibrated + monitoring started (don't redo it on a retry)
+        let timerInterval = null;
+        let isRunningCode = false;
+        let isEndingSession = false;
+
+        function escapeHtml(text) {
+            return String(text ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
 
         // Initialize Proctoring Engine
         try {
             proctorEngine = new ProctoringEngine({
-                studentId: "<?php echo addslashes(getUsername()); ?>",
+                studentId: <?php echo json_encode((string)getUsername(), JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>,
                 assessmentId: <?php echo (int)($taskId ?: ($driveId ?: 1)); ?>,
                 assessmentType: 'technical',
                 apiEndpoint: 'proctor_handler.php',
@@ -700,26 +711,72 @@ if ($driveId > 0) {
                 autoCloseBrackets: true
             });
             editor.setValue("# Waiting for a coding challenge...");
-
-            // Fullscreen Enforcement Listener
-            document.addEventListener('fullscreenchange', () => {
-                if (!document.fullscreenElement && isSessionActive) {
-                    document.getElementById('warningOverlay').classList.remove('hidden');
-                }
-            });
-
-            document.addEventListener('visibilitychange', () => {
-                if (document.visibilityState === 'hidden' && isSessionActive) {
-                    document.getElementById('warningOverlay').classList.remove('hidden');
-                }
-            });
-
-            window.addEventListener('blur', () => {
-                if (isSessionActive) {
-                    document.getElementById('warningOverlay').classList.remove('hidden');
-                }
-            });
         };
+
+        // --- Fullscreen helpers (Safari < 16.4 only has the webkit-prefixed API) ---
+        function getFullscreenElement() {
+            return document.fullscreenElement || document.webkitFullscreenElement || null;
+        }
+
+        // The macOS fullscreen transition briefly blurs the window; don't treat that as leaving the test
+        let fullscreenGraceUntil = 0;
+
+        function requestFullscreenCompat() {
+            fullscreenGraceUntil = Date.now() + 1500;
+            if (proctorEngine && typeof proctorEngine.noteFullscreenRequest === 'function') {
+                proctorEngine.noteFullscreenRequest();
+            }
+            const el = document.documentElement;
+            if (el.requestFullscreen) return el.requestFullscreen();
+            if (el.webkitRequestFullscreen) {
+                el.webkitRequestFullscreen();
+                return Promise.resolve();
+            }
+            return Promise.reject(new Error('Fullscreen API not supported'));
+        }
+
+        function exitFullscreenCompat() {
+            if (!getFullscreenElement()) return;
+            if (document.exitFullscreen) document.exitFullscreen().catch(e => console.log(e));
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        }
+
+        // isPrompt = true: plain "enter full screen" request (not a violation, e.g. the browser
+        // refused fullscreen at session start because the click was too long ago)
+        function showSecurityOverlay(isPrompt) {
+            const titleEl = document.getElementById('warningTitle');
+            const textEl = document.getElementById('warningText');
+            const btnEl = document.getElementById('warningBtn');
+            if (isPrompt) {
+                titleEl.textContent = 'Full Screen Required';
+                textEl.textContent = 'Click the button below to enter full screen and continue. This is not counted as a warning.';
+                btnEl.textContent = 'ENTER FULL SCREEN';
+            } else {
+                titleEl.textContent = 'Security Violation';
+                textEl.innerHTML = 'You left the assessment window or exited Full Screen mode. This is a violation of the assessment protocols.<br>Please return to full screen immediately to continue.';
+                btnEl.textContent = 'RESUME ASSESSMENT';
+            }
+            document.getElementById('warningOverlay').classList.remove('hidden');
+        }
+
+        // These only show the overlay — strikes are counted by the proctoring engine itself
+        function onFullscreenChange() {
+            if (!getFullscreenElement() && isSessionActive) showSecurityOverlay(false);
+        }
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden' && isSessionActive && Date.now() > fullscreenGraceUntil) {
+                showSecurityOverlay(false);
+            }
+        });
+
+        window.addEventListener('blur', () => {
+            if (isSessionActive && Date.now() > fullscreenGraceUntil) {
+                showSecurityOverlay(false);
+            }
+        });
 
         // --- Security Measures: Disable Copy/Paste/Right-Click ---
         document.addEventListener('contextmenu', e => e.preventDefault());
@@ -728,11 +785,14 @@ if ($driveId > 0) {
         document.addEventListener('paste', e => e.preventDefault());
 
         document.addEventListener('keydown', e => {
-            // Disable Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+U, Ctrl+Shift+I (Inspect)
-            if (e.ctrlKey && ['c', 'v', 'x', 'u'].includes(e.key.toLowerCase())) {
+            const key = (e.key || '').toLowerCase();
+            // Disable Ctrl/Cmd+C, V, X, U (metaKey = Cmd on macOS). Other editor shortcuts (Cmd+Z/A/S, arrows) still work.
+            if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'u'].includes(key)) {
                 e.preventDefault();
             }
-            if (e.ctrlKey && e.shiftKey && e.key === 'I') {
+            // Inspect: Ctrl+Shift+I / Cmd+Shift+I / Cmd+Option+I (Option changes e.key on Mac, so check e.code)
+            if (((e.ctrlKey || e.metaKey) && e.shiftKey && (key === 'i' || e.code === 'KeyI')) ||
+                (e.metaKey && e.altKey && e.code === 'KeyI')) {
                 e.preventDefault();
             }
             // Disable F12
@@ -742,41 +802,65 @@ if ($driveId > 0) {
         });
 
         function resumeFullscreen() {
-            document.documentElement.requestFullscreen().then(() => {
+            requestFullscreenCompat().then(() => {
                 document.getElementById('warningOverlay').classList.add('hidden');
             }).catch(e => {
-                alert("Please manually enable full screen (F11)");
+                // A native popup here would blur the window again, so show the hint inline
+                const textEl = document.getElementById('warningText');
+                if (textEl && !textEl.querySelector('.fs-blocked-hint')) {
+                    textEl.insertAdjacentHTML('beforeend', '<br><br><span class="fs-blocked-hint" style="color:#f59e0b;">Your browser blocked full screen. Please click the button again, and allow full screen if your browser asks.</span>');
+                }
             });
+        }
+
+        // Called once the session is live: the fullscreen request usually comes long after the
+        // Start click (camera + calibration in between), so browsers refuse it. Ask for one more click.
+        function ensureFullscreenOrPrompt() {
+            setTimeout(() => {
+                if (isSessionActive && !getFullscreenElement()) showSecurityOverlay(true);
+            }, 700);
         }
 
         async function startSession() {
             const roleInput = document.getElementById('roleInput').value;
             const startBtn = document.getElementById('btnStartTech') || document.querySelector('.btn-send');
             const statusEl = document.getElementById('proctor-env-status');
+            const isMac = /Mac/i.test(navigator.platform || navigator.userAgent);
+            // Prevent a second click while camera/calibration/start is in progress
+            if (startBtn) startBtn.disabled = true;
 
-            // 1. Initialize Proctoring & Camera
-            if (proctorEngine) {
-                if (startBtn) startBtn.disabled = true;
+            // 1. Initialize Proctoring & Camera (skipped on a retry once calibration already passed)
+            if (proctorEngine && !proctorReady) {
                 if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Initializing camera & proctoring session...';
 
                 try {
-                    const camReady = await proctorEngine.init();
-                    if (!camReady) {
-                        if (startBtn) startBtn.disabled = false;
-                        if (statusEl) statusEl.innerHTML = '<span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> Camera access required. Please allow camera in browser and retry.</span>';
-                        return;
+                    // On a calibration retry the camera is already open — re-opening it would leak the old stream
+                    if (!proctorEngine._stream) {
+                        const camReady = await proctorEngine.init();
+                        if (!camReady) {
+                            // The engine wrote the specific reason (denied / in use / not found) into the status line
+                            const engineMsg = statusEl ? statusEl.textContent.trim() : '';
+                            if (startBtn) { startBtn.disabled = false; startBtn.textContent = 'Retry Camera'; }
+                            if (statusEl) statusEl.innerHTML = '<span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> '
+                                + escapeHtml(engineMsg || 'Camera access required. Please allow camera in browser and retry.') + '</span>'
+                                + (isMac
+                                    ? '<br><span style="font-size:0.8rem;color:#aaa;">On a Mac: open System Settings → Privacy &amp; Security → Camera, turn on your browser, then quit and reopen the browser. Close FaceTime, Zoom or Teams if they are using the camera.</span>'
+                                    : '<br><span style="font-size:0.8rem;color:#aaa;">Click the camera icon in the address bar to allow access, and close other apps that are using the camera.</span>');
+                            return;
+                        }
                     }
 
-                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Calibrating posture & identity baseline... (keep face centered)';
+                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Calibrating posture & identity baseline... Keep your face centered in the camera preview (bottom-right).';
                     const envCheck = await proctorEngine.runEnvCheck();
                     if (!envCheck.passed) {
-                        if (startBtn) startBtn.disabled = false;
+                        if (startBtn) { startBtn.disabled = false; startBtn.textContent = 'Retry Calibration'; }
                         const reason = (envCheck.reasons && envCheck.reasons.length) ? envCheck.reasons.join(' ') : 'Camera calibration failed. Please ensure face is centered and lighting is adequate.';
-                        if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> ${reason}</span>`;
+                        if (statusEl) statusEl.innerHTML = `<span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> ${escapeHtml(reason)}</span><br><span style="font-size:0.8rem;color:#aaa;">Face the screen with your face fully visible in the preview, add light in front of you, then click Retry Calibration.</span>`;
                         return;
                     }
 
                     proctorEngine.start();
+                    proctorReady = true;
                 } catch (pErr) {
                     console.warn("Proctor init warning:", pErr);
                 }
@@ -801,9 +885,8 @@ if ($driveId > 0) {
                 document.getElementById('introOverlay').classList.add('hidden');
                 document.getElementById('roleBadge').innerText = checkRes.role || roleInput;
 
-                if (document.documentElement.requestFullscreen) {
-                    await document.documentElement.requestFullscreen().catch((e) => console.log(e));
-                }
+                await requestFullscreenCompat().catch((e) => console.log(e));
+                ensureFullscreenOrPrompt();
 
                 startTimer();
                 updateState("Resuming technical session...", "neutral");
@@ -846,18 +929,22 @@ if ($driveId > 0) {
             document.getElementById('introOverlay').classList.add('hidden');
 
             // Fullscreen trigger
-            if (document.documentElement.requestFullscreen) {
-                await document.documentElement.requestFullscreen().catch((e) => console.log(e));
-            }
+            await requestFullscreenCompat().catch((e) => console.log(e));
 
             // API Call to start
-            const res = await apiCall({ action: 'start_session', role: role, company: company, task_id: "<?php echo $taskId; ?>", drive_id: driveId, concept: concept });
+            const res = await apiCall({ action: 'start_session', role: role, company: company, task_id: "<?php echo (int)$taskId; ?>", drive_id: driveId, concept: concept });
             if (res.success) {
                 sessionId = res.session_id;
                 isSessionActive = true;
                 startTime = Date.now();
+                ensureFullscreenOrPrompt();
                 startTimer();
                 loadNextQuestion();
+            } else {
+                // Previously a failed start left a blank screen with no feedback
+                document.getElementById('introOverlay').classList.remove('hidden');
+                if (startBtn) { startBtn.disabled = false; startBtn.textContent = 'Start Interface'; }
+                await LakshyaDialog.alert('Could not start the technical round: ' + (res.message || 'Unknown error') + '\nPlease try again.', { type: 'error', title: 'Could Not Start' });
             }
         }
 
@@ -866,7 +953,8 @@ if ($driveId > 0) {
             const timerText = document.getElementById('timerText');
             const endBtn = document.getElementById('endSessionBtn');
 
-            setInterval(() => {
+            if (timerInterval) clearInterval(timerInterval);
+            timerInterval = setInterval(() => {
                 if (!isSessionActive) return;
 
                 const elapsed = Math.floor((Date.now() - startTime) / 1000);
@@ -922,7 +1010,7 @@ if ($driveId > 0) {
             } catch (e) {
                 hideTyping();
                 isProcessing = false;
-                alert("Connection failed.");
+                LakshyaDialog.alert("Connection failed. Please resend your last answer to continue.", { type: 'error', title: 'Connection Failed' });
             }
         }
 
@@ -978,7 +1066,7 @@ if ($driveId > 0) {
             let questionText = isCode ? payload.problem_statement : payload.question;
 
             // Fallback detection: if the AI asked a coding question but marked it as conceptual
-            if (!isCode && questionText) {
+            if (!isCode && typeof questionText === 'string' && questionText) {
                 const textLower = questionText.toLowerCase();
                 if (
                     textLower.includes('write a function') ||
@@ -1012,7 +1100,7 @@ if ($driveId > 0) {
                 }
             }
 
-            const feedbackText = payload.feedback && payload.feedback.trim() !== '' ? `**Evaluation:** ${payload.feedback}\n\n` : '';
+            const feedbackText = typeof payload.feedback === 'string' && payload.feedback.trim() !== '' ? `**Evaluation:** ${payload.feedback}\n\n` : '';
 
             let messageText = feedbackText;
             if (questionText) {
@@ -1042,6 +1130,12 @@ if ($driveId > 0) {
             const input = document.getElementById('userInput');
             const txt = input.value.trim();
             if (!txt) return;
+            // loadNextQuestion() ignores calls while a request is in flight, so
+            // sending now would show the answer in chat but never submit it.
+            if (isProcessing) {
+                LakshyaDialog.alert("The interviewer is still responding. Please wait for the next question, then send your answer.", { type: 'info', title: 'Please Wait' });
+                return;
+            }
 
             addMessage('user', txt);
             input.value = '';
@@ -1053,9 +1147,12 @@ if ($driveId > 0) {
 
         async function runCode() {
             if (!currentProblem) {
-                alert("No active coding challenge.");
+                LakshyaDialog.alert("No active coding challenge.", { type: 'info', title: 'No Challenge' });
                 return;
             }
+            // Repeated clicks used to submit the same code several times (and skip several questions on a pass)
+            if (isRunningCode) return;
+            isRunningCode = true;
 
             const code = editor.getValue();
             const lang = document.getElementById('langSelect').value;
@@ -1073,6 +1170,7 @@ if ($driveId > 0) {
             });
 
             const renderEvaluation = (resultData) => {
+                isRunningCode = false;
                 let result = resultData;
                 // Unwrap the possible payload shapes: {result: {...}} nesting or a JSON string in .content
                 if (result && result.result && typeof result.result === 'object') {
@@ -1088,9 +1186,9 @@ if ($driveId > 0) {
                 outputDiv.innerText = `${result.feedback || 'No feedback'}\n\nPassed: ${result.passed ? 'YES ✓' : 'NO ✗'}\nScore: ${result.score || 0}/10`;
                 outputDiv.className = result.passed ? "output success" : "output error";
                 if (result.passed) {
-                    setTimeout(() => {
-                        alert("Great execution! Moving to next challenge.");
-                        loadNextQuestion("Code submitted successfully. Ready for next.");
+                    setTimeout(async () => {
+                        await LakshyaDialog.alert("Great execution! Moving to next challenge.", { type: 'success', title: 'Challenge Passed' });
+                        if (isSessionActive) loadNextQuestion("Code submitted successfully. Ready for next.");
                     }, 2000);
                 }
             };
@@ -1098,6 +1196,7 @@ if ($driveId > 0) {
             if (res.success && res.job_id) {
                 outputDiv.innerText = "Evaluating... (this may take ~10s)";
                 pollJobStatus(res.job_id, renderEvaluation, (err) => {
+                    isRunningCode = false;
                     outputDiv.innerText = "Evaluation failed: " + err;
                     outputDiv.className = "output error";
                 });
@@ -1105,27 +1204,35 @@ if ($driveId > 0) {
                 // Synchronous fallback path (queue/worker unavailable server-side)
                 renderEvaluation(res.result);
             } else {
+                isRunningCode = false;
                 outputDiv.innerText = "Failed to submit code: " + (res.message || "Unknown error");
                 outputDiv.className = "output error";
             }
         }
 
         async function endSession(forceAutoSubmit = false) {
-            if (!forceAutoSubmit && !confirm("Are you sure? This will end your session and generate your score.")) return;
+            if (isEndingSession) return;
+            if (!forceAutoSubmit) {
+                const ok = await LakshyaDialog.confirm("Are you sure? This will end your session and generate your score.", {
+                    title: 'End Session?', type: 'warning', okText: 'End & Generate Score', cancelText: 'Continue Interview'
+                });
+                // A proctor auto-submit may have started while the dialog was open
+                if (!ok || isEndingSession) return;
+            }
+            isEndingSession = true;
 
             isSessionActive = false; // Disable enforcement for report generation
             if (proctorEngine) {
                 try { proctorEngine.stop(); } catch (e) { }
             }
-            if (document.fullscreenElement) {
-                document.exitFullscreen().catch(e => console.log(e));
-            }
+            document.getElementById('warningOverlay').classList.add('hidden');
+            exitFullscreenCompat();
 
             document.getElementById('loadingOverlay').classList.remove('hidden');
 
             // 1. Get Report Data with proctoring audit token
-            const res = await apiCall({ 
-                action: 'generate_report_data', 
+            const res = await apiCall({
+                action: 'generate_report_data',
                 session_id: sessionId,
                 proctor_token: proctorEngine ? (proctorEngine._token || '') : ''
             });
@@ -1154,7 +1261,10 @@ if ($driveId > 0) {
 
                 modal.classList.remove('hidden');
             } else {
-                alert(res.message || "Failed to generate score data.");
+                // Resume the interview so the student can keep going / retry ending
+                isEndingSession = false;
+                isSessionActive = true;
+                LakshyaDialog.alert(res.message || "Failed to generate score data.", { type: 'error', title: 'Could Not Generate Score' });
             }
 
         }
@@ -1181,14 +1291,14 @@ if ($driveId > 0) {
             if (currentMessageNodes.length > 0) {
                 lastAiText = currentMessageNodes[currentMessageNodes.length - 1].innerText;
             }
-            
+
             // Construct a mock coding payload
             const mockPayload = {
                 type: 'coding',
                 problem_statement: lastAiText,
                 constraints: 'None'
             };
-            
+
             currentProblem = mockPayload;
             activateCodingMode(mockPayload);
         }
@@ -1198,6 +1308,8 @@ if ($driveId > 0) {
             try {
                 const formData = new FormData();
                 for (const k in data) formData.append(k, data[k]);
+                // Tells the handler whether session_id is a drive attempt or a practice session
+                if (!('drive_id' in data)) formData.append('drive_id', driveId);
                 formData.append('csrf_token', window.CSRF_TOKEN);
 
                 const response = await fetch('ai_technical_handler', {
@@ -1222,8 +1334,11 @@ if ($driveId > 0) {
             const div = document.createElement('div');
             div.className = `message ${role}`;
 
+            // Escape first: code like vector<int> or List<String> was being parsed
+            // as HTML tags, silently swallowing parts of the question.
+            const escaped = String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
             // Simple Markdown parsing
-            let html = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+            let html = escaped.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
                 .replace(/\n/g, '<br>');
 
             div.innerHTML = `<div class="bubble">${html}</div>`;
