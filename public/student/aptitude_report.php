@@ -204,7 +204,7 @@ $reportContent = $details['report_content'] ?? null;
         </div>
         <div class="stat-card">
             <div class="label">Total Questions</div>
-            <div class="value"><?php echo $assessment['total_marks'] ?? count($questions); ?></div>
+            <div class="value"><?php echo (int) ($details['total_questions'] ?? (count($questions) ?: ($assessment['total_marks'] ?? 0))); ?></div>
         </div>
         <div class="stat-card">
             <div class="label">Status</div>

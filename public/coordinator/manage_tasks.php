@@ -42,6 +42,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['update_deadline'])) {
     exit;
 }
 
+/**
+ * Duration + question-paper status chips for timed tasks (aptitude / technical).
+ * A failed or stuck generation gets a Retry button.
+ */
+function renderTimedTaskBadges(array $task)
+{
+    if (!TaskAssessmentService::isTimed($task)) {
+        return '';
+    }
+    $chip = 'display:inline-flex; align-items:center; gap:4px; font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px;';
+    $unit = $task['task_type'] === 'technical' ? 'problems' : 'Qs';
+    $html = '<span style="' . $chip . ' background:#eef2ff; color:#3730a3;"><i class="fas fa-hourglass-half"></i> '
+        . htmlspecialchars(TaskAssessmentService::formatDuration($task['duration_minutes'])) . ' · ' . (int) $task['question_count'] . ' ' . $unit . '</span>';
+
+    $status = $task['generation_status'] ?? '';
+    $stale = $status === 'generating' && !empty($task['generation_started_at'])
+        && strtotime($task['generation_started_at']) < time() - TaskAssessmentService::STALE_GENERATION_MINUTES * 60;
+    if ($status === 'ready') {
+        $html .= ' <span style="' . $chip . ' background:#dcfce7; color:#166534;" title="' . htmlspecialchars($task['generation_note'] ?? '') . '"><i class="fas fa-check"></i> Paper ready</span>';
+    } elseif ($status === 'failed' || $stale || $status === 'pending') {
+        $label = $status === 'pending' ? 'Not generated yet' : 'Generation failed';
+        $html .= ' <span style="' . $chip . ' background:#fee2e2; color:#991b1b;" title="' . htmlspecialchars($task['generation_note'] ?? '') . '"><i class="fas fa-triangle-exclamation"></i> ' . $label . '</span>'
+            . ' <button type="button" class="no-print" onclick="event.preventDefault(); event.stopPropagation(); retryTaskGeneration(' . (int) $task['id'] . ', this)" style="' . $chip . ' background:#800000; color:#fff; border:none; cursor:pointer;"><i class="fas fa-rotate-right"></i> ' . ($status === 'pending' ? 'Generate' : 'Retry') . '</button>';
+    } else {
+        $html .= ' <span style="' . $chip . ' background:#fef9c3; color:#854d0e;"><i class="fas fa-spinner fa-spin"></i> Preparing (' . (int) $task['generation_progress'] . '/' . (int) $task['question_count'] . ')</span>';
+    }
+    return $html;
+}
+
 // Get consolidated branch and semester filters
 $discipline_filters = getCoordinatorDisciplineFilters($department);
 $semester_filter = getCoordinatorSemesterFilters($department);
@@ -66,6 +95,16 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
     $viewingTask = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($viewingTask) {
+        // Timed technical rounds abandoned after the clock ran out are scored from their saved results
+        try {
+            $finalised = TaskAssessmentService::finalizeExpiredTechnicalSessions($db, $viewingTask);
+            if ($finalised > 0) {
+                error_log("manage_tasks: auto-finalised $finalised expired technical session(s) for task {$viewingTask['id']}");
+            }
+        } catch (Throwable $e) {
+            error_log("manage_tasks: auto-finalise failed for task {$viewingTask['id']}: " . $e->getMessage());
+        }
+
         // Fetch GMU students
         $gmuStudents = [];
         $gmuQuery = "SELECT ad.usn as student_id, ad.name, asd.email_id as email,
@@ -152,17 +191,54 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
     // Fetch SCORES from unified_ai_assessments (authoritative AI-evaluated score)
     // We match on the task_id stored inside the details JSON field.
     $uaiScores = [];
+    $uaiReview = [];
+    // Timed technical tasks: per-student problem progress (attempted / fully solved)
+    $isTimedTechnical = TaskAssessmentService::isTimed($viewingTask) && $viewingTask['task_type'] === 'technical';
+    $problemProgress = [];
     try {
         $stmtUai = $db->prepare(
-            "SELECT usn AS student_id, score 
-             FROM unified_ai_assessments 
-             WHERE status = 'completed' 
-               AND JSON_UNQUOTE(JSON_EXTRACT(details, '$.task_id')) = ?"
+            "SELECT usn AS student_id, score, status, JSON_UNQUOTE(JSON_EXTRACT(details, '$.proctor_review')) AS proctor_review, JSON_EXTRACT(details, '$.penalty_pct') AS penalty_pct" . ($isTimedTechnical ? ", details" : "") . "
+             FROM unified_ai_assessments
+             WHERE status IN ('completed', 'active')
+               AND JSON_UNQUOTE(JSON_EXTRACT(details, '$.task_id')) = ?
+             ORDER BY id ASC"
         );
         $stmtUai->execute([(string) $taskId]);
         while ($row = $stmtUai->fetch(PDO::FETCH_ASSOC)) {
-            if ($row['score'] !== null) {
-                $uaiScores[$row['student_id']] = (int) $row['score'];
+            if ($row['status'] === 'completed' && $row['score'] !== null) {
+                $uaiScores[$row['student_id']] = (float) $row['score'];
+                // Ended by proctoring (3 strikes): marks kept minus the penalty, needs a coordinator look
+                $uaiReview[$row['student_id']] = in_array($row['proctor_review'], ['true', '1'], true) ? (float) $row['penalty_pct'] : null;
+            }
+            if ($isTimedTechnical) {
+                $d = json_decode($row['details'] ?? '', true) ?: [];
+                if (!empty($d['timed'])) {
+                    $total = count($d['problems'] ?? []) ?: (int) $viewingTask['question_count'];
+                    $attempted = 0;
+                    $solved = 0;
+                    $perProblem = [];
+                    for ($i = 0; $i < $total; $i++) {
+                        $sub = $d['submissions'][$i] ?? null;
+                        if ($sub && (int) ($sub['attempts'] ?? 0) > 0) {
+                            $attempted++;
+                            if (!empty($sub['passed'])) {
+                                $solved++;
+                            }
+                            $perProblem[] = 'P' . ($i + 1) . ': ' . round((float) ($sub['best_score'] ?? 0), 1) . '/10' . (!empty($sub['passed']) ? ' ✓' : '');
+                        } else {
+                            $perProblem[] = 'P' . ($i + 1) . ': not attempted';
+                        }
+                    }
+                    // A finished session wins over an older/abandoned one for the same student
+                    if ($row['status'] === 'completed' || !isset($problemProgress[$row['student_id']])) {
+                        $problemProgress[$row['student_id']] = [
+                            'attempted' => $attempted,
+                            'solved' => $solved,
+                            'total' => $total,
+                            'detail' => implode(' | ', $perProblem),
+                        ];
+                    }
+                }
             }
         }
     } catch (Throwable $e) {
@@ -190,6 +266,12 @@ if (isset($_GET['view']) && is_numeric($_GET['view'])) {
 
         $student['completed_at'] = $completion['completed_at'] ?? null;
         $student['time_taken']   = $completion['time_taken']   ?? null;
+        $student['proctor_review'] = $uaiReview[$sid] ?? (!empty($aadhar) ? ($uaiReview[$aadhar] ?? null) : null);
+        // Ended by proctoring: counted as missed automatically, nothing for the coordinator to do
+        if ($student['proctor_review'] !== null) {
+            $student['status'] = 'missed';
+        }
+        $student['problems'] = $problemProgress[$sid] ?? (!empty($aadhar) ? ($problemProgress[$aadhar] ?? null) : null);
     }
     unset($student); // Crucial fix: break the reference before the next loop
 
@@ -1252,6 +1334,7 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
                             <i class="fas fa-circle" style="font-size: 6px;"></i>
                             Difficulty: <?php echo htmlspecialchars($viewingTask['difficulty'] ?? 'Medium'); ?>
                         </span>
+                        <?php echo renderTimedTaskBadges($viewingTask); ?>
                         
                         <?php if ($viewingTask['company_name']): ?>
                             <span class="meta-item">
@@ -1363,6 +1446,9 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
                             <th>Sem</th>
                             <th>Status</th>
                             <th>Score</th>
+                            <?php if ($isTimedTechnical): ?>
+                            <th title="Attempted = submitted at least once. Solved = the evaluator marked the solution fully correct.">Problems (Attempted / Solved)</th>
+                            <?php endif; ?>
                             <th>Completed On</th>
                             <th>Time Taken</th>
                         </tr>
@@ -1405,14 +1491,14 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
                                         if ($student['status'] === 'completed')
                                             echo '<i class="fas fa-check-circle no-print"></i> Completed';
                                         elseif ($student['status'] === 'missed')
-                                            echo '<i class="fas fa-times-circle no-print"></i> Missed';
+                                            echo '<i class="fas fa-times-circle no-print"></i> Missed' . ($student['proctor_review'] !== null ? ' <span style="font-weight:500; font-size:10px;">(ended by proctoring)</span>' : '');
                                         else
                                             echo '<i class="fas fa-hourglass-half no-print"></i> Pending';
                                         ?>
                                     </span>
                                 </td>
                                 <td>
-                                    <?php if ($student['score'] !== null): ?>
+                                    <?php if ($student['score'] !== null && $student['proctor_review'] === null): ?>
                                         <span class="score-badge <?php echo $scoreClass; ?>">
                                             <?php echo number_format($student['score'], 1); ?>%
                                         </span>
@@ -1420,6 +1506,22 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
                                         -
                                     <?php endif; ?>
                                 </td>
+                                <?php if ($isTimedTechnical): ?>
+                                <td>
+                                    <?php if (!empty($student['problems'])):
+                                        $pp = $student['problems']; ?>
+                                        <div title="<?php echo htmlspecialchars($pp['detail']); ?>" style="font-size: 12px; line-height: 1.6; white-space: nowrap;">
+                                            <div><i class="fas fa-pen-to-square no-print" style="color:#64748b;"></i> Attempted: <strong><?php echo $pp['attempted']; ?>/<?php echo $pp['total']; ?></strong></div>
+                                            <div style="color: <?php echo $pp['solved'] === $pp['total'] ? '#166534' : ($pp['solved'] > 0 ? '#b45309' : '#b91c1c'); ?>;">
+                                                <i class="fas fa-circle-check no-print"></i> Solved: <strong><?php echo $pp['solved']; ?>/<?php echo $pp['total']; ?></strong>
+                                            </div>
+                                            <div style="color:#94a3b8; font-size: 11px;"><?php echo htmlspecialchars($pp['detail']); ?></div>
+                                        </div>
+                                    <?php else: ?>
+                                        -
+                                    <?php endif; ?>
+                                </td>
+                                <?php endif; ?>
                                 <td>
                                     <?php echo $student['completed_at'] ? date('d M Y, h:i A', strtotime($student['completed_at'])) : '-'; ?>
                                 </td>
@@ -1473,6 +1575,7 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
                                         <i class="fas fa-circle" style="font-size: 6px;"></i>
                                         <?php echo htmlspecialchars($task['difficulty'] ?? 'Medium'); ?>
                                     </span>
+                                    <?php echo renderTimedTaskBadges($task); ?>
                                 </div>
                                 
                                 <?php if ($task['question_source'] === 'manual'): ?>
@@ -1656,6 +1759,42 @@ unset($task); // Break the reference to avoid overwriting elements in the next l
             }
         </script>
     <?php endif; ?>
+    <script>
+        // (Re)generate a timed task's question paper. The request runs until the paper is
+        // ready, then the page reloads to show the new status.
+        function retryTaskGeneration(taskId, btn) {
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating... (1–2 min)';
+            }
+            const fd = new FormData();
+            fd.append('action', 'generate');
+            fd.append('task_id', taskId);
+            fd.append('csrf_token', window.CSRF_TOKEN || '');
+            fetch('task_generation.php', { method: 'POST', headers: { 'X-CSRF-TOKEN': window.CSRF_TOKEN || '' }, body: fd })
+                .then(r => r.json())
+                .then(res => {
+                    if (!res.success && res.status !== 'generating') {
+                        alert(res.message || 'Generation failed. Please retry.');
+                    }
+                })
+                .catch(() => { })
+                .finally(() => window.location.reload());
+        }
+
+        // While any paper is still being prepared, refresh the status every 10 seconds
+        <?php
+        $anyPreparing = false;
+        foreach (array_merge($tasks, $viewingTask ? [$viewingTask] : []) as $t) {
+            if (TaskAssessmentService::isTimed($t) && ($t['generation_status'] ?? '') === 'generating'
+                && !(strtotime($t['generation_started_at'] ?? 'now') < time() - TaskAssessmentService::STALE_GENERATION_MINUTES * 60)) {
+                $anyPreparing = true;
+            }
+        }
+        if ($anyPreparing): ?>
+        setTimeout(() => { if (!document.querySelector('[id$="Modal"][style*="flex"]')) window.location.reload(); }, 10000);
+        <?php endif; ?>
+    </script>
 </body>
 
 </html>

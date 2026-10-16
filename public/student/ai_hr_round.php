@@ -1494,7 +1494,7 @@ if ($driveId > 0) {
                     }
 
                     if (!proctorCalibrated) {
-                        if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Calibrating posture & identity baseline... keep your face centred in the camera preview (bottom-right).';
+                        if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Calibrating (about 8 seconds)... Sit as you will during the test and look at the MIDDLE of your screen, not at the camera preview. Keep still.';
                         document.body.classList.add('hr-calibrating');
                         let envCheck;
                         try {

@@ -11,6 +11,9 @@ class ProctoringService
     const PENALTY_STRIKE_1 = 5.0;   // 5% score deduction
     const PENALTY_STRIKE_2 = 10.0;  // 10% score deduction
     const MAX_STRIKES      = 3;     // 3rd strike = auto-termination
+    // A terminated test keeps the marks already earned minus this penalty and is flagged for
+    // coordinator review (it used to be set to 0, wiping out e.g. a 100% score over focus losses)
+    const PENALTY_TERMINATED = 15.0;
 
     // Persistence thresholds in milliseconds (anti-false-positive filtering)
     const THRESHOLD_MULTI_FACE_MS          = 2000; // 2.0s sustained multiple faces
@@ -159,10 +162,28 @@ class ProctoringService
     }
 
     /**
+     * Final score after proctoring penalties. Termination (3 strikes) no longer zeroes the
+     * score: the student keeps what they earned minus PENALTY_TERMINATED, and the attempt is
+     * flagged for coordinator review.
+     */
+    public static function finalScoreAfterProctoring($rawScore, $penaltyPct, $isTerminated)
+    {
+        $penalty = $isTerminated ? max((float) $penaltyPct, self::PENALTY_TERMINATED) : (float) $penaltyPct;
+        return max(0.0, (float) $rawScore - $penalty);
+    }
+
+    /**
      * Get secure proctoring configuration for client execution.
      */
     public static function getClientConfig($assessmentType = 'general')
     {
+        // Head-pose tolerances. Reading the lower part of a laptop screen tilts the head
+        // ~10-15° below the camera's line of sight, so the downward limit must sit well past
+        // that. Coding rounds also involve looking at the keyboard while typing.
+        $isCoding = in_array(strtolower((string) $assessmentType), ['technical', 'coding'], true);
+        $downwardPitchDeg = $isCoding ? 30.0 : 22.0;
+        $downwardMs       = $isCoding ? 15000 : 8000;
+
         return [
             'heartbeat_interval_ms'     => 15000,
             'monitor_interval_ms'       => 1500,
@@ -174,8 +195,17 @@ class ProctoringService
             'multi_face_threshold_ms'   => self::THRESHOLD_MULTI_FACE_MS,
             'no_face_threshold_ms'      => self::THRESHOLD_NO_FACE_MS,
             'looking_away_threshold_ms' => self::THRESHOLD_LOOKING_AWAY_MS,
-            'downward_attn_threshold_ms'=> self::THRESHOLD_DOWNWARD_ATTN_MS,
-            'sideways_dev_threshold_ms' => self::THRESHOLD_SIDEWAYS_DEV_MS,
+            'downward_attn_threshold_ms'=> $downwardMs,
+            'sideways_dev_threshold_ms' => 8000,
+            'downward_pitch_deg'        => $downwardPitchDeg,
+            'sideways_yaw_deg'          => 22.0,
+            // Frames below this quality (blurry / dark / far-away face on a poor webcam)
+            // are too noisy to judge head direction and are not evaluated for deviation
+            'min_face_score'            => 0.80,
+            'min_interocular'           => 0.055,
+            'min_quality_luminance'     => 35,
+            // Visible deviation highlight only after it persists this long (no single-frame flicker)
+            'deviation_display_ms'      => 3000,
             'tab_switch_threshold_ms'   => self::THRESHOLD_TAB_SWITCH_MS,
             // Phase 4B Advanced Sensing Configurations
             'identity_mismatch_threshold_ms' => self::THRESHOLD_IDENTITY_MISMATCH_MS,
@@ -184,7 +214,15 @@ class ProctoringService
             'face_occlusion_threshold_ms'    => self::THRESHOLD_FACE_OCCLUSION_MS,
             'identity_match_score'           => 0.85,
             'identity_mismatch_score'        => 0.70,
-            'gaze_mahalanobis_sq_threshold'  => 9.21, // 99% coverage for 2-DOF Chi-Square
+            'gaze_mahalanobis_sq_threshold'  => 13.82, // 99.9% coverage for 2-DOF Chi-Square
+            // The "gaze" signal is the nose position relative to the eyes (the detector has no pupil
+            // landmarks), so its spread is floored at a realistic screen-reading range instead of the
+            // few millimetres a student moves while sitting still for calibration
+            'gaze_min_std_x'                 => 0.10,
+            'gaze_min_std_y'                 => 0.15,
+            'gaze_sustain_ms'                => 8000,
+            // A swapped-in person stays for minutes; 8 s keeps brief webcam noise from reporting
+            'identity_sustain_ms'            => 8000,
             'gaze_covariance_lambda'         => 0.0001, // Covariance regularization constant
             'device_enter_confidence'        => 0.65,
             'device_exit_confidence'         => 0.45,
@@ -453,8 +491,11 @@ class ProctoringService
                     $newStrikes = self::MAX_STRIKES;
                     $newStatus = 'terminated';
                     $action = 'terminate';
-                    $message = "Assessment auto-submitted: Maximum integrity violations (3 strikes) exceeded.";
+                    $message = "Assessment auto-submitted: Maximum integrity violations (3 strikes) exceeded. Your answers so far are kept with a " . self::PENALTY_TERMINATED . "% penalty and your coordinator will review the recording.";
                 }
+            } elseif (!empty($evalResult['warn_only'])) {
+                $action = 'notice';
+                $message = "You left the test window or full screen. This time it is only a warning — next time it will count as a strike with a " . self::PENALTY_STRIKE_1 . "% penalty. Avoid pressing Esc and close other apps.";
             }
 
             // 7. Update Session State Atomically
@@ -557,6 +598,28 @@ class ProctoringService
 
         // 3. Instant Policy Violations (Window blur, Tab switch, DevTools, Fullscreen)
         if (in_array($rawEvent, ['TAB_SWITCH', 'WINDOW_BLUR', 'FULLSCREEN_EXIT', 'DEVTOOLS_OPEN'], true)) {
+            // The first focus loss in a session is a warning only. Pressing Esc (always exits full
+            // screen), a Windows notification or an antivirus popup stealing focus used to cost a
+            // strike immediately; together with two more it wiped out the whole score.
+            if ($rawEvent !== 'DEVTOOLS_OPEN') {
+                $prior = $db->prepare("SELECT COUNT(*) FROM `assessment_integrity_events`
+                                       WHERE `session_token` = ? AND `event_type` IN ('TAB_SWITCH', 'WINDOW_BLUR', 'FULLSCREEN_EXIT', 'FOCUS_LOSS_WARNING')");
+                $prior->execute([$sessionToken]);
+                if ((int) $prior->fetchColumn() === 0) {
+                    return [
+                        'is_strike'          => false,
+                        'warn_only'          => true,
+                        'server_elapsed_ms'  => 1000,
+                        'suspicion_delta'    => 10.0,
+                        'severity'           => 'MEDIUM',
+                        'current_state'      => 'WARNING',
+                        'reason'             => "First environment focus loss ({$rawEvent}) — warning only",
+                        'established_event'  => 'FOCUS_LOSS_WARNING',
+                        'evidence_score'     => 1.0,
+                        'correlated_context' => ['instant_event' => true, 'raw_event' => $rawEvent]
+                    ];
+                }
+            }
             $severity = ($rawEvent === 'DEVTOOLS_OPEN') ? 'CRITICAL' : 'HIGH';
             $suspDelta = ($rawEvent === 'DEVTOOLS_OPEN') ? 50.0 : 30.0;
             return [
@@ -736,12 +799,16 @@ class ProctoringService
 
                 if ($temporal['is_threshold_met']) {
                     $evScore = round(min(1.0, $dmSq / 25.0), 2);
+                    // Logged for coordinator review only, never a strike: the detector has no pupil
+                    // landmarks, so this signal is a coarse head-position proxy that also moves when a
+                    // student simply reads the bottom of the screen or has a noisy webcam.
+                    // Real head turns are penalised by the head-pose checks.
                     return [
-                        'is_strike'          => true,
+                        'is_strike'          => false,
                         'server_elapsed_ms'  => $elapsedMs,
-                        'suspicion_delta'    => 20.0,
-                        'severity'           => 'MEDIUM',
-                        'current_state'      => 'STRIKE',
+                        'suspicion_delta'    => 5.0,
+                        'severity'           => 'LOW',
+                        'current_state'      => 'REVIEW',
                         'reason'             => 'Sustained off-screen eye gaze divergence outside calibrated screen region',
                         'established_event'  => 'SUSTAINED_EYE_GAZE_DIVERGENCE',
                         'evidence_score'     => max(0.60, $evScore),

@@ -57,9 +57,78 @@ try {
             // Check if this is a coordinator task with manual questions
             if ($taskId) {
                 $db = getDB();
-                $stmt = $db->prepare("SELECT question_source, company_name, concept FROM coordinator_tasks WHERE id = ?");
+                $stmt = $db->prepare("SELECT * FROM coordinator_tasks WHERE id = ?");
                 $stmt->execute([$taskId]);
                 $task = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                // Timed task: questions were generated once at assignment; the timer is server-side
+                if ($task && TaskAssessmentService::isTimed($task) && $task['task_type'] === 'aptitude') {
+                    $studentIds = TaskAssessmentService::studentIdentifiers();
+                    if (!TaskAssessmentService::isAssignedTo($task, $studentIds)) {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'fatal' => true, 'message' => 'This assessment is not assigned to you.']);
+                        exit;
+                    }
+                    if (TaskAssessmentService::isCompleted($db, $taskId, $studentIds)) {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'fatal' => true, 'message' => 'You have already completed this assessment.']);
+                        exit;
+                    }
+                    if ($task['generation_status'] !== 'ready') {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'preparing' => true, 'message' => 'Your questions are still being prepared. Please wait...']);
+                        exit;
+                    }
+
+                    // Self-heal papers generated before the stricter validator (placeholder options etc.)
+                    try {
+                        TaskAssessmentService::repairAptitudePaper($db, $taskId);
+                    } catch (Throwable $repairErr) {
+                        error_log("Aptitude paper repair failed for task $taskId: " . $repairErr->getMessage());
+                    }
+                    $questions = TaskAssessmentService::getAptitudeQuestions($db, $taskId);
+                    if (empty($questions)) {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'fatal' => true, 'message' => 'This task has no questions configured. Please contact your coordinator.']);
+                        exit;
+                    }
+
+                    // Deadline only blocks a fresh start; a test already in progress may finish
+                    $existing = TaskAssessmentService::getAttempt($db, $taskId, getUsername(), $task['duration_minutes']);
+                    if (!$existing && !empty($task['deadline']) && strtotime($task['deadline']) < time()) {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'fatal' => true, 'message' => 'The deadline for this assessment has passed.']);
+                        exit;
+                    }
+                    $attempt = TaskAssessmentService::startAttempt($db, $taskId, getUsername(), $task['duration_minutes']);
+                    // Time just ran out (e.g. browser crashed near the end): still serve the paper
+                    // with 0 seconds left so the page auto-submits the answers saved in the browser.
+                    if ($attempt['elapsed'] > $attempt['duration'] + TaskAssessmentService::SUBMIT_GRACE_SECONDS) {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'fatal' => true, 'expired' => true, 'message' => 'Your time for this assessment is over. Please contact your coordinator.']);
+                        exit;
+                    }
+
+                    // Same paper for everyone, different order per student
+                    shuffle($questions);
+
+                    if (session_status() !== PHP_SESSION_ACTIVE) {
+                        session_start();
+                    }
+                    $_SESSION['aptitude_db_questions'] = $questions;
+                    $_SESSION['aptitude_ai_questions'] = [];
+                    session_write_close();
+
+                    ob_clean();
+                    echo json_encode([
+                        'success' => true,
+                        'questions' => aptitudePublicQuestions($questions),
+                        'timed' => true,
+                        'duration_seconds' => $attempt['duration'],
+                        'time_remaining' => $attempt['remaining'],
+                    ]);
+                    break;
+                }
 
                 if ($task) {
                     if ($task['question_source'] === 'manual') {
@@ -269,6 +338,28 @@ try {
                 $answers = [];
             }
 
+            // Timed task: the time taken comes from the server-side start time, and a
+            // submission long after the timer ended is refused
+            $submitTaskId = isset($_POST['task_id']) ? (int) $_POST['task_id'] : 0;
+            $serverTimeTaken = null;
+            if ($submitTaskId > 0) {
+                $timedTask = TaskAssessmentService::getTask($db, $submitTaskId);
+                if ($timedTask && TaskAssessmentService::isTimed($timedTask)) {
+                    $attempt = TaskAssessmentService::getAttempt($db, $submitTaskId, getUsername(), $timedTask['duration_minutes']);
+                    if (!$attempt) {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'message' => 'No active attempt found for this assessment. Please start the test again.']);
+                        exit;
+                    }
+                    if ($attempt['elapsed'] > $attempt['duration'] + TaskAssessmentService::SUBMIT_GRACE_SECONDS) {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'fatal' => true, 'message' => 'The submission window for this assessment has closed. Please contact your coordinator.']);
+                        exit;
+                    }
+                    $serverTimeTaken = min($attempt['elapsed'], $attempt['duration']);
+                }
+            }
+
             // Rebuild the lookup map from session data
             $correctAnswersMap = [];
             $explanationsMap = [];
@@ -442,7 +533,7 @@ try {
                 $pSess = $pStmt->fetch(PDO::FETCH_ASSOC);
             }
             if (!$pSess) {
-                $pStmt = $db->prepare("SELECT * FROM proctor_sessions WHERE student_id IN ($ownerPh) AND assessment_type = 'aptitude' AND created_at >= (NOW() - INTERVAL 3 HOUR) ORDER BY created_at DESC LIMIT 1");
+                $pStmt = $db->prepare("SELECT * FROM proctor_sessions WHERE student_id IN ($ownerPh) AND assessment_type = 'aptitude' AND created_at >= (NOW() - INTERVAL 4 HOUR) ORDER BY created_at DESC LIMIT 1");
                 $pStmt->execute($proctorOwnerIds);
                 $pSess = $pStmt->fetch(PDO::FETCH_ASSOC);
                 if ($pSess) $proctorToken = $pSess['session_token'];
@@ -475,10 +566,19 @@ try {
             } catch (Exception $e) {}
 
             $rawPercentage = round($percentage, 1);
-            $finalPercentage = $isTerminated ? 0.0 : max(0.0, round($rawPercentage - $penaltyPct, 1));
+            // Option A: a terminated test keeps its earned marks minus the termination penalty
+            // and is flagged for coordinator review (it used to be set to 0)
+            // 'terminated' without 3 strikes = connection lost for over 2 minutes: no termination penalty
+            $strikeTerminated = $isTerminated && $strikeCount >= \App\Services\ProctoringService::MAX_STRIKES;
+            if ($strikeTerminated) {
+                $penaltyPct = max($penaltyPct, \App\Services\ProctoringService::PENALTY_TERMINATED);
+            }
+            $finalPercentage = round(\App\Services\ProctoringService::finalScoreAfterProctoring($rawPercentage, $penaltyPct, $strikeTerminated), 1);
 
-            if ($isTerminated || $strikeCount >= 3) {
-                $integrityReport['integrity_status'] = 'Disqualified: Maximum Integrity Violations (3/3) Exceeded';
+            if ($strikeTerminated) {
+                $integrityReport['integrity_status'] = "Test ended by proctoring (3/3 strikes): -{$penaltyPct}% applied, flagged for coordinator review";
+            } elseif ($isTerminated) {
+                $integrityReport['integrity_status'] = 'Proctoring connection was lost for over 2 minutes: flagged for coordinator review';
             } elseif ($strikeCount > 0) {
                 $integrityReport['integrity_status'] = "Integrity Penalties Applied (-{$penaltyPct}% Deducted)";
             }
@@ -498,7 +598,11 @@ try {
                 'penalty_pct' => $penaltyPct,
                 'strike_count' => $strikeCount,
                 'final_score' => $finalPercentage,
-                'integrity_report' => $integrityReport
+                'proctor_review' => $isTerminated,
+                'integrity_report' => $integrityReport,
+                'correct' => $score,
+                'total_questions' => $totalQuestions,
+                'task_id' => $submitTaskId ?: null
             ]);
 
             $db = getDB();
@@ -519,7 +623,7 @@ try {
                 $studentName,
                 $companyName,
                 $finalPercentage,
-                $totalQuestions,
+                100, // score is already a percentage (same convention as NQT); question count is in details
                 $detailsJson,
                 $instVal
             ]);
@@ -533,7 +637,7 @@ try {
                 $taskId = isset($_POST['task_id']) ? (int)$_POST['task_id'] : 0;
                 if ($taskId > 0) {
                     try {
-                        $timeTaken = isset($_POST['time_taken']) ? (int)$_POST['time_taken'] : 0;
+                        $timeTaken = $serverTimeTaken ?? (isset($_POST['time_taken']) ? (int)$_POST['time_taken'] : 0);
                         $stmt = $db->prepare("INSERT INTO task_completions
                                               (task_id, student_id, score, time_taken)
                                               VALUES (?, ?, ?, ?)

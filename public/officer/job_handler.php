@@ -122,9 +122,11 @@ switch ($action) {
                 'currency' => post('currency') ?: 'INR',
                 'min_cgpa' => post('min_cgpa') !== '' ? post('min_cgpa') : 0.00,
                 'eligible_courses' => (function() {
-                    $eligibleBranches = $_POST['eligible_branches'] ?? [];
+                    $rawBranches = $_POST['eligible_branches'] ?? [];
                     $eligibleCourses = [];
-                    foreach ($eligibleBranches as $branch) {
+                    foreach ($rawBranches as $rawBranch) {
+                        // Strip institution prefix (e.g. "GMU:EEE" -> "EEE", "GMIT:CSE" -> "CSE")
+                        $branch = strpos($rawBranch, ':') !== false ? explode(':', $rawBranch, 2)[1] : $rawBranch;
                         $parts = explode('-', $branch);
                         $parent = $parts[0];
                         $nonEngCourses = ['BCA', 'MBA', 'BBA', 'MCA', 'MCOM', 'BCOM', 'BSC', 'LLB', 'MSC', 'MTECH', 'PHD'];
@@ -138,7 +140,16 @@ switch ($action) {
                     }
                     return json_encode(array_values(array_unique($eligibleCourses)));
                 })(),
-                'eligible_branches' => json_encode($_POST['eligible_branches'] ?? []),
+                'eligible_branches' => (function() {
+                    $rawBranches = $_POST['eligible_branches'] ?? [];
+                    $cleanBranches = [];
+                    foreach ($rawBranches as $rawBranch) {
+                        // Store as "INST:branch" so eligibility checks can be institution-aware
+                        // but also keep the full prefixed value for round-trip fidelity
+                        $cleanBranches[] = $rawBranch; // keep "GMU:EEE" format
+                    }
+                    return json_encode(array_values(array_unique($cleanBranches)));
+                })(),
                 'eligible_years' => json_encode($_POST['eligible_years'] ?? []),
                 'eligible_gender' => (function() {
                     $genders = $_POST['eligible_gender'] ?? [];

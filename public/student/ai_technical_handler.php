@@ -73,6 +73,27 @@ try {
         case 'check_active_session':
             $company = $input['company'] ?? 'General';
 
+            // Timed technical task (1 hour, 3 problems): resume only this task's own session
+            $timedTask = (!$driveId && !empty($input['task_id'])) ? TaskAssessmentService::getTask($db, (int) $input['task_id']) : null;
+            if ($timedTask && TaskAssessmentService::isTimed($timedTask) && $timedTask['task_type'] === 'technical') {
+                $session = findTimedTechSession($db, $studentIdForDb, (int) $timedTask['id']);
+                if (!$session) {
+                    ob_clean();
+                    echo json_encode(['success' => true, 'has_active' => false]);
+                    exit;
+                }
+                $attempt = TaskAssessmentService::getAttempt($db, $timedTask['id'], getUsername(), $timedTask['duration_minutes']);
+                $details = json_decode($session['details'], true) ?: [];
+                ob_clean();
+                echo json_encode(array_merge([
+                    'success' => true,
+                    'has_active' => true,
+                    'session_id' => $session['id'],
+                    'role' => $details['role'] ?? 'Software Engineer',
+                ], timedTechPayload($details, $attempt)));
+                exit;
+            }
+
             if ($driveId > 0) {
                 $stmt = $db->prepare("SELECT id, details, started_at FROM student_drive_attempts
                                  WHERE student_id = ? AND drive_id = ? AND round_type = 'Technical'
@@ -90,7 +111,10 @@ try {
 
             if ($session) {
                 $elapsed = time() - strtotime($session['started_at']);
-                $maxDuration = 20 * 60; // 20 mins default
+                // Was 20 minutes — but assigned rounds REQUIRE at least 20 minutes, so any student
+                // who refreshed or reconnected after that had the whole session closed with 0%.
+                // Practice/assigned chat sessions can now be resumed for up to 3 hours.
+                $maxDuration = 3 * 60 * 60;
 
                 if ($driveId > 0) {
                     // Fetch actual drive duration
@@ -149,6 +173,92 @@ try {
             $role = $input['role'] ?? 'Software Engineer';
             $company = $input['company'] ?? 'General';
             $concept = $input['concept'] ?? '';
+
+            // Timed technical task: 3 pre-generated problem statements, server-side 1-hour clock
+            $timedTask = (!$driveId && !empty($input['task_id'])) ? TaskAssessmentService::getTask($db, (int) $input['task_id']) : null;
+            if ($timedTask && TaskAssessmentService::isTimed($timedTask) && $timedTask['task_type'] === 'technical') {
+                $timedTaskId = (int) $timedTask['id'];
+                $studentIds = TaskAssessmentService::studentIdentifiers();
+                if (!TaskAssessmentService::isAssignedTo($timedTask, $studentIds)) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'This assessment is not assigned to you.']);
+                    exit;
+                }
+                if (TaskAssessmentService::isCompleted($db, $timedTaskId, $studentIds)) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'You have already completed this assessment.']);
+                    exit;
+                }
+                if ($timedTask['generation_status'] !== 'ready') {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'preparing' => true, 'message' => 'The problem statements are still being prepared. Please wait a minute and try again.']);
+                    exit;
+                }
+                // A double click / second tab must not create a second session (lock is
+                // released automatically when this request's DB connection closes)
+                $db->prepare("SELECT GET_LOCK(?, 10)")->execute(['tech_task_' . $timedTaskId . '_' . md5((string) $studentIdForDb)]);
+                $existingSession = findTimedTechSession($db, $studentIdForDb, $timedTaskId);
+                $attempt = TaskAssessmentService::getAttempt($db, $timedTaskId, getUsername(), $timedTask['duration_minutes']);
+                if ($existingSession) {
+                    $details = json_decode($existingSession['details'], true) ?: [];
+                    ob_clean();
+                    echo json_encode(array_merge(['success' => true, 'session_id' => $existingSession['id']], timedTechPayload($details, $attempt)));
+                    exit;
+                }
+                if (!$attempt && !empty($timedTask['deadline']) && strtotime($timedTask['deadline']) < time()) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'The deadline for this assessment has passed.']);
+                    exit;
+                }
+
+                $problems = [];
+                foreach (TaskAssessmentService::getCodingProblems($db, $timedTaskId) as $p) {
+                    $problems[] = [
+                        'title' => $p['title'],
+                        'problem_statement' => $p['problem_statement'],
+                        'constraints' => $p['constraints'] ?? '',
+                        'example_input' => $p['example_input'] ?? '',
+                        'example_output' => $p['example_output'] ?? '',
+                    ];
+                }
+                if (empty($problems)) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'No problem statements are configured for this task. Please contact your coordinator.']);
+                    exit;
+                }
+
+                $attempt = TaskAssessmentService::startAttempt($db, $timedTaskId, getUsername(), $timedTask['duration_minutes']);
+                $profile = $studentModel->getByUserId($userId);
+                $details = [
+                    'role' => $role,
+                    'concept' => $timedTask['concept'] ?? $concept,
+                    'difficulty' => $timedTask['difficulty'] ?? 'Medium',
+                    'history' => [],
+                    'task_id' => $timedTaskId,
+                    'timed' => true,
+                    'problems' => $problems,
+                    'submissions' => [],
+                ];
+                $db->prepare("INSERT INTO unified_ai_assessments (
+                        student_id, institution, student_name, usn, aadhar, current_sem, branch,
+                        assessment_type, company_name, status, details, started_at, total_marks
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, 'Technical', ?, 'active', ?, CURRENT_TIMESTAMP, 100)")
+                    ->execute([
+                        $studentIdForDb,
+                        getInstitution(),
+                        $profile['name'] ?? getFullName(),
+                        $profile['usn'] ?? getUsername(),
+                        $profile['aadhar'] ?? null,
+                        $profile['semester'] ?? null,
+                        $profile['department'] ?? null,
+                        $timedTask['company_name'] ?: $company,
+                        json_encode($details)
+                    ]);
+                $newSessionId = $db->lastInsertId();
+                ob_clean();
+                echo json_encode(array_merge(['success' => true, 'session_id' => $newSessionId], timedTechPayload($details, $attempt)));
+                exit;
+            }
 
             // Pull difficulty from the assigned task if available, else from input
             $difficulty = $input['difficulty'] ?? 'Medium';
@@ -267,6 +377,12 @@ try {
             }
 
             $details = json_decode($session['details'], true);
+            if (!empty($details['timed'])) {
+                // Timed rounds serve their fixed problem statements; there is no AI chat
+                ob_clean();
+                echo json_encode(['success' => false, 'message' => 'This is a timed coding round. Use the problem tabs to switch problems.']);
+                exit;
+            }
             $history = $details['history'] ?? [];
             $role = $details['role'];
             $concept = $details['concept'] ?? '';
@@ -372,6 +488,98 @@ try {
                 echo json_encode(['success' => false, 'message' => 'No code submitted. Please write your solution in the editor first.']);
                 exit;
             }
+
+            // Timed round: evaluate against the server's copy of the problem and record the result
+            if (!$isDrive && isset($input['problem_index'])) {
+                $stmt = $db->prepare("SELECT id, details, status FROM unified_ai_assessments WHERE id = ? AND student_id = ?");
+                $stmt->execute([(int) $sessionId, $studentIdForDb]);
+                $tSession = $stmt->fetch(PDO::FETCH_ASSOC);
+                $tDetails = $tSession ? (json_decode($tSession['details'], true) ?: []) : [];
+                if (!$tSession || empty($tDetails['timed'])) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Session not found.']);
+                    exit;
+                }
+                if ($tSession['status'] !== 'active') {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'This round has already been submitted.']);
+                    exit;
+                }
+                $pIndex = (int) $input['problem_index'];
+                if (!isset($tDetails['problems'][$pIndex])) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Invalid problem.']);
+                    exit;
+                }
+                $tTask = TaskAssessmentService::getTask($db, (int) $tDetails['task_id']);
+                $attempt = $tTask ? TaskAssessmentService::getAttempt($db, $tTask['id'], getUsername(), $tTask['duration_minutes']) : null;
+                // 60s grace covers a submit clicked in the final seconds
+                if (!$attempt || $attempt['elapsed'] > $attempt['duration'] + 60) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'time_over' => true, 'message' => 'Time is over. Submissions are closed.']);
+                    exit;
+                }
+                if (mb_strlen($code) > 50000) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Code is too long to evaluate (max 50,000 characters).']);
+                    exit;
+                }
+
+                $p = $tDetails['problems'][$pIndex];
+                $fullProblem = $p['title'] . "\n\n" . $p['problem_statement']
+                    . ($p['constraints'] !== '' ? "\n\nConstraints: " . $p['constraints'] : '')
+                    . ($p['example_input'] !== '' ? "\n\nExample Input: " . $p['example_input'] : '')
+                    . ($p['example_output'] !== '' ? "\nExample Output: " . $p['example_output'] : '');
+
+                $evalRes = $ai->evaluateCode($code, $language, $fullProblem);
+                $result = (!empty($evalRes['success']) && is_array($evalRes['result'] ?? null)) ? $evalRes['result'] : null;
+                if (!$result) {
+                    ob_clean();
+                    echo json_encode(['success' => false, 'message' => 'Code evaluation is temporarily unavailable. Your code is safe in the editor — please click Submit again.']);
+                    exit;
+                }
+                $evalScore = max(0, min(10, (float) ($result['score'] ?? 0)));
+                $passed = !empty($result['passed']) && $result['passed'] !== 'false';
+                $feedback = is_string($result['feedback'] ?? null) ? $result['feedback'] : '';
+
+                // Read-modify-write under a row lock so concurrent requests can't drop a submission
+                $db->beginTransaction();
+                try {
+                    $stmt = $db->prepare("SELECT details FROM unified_ai_assessments WHERE id = ? FOR UPDATE");
+                    $stmt->execute([(int) $sessionId]);
+                    $lockedDetails = json_decode($stmt->fetchColumn(), true) ?: [];
+                    $sub = $lockedDetails['submissions'][$pIndex] ?? ['attempts' => 0, 'best_score' => 0, 'passed' => false];
+                    $sub['attempts'] = (int) ($sub['attempts'] ?? 0) + 1;
+                    if ($evalScore >= (float) ($sub['best_score'] ?? 0)) {
+                        $sub['best_score'] = $evalScore;
+                        $sub['best_code'] = $code;
+                        $sub['best_language'] = $language;
+                        $sub['best_feedback'] = $feedback;
+                    }
+                    $sub['passed'] = !empty($sub['passed']) || $passed;
+                    $sub['last_score'] = $evalScore;
+                    $sub['last_feedback'] = $feedback;
+                    $sub['last_submitted_at'] = date('Y-m-d H:i:s');
+                    $lockedDetails['submissions'][$pIndex] = $sub;
+                    $db->prepare("UPDATE unified_ai_assessments SET details = ? WHERE id = ?")
+                        ->execute([json_encode($lockedDetails), (int) $sessionId]);
+                    $db->commit();
+                } catch (Throwable $txe) {
+                    $db->rollBack();
+                    throw $txe;
+                }
+
+                ob_clean();
+                echo json_encode([
+                    'success' => true,
+                    'sync' => true,
+                    'result' => ['score' => $evalScore, 'passed' => $passed, 'feedback' => $feedback],
+                    'best_score' => $sub['best_score'],
+                    'attempts' => $sub['attempts'],
+                ]);
+                exit;
+            }
+
             if ($problem === '') {
                 ob_clean();
                 echo json_encode(['success' => false, 'message' => 'No active coding challenge found for this submission.']);
@@ -401,6 +609,7 @@ try {
             } else {
                 $syncRes = $ai->evaluateCode($code, $language, $problem);
                 if (!empty($syncRes['success']) && isset($syncRes['result'])) {
+                    appendCodeEvaluationToHistory($db, $isDrive, $sessionId, $isDrive ? $usn : $studentIdForDb, $code, $language, $syncRes['result']);
                     ob_clean();
                     echo json_encode(['success' => true, 'sync' => true, 'result' => $syncRes['result']]);
                 } else {
@@ -409,6 +618,25 @@ try {
                     echo json_encode(['success' => false, 'message' => $syncRes['message'] ?? 'Code evaluation service is unavailable. Please retry.']);
                 }
             }
+            exit;
+
+        case 'record_evaluation':
+            // The page reports a finished queued code check; the result is read from the job
+            // itself (never from the browser) and must belong to this student
+            $jobId = (string) ($input['job_id'] ?? '');
+            $sessionId = (int) ($input['session_id'] ?? 0);
+            require_once ROOT_PATH . '/src/Services/QueueService.php';
+            $job = $jobId !== '' ? \App\Services\QueueService::getJobStatus($jobId) : null;
+            if (!$job || ($job['method'] ?? '') !== 'evaluateCode' || ($job['status'] ?? '') !== 'completed'
+                || trim((string) ($job['user_id'] ?? '')) !== trim((string) $userId)) {
+                ob_clean();
+                echo json_encode(['success' => false, 'message' => 'Evaluation not found.']);
+                exit;
+            }
+            [$jobCode, $jobLang] = array_pad((array) ($job['args'] ?? []), 2, '');
+            $saved = appendCodeEvaluationToHistory($db, $isDrive, $sessionId, $isDrive ? $usn : $studentIdForDb, $jobCode, $jobLang, $job['result'] ?? null, $jobId);
+            ob_clean();
+            echo json_encode(['success' => (bool) $saved]);
             exit;
 
         case 'append_ai_history':
@@ -479,7 +707,8 @@ try {
             $proctorTerminated = $pRow && ($pRow['status'] === 'terminated' || (int) $pRow['strike_count'] >= 3);
 
             // Check Minimum Time Requirement (20 mins = 1200 seconds) for assigned tasks
-            if ($taskId && !$isDrive && !$proctorTerminated) {
+            // (Timed rounds have their own fixed clock and can be ended early.)
+            if ($taskId && !$isDrive && !$proctorTerminated && empty($details['timed'])) {
                 $startTime = strtotime($session['started_at']);
                 $elapsed = time() - $startTime;
                 if ($elapsed < 1200) {
@@ -498,7 +727,11 @@ try {
                 }
             }
 
-            if ($userInteractions === 0) {
+            if (!empty($details['timed'])) {
+                // Timed coding round: score = best evaluated score per problem (each /10), as a percentage
+                [$score, $timedReport] = TaskAssessmentService::scoreTimedTechnical($details);
+                $reportRes = ['success' => true, 'content' => $timedReport];
+            } elseif ($userInteractions === 0) {
                 $score = 0;
             } else {
                 // Generate Text Report via AI
@@ -509,6 +742,17 @@ try {
                     $score = $reportRes['overall_score'];
                 } else {
                     error_log("Technical Report generation failed for session $sessionId: " . ($reportRes['message'] ?? 'Unknown Error'));
+                    // Used to save 0% permanently on the first AI hiccup. Let the student retry
+                    // (answers are already saved); only after 3 failed attempts fall back to 0.
+                    $failures = (int) ($details['report_failures'] ?? 0) + 1;
+                    $details['report_failures'] = $failures;
+                    $saveTable = $isDrive ? 'student_drive_attempts' : 'unified_ai_assessments';
+                    $db->prepare("UPDATE {$saveTable} SET details = ? WHERE id = ?")->execute([json_encode($details), $sessionId]);
+                    if ($failures < 3 && !$proctorTerminated) {
+                        ob_clean();
+                        echo json_encode(['success' => false, 'retry' => true, 'message' => 'Your score could not be generated because the AI service is busy. Your answers are saved — please click End Session again in a few seconds.']);
+                        exit;
+                    }
                     $score = 0; // Fallback score so the submission can complete
                 }
             }
@@ -531,7 +775,15 @@ try {
                 }
 
                 $rawScore = $score;
-                $finalScore = $isTerminated ? 0 : max(0, round($rawScore - $penaltyPct));
+                // Option A: a terminated test keeps its earned marks minus the termination penalty
+                // and is flagged for coordinator review (it used to be set to 0)
+                // A session also ends as 'terminated' when the connection is lost for over 2 minutes
+                // (no strikes) — that keeps the marks with only the strike penalties already applied
+                $strikeTerminated = $isTerminated && $strikeCount >= \App\Services\ProctoringService::MAX_STRIKES;
+                if ($strikeTerminated) {
+                    $penaltyPct = max($penaltyPct, \App\Services\ProctoringService::PENALTY_TERMINATED);
+                }
+                $finalScore = round(\App\Services\ProctoringService::finalScoreAfterProctoring($rawScore, $penaltyPct, $strikeTerminated));
 
                 if ($isDrive) {
                     // Fetch details first to securely update them
@@ -546,6 +798,7 @@ try {
                     $details['penalty_pct'] = $penaltyPct;
                     $details['strike_count'] = $strikeCount;
                     $details['final_score'] = $finalScore;
+                    $details['proctor_review'] = $isTerminated;
 
                     // Finalize Status immediately
                     $db->prepare("UPDATE student_drive_attempts
@@ -566,6 +819,7 @@ try {
                     $details['penalty_pct'] = $penaltyPct;
                     $details['strike_count'] = $strikeCount;
                     $details['final_score'] = $finalScore;
+                    $details['proctor_review'] = $isTerminated;
 
                     // Finalize Status immediately so closing the browser doesn't orphan the completion
                     $db->prepare("UPDATE unified_ai_assessments
@@ -578,6 +832,14 @@ try {
                         $taskId = $details['task_id'];
                         $studentUsn = $sessionData['usn'] ?? getUsername();
                         $timeTaken = time() - strtotime($sessionData['started_at']);
+                        if (!empty($details['timed'])) {
+                            // Server-side clock, capped at the round duration
+                            $tTask = TaskAssessmentService::getTask($db, (int) $taskId);
+                            $tAttempt = $tTask ? TaskAssessmentService::getAttempt($db, $taskId, getUsername(), $tTask['duration_minutes']) : null;
+                            if ($tAttempt) {
+                                $timeTaken = min($tAttempt['elapsed'], $tAttempt['duration']);
+                            }
+                        }
 
                         $stmtComp = $db->prepare("INSERT INTO task_completions
                                           (task_id, student_id, score, time_taken)
@@ -807,4 +1069,102 @@ function generateReportHTML($usn, $sem, $name, $role, $score, $content)
 // Remove old function
 function old_generatePDFReport()
 {
+}
+/**
+ * The student's still-active session for a timed technical task, if any.
+ */
+function findTimedTechSession(PDO $db, $studentIdForDb, $taskId)
+{
+    $stmt = $db->prepare("SELECT id, details, started_at FROM unified_ai_assessments
+                          WHERE student_id = ? AND assessment_type = 'Technical' AND status = 'active'
+                            AND JSON_UNQUOTE(JSON_EXTRACT(details, '$.task_id')) = ?
+                          ORDER BY id DESC");
+    $stmt->execute([$studentIdForDb, (string) (int) $taskId]);
+    while ($row = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $d = json_decode($row['details'], true);
+        if (!empty($d['timed'])) {
+            return $row;
+        }
+    }
+    return null;
+}
+
+/**
+ * What the page needs to (re)build a timed round: problems, per-problem progress and
+ * the remaining time from the server-side clock. Submitted code is included so a
+ * refresh restores the student's work.
+ */
+function timedTechPayload(array $details, $attempt)
+{
+    $submissions = [];
+    foreach (($details['problems'] ?? []) as $i => $_) {
+        $s = $details['submissions'][$i] ?? null;
+        $submissions[$i] = $s ? [
+            'attempts' => (int) ($s['attempts'] ?? 0),
+            'best_score' => (float) ($s['best_score'] ?? 0),
+            'passed' => !empty($s['passed']),
+            'last_feedback' => $s['last_feedback'] ?? '',
+            'best_code' => $s['best_code'] ?? '',
+            'best_language' => $s['best_language'] ?? '',
+        ] : null;
+    }
+    return [
+        'timed' => true,
+        'problems' => array_values($details['problems'] ?? []),
+        'submissions' => $submissions,
+        'duration_seconds' => $attempt['duration'] ?? TaskAssessmentService::TECHNICAL_DURATION * 60,
+        'time_remaining' => $attempt['remaining'] ?? 0,
+    ];
+}
+
+/**
+ * Saves a code submission and its evaluation into the chat-round transcript.
+ * Code answers used to be invisible to the final report (only a passed submission left a
+ * one-line note), so students who answered in the code editor scored 0 "for no answers".
+ * Uses the "Evaluation: {...}" system-message format generateTechnicalInterviewReport reads.
+ * $jobKey de-duplicates queue results that the page may report more than once.
+ */
+function appendCodeEvaluationToHistory(PDO $db, $isDrive, $sessionId, $ownerId, $code, $language, $result, $jobKey = null)
+{
+    if (!is_array($result)) {
+        return false;
+    }
+    $table = $isDrive ? 'student_drive_attempts' : 'unified_ai_assessments';
+    $db->beginTransaction();
+    try {
+        $stmt = $db->prepare("SELECT details FROM {$table} WHERE id = ? AND student_id = ? FOR UPDATE");
+        $stmt->execute([(int) $sessionId, (string) $ownerId]);
+        $raw = $stmt->fetchColumn();
+        if ($raw === false) {
+            $db->rollBack();
+            return false;
+        }
+        $details = json_decode($raw, true) ?: [];
+        if ($jobKey !== null && in_array($jobKey, $details['recorded_jobs'] ?? [], true)) {
+            $db->rollBack();
+            return true;
+        }
+        $score = max(0, min(10, (float) ($result['score'] ?? 0)));
+        $passed = !empty($result['passed']) && $result['passed'] !== 'false';
+        $feedback = is_string($result['feedback'] ?? null) ? $result['feedback'] : '';
+
+        $details['history'][] = ['role' => 'user', 'content' => "[Code submission in {$language}]\n" . mb_substr((string) $code, 0, 8000)];
+        $details['history'][] = ['role' => 'system', 'content' => 'Evaluation: ' . json_encode([
+            'score' => $score,
+            'passed' => $passed,
+            'feedback' => mb_substr($feedback, 0, 1500),
+        ])];
+        if ($jobKey !== null) {
+            $details['recorded_jobs'][] = $jobKey;
+        }
+        $db->prepare("UPDATE {$table} SET details = ? WHERE id = ?")->execute([json_encode($details), (int) $sessionId]);
+        $db->commit();
+        return true;
+    } catch (Throwable $e) {
+        if ($db->inTransaction()) {
+            $db->rollBack();
+        }
+        error_log("appendCodeEvaluationToHistory failed for session $sessionId: " . $e->getMessage());
+        return false;
+    }
 }

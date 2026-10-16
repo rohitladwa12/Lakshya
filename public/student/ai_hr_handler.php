@@ -481,7 +481,15 @@ try {
                 }
 
                 $rawScore = $score;
-                $finalScore = $isTerminated ? 0 : max(0, round($rawScore - $penaltyPct));
+                // Option A: a terminated test keeps its earned marks minus the termination penalty
+                // and is flagged for coordinator review (it used to be set to 0)
+                // A session also ends as 'terminated' when the connection is lost for over 2 minutes
+                // (no strikes) — that keeps the marks with only the strike penalties already applied
+                $strikeTerminated = $isTerminated && $strikeCount >= \App\Services\ProctoringService::MAX_STRIKES;
+                if ($strikeTerminated) {
+                    $penaltyPct = max($penaltyPct, \App\Services\ProctoringService::PENALTY_TERMINATED);
+                }
+                $finalScore = round(\App\Services\ProctoringService::finalScoreAfterProctoring($rawScore, $penaltyPct, $strikeTerminated));
 
                 $telemetry = isset($input['telemetry']) ? json_decode($input['telemetry'], true) : null;
                 if ($isDrive) {
@@ -500,6 +508,7 @@ try {
                     $details['penalty_pct'] = $penaltyPct;
                     $details['strike_count'] = $strikeCount;
                     $details['final_score'] = $finalScore;
+                    $details['proctor_review'] = $isTerminated;
 
                     // Finalize Status immediately
                     $db->prepare("UPDATE student_drive_attempts
@@ -523,6 +532,7 @@ try {
                     $details['penalty_pct'] = $penaltyPct;
                     $details['strike_count'] = $strikeCount;
                     $details['final_score'] = $finalScore;
+                    $details['proctor_review'] = $isTerminated;
 
                     // Finalize Status immediately so closing the browser doesn't orphan the completion
                     $db->prepare("UPDATE unified_ai_assessments

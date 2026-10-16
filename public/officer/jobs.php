@@ -630,7 +630,9 @@ $fullName = getFullName();
                 
                 $shareUrl = APP_URL . '/student/job_details.php?code=' . encryptJobId($job['id']);
                 $branches = json_decode($job['eligible_branches'] ?? '[]', true) ?: [];
-                $branchesStr = !empty($branches) ? implode(', ', $branches) : 'All Branches';
+                $branchesStr = !empty($branches) ? implode(', ', array_map(function($b) {
+                    return strpos($b, ':') !== false ? '[' . explode(':', $b, 2)[0] . '] ' . explode(':', $b, 2)[1] : $b;
+                }, $branches)) : 'All Branches';
 
                 $salaryStr = 'Not Specified';
                 if (!empty($job['salary_min']) && !empty($job['salary_max'])) {
@@ -1078,7 +1080,7 @@ $fullName = getFullName();
                     </span>
                 `);
                 inputsDiv.insertAdjacentHTML('beforeend', `
-                    <input type="hidden" name="eligible_branches[]" value="${item.branch}">
+                    <input type="hidden" name="eligible_branches[]" value="${item.inst}:${item.branch}">
                 `);
             });
             const hint = document.getElementById('noBranchHint');
@@ -1232,20 +1234,37 @@ $fullName = getFullName();
             try {
                 const rawBranches = JSON.parse(job.eligible_branches || '[]');
                 selectedBranches = [];
-                rawBranches.forEach(branch => {
-                    let inst = 'GMIT';
-                    for (const [iName, courses] of Object.entries(HIERARCHY)) {
-                        let found = false;
-                        for (const [cName, branches] of Object.entries(courses)) {
-                            if (branches.includes(branch) || cName === branch) {
-                                inst = iName;
-                                found = true;
-                                break;
+                const sessionInst = '<?php echo $_SESSION['user']['institution'] ?? 'GMIT'; ?>';
+                rawBranches.forEach(rawItem => {
+                    let inst, branch;
+                    if (typeof rawItem === 'string' && rawItem.includes(':')) {
+                        // New format: "INST:branch" e.g. "GMU:EEE"
+                        const colonIdx = rawItem.indexOf(':');
+                        inst   = rawItem.substring(0, colonIdx);
+                        branch = rawItem.substring(colonIdx + 1);
+                    } else {
+                        // Legacy format: bare branch string — prefer session institution
+                        branch = rawItem;
+                        inst   = sessionInst;
+                        // Validate: if the branch doesn't exist in sessionInst, try the other
+                        let foundInSession = false;
+                        if (HIERARCHY[inst]) {
+                            for (const branches of Object.values(HIERARCHY[inst])) {
+                                if (branches.includes(branch)) { foundInSession = true; break; }
                             }
                         }
-                        if (found) break;
+                        if (!foundInSession) {
+                            for (const [iName, courses] of Object.entries(HIERARCHY)) {
+                                if (iName === inst) continue;
+                                for (const branches of Object.values(courses)) {
+                                    if (branches.includes(branch)) { inst = iName; break; }
+                                }
+                            }
+                        }
                     }
-                    selectedBranches.push({ inst: inst, branch: branch });
+                    if (!selectedBranches.some(b => b.inst === inst && b.branch === branch)) {
+                        selectedBranches.push({ inst, branch });
+                    }
                 });
             } catch(e) {
                 selectedBranches = [];
@@ -1288,11 +1307,17 @@ $fullName = getFullName();
         async function loadCompanyData(companyId) {
             if (!companyId) return;
             try {
-                const res = await fetch(`../api/get_company.php?id=${companyId}`);
+                const res = await fetch(`../api/get_company.php?id=${encodeURIComponent(companyId)}`, {
+                    headers: { 'Accept': 'application/json' }
+                });
+                if (!res.ok) {
+                    console.warn(`Company API error [Status: ${res.status}]`);
+                    return;
+                }
                 const data = await res.json();
-                if (data.success) {
+                if (data.success && data.company) {
                     const c = data.company;
-                    document.getElementById('companyName').value = c.name;
+                    document.getElementById('companyName').value = c.name || '';
                     document.getElementById('companySector').value = c.sector || '';
                     document.getElementById('companyWebsite').value = c.website || '';
                     document.getElementById('companyDistrict').value = c.district || '';
@@ -1307,7 +1332,7 @@ $fullName = getFullName();
                         previewContainer.style.display = 'none';
                     }
                     document.getElementById('spocList').innerHTML = '';
-                    if (data.spocs) data.spocs.forEach(s => addSpocRow(s));
+                    if (data.spocs && Array.isArray(data.spocs)) data.spocs.forEach(s => addSpocRow(s));
                 }
             } catch (err) {
                 console.error("Failed to load company data:", err);

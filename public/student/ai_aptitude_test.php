@@ -26,12 +26,26 @@ $filters = SessionFilterHelper::getFilters('ai_aptitude_test');
 $companyName = !empty($_GET['company']) ? clean($_GET['company']) : ($filters['company'] ?? 'General');
 $taskId = isset($_GET['task_id']) ? (int)$_GET['task_id'] : ($filters['task_id'] ?? 0);
 $concept = !empty($_GET['concept']) ? clean($_GET['concept']) : ($filters['concept'] ?? '');
-if (empty($concept) && $taskId) {
+
+// Default (practice / legacy tasks): 40 questions in 40 minutes.
+// Timed coordinator tasks: chosen duration, 1 question per minute.
+$isTimedTask = false;
+$durationMinutes = 40;
+$questionCount = 40;
+if ($taskId) {
     try {
         $db = getDB();
-        $stmt = $db->prepare("SELECT concept FROM coordinator_tasks WHERE id = ?");
-        $stmt->execute([$taskId]);
-        $concept = $stmt->fetchColumn() ?: '';
+        $taskRow = TaskAssessmentService::getTask($db, $taskId);
+        if ($taskRow) {
+            if (empty($concept)) {
+                $concept = $taskRow['concept'] ?? '';
+            }
+            if (TaskAssessmentService::isTimed($taskRow) && $taskRow['task_type'] === 'aptitude') {
+                $isTimedTask = true;
+                $durationMinutes = (int) $taskRow['duration_minutes'];
+                $questionCount = (int) $taskRow['question_count'];
+            }
+        }
     } catch (Exception $e) {}
 }
 $fullName = getFullName();
@@ -495,8 +509,11 @@ $fullName = getFullName();
                 <p>Topic / Concept: <strong><?php echo htmlspecialchars($concept); ?></strong></p>
             <?php endif; ?>
             <div style="text-align: left; margin: 30px 0; background: #f8f9fa; padding: 20px; border-radius: 12px;">
-                <p>• 40 Questions (<?php echo !empty($concept) ? 'AI Sourced' : 'Database Sourced'; ?>)</p>
-                <p>• 40 Minutes Total Time</p>
+                <p>• <?php echo $questionCount; ?> Questions (<?php echo ($isTimedTask || !empty($concept)) ? 'AI Sourced' : 'Database Sourced'; ?>)</p>
+                <p>• <?php echo TaskAssessmentService::formatDuration($durationMinutes); ?> Total Time (about 1 minute per question)</p>
+                <?php if ($isTimedTask): ?>
+                <p>• The timer starts when your questions load and keeps running if you refresh or leave — the test auto-submits when time is up</p>
+                <?php endif; ?>
                 <p>• Full-screen experience recommended</p>
                 <p>• Questions focus on <?php echo !empty($concept) ? htmlspecialchars($concept) : 'company awareness'; ?> & aptitude</p>
                 <div id="proctor-env-box" style="margin-top: 15px; padding: 12px; background: #fff; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 0.9rem;">
@@ -522,7 +539,7 @@ $fullName = getFullName();
                 <div class="progress-bar" id="progressBar"></div>
             </div>
 
-            <div class="timer" id="timerDisplay">40:00</div>
+            <div class="timer" id="timerDisplay"><?php echo $durationMinutes >= 60 ? sprintf('%d:%02d:00', intdiv($durationMinutes, 60), $durationMinutes % 60) : sprintf('%02d:00', $durationMinutes); ?></div>
         </div>
 
         <div class="question-area" id="questionArea">
@@ -532,7 +549,7 @@ $fullName = getFullName();
 
         <div class="footer">
             <button class="btn-nav" id="prevBtn" onclick="prevQuestion()" disabled>Previous</button>
-            <div id="qCounter">Question 1 of 40</div>
+            <div id="qCounter">Question 1 of <?php echo $questionCount; ?></div>
             <button class="btn-nav" id="nextBtn" onclick="nextQuestion()">Next</button>
             <button class="btn-submit" id="submitBtn" onclick="submitTest()">Finalize & Submit</button>
         </div>
@@ -568,7 +585,12 @@ $fullName = getFullName();
         let questions = [];
         let userAnswers = {};
         let currentIdx = 0;
-        let timeLeft = 40 * 60; // 40 minutes for 40 questions
+        // 1 minute per question. For timed coordinator tasks the server sends the real
+        // remaining time (its clock started on the first load and survives refreshes).
+        const IS_TIMED_TASK = <?php echo $isTimedTask ? 'true' : 'false'; ?>;
+        let durationSeconds = <?php echo (int) $durationMinutes * 60; ?>;
+        let timeLeft = durationSeconds;
+        let endAt = null;
         let timerInterval;
         // json_encode (not addslashes) so a value containing a closing script tag or a line break can't break the script
         const companyName = <?php echo json_encode((string)$companyName, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT); ?>;
@@ -664,7 +686,7 @@ $fullName = getFullName();
                         }
                     }
 
-                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--primary);"></i> Calibrating posture & identity baseline... Keep your face centered in the camera preview (bottom-right).';
+                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--primary);"></i> Calibrating (about 8 seconds)... Sit as you will during the test and look at the MIDDLE of your screen, not at the camera preview. Keep still.';
                     const envCheck = await proctorEngine.runEnvCheck();
                     if (!envCheck.passed) {
                         if (startBtn) { startBtn.disabled = false; startBtn.textContent = 'Retry Calibration'; }
@@ -717,6 +739,31 @@ $fullName = getFullName();
             loadQuestions();
         }
 
+        // Answers are kept in this browser keyed by question text, so a refresh mid-test
+        // (same paper, possibly different order) restores what the student already marked.
+        const ANSWER_STORE_KEY = 'apt_task_answers_' + taskIdStr;
+
+        function readStoredAnswers() {
+            if (!IS_TIMED_TASK) return {};
+            try { return JSON.parse(localStorage.getItem(ANSWER_STORE_KEY) || '{}') || {}; } catch (e) { return {}; }
+        }
+
+        function storeAnswers() {
+            if (!IS_TIMED_TASK) return;
+            try {
+                const byText = {};
+                Object.keys(userAnswers).forEach(idx => {
+                    const q = questions[idx];
+                    if (q) byText[q.question] = userAnswers[idx];
+                });
+                localStorage.setItem(ANSWER_STORE_KEY, JSON.stringify(byText));
+            } catch (e) { }
+        }
+
+        function clearStoredAnswers() {
+            try { localStorage.removeItem(ANSWER_STORE_KEY); } catch (e) { }
+        }
+
         function beginTest(qs) {
             if (testStarted) return;
             if (!Array.isArray(qs) || qs.length === 0) {
@@ -725,8 +772,65 @@ $fullName = getFullName();
             }
             testStarted = true;
             questions = qs;
+
+            const stored = readStoredAnswers();
+            questions.forEach((q, idx) => {
+                const ans = stored[q.question];
+                if (Number.isInteger(ans) && ans >= 0 && Array.isArray(q.options) && ans < q.options.length) {
+                    userAnswers[idx] = ans;
+                }
+            });
+
+            endAt = Date.now() + timeLeft * 1000;
             renderQuestion();
+            renderTimer();
             startTimer();
+        }
+
+        function showFatalError(msg) {
+            document.getElementById('questionArea').innerHTML = `
+                <div style="text-align:center; max-width: 500px;">
+                    <i class="fas fa-circle-info" style="font-size:2.5rem; color:var(--error); margin-bottom:15px;"></i>
+                    <p style="margin-bottom:20px; color:#eee;">${escapeHtml(msg)}</p>
+                    <a class="btn-start" href="dashboard.php" style="text-decoration:none; display:inline-block;">Back to Dashboard</a>
+                </div>`;
+            if (proctorEngine) {
+                try { proctorEngine.stop(); } catch (e) { }
+            }
+            isSubmitting = true; // stops fullscreen/blur violation overlays
+            document.getElementById('warningOverlay').style.display = 'none';
+        }
+
+        // Questions for a timed task are generated once after the coordinator assigns it.
+        // If they are not ready yet, wait here (and nudge generation) instead of failing.
+        let preparingTimer = null;
+        function waitForPreparedQuestions() {
+            if (preparingTimer) return;
+            const started = Date.now();
+            showLoader('Your questions are being prepared. This usually takes 1–2 minutes — please keep this page open.');
+            const call = (action) => {
+                const fd = new FormData();
+                fd.append('action', action);
+                fd.append('task_id', taskIdStr);
+                fd.append('csrf_token', window.CSRF_TOKEN);
+                return fetch('task_prepare.php', { method: 'POST', headers: { 'X-CSRF-TOKEN': window.CSRF_TOKEN }, body: fd }).then(r => r.json());
+            };
+            call('generate').catch(() => { });
+            preparingTimer = setInterval(() => {
+                if (Date.now() - started > 10 * 60 * 1000) {
+                    clearInterval(preparingTimer);
+                    preparingTimer = null;
+                    showLoadError('Questions are taking longer than expected to prepare. Please retry in a few minutes or contact your coordinator.');
+                    return;
+                }
+                call('status').then(s => {
+                    if (s.success && s.status === 'ready') {
+                        clearInterval(preparingTimer);
+                        preparingTimer = null;
+                        loadQuestions();
+                    }
+                }).catch(() => { });
+            }, 5000);
         }
 
         async function loadQuestions() {
@@ -802,7 +906,15 @@ $fullName = getFullName();
                         } catch (e) { console.error('Polling error:', e); }
                     }, 2000);
                 } else if (data.success) {
+                    if (data.timed) {
+                        durationSeconds = parseInt(data.duration_seconds, 10) || durationSeconds;
+                        timeLeft = Math.max(0, parseInt(data.time_remaining, 10) || 0);
+                    }
                     beginTest(data.questions);
+                } else if (data.preparing) {
+                    waitForPreparedQuestions();
+                } else if (data.fatal) {
+                    showFatalError(data.message || 'This assessment cannot be started.');
                 } else {
                     showLoadError('Error: ' + (data.message || 'Failed to load questions.'));
                 }
@@ -867,6 +979,7 @@ $fullName = getFullName();
 
         function selectOption(idx) {
             userAnswers[currentIdx] = idx;
+            storeAnswers();
             renderQuestion();
         }
 
@@ -900,14 +1013,27 @@ $fullName = getFullName();
             }
         }
 
+        function renderTimer() {
+            const t = Math.max(0, timeLeft);
+            const hrs = Math.floor(t / 3600);
+            const mins = Math.floor((t % 3600) / 60);
+            const secs = t % 60;
+            document.getElementById('timerDisplay').innerText = hrs > 0
+                ? `${hrs}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`
+                : `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
         function startTimer() {
             if (timerInterval) clearInterval(timerInterval);
+            if (timeLeft <= 0) {
+                submitTest();
+                return;
+            }
+            // Count down against a fixed end time: browsers throttle background-tab
+            // intervals, so decrementing a counter every tick would drift.
             timerInterval = setInterval(() => {
-                timeLeft--;
-                const mins = Math.floor(timeLeft / 60);
-                const secs = timeLeft % 60;
-                document.getElementById('timerDisplay').innerText =
-                    `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                timeLeft = Math.max(0, Math.ceil((endAt - Date.now()) / 1000));
+                renderTimer();
 
                 if (timeLeft <= 0) {
                     clearInterval(timerInterval);
@@ -1036,7 +1162,7 @@ $fullName = getFullName();
                 formData.append('answers', JSON.stringify(userAnswers));
                 formData.append('questions', JSON.stringify(questions));
                 formData.append('task_id', taskIdStr);
-                formData.append('time_taken', 40 * 60 - timeLeft); // Fix: Send actual time taken to coordinator dashboard
+                formData.append('time_taken', Math.max(0, durationSeconds - timeLeft)); // Server recomputes this for timed tasks
                 formData.append('proctor_token', proctorEngine ? (proctorEngine._token || '') : '');
                 formData.append('csrf_token', window.CSRF_TOKEN);
 
@@ -1054,6 +1180,7 @@ $fullName = getFullName();
                 }
 
                 if (data.success) {
+                    clearStoredAnswers();
                     document.getElementById('finalScore').innerText = Math.round(data.score) + '%';
                     let breakdownText = `You answered ${data.correct} out of ${data.total} questions correctly.`;
                     if (data.penalty_pct > 0) {
@@ -1117,6 +1244,11 @@ $fullName = getFullName();
                         document.getElementById('resultDetails').innerHTML = html;
                         renderMath(document.getElementById('resultDetails'));
                     }
+                } else if (data.fatal) {
+                    clearStoredAnswers();
+                    document.getElementById('resultMsg').innerHTML = `
+                        <span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> ${escapeHtml(data.message)}</span>
+                        <div style="margin-top:15px;"><a href="dashboard.php" class="btn-nav" style="background:var(--secondary);color:#000;border:none;font-weight:700;padding:10px 24px;text-decoration:none;">Back to Dashboard</a></div>`;
                 } else {
                     document.getElementById('resultMsg').innerHTML = `
                         <span style="color:#ef4444;font-weight:600;"><i class="fas fa-exclamation-triangle"></i> ${escapeHtml(data.message || 'Submission failed. Please click retry.')}</span>

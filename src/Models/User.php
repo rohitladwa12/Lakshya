@@ -454,21 +454,48 @@ class User extends Model {
                     $details = $stmtDet->fetch();
                     if ($details) $user['student_name'] = $details['student_name'];
                 } else {
-                    $usn = $user['USER_NAME'] ?? '';
-                    $aadhar = $user['AADHAR'] ?? '';
-                    $sqlDet = "SELECT d.usn as actual_usn, ad.sem 
-                               FROM {$prefix}ad_student_details d
-                               LEFT JOIN {$prefix}ad_student_approved ad ON d.usn = ad.usn
-                               WHERE d.usn = ? OR d.aadhar = ?
-                               ORDER BY ad.academic_year DESC, ad.sem DESC LIMIT 1";
-                    $stmtDet = $this->remoteDB->prepare($sqlDet);
-                    $stmtDet->execute([$usn, $aadhar]);
-                    $details = $stmtDet->fetch();
-                    if ($details) {
-                        $user['actual_usn'] = $details['actual_usn'];
-                        $user['sem'] = $details['sem'];
+                    $usnCandidates = array_unique(array_filter([
+                        $user['ID'] ?? '',
+                        $user['USER_NAME'] ?? '',
+                        $user['AADHAR'] ?? ''
+                    ]));
+                    $aadhar = $user['AADHAR'] ?? ($user['USER_NAME'] ?? '');
+
+                    // GMU: ad_student_approved is the authoritative academic table for sem and USN
+                    $ph = implode(',', array_fill(0, count($usnCandidates), '?'));
+                    $sqlApp = "SELECT usn as actual_usn, sem, name as student_name 
+                               FROM {$prefix}ad_student_approved 
+                               WHERE usn IN ($ph) OR (aadhar IS NOT NULL AND aadhar = ?)
+                               ORDER BY academic_year DESC, sem DESC LIMIT 1";
+                    $stmtApp = $this->remoteDB->prepare($sqlApp);
+                    $stmtApp->execute(array_merge($usnCandidates, [$aadhar]));
+                    $details = $stmtApp->fetch();
+
+                    // Fallback to ad_student_details if student record not yet approved in ad_student_approved
+                    if (!$details) {
+                        $sqlDet = "SELECT d.usn as actual_usn, ad.sem, d.name as student_name 
+                                   FROM {$prefix}ad_student_details d
+                                   LEFT JOIN {$prefix}ad_student_approved ad ON d.usn = ad.usn
+                                   WHERE d.usn IN ($ph) OR d.aadhar = ?
+                                   ORDER BY ad.academic_year DESC, ad.sem DESC LIMIT 1";
+                        $stmtDet = $this->remoteDB->prepare($sqlDet);
+                        $stmtDet->execute(array_merge($usnCandidates, [$aadhar]));
+                        $details = $stmtDet->fetch();
                     }
-                    $user['student_name'] = $user['NAME'] ?? '';
+
+                    if ($details) {
+                        $user['actual_usn'] = !empty($details['actual_usn']) ? $details['actual_usn'] : ($user['ID'] ?? $user['USER_NAME']);
+                        $user['sem'] = $details['sem'] ?? 0;
+                        if (!empty($details['student_name'])) {
+                            $user['student_name'] = $details['student_name'];
+                        }
+                    }
+                    if (empty($user['student_name'])) {
+                        $user['student_name'] = $user['NAME'] ?? '';
+                    }
+                    if (empty($user['actual_usn']) && !empty($user['ID']) && !is_numeric($user['ID'])) {
+                        $user['actual_usn'] = $user['ID'];
+                    }
                 }
 
                 $appUser = $this->mapToAppUser($user, $inst);

@@ -220,7 +220,7 @@ class StudentProfile extends Model {
                 $stmtLocal = $this->db->prepare("SELECT semester, sgpa, academic_year FROM student_sem_sgpa WHERE (student_id = ? OR student_id = ?) AND (institution = ? OR institution IS NULL)");
                 $stmtLocal->execute([$username, $aadhar, INSTITUTION_GMU]);
                 while ($lRow = $stmtLocal->fetch()) {
-                    if ($lRow['sgpa'] !== null) {
+                    if ($lRow['sgpa'] !== null && (float)$lRow['sgpa'] > 0) {
                         $localSgpa[(int)$lRow['semester']] = $lRow;
                     }
                 }
@@ -229,7 +229,7 @@ class StudentProfile extends Model {
             $history = array_map(function($row) use ($user, $inst, $localSgpa) {
                 $p = $this->mapToAppProfile($row, $user, [], $inst);
                 $s = (int)($p['semester'] ?? $row['sem'] ?? 0);
-                if (isset($localSgpa[$s])) {
+                if (isset($localSgpa[$s]) && (float)$localSgpa[$s]['sgpa'] > 0) {
                     $p['sgpa'] = (float)$localSgpa[$s]['sgpa'];
                     $p['cgpa'] = (float)$localSgpa[$s]['sgpa'];
                 }
@@ -463,11 +463,26 @@ class StudentProfile extends Model {
         if (!empty($jobRequirements['eligible_branches'])) {
             $branches = json_decode($jobRequirements['eligible_branches'], true);
             $studentBranch = strtoupper(trim($profile['department'] ?? ''));
+            $studentInst   = strtoupper(trim($profile['institution'] ?? ''));
             if (!empty($branches) && $studentBranch !== '') {
                 $equivalentBranches = getEquivalentBranches($studentBranch);
                 $matchFound = false;
-                foreach ($equivalentBranches as $eqBranch) {
-                    if (in_array($eqBranch, $branches)) { $matchFound = true; break; }
+                foreach ($branches as $rawBranch) {
+                    // Support both "INST:branch" (new) and bare "branch" (legacy)
+                    if (strpos($rawBranch, ':') !== false) {
+                        [$branchInst, $branchName] = explode(':', $rawBranch, 2);
+                        $branchInst = strtoupper(trim($branchInst));
+                        $branchName = strtoupper(trim($branchName));
+                        // Institution must match too (skip if different institution)
+                        if ($studentInst !== '' && $branchInst !== '' && $studentInst !== $branchInst) {
+                            continue;
+                        }
+                        if (in_array($branchName, $equivalentBranches)) { $matchFound = true; break; }
+                    } else {
+                        // Legacy bare branch — no institution restriction
+                        $branchName = strtoupper(trim($rawBranch));
+                        if (in_array($branchName, $equivalentBranches)) { $matchFound = true; break; }
+                    }
                 }
                 if (!$matchFound) {
                     $eligible = false;

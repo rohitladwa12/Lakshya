@@ -34,10 +34,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
     $minute = (int)($_POST['deadline_minute'] ?? 0);
     $ampm = $_POST['deadline_ampm'] ?? 'AM';
 
-    // Ensure the difficulty column exists
+    // Ensure the difficulty/duration/generation columns and tables exist
+    TaskAssessmentService::ensureSchema($db);
+
+    // Aptitude: chosen duration, 1 question per minute. Technical: 60 min, 3 problems.
     try {
-        $db->exec("ALTER TABLE coordinator_tasks ADD COLUMN IF NOT EXISTS difficulty VARCHAR(20) DEFAULT 'Medium'");
-    } catch (Exception $e) {}
+        if (!in_array($taskType, ['aptitude', 'technical', 'hr'], true)) {
+            throw new InvalidArgumentException('Please select a valid task type.');
+        }
+        [$durationMinutes, $questionCount, $generationStatus] = TaskAssessmentService::resolveTaskConfig($taskType, $_POST['duration_minutes'] ?? '');
+    } catch (InvalidArgumentException $e) {
+        $_SESSION['error_message'] = $e->getMessage();
+        header('Location: assign_task.php?' . $_SERVER['QUERY_STRING']);
+        exit;
+    }
 
     if ($ampm === 'PM' && $hour < 12) $hour += 12;
     if ($ampm === 'AM' && $hour === 12) $hour = 0;
@@ -53,17 +63,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
                                      SELECT discipline FROM gmit_new.ad_student_details WHERE usn = ? OR student_id = ?");
     
     $compSearch = !empty($companyName) ? $companyName : null;
-    $stmtCheck = $db->prepare("SELECT id FROM coordinator_tasks 
-                               WHERE IS_ACTIVE = 1 
-                               AND task_type = ? 
-                               AND (company_name = ? OR (company_name IS NULL AND ? IS NULL))
-                               AND JSON_CONTAINS(target_students, ?)
-                               AND deadline > NOW()");
+    // A task the student has already finished (or that proctoring ended) no longer counts as active
+    $stmtCheck = $db->prepare("SELECT ct.id FROM coordinator_tasks ct
+                               WHERE ct.IS_ACTIVE = 1
+                               AND ct.task_type = ?
+                               AND (ct.company_name = ? OR (ct.company_name IS NULL AND ? IS NULL))
+                               AND JSON_CONTAINS(ct.target_students, ?)
+                               AND ct.deadline > NOW()
+                               AND NOT EXISTS (SELECT 1 FROM task_completions tc
+                                               WHERE tc.task_id = ct.id AND tc.student_id = ?)
+                               AND NOT EXISTS (SELECT 1 FROM unified_ai_assessments u
+                                               WHERE u.usn = ? AND u.status = 'completed'
+                                                 AND JSON_UNQUOTE(JSON_EXTRACT(u.details, '$.task_id')) = CAST(ct.id AS CHAR))");
 
     $stmtInsert = $db->prepare("INSERT INTO coordinator_tasks 
                                (coordinator_id, task_type, title, company_name, concept, question_source, difficulty,
-                                target_type, target_students, target_branches, deadline) 
-                               VALUES (?, ?, ?, ?, ?, ?, ?, 'individual', ?, ?, ?)");
+                                target_type, target_students, target_branches, deadline,
+                                duration_minutes, question_count, generation_status)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, 'individual', ?, ?, ?, ?, ?, ?)");
+    $newTaskId = 0;
 
     // Start transaction for atomicity and speed
     $db->beginTransaction();
@@ -77,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
             
             // Prevent duplicate active tasks
             $checkJson = '"' . $studentId . '"'; 
-            $stmtCheck->execute([$taskType, $compSearch, $compSearch, $checkJson]);
+            $stmtCheck->execute([$taskType, $compSearch, $compSearch, $checkJson, $studentId, $studentId]);
             
             if ($stmtCheck->fetch()) {
                 $skippedCount++;
@@ -97,8 +115,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
             $title = ucfirst($taskType) . " Assessment" . ($companyName ? " - $companyName" : "");
             $stmtInsert->execute([
                 $coordinatorId, $taskType, $title, $compSearch, $concept, $questionSource, $difficulty,
-                json_encode(array_values(array_unique($validStudents))), json_encode(array_values(array_unique($branches))), $deadline
+                json_encode(array_values(array_unique($validStudents))), json_encode(array_values(array_unique($branches))), $deadline,
+                $durationMinutes, $questionCount, $generationStatus
             ]);
+            $newTaskId = (int) $db->lastInsertId();
             $assignedCount = count($validStudents);
         }
         $db->commit();
@@ -112,6 +132,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['assign_task'])) {
 
     if ($assignedCount > 0) {
         $_SESSION['success_message'] = "Successfully assigned tasks to $assignedCount students." . ($skippedCount > 0 ? " ($skippedCount skipped as they already have active tasks)" : "");
+        // The page reloads and immediately starts preparing the questions for this task
+        if ($newTaskId && $generationStatus === 'pending') {
+            $_SESSION['generate_task_id'] = $newTaskId;
+        }
     } else if ($skippedCount > 0) {
         $_SESSION['error_message'] = "All selected students ($skippedCount) already have active tasks of this type.";
     }
@@ -1633,7 +1657,7 @@ function buildUrl($key, $val) {
                         <label class="filter-label"><i class="fas fa-list-check"></i> Task Type *</label>
                         <div class="input-wrapper">
                             <i class="fas fa-tasks input-icon"></i>
-                            <select name="task_type" class="form-select-custom" required>
+                            <select name="task_type" id="modal_task_type" class="form-select-custom" onchange="updateDurationField()" required>
                                 <option value="">Select Task Category</option>
                                 <option value="aptitude">Aptitude Round</option>
                                 <option value="technical">Technical Round</option>
@@ -1686,6 +1710,26 @@ function buildUrl($key, $val) {
                             </select>
                             <i class="fas fa-chevron-down select-chevron"></i>
                         </div>
+                    </div>
+
+                    <!-- Round Duration (aptitude: chosen, 1 question per minute; technical: fixed) -->
+                    <div class="filter-group span-2" id="durationGroup" style="display: none;">
+                        <label class="filter-label"><i class="fas fa-hourglass-half"></i> Round Duration *</label>
+                        <div id="aptitudeDurationWrap" class="input-wrapper">
+                            <i class="fas fa-stopwatch input-icon"></i>
+                            <select name="duration_minutes" id="modal_duration" class="form-select-custom" onchange="updateDurationField()">
+                                <?php foreach (TaskAssessmentService::APTITUDE_DURATIONS as $mins): ?>
+                                    <option value="<?php echo $mins; ?>" <?php echo $mins === 60 ? 'selected' : ''; ?>>
+                                        <?php echo TaskAssessmentService::formatDuration($mins); ?> — <?php echo $mins * TaskAssessmentService::QUESTIONS_PER_MINUTE; ?> questions
+                                    </option>
+                                <?php endforeach; ?>
+                            </select>
+                            <i class="fas fa-chevron-down select-chevron"></i>
+                        </div>
+                        <div id="technicalDurationInfo" class="form-input-custom" style="display: none; padding-left: 16px; background: #f8fafc; font-weight: 700; color: var(--primary-maroon);">
+                            <?php echo TaskAssessmentService::formatDuration(TaskAssessmentService::TECHNICAL_DURATION); ?> — <?php echo TaskAssessmentService::TECHNICAL_PROBLEMS; ?> coding problem statements
+                        </div>
+                        <small id="durationHint" style="color: var(--text-muted); font-size: 11px; margin-top: 4px;"></small>
                     </div>
 
                     <!-- Deadline Date & Time -->
@@ -1742,6 +1786,23 @@ function buildUrl($key, $val) {
         </div>
     </div>
 
+    <!-- Question Generation Progress -->
+    <div id="genPanel" class="modal-overlay" style="display: none;">
+        <div class="modal-box" style="max-width: 480px; text-align: center;">
+            <div class="modal-header-title" style="justify-content: center;">
+                <i id="genSpinner" class="fas fa-spinner fa-spin"></i> <span id="genTitle">Preparing questions...</span>
+            </div>
+            <p id="genText" style="font-size: 13px; color: var(--text-muted); margin-bottom: 18px;"></p>
+            <div style="height: 10px; background: #e2e8f0; border-radius: 999px; overflow: hidden; margin-bottom: 20px;">
+                <div id="genBar" style="height: 100%; width: 0%; background: var(--primary-maroon); transition: width 0.4s ease;"></div>
+            </div>
+            <div class="modal-actions-bar" style="justify-content: center;">
+                <button type="button" id="genRetryBtn" class="btn-modal-submit" style="display: none;"><i class="fas fa-rotate-right"></i> Retry</button>
+                <button type="button" id="genCloseBtn" class="btn-modal-cancel" style="display: none;" onclick="document.getElementById('genPanel').style.display='none'">Close</button>
+            </div>
+        </div>
+    </div>
+
     <script>
         const allMatchedUsns = <?php echo json_encode($allMatchedUsns); ?>;
         let isAllPagesSelected = false;
@@ -1771,6 +1832,7 @@ function buildUrl($key, $val) {
             const dateInput = document.querySelector('input[name="deadline_date"]');
             if (dateInput && !dateInput.value) dateInput.value = dateStr;
 
+            updateDurationField();
             document.getElementById('assignModal').style.display = 'flex';
         }
 
@@ -1798,12 +1860,108 @@ function buildUrl($key, $val) {
             const dateInput = document.querySelector('input[name="deadline_date"]');
             if (dateInput && !dateInput.value) dateInput.value = dateStr;
 
+            updateDurationField();
             document.getElementById('assignModal').style.display = 'flex';
         }
 
         function closeAssignModal() {
             document.getElementById('assignModal').style.display = 'none';
         }
+
+        // Aptitude: coordinator picks the duration (1 question per minute).
+        // Technical: fixed 1 hour with 3 problem statements. HR: no duration.
+        function updateDurationField() {
+            const type = document.getElementById('modal_task_type').value;
+            const group = document.getElementById('durationGroup');
+            const aptWrap = document.getElementById('aptitudeDurationWrap');
+            const techInfo = document.getElementById('technicalDurationInfo');
+            const hint = document.getElementById('durationHint');
+            const durationSelect = document.getElementById('modal_duration');
+
+            group.style.display = (type === 'aptitude' || type === 'technical') ? '' : 'none';
+            aptWrap.style.display = type === 'aptitude' ? '' : 'none';
+            techInfo.style.display = type === 'technical' ? '' : 'none';
+            durationSelect.required = type === 'aptitude';
+
+            if (type === 'aptitude') {
+                const mins = parseInt(durationSelect.value, 10) || 0;
+                hint.textContent = `Students get ${mins} questions (1 question per minute). Questions are generated once, right after you assign.`;
+            } else if (type === 'technical') {
+                hint.textContent = 'Fixed format. The 3 problems are generated once, right after you assign.';
+            } else {
+                hint.textContent = '';
+            }
+        }
+
+        // ---- Question generation progress (runs right after a timed task is assigned) ----
+        let genPollTimer = null;
+
+        function showGenerationPanel(state, title, text, pct) {
+            const panel = document.getElementById('genPanel');
+            panel.style.display = 'flex';
+            document.getElementById('genTitle').textContent = title;
+            document.getElementById('genText').textContent = text;
+            document.getElementById('genBar').style.width = Math.max(0, Math.min(100, pct)) + '%';
+            document.getElementById('genSpinner').style.display = state === 'working' ? '' : 'none';
+            document.getElementById('genRetryBtn').style.display = state === 'failed' ? '' : 'none';
+            document.getElementById('genCloseBtn').style.display = state === 'working' ? 'none' : '';
+            document.getElementById('genBar').style.background = state === 'failed' ? '#dc2626' : (state === 'ready' ? '#16a34a' : 'var(--primary-maroon)');
+        }
+
+        function genRequest(action, taskId) {
+            const fd = new FormData();
+            fd.append('action', action);
+            fd.append('task_id', taskId);
+            fd.append('csrf_token', window.CSRF_TOKEN || '');
+            return fetch('task_generation.php', {
+                method: 'POST',
+                headers: { 'X-CSRF-TOKEN': window.CSRF_TOKEN || '' },
+                body: fd
+            }).then(r => r.json());
+        }
+
+        function startTaskGeneration(taskId) {
+            if (genPollTimer) clearInterval(genPollTimer);
+            showGenerationPanel('working', 'Preparing questions...', 'Generating the question paper with AI. This usually takes 1–2 minutes. You can keep this page open; students can start once it is ready.', 2);
+
+            // The generate request is long-running; progress comes from polling
+            // (the server keeps generating even if this page is closed).
+            genRequest('generate', taskId).catch(() => { /* polling reports the outcome */ });
+
+            let pollErrors = 0;
+            const poll = () => genRequest('status', taskId).then(s => {
+                pollErrors = 0;
+                if (!s.success) return;
+                const total = s.total || 0;
+                const label = s.task_type === 'technical' ? 'problem statements' : 'questions';
+                if (s.status === 'ready') {
+                    clearInterval(genPollTimer);
+                    showGenerationPanel('ready', 'Questions ready', s.note || `All ${total} ${label} are ready. Students can start the test now.`, 100);
+                } else if (s.status === 'failed') {
+                    clearInterval(genPollTimer);
+                    showGenerationPanel('failed', 'Generation failed', (s.note || 'Question generation failed.') + ' Click Retry.', 100);
+                    document.getElementById('genRetryBtn').onclick = () => startTaskGeneration(taskId);
+                } else {
+                    const pct = total > 0 ? Math.round((s.progress / total) * 100) : 5;
+                    const text = s.task_type === 'technical'
+                        ? 'Generating the 3 coding problem statements with AI...'
+                        : `Generated ${s.progress} of ${total} questions...`;
+                    showGenerationPanel('working', 'Preparing questions...', text, Math.max(5, pct));
+                }
+            }).catch(() => {
+                if (++pollErrors >= 10) {
+                    clearInterval(genPollTimer);
+                    showGenerationPanel('failed', 'Connection lost', 'Could not check progress. Open Manage Tasks to see the status or retry.', 100);
+                    document.getElementById('genRetryBtn').onclick = () => startTaskGeneration(taskId);
+                }
+            });
+            genPollTimer = setInterval(poll, 3000);
+            setTimeout(poll, 1500);
+        }
+
+        <?php if (!empty($_SESSION['generate_task_id'])): ?>
+        document.addEventListener('DOMContentLoaded', () => startTaskGeneration(<?php echo (int) $_SESSION['generate_task_id']; ?>));
+        <?php unset($_SESSION['generate_task_id']); endif; ?>
 
         function viewHistory(usn, name) {
             document.getElementById('historyStudentName').innerText = name + ' (' + usn + ')';

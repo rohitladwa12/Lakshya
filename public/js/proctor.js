@@ -93,6 +93,13 @@ class ProctoringEngine {
 
         // Throttling timers
         this._lastReportedTime = {};
+
+        // Last few raw readings: the median of 3 frames removes single-frame landmark
+        // jitter (common on low-resolution / blurry webcams)
+        this._poseHistory = [];
+        this._gazeHistory = [];
+        this._topoHistory = [];
+        this._lowQualityFrames = 0;
     }
 
     async init() {
@@ -326,10 +333,13 @@ class ProctoringEngine {
                 }
 
                 let totalDistSq = 0;
+                const dimVar = new Array(topoDim).fill(0);
                 for (let i = 0; i < rawTopologySamples.length; i++) {
                     let dsq = 0;
                     for (let d = 0; d < topoDim; d++) {
-                        dsq += Math.pow(rawTopologySamples[i][d] - meanTopo[d], 2);
+                        const sq = Math.pow(rawTopologySamples[i][d] - meanTopo[d], 2);
+                        dsq += sq;
+                        dimVar[d] += sq;
                     }
                     totalDistSq += dsq;
                 }
@@ -337,6 +347,8 @@ class ProctoringEngine {
 
                 this._identityRef = {
                     descriptor_mean: meanTopo,
+                    // Per-measurement spread for this student on this camera (noisy webcams spread more)
+                    descriptor_var_dims: dimVar.map(v => Number((v / rawTopologySamples.length).toFixed(5))),
                     descriptor_var: Number(varTopo.toFixed(4)),
                     quality: 0.95,
                     frame_count: rawTopologySamples.length,
@@ -367,11 +379,16 @@ class ProctoringEngine {
                 }
                 cxx /= nG; cyy /= nG; cxy /= nG;
 
-                // Covariance Regularization: Sigma_reg = Sigma + lambda * I
+                // Covariance Regularization: Sigma_reg = Sigma + lambda * I.
+                // 8 s of sitting still gives an unrealistically tight spread; floor it at the
+                // movement of normally reading the whole screen (and webcam landmark noise).
                 const lambda = this._settings.gaze_covariance_lambda || 0.0001;
-                const rCxx = Math.max(0.002, cxx + lambda);
-                const rCyy = Math.max(0.002, cyy + lambda);
-                const rCxy = cxy;
+                const minStdX = this._settings.gaze_min_std_x || 0.10;
+                const minStdY = this._settings.gaze_min_std_y || 0.15;
+                const rCxx = Math.max(minStdX * minStdX, cxx + lambda);
+                const rCyy = Math.max(minStdY * minStdY, cyy + lambda);
+                // Keep the correlation term valid for the floored variances
+                const rCxy = Math.max(-0.9 * Math.sqrt(rCxx * rCyy), Math.min(0.9 * Math.sqrt(rCxx * rCyy), cxy));
 
                 // 2x2 Matrix Inversion: [a b; c d]^-1 = 1/(ad - bc) * [d -b; -c a]
                 const det = (rCxx * rCyy) - (rCxy * rCxy);
@@ -572,16 +589,48 @@ class ProctoringEngine {
             this._occlusionStartTime = null;
         }
 
+        // 4b. Frame quality gate. A blurry, dark or far-away face on a poor webcam gives landmarks
+        // that jump several pixels between frames, which used to raise false "deviation" flags.
+        // Such frames are not judged at all: they neither count as a deviation nor clear one that
+        // is in progress, so a real sustained look-down (e.g. at a phone) still accumulates.
+        if (!this._isReliableFrame(faceScore, keypoints, lum)) {
+            this._lowQualityFrames++;
+            return;
+        }
+        this._lowQualityFrames = 0;
+
+        // Head Pose Estimation (needed before the identity check). Frames are ~1.5 s apart, so
+        // an EMA did no smoothing; the median of the last 3 frames removes single-frame jumps.
+        const rawPose = this._estimateHeadPose(keypoints);
+        if (rawPose) {
+            this._smoothedPose = this._medianOf(this._poseHistory, rawPose, ['yaw', 'pitch', 'roll']);
+            this._filterInitialized = true;
+        }
+        const poseDeltaPitch = this._smoothedPose.pitch - this._baseline.pitch_mean;
+        const poseDeltaYaw   = this._smoothedPose.yaw - this._baseline.yaw_mean;
+        // Vertical face ratios (eye-nose-mouth distances) change when the head tilts up/down, which
+        // made simply reading the bottom of the screen look like "a different person". When the head
+        // is tilted, identity is judged only on the side-to-side ear/eye proportions (topology
+        // indices 2 and 3), which tilting doesn't change. A turned head distorts everything, so
+        // identity is not judged then (the sideways-deviation check covers that).
+        const yawNearCalibration   = Math.abs(poseDeltaYaw) <= 10.0;
+        const pitchNearCalibration = Math.abs(poseDeltaPitch) <= 8.0;
+        const identityDims = pitchNearCalibration ? null : [2, 3];
+
         // 5. Identity Consistency Evaluation
-        if (this._identityRef.enrolled && keypoints) {
-            const currentTopo = this._extractLandmarkTopology(keypoints);
+        if (this._identityRef.enrolled && keypoints && yawNearCalibration) {
+            const rawTopo = this._extractLandmarkTopology(keypoints);
+            // Median over 3 frames, like pose: one jittery frame must not look like a new face
+            const currentTopo = rawTopo
+                ? Object.values(this._medianOf(this._topoHistory, Object.assign({}, rawTopo), rawTopo.map((_, i) => i)))
+                : null;
             if (currentTopo) {
-                const sid = this._calculateIdentityConsistency(currentTopo, this._identityRef);
+                const sid = this._calculateIdentityConsistency(currentTopo, this._identityRef, identityDims);
                 if (sid < 0.70) {
                     if (!this._identityMismatchStartTime) this._identityMismatchStartTime = now;
                     const misDurationMs = now - this._identityMismatchStartTime;
 
-                    if (misDurationMs >= 4000 && this._canReport('IDENTITY_SAMPLE', 4000)) {
+                    if (misDurationMs >= (this._settings.identity_sustain_ms || 8000) && this._canReport('IDENTITY_SAMPLE', 4000)) {
                         const snapshot = this._captureSnapshot();
                         await this._reportObservation('IDENTITY_SAMPLE', misDurationMs, sid, snapshot, {
                             identity_score: Number(sid.toFixed(3)),
@@ -597,7 +646,8 @@ class ProctoringEngine {
 
         // 6. 2D Covariance Ellipse Gaze Model Evaluation
         if (this._gazeModel.calibrated && keypoints) {
-            const gaze = this._estimateScreenAttentionGaze(keypoints);
+            const rawGaze = this._estimateScreenAttentionGaze(keypoints);
+            const gaze = rawGaze ? this._medianOf(this._gazeHistory, rawGaze, ['rx', 'ry']) : null;
             if (gaze) {
                 const dx = gaze.rx - this._gazeModel.mu_x;
                 const dy = gaze.ry - this._gazeModel.mu_y;
@@ -605,12 +655,13 @@ class ProctoringEngine {
                              (dy * dy * this._gazeModel.inv_cov_yy) +
                              (2 * dx * dy * this._gazeModel.inv_cov_xy);
 
-                const dmSqThresh = this._settings.gaze_mahalanobis_sq_threshold || 9.21;
+                const dmSqThresh = this._settings.gaze_mahalanobis_sq_threshold || 13.82;
+                const gazeSustainMs = this._settings.gaze_sustain_ms || 8000;
                 if (dmSq > dmSqThresh) {
                     if (!this._gazeDivergenceStartTime) this._gazeDivergenceStartTime = now;
                     const gazeDurationMs = now - this._gazeDivergenceStartTime;
 
-                    if (gazeDurationMs >= 4000 && this._canReport('EYE_GAZE_SAMPLE', 4000)) {
+                    if (gazeDurationMs >= gazeSustainMs && this._canReport('EYE_GAZE_SAMPLE', 4000)) {
                         const snapshot = this._captureSnapshot();
                         await this._reportObservation('EYE_GAZE_SAMPLE', gazeDurationMs, 0.85, snapshot, {
                             mahalanobis_sq: Number(dmSq.toFixed(2)),
@@ -624,27 +675,18 @@ class ProctoringEngine {
             }
         }
 
-        // 7. Time-Based EMA Head Pose Estimation
-        const rawPose = this._estimateHeadPose(keypoints);
-        if (rawPose) {
-            if (!this._filterInitialized) {
-                this._smoothedPose = { yaw: rawPose.yaw, pitch: rawPose.pitch, roll: rawPose.roll };
-                this._filterInitialized = true;
-            } else {
-                const alpha = 1.0 - Math.exp(-deltaTMs / this._tauMs);
-                this._smoothedPose.yaw   = this._smoothedPose.yaw   + alpha * (rawPose.yaw   - this._smoothedPose.yaw);
-                this._smoothedPose.pitch = this._smoothedPose.pitch + alpha * (rawPose.pitch - this._smoothedPose.pitch);
-                this._smoothedPose.roll  = this._smoothedPose.roll  + alpha * (rawPose.roll  - this._smoothedPose.roll);
-            }
-        }
-
+        // 7. Head pose deviation (pose was smoothed above)
         const deltaPitch = this._smoothedPose.pitch - this._baseline.pitch_mean;
         const zPitch     = deltaPitch / this._baseline.pitch_std;
         const deltaYaw   = this._smoothedPose.yaw - this._baseline.yaw_mean;
         const zYaw       = deltaYaw / this._baseline.yaw_std;
 
-        const isDownwardDev = (deltaPitch < -16.0 && zPitch < -2.2);
-        const isSidewaysDev = (Math.abs(deltaYaw) > 18.0 && Math.abs(zYaw) > 2.2);
+        // Reading the bottom of the screen tilts the head ~10-15°; coding rounds also look at
+        // the keyboard. Limits come from the server per assessment type.
+        const downwardDeg = this._settings.downward_pitch_deg || 22.0;
+        const sidewaysDeg = this._settings.sideways_yaw_deg || 22.0;
+        const isDownwardDev = (deltaPitch < -downwardDeg && zPitch < -2.2);
+        const isSidewaysDev = (Math.abs(deltaYaw) > sidewaysDeg && Math.abs(zYaw) > 2.2);
 
         // Downward Attention Accumulator
         if (isDownwardDev) {
@@ -687,10 +729,39 @@ class ProctoringEngine {
             await this._reportObservation('CLEAN_FRAME', 0, 1.0, null, {
                 observed: { delta_pitch: Number(deltaPitch.toFixed(1)), delta_yaw: Number(deltaYaw.toFixed(1)) }
             });
-            this._setPreviewStatusIndicator('normal');
-        } else if (!isClean) {
-            this._setPreviewStatusIndicator('deviated');
         }
+
+        // The preview only turns red once a deviation has lasted a few seconds (no flicker from a
+        // brief glance), and returns to normal as soon as the student looks back at the screen
+        const displayMs = this._settings.deviation_display_ms || 3000;
+        const sustainedDeviation =
+            (this._downwardAttnStartTime && now - this._downwardAttnStartTime >= displayMs) ||
+            (this._sidewaysDevStartTime && now - this._sidewaysDevStartTime >= displayMs);
+        this._setPreviewStatusIndicator(sustainedDeviation ? 'deviated' : 'normal');
+    }
+
+    /** Pushes a sample into a 3-frame history and returns the per-key median */
+    _medianOf(history, sample, keys) {
+        history.push(sample);
+        if (history.length > 3) history.shift();
+        const out = {};
+        for (const k of keys) {
+            const vals = history.map(s => s[k]).sort((a, b) => a - b);
+            out[k] = vals[Math.floor(vals.length / 2)];
+        }
+        return out;
+    }
+
+    /** Is this frame clear enough to judge where the student is looking? */
+    _isReliableFrame(faceScore, keypoints, lum) {
+        if (!keypoints || keypoints.length < 6) return false;
+        const minScore = this._settings.min_face_score || 0.80;
+        const minLum   = this._settings.min_quality_luminance || 35;
+        const minIo    = this._settings.min_interocular || 0.055;
+        let interOcular = Math.hypot(keypoints[1].x - keypoints[0].x, keypoints[1].y - keypoints[0].y);
+        // MediaPipe gives normalised (0-1) coordinates; the face-api fallback gives pixels
+        if (interOcular > 1.5 && this._canvasEl) interOcular = interOcular / this._canvasEl.width;
+        return faceScore >= minScore && lum >= minLum && interOcular >= minIo;
     }
 
     // ─────────────────────────────────────────────────────────
@@ -722,18 +793,27 @@ class ProctoringEngine {
         return [r1, r2, r3, r4, r5, r6];
     }
 
-    _calculateIdentityConsistency(currentTopo, ref) {
+    /**
+     * 1.0 = same face shape as calibration, 0 = very different. Each measurement is compared
+     * against its own calibration spread, so ordinary camera noise scores ~0.85+ (the previous
+     * single pooled variance scored typical noise at ~0.6, below the 0.70 mismatch line), while
+     * a different person's proportions score near 0. $dims limits the comparison to a subset.
+     */
+    _calculateIdentityConsistency(currentTopo, ref, dims = null) {
         if (!ref.enrolled || !ref.descriptor_mean || ref.descriptor_mean.length !== currentTopo.length) {
             return 1.0;
         }
+        const idx = dims || currentTopo.map((_, i) => i);
+        const pooled = ref.descriptor_var / currentTopo.length;
 
-        let distSq = 0;
-        for (let i = 0; i < currentTopo.length; i++) {
-            distSq += Math.pow(currentTopo[i] - ref.descriptor_mean[i], 2);
+        let meanZSq = 0;
+        for (const i of idx) {
+            const v = Math.max(0.003, (ref.descriptor_var_dims && ref.descriptor_var_dims[i]) || pooled);
+            meanZSq += Math.pow(currentTopo[i] - ref.descriptor_mean[i], 2) / v;
         }
+        meanZSq /= idx.length;
 
-        const safeVar = Math.max(0.02, ref.descriptor_var);
-        const score = Math.exp(-distSq / (2.0 * safeVar));
+        const score = Math.exp(-meanZSq / 8.0);
         return Math.max(0.0, Math.min(1.0, score));
     }
 
@@ -868,6 +948,12 @@ class ProctoringEngine {
         this._updateRiskDisplay(score, strikeCount, penaltyPct);
 
         switch (action) {
+            case 'notice':
+                // First focus loss: warning only, no strike or penalty
+                this.onWarning(msg, false, penaltyPct);
+                this._showOverlayWarning(msg, false, strikeCount, penaltyPct, true);
+                break;
+
             case 'warn':
                 this.onWarning(msg, false, penaltyPct);
                 this._showOverlayWarning(msg, false, strikeCount, penaltyPct);
@@ -1142,12 +1228,15 @@ class ProctoringEngine {
             const w = this._canvasEl.width;
             const h = this._canvasEl.height;
 
-            // Sample three zones: centre (face area), left peripheral, right peripheral
-            // Phone is usually held to the side or below face
+            // Sample three zones at lap/desk level: left peripheral, bottom centre (lap/keyboard), right peripheral
+            // A phone in use is held in hands resting on or near desk/lap level (lower half of frame),
+            // NOT in the upper background wall/ceiling where lamps, fans, and switchboards reside.
+            const deskY = Math.floor(h * 0.45);
+            const deskH = Math.floor(h * 0.55);
             const zones = [
-                { x: 0,           y: 0,       zw: Math.floor(w * 0.30), zh: h, label: 'left'   },
-                { x: Math.floor(w * 0.35), y: Math.floor(h * 0.55), zw: Math.floor(w * 0.30), zh: Math.floor(h * 0.45), label: 'bottom_centre' },
-                { x: Math.floor(w * 0.70), y: 0,       zw: Math.floor(w * 0.30), zh: h, label: 'right'  },
+                { x: 0,                      y: deskY, zw: Math.floor(w * 0.30), zh: deskH, label: 'left'   },
+                { x: Math.floor(w * 0.35),   y: Math.floor(h * 0.55), zw: Math.floor(w * 0.30), zh: Math.floor(h * 0.45), label: 'bottom_centre' },
+                { x: Math.floor(w * 0.70),   y: deskY, zw: Math.floor(w * 0.30), zh: deskH, label: 'right'  },
             ];
 
             const centerX = Math.floor(w * 0.25); const centerY = Math.floor(h * 0.15);
@@ -1189,17 +1278,21 @@ class ProctoringEngine {
                 const variance = varianceAcc / n;
                 const stdDev = Math.sqrt(variance);
 
-                // Brightness excess: screen is much brighter than face
-                const brightnessExcess = Math.max(0, (meanLum - centreLum - 30) / 120);
+                // Brightness excess: glowing screen must be noticeably brighter than the face area
+                const brightnessExcess = Math.min(1.0, Math.max(0, (meanLum - centreLum - 30) / 120));
 
-                // Saturation spike: phone screens emit vivid colours
-                const satSpike = Math.max(0, (meanSat - 0.15) / 0.35);
+                // Saturation spike: clamped [0, 1]
+                const satSpike = Math.min(1.0, Math.max(0, (meanSat - 0.15) / 0.35));
 
                 // High variance = sharp rectangular edges characteristic of a screen
                 const varianceScore = Math.min(1.0, stdDev / 55.0);
 
-                // Composite score — weighted: brightness excess matters most
-                const zoneScore = (0.45 * brightnessExcess) + (0.30 * varianceScore) + (0.25 * satSpike);
+                // Gating: A screen MUST exhibit significant brightness excess over ambient face.
+                // Painted walls, fans, switchboards, or furniture without screen emission cannot trigger.
+                let zoneScore = 0.0;
+                if (brightnessExcess >= 0.15) {
+                    zoneScore = (0.50 * brightnessExcess) + (0.30 * varianceScore) + (0.20 * satSpike);
+                }
                 if (zoneScore > maxZoneScore) maxZoneScore = zoneScore;
             }
 
@@ -1367,14 +1460,17 @@ class ProctoringEngine {
         }
     }
 
-    _showOverlayWarning(msg, isFinal, strikeCount, penaltyPct) {
+    _showOverlayWarning(msg, isFinal, strikeCount, penaltyPct, isNotice = false) {
         const existing = document.querySelector('.proctor-warning-overlay');
         if (existing) existing.remove();
 
+        const title = isNotice
+            ? '⚠️ WARNING — no penalty this time'
+            : (isFinal ? '🚨 FINAL INTEGRITY WARNING (Strike 2/3)' : `⚠️ INTEGRITY WARNING (Strike ${strikeCount}/3)`);
         const div = document.createElement('div');
         div.className = `proctor-warning-overlay ${isFinal ? 'final' : 'warn'}`;
         div.innerHTML = `
-            <div>${isFinal ? '🚨 FINAL INTEGRITY WARNING (Strike 2/3)' : `⚠️ INTEGRITY WARNING (Strike ${strikeCount}/3)`}</div>
+            <div>${title}</div>
             <div style="font-size:12px;font-weight:400;margin-top:4px">${this._escapeHtml(msg)}</div>
         `;
         document.body.appendChild(div);

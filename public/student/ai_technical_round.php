@@ -60,15 +60,26 @@ if ($driveId > 0) {
     $companyName = !empty($_GET['company']) ? clean($_GET['company']) : ($filters['company'] ?? 'General');
     $taskId = isset($_GET['task_id']) ? (int)$_GET['task_id'] : (int)($filters['task_id'] ?? 0);
     $concept = !empty($_GET['concept']) ? clean($_GET['concept']) : ($filters['concept'] ?? '');
-    if (empty($concept) && $taskId) {
+    if ($taskId) {
         try {
             $db = getDB();
-            $stmt = $db->prepare("SELECT concept FROM coordinator_tasks WHERE id = ?");
-            $stmt->execute([$taskId]);
-            $concept = $stmt->fetchColumn() ?: '';
+            $taskRow = TaskAssessmentService::getTask($db, $taskId);
+            if ($taskRow) {
+                if (empty($concept)) {
+                    $concept = $taskRow['concept'] ?? '';
+                }
+                if (TaskAssessmentService::isTimed($taskRow) && $taskRow['task_type'] === 'technical') {
+                    $isTimedTech = true;
+                    $timedDurationMinutes = (int) $taskRow['duration_minutes'];
+                    $timedProblemCount = (int) $taskRow['question_count'];
+                }
+            }
         } catch (Exception $e) {}
     }
 }
+$isTimedTech = $isTimedTech ?? false;
+$timedDurationMinutes = $timedDurationMinutes ?? 0;
+$timedProblemCount = $timedProblemCount ?? 0;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -508,13 +519,22 @@ if ($driveId > 0) {
             style="text-align: center; max-width: 600px; padding: 40px; background: #1e1e1e; border-radius: 16px; border: 1px solid #333;">
             <h1 style="color: var(--accent);">Technical Round</h1>
             <p>Company: <strong><?php echo htmlspecialchars($companyName); ?></strong></p>
+            <?php if ($isTimedTech): ?>
+            <p style="color: #aaa; margin: 20px 0; text-align: left;">
+                • <strong><?php echo $timedProblemCount; ?> coding problem statements</strong> in <strong><?php echo TaskAssessmentService::formatDuration($timedDurationMinutes); ?></strong><br>
+                • Switch between problems at any time using the tabs; your code for each problem is kept<br>
+                • Click <strong>Submit Solution</strong> to have a problem evaluated (score out of 10). You can resubmit — your best score counts<br>
+                • The timer runs on the server: it keeps running if you refresh or leave, and the round auto-submits when time is up
+            </p>
+            <?php else: ?>
             <p style="color: #aaa; margin: 20px 0;">
                 Prepare for a rigorous technical assessment.<br>
                 The AI interviewer is strict and expects precise answers.<br>
                 You will face both <strong>Conceptual</strong> questions and <strong>Practical Industry
                     Scenarios</strong>.
             </p>
-            <div style="margin-bottom: 20px; <?php echo $driveId > 0 ? 'display:none;' : ''; ?>">
+            <?php endif; ?>
+            <div style="margin-bottom: 20px; <?php echo ($driveId > 0 || $isTimedTech) ? 'display:none;' : ''; ?>">
                 <input type="text" id="roleInput" placeholder="Enter specific role (e.g. Backend Dev)"
                     value="<?php echo htmlspecialchars($roleName); ?>"
                     style="padding: 10px 14px; width: 100%; max-width: 320px; text-align: center; border-radius: 8px; border: 1px solid #444; background: #2a2a2a; color: #fff;">
@@ -673,6 +693,14 @@ if ($driveId > 0) {
         let startTime = null;
         let isTaskId = <?php echo $taskId ? 'true' : 'false'; ?>;
         const MIN_REQUIRED_TIME = 20 * 60; // 20 minutes in seconds
+        // Timed coordinator task: fixed problem statements + server-side countdown
+        const IS_TIMED_TECH = <?php echo $isTimedTech ? 'true' : 'false'; ?>;
+        const TASK_ID = <?php echo (int) $taskId; ?>;
+        let timedProblems = [];
+        let timedSubmissions = [];
+        let timedCurrentIdx = 0;
+        let timedEndAt = null;
+        let timedDrafts = {};
         let proctorEngine = null;
         let proctorReady = false;      // camera calibrated + monitoring started (don't redo it on a retry)
         let timerInterval = null;
@@ -850,7 +878,7 @@ if ($driveId > 0) {
                         }
                     }
 
-                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Calibrating posture & identity baseline... Keep your face centered in the camera preview (bottom-right).';
+                    if (statusEl) statusEl.innerHTML = '<i class="fas fa-spinner fa-spin" style="color:var(--accent);"></i> Calibrating (about 8 seconds)... Sit as you will during the test and look at the MIDDLE of your screen, not at the camera preview. Keep still.';
                     const envCheck = await proctorEngine.runEnvCheck();
                     if (!envCheck.passed) {
                         if (startBtn) { startBtn.disabled = false; startBtn.textContent = 'Retry Calibration'; }
@@ -867,7 +895,18 @@ if ($driveId > 0) {
             }
 
             // 2. Check for Active Session Resumption
-            const checkRes = await apiCall({ action: 'check_active_session', company: company, drive_id: driveId });
+            const checkRes = await apiCall({ action: 'check_active_session', company: company, drive_id: driveId, task_id: TASK_ID });
+
+            if (checkRes.success && checkRes.has_active && checkRes.timed) {
+                sessionId = checkRes.session_id;
+                isSessionActive = true;
+                document.getElementById('introOverlay').classList.add('hidden');
+                document.getElementById('roleBadge').innerText = checkRes.role || roleInput;
+                await requestFullscreenCompat().catch((e) => console.log(e));
+                ensureFullscreenOrPrompt();
+                enterTimedMode(checkRes);
+                return;
+            }
 
             if (checkRes.success && checkRes.has_active) {
                 sessionId = checkRes.session_id;
@@ -933,7 +972,12 @@ if ($driveId > 0) {
 
             // API Call to start
             const res = await apiCall({ action: 'start_session', role: role, company: company, task_id: "<?php echo (int)$taskId; ?>", drive_id: driveId, concept: concept });
-            if (res.success) {
+            if (res.success && res.timed) {
+                sessionId = res.session_id;
+                isSessionActive = true;
+                ensureFullscreenOrPrompt();
+                enterTimedMode(res);
+            } else if (res.success) {
                 sessionId = res.session_id;
                 isSessionActive = true;
                 startTime = Date.now();
@@ -954,6 +998,31 @@ if ($driveId > 0) {
             const endBtn = document.getElementById('endSessionBtn');
 
             if (timerInterval) clearInterval(timerInterval);
+
+            if (IS_TIMED_TECH && timedEndAt) {
+                // Countdown against the server's clock; auto-submit at zero
+                endBtn.disabled = false;
+                endBtn.classList.add('unlocked');
+                endBtn.title = '';
+                const tick = () => {
+                    if (!isSessionActive) return;
+                    const left = Math.max(0, Math.ceil((timedEndAt - Date.now()) / 1000));
+                    const h = Math.floor(left / 3600);
+                    const m = Math.floor((left % 3600) / 60);
+                    const s = left % 60;
+                    timerText.innerText = 'Time Left: ' + (h > 0 ? `${h}:${m.toString().padStart(2, '0')}` : `${m}`) + `:${s.toString().padStart(2, '0')}`;
+                    timerContainer.className = left <= 300 ? 'locked' : 'unlocked';
+                    if (left <= 0) {
+                        clearInterval(timerInterval);
+                        saveCurrentDraft();
+                        LakshyaDialog.alert("Time is up! Your round is being submitted with your evaluated solutions.", { type: 'info', title: 'Time Up' });
+                        endSession(true);
+                    }
+                };
+                tick();
+                timerInterval = setInterval(tick, 1000);
+                return;
+            }
             timerInterval = setInterval(() => {
                 if (!isSessionActive) return;
 
@@ -995,7 +1064,8 @@ if ($driveId > 0) {
                     }, (err) => {
                         hideTyping();
                         isProcessing = false;
-                        addMessage('ai', "⚠️ " + err + " — please resend your last answer to continue.");
+                        // The server already saved the answer, so a retry only re-asks for the question
+                        showQuestionRetry(err, '');
                     });
                 } else if (res.success && res.result) {
                     // Synchronous fallback path (queue/worker unavailable server-side)
@@ -1005,13 +1075,32 @@ if ($driveId > 0) {
                 } else {
                     hideTyping();
                     isProcessing = false;
-                    addMessage('ai', "⚠️ " + (res.message || "Failed to reach AI.") + " — please resend your last answer to continue.");
+                    // A request that never reached the server must resend the answer itself
+                    const neverArrived = !res.message || res.message === 'Connection Error' || res.message === 'Server communication error.';
+                    showQuestionRetry(res.message || 'Could not reach the AI interviewer.', neverArrived ? userMsg : '');
                 }
             } catch (e) {
                 hideTyping();
                 isProcessing = false;
-                LakshyaDialog.alert("Connection failed. Please resend your last answer to continue.", { type: 'error', title: 'Connection Failed' });
+                showQuestionRetry('Connection failed.', userMsg);
             }
+        }
+
+        // Students used to be told to "resend your last answer" — impossible on the very first
+        // question, so they were left with no question at all. Offer a one-click retry instead.
+        function showQuestionRetry(reason, retryMsg) {
+            const id = 'retry_' + Date.now();
+            addMessage('ai', "⚠️ " + reason + " Your answers are saved. Click the button below to get the question.");
+            const history = document.getElementById('chatHistory');
+            const wrap = document.createElement('div');
+            wrap.style.cssText = 'margin: 6px 0 14px;';
+            wrap.innerHTML = `<button id="${id}" class="btn-send" style="padding: 8px 18px; border-radius: 6px; cursor: pointer;"><i class="fas fa-rotate-right"></i> Retry — get the question</button>`;
+            history.appendChild(wrap);
+            history.scrollTop = history.scrollHeight;
+            document.getElementById(id).onclick = () => {
+                wrap.remove();
+                loadNextQuestion(retryMsg);
+            };
         }
 
         async function pollJobStatus(jobId, onSuccess, onError, timeoutMs = 180000) {
@@ -1063,7 +1152,10 @@ if ($driveId > 0) {
             }
 
             let isCode = payload.type === 'coding';
-            let questionText = isCode ? payload.problem_statement : payload.question;
+            // The AI sometimes puts a coding problem in 'question' and leaves 'problem_statement'
+            // empty (or the reverse) — the student then saw a blank message and no problem
+            let questionText = isCode ? (payload.problem_statement || payload.question) : (payload.question || payload.problem_statement);
+            if (isCode && !payload.problem_statement && questionText) payload.problem_statement = questionText;
 
             // Fallback detection: if the AI asked a coding question but marked it as conceptual
             if (!isCode && typeof questionText === 'string' && questionText) {
@@ -1146,6 +1238,9 @@ if ($driveId > 0) {
         }
 
         async function runCode() {
+            if (IS_TIMED_TECH && timedProblems.length) {
+                return runTimedCode();
+            }
             if (!currentProblem) {
                 LakshyaDialog.alert("No active coding challenge.", { type: 'info', title: 'No Challenge' });
                 return;
@@ -1195,7 +1290,11 @@ if ($driveId > 0) {
 
             if (res.success && res.job_id) {
                 outputDiv.innerText = "Evaluating... (this may take ~10s)";
-                pollJobStatus(res.job_id, renderEvaluation, (err) => {
+                pollJobStatus(res.job_id, (data) => {
+                    // Save the code + evaluation into the transcript the final score is based on
+                    apiCall({ action: 'record_evaluation', session_id: sessionId, job_id: res.job_id });
+                    renderEvaluation(data);
+                }, (err) => {
                     isRunningCode = false;
                     outputDiv.innerText = "Evaluation failed: " + err;
                     outputDiv.className = "output error";
@@ -1213,8 +1312,14 @@ if ($driveId > 0) {
         async function endSession(forceAutoSubmit = false) {
             if (isEndingSession) return;
             if (!forceAutoSubmit) {
-                const ok = await LakshyaDialog.confirm("Are you sure? This will end your session and generate your score.", {
-                    title: 'End Session?', type: 'warning', okText: 'End & Generate Score', cancelText: 'Continue Interview'
+                let confirmMsg = "Are you sure? This will end your session and generate your score.";
+                if (IS_TIMED_TECH && timedProblems.length) {
+                    const unsubmitted = timedProblems.map((_, i) => i).filter(i => !timedSubmissions[i]).map(i => 'Problem ' + (i + 1));
+                    confirmMsg = (unsubmitted.length ? `Not submitted yet: ${unsubmitted.join(', ')} (these score 0). ` : '')
+                        + "Ending now submits the round with your best evaluated score for each problem. You cannot continue afterwards.";
+                }
+                const ok = await LakshyaDialog.confirm(confirmMsg, {
+                    title: 'End Session?', type: 'warning', okText: 'End & Generate Score', cancelText: IS_TIMED_TECH ? 'Keep Working' : 'Continue Interview'
                 });
                 // A proctor auto-submit may have started while the dialog was open
                 if (!ok || isEndingSession) return;
@@ -1301,6 +1406,160 @@ if ($driveId > 0) {
 
             currentProblem = mockPayload;
             activateCodingMode(mockPayload);
+        }
+
+        // --- Timed coding round (coordinator task: fixed problems, server-side clock) ---
+        function draftKey(idx) {
+            return `tech_task_${TASK_ID}_s${sessionId}_p${idx}`;
+        }
+
+        function saveCurrentDraft() {
+            if (!IS_TIMED_TECH || !editor || !timedProblems.length) return;
+            const code = editor.getValue();
+            timedDrafts[timedCurrentIdx] = { code: code, lang: document.getElementById('langSelect').value };
+            try { localStorage.setItem(draftKey(timedCurrentIdx), JSON.stringify(timedDrafts[timedCurrentIdx])); } catch (e) { }
+        }
+
+        function enterTimedMode(data) {
+            timedProblems = Array.isArray(data.problems) ? data.problems : [];
+            timedSubmissions = Array.isArray(data.submissions) ? data.submissions : [];
+            timedEndAt = Date.now() + Math.max(0, parseInt(data.time_remaining, 10) || 0) * 1000;
+
+            if (!timedProblems.length) {
+                LakshyaDialog.alert('No problem statements were found for this task. Please contact your coordinator.', { type: 'error', title: 'No Problems' });
+                return;
+            }
+
+            // Restore each problem's code: unsaved local draft first, else the best submitted code
+            timedProblems.forEach((p, i) => {
+                let draft = null;
+                try { draft = JSON.parse(localStorage.getItem(draftKey(i)) || 'null'); } catch (e) { }
+                if (draft && typeof draft.code === 'string') {
+                    timedDrafts[i] = draft;
+                } else if (timedSubmissions[i] && timedSubmissions[i].best_code) {
+                    timedDrafts[i] = { code: timedSubmissions[i].best_code, lang: timedSubmissions[i].best_language || 'python' };
+                }
+            });
+
+            // The chat input isn't used in a timed round; the left panel shows the problem
+            const inputArea = document.querySelector('.input-area');
+            if (inputArea) inputArea.style.display = 'none';
+            document.getElementById('editorLocked').style.display = 'none';
+            const runBtn = document.querySelector('button[onclick="runCode()"]');
+            if (runBtn) runBtn.innerHTML = '<i class="fas fa-paper-plane"></i> Submit Solution';
+
+            const chatPanel = document.querySelector('.chat-panel');
+            if (chatPanel && !document.getElementById('timedTabs')) {
+                const tabs = document.createElement('div');
+                tabs.id = 'timedTabs';
+                tabs.style.cssText = 'display:flex; gap:8px; padding:12px; border-bottom:1px solid #333; flex-wrap:wrap;';
+                chatPanel.insertBefore(tabs, chatPanel.firstChild);
+            }
+
+            currentProblem = null;
+            showTimedProblem(0, true);
+            startTimer();
+
+            if (Math.ceil((timedEndAt - Date.now()) / 1000) <= 0) {
+                // Came back after the time ran out: submit what was already evaluated
+                endSession(true);
+            }
+        }
+
+        function renderTimedTabs() {
+            const tabs = document.getElementById('timedTabs');
+            if (!tabs) return;
+            tabs.innerHTML = '';
+            timedProblems.forEach((p, i) => {
+                const sub = timedSubmissions[i];
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                const active = i === timedCurrentIdx;
+                btn.style.cssText = `padding:8px 14px; border-radius:6px; cursor:pointer; font-weight:600; font-size:0.85rem; border:1px solid ${active ? 'var(--accent)' : '#444'}; background:${active ? 'var(--accent)' : '#2a2a2a'}; color:${active ? '#000' : '#fff'};`;
+                const status = sub ? ` ✓ ${Math.round(sub.best_score * 10) / 10}/10` : '';
+                btn.textContent = `Problem ${i + 1}${status}`;
+                btn.onclick = () => showTimedProblem(i);
+                tabs.appendChild(btn);
+            });
+        }
+
+        function showTimedProblem(idx, initial = false) {
+            if (!initial) saveCurrentDraft();
+            timedCurrentIdx = idx;
+            const p = timedProblems[idx];
+            const sub = timedSubmissions[idx];
+
+            const history = document.getElementById('chatHistory');
+            history.innerHTML = '';
+            let text = `**Problem ${idx + 1} of ${timedProblems.length}: ${p.title || ''}**\n\n${p.problem_statement || ''}`;
+            if (p.constraints) text += `\n\n**Constraints:**\n${p.constraints}`;
+            if (p.example_input) text += `\n\n**Example Input:**\n${p.example_input}`;
+            if (p.example_output) text += `\n**Example Output:**\n${p.example_output}`;
+            addMessage('ai', text);
+            if (sub) {
+                addMessage('ai', `**Your best score so far:** ${Math.round(sub.best_score * 10) / 10}/10 (${sub.attempts} submission${sub.attempts === 1 ? '' : 's'})` + (sub.last_feedback ? `\n\n**Last feedback:** ${sub.last_feedback}` : ''));
+            }
+            history.scrollTop = 0;
+
+            document.getElementById('problemTitle').innerText = `PROBLEM ${idx + 1} OF ${timedProblems.length}`;
+            const draft = timedDrafts[idx];
+            if (draft) {
+                if (draft.lang) document.getElementById('langSelect').value = draft.lang;
+                editor.setValue(draft.code);
+            } else {
+                editor.setValue(`# Problem ${idx + 1}: ${p.title || ''}\n# Write your solution below (any language from the dropdown):\n\n`);
+            }
+            const out = document.getElementById('consoleOutput');
+            out.innerText = sub ? `Best score: ${Math.round(sub.best_score * 10) / 10}/10. Submit again to improve it.` : '// Click "Submit Solution" to have this problem evaluated.';
+            out.className = 'output';
+            renderTimedTabs();
+        }
+
+        async function runTimedCode() {
+            if (isRunningCode || !isSessionActive) return;
+            const code = editor.getValue();
+            if (!code.trim()) {
+                LakshyaDialog.alert('Write your solution in the editor first.', { type: 'info', title: 'Empty Solution' });
+                return;
+            }
+            isRunningCode = true;
+            saveCurrentDraft();
+            const idx = timedCurrentIdx;
+            const lang = document.getElementById('langSelect').value;
+            const outputDiv = document.getElementById('consoleOutput');
+            outputDiv.innerText = `Evaluating your solution for Problem ${idx + 1}... (this may take ~10-20s)`;
+            outputDiv.className = 'output';
+
+            const res = await apiCall({
+                action: 'submit_code',
+                session_id: sessionId,
+                code: code,
+                language: lang,
+                problem_index: idx
+            });
+            isRunningCode = false;
+
+            if (res.success && res.result) {
+                const r = res.result;
+                timedSubmissions[idx] = Object.assign({}, timedSubmissions[idx] || {}, {
+                    best_score: res.best_score,
+                    attempts: res.attempts,
+                    passed: !!r.passed || !!(timedSubmissions[idx] && timedSubmissions[idx].passed),
+                    last_feedback: r.feedback || ''
+                });
+                // The student may have switched tabs while this was evaluating
+                if (timedCurrentIdx === idx) {
+                    outputDiv.innerText = `${r.feedback || 'No feedback'}\n\nPassed: ${r.passed ? 'YES ✓' : 'NO ✗'}\nScore: ${r.score}/10   (Best for this problem: ${res.best_score}/10)`;
+                    outputDiv.className = r.passed ? 'output success' : 'output error';
+                }
+                renderTimedTabs();
+            } else {
+                if (timedCurrentIdx === idx) {
+                    outputDiv.innerText = 'Submission failed: ' + (res.message || 'Unknown error');
+                    outputDiv.className = 'output error';
+                }
+                if (res.time_over) endSession(true);
+            }
         }
 
         // --- Helpers ---

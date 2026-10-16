@@ -6,6 +6,11 @@ use App\Helpers\RedisHelper;
 class QueueService
 {
     private static $queueName = 'ai_job_queue';
+    // Jobs a student is actively waiting on mid-test (next interview question, code check).
+    // Workers always take these before bulk work such as 40-question aptitude generation,
+    // which used to hold all workers for minutes while technical students timed out.
+    private static $priorityQueueName = 'ai_job_queue_priority';
+    private static $priorityMethods = ['getTechnicalQuestion', 'evaluateCode', 'getHRQuestion'];
     private static $statusPrefix = 'ai_job:';
 
     /**
@@ -38,8 +43,9 @@ class QueueService
         $redis->hmset(self::$statusPrefix . $jobId, $jobData);
         $redis->expire(self::$statusPrefix . $jobId, 3600); // 1 hour TTL
 
-        // Push ID to queue
-        $redis->lpush(self::$queueName, [$jobId]);
+        // Push ID to queue (interactive jobs go to the priority lane)
+        $queue = in_array($serviceMethod, self::$priorityMethods, true) ? self::$priorityQueueName : self::$queueName;
+        $redis->lpush($queue, [$jobId]);
 
         return $jobId;
     }
@@ -99,7 +105,8 @@ class QueueService
             return null;
 
         $redis = $redisHelper->getClient();
-        $result = $redis->brpop(self::$queueName, $timeout);
+        // BRPOP checks keys in order: the priority lane is always served first
+        $result = $redis->brpop([self::$priorityQueueName, self::$queueName], $timeout);
         return $result ? $result[1] : null;
     }
 
@@ -137,6 +144,6 @@ class QueueService
         if (!$redisHelper->isConnected())
             return 0;
         $redis = $redisHelper->getClient();
-        return $redis->llen(self::$queueName);
+        return $redis->llen(self::$queueName) + $redis->llen(self::$priorityQueueName);
     }
 }

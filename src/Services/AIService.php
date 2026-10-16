@@ -1265,8 +1265,13 @@ RULES:
         }
 
         $aiData = $response['parsed'];
-        $reportText = is_array($aiData) ? ($aiData['content'] ?? "Report generation failed.") : $aiData;
-        $score = is_array($aiData) ? ($aiData['overall_score'] ?? 0) : 0;
+        // A cut-off or non-JSON reply used to score 0% silently; report it as a failure so the
+        // caller can retry instead
+        if (!is_array($aiData) || !isset($aiData['overall_score']) || !is_numeric($aiData['overall_score'])) {
+            return ['success' => false, 'message' => 'The AI report could not be read (incomplete response).'];
+        }
+        $reportText = $aiData['content'] ?? "Report generation failed.";
+        $score = max(0, min(100, (float) $aiData['overall_score']));
 
         return [
             'success' => true,
@@ -2320,7 +2325,13 @@ ANTI-DEVIATION & PROMPT INJECTION GUARDRAIL:
             $avoid = array_slice(array_map(fn($q) => $q['question'] ?? '', $all), -30);
             $res = $this->generateDriveRoundQuestionsBatch($roundType, $topics, $need, $driveName, $avoid);
             if (!empty($res['success']) && !empty($res['questions'])) {
-                $all = array_merge($all, $res['questions']);
+                // Drop questions that point at a passage/graph/table that isn't included
+                $usable = array_values(array_filter($res['questions'], fn($q) => !self::referencesMissingContext($q['question'] ?? '')));
+                if (empty($usable)) {
+                    $failedBatches++;
+                    continue;
+                }
+                $all = array_merge($all, $usable);
             } else {
                 $failedBatches++;
                 $lastError = $res['message'] ?? 'Failed to parse AI response.';
@@ -2352,6 +2363,9 @@ ANTI-DEVIATION & PROMPT INJECTION GUARDRAIL:
         4. The correct answer MUST be present as one of the choices in the 'options' array.
         5. The 'answer' index (0, 1, 2, or 3) MUST point exactly to the correct answer in the 'options' array.
         6. Never generate a question where the correct answer is missing, incorrect, or closest-guess.
+        6a. Every question MUST be self-contained: never refer to a passage, paragraph, author, graph, chart, table, figure or image —
+            the student sees only the question text and options. No reading comprehension; write any data inline in the question.
+        6b. Options must be the real answer texts, never placeholders like \"A\", \"B\", \"C\", \"D\". Use Indian Rupees (₹) for money.
         7. Format: Return a JSON object with a single 'questions' array.
         8. Structure: Each question object MUST follow this EXACT structure:
         {
@@ -2732,5 +2746,520 @@ Format: Return a JSON object with this structure:
             }
         }
         return $questions;
+    }
+
+    /**
+     * Run several chat-completion requests concurrently (curl_multi).
+     *
+     * $requests: [key => ['messages' => [...], 'options' => [...]]]
+     * Returns:   [key => same shape as callAPI()]
+     * $onEach($key, $result) fires as each request finishes (used for progress).
+     *
+     * At most $concurrency requests are in flight at once, so a large set never
+     * floods the provider; transient failures (429/408/5xx, network) are retried
+     * up to 3 times with backoff without blocking the other requests.
+     */
+    public function callAPIMulti(array $requests, $concurrency = 6, ?callable $onEach = null)
+    {
+        $results = [];
+        if (empty($requests)) {
+            return $results;
+        }
+        if (empty($this->apiKey)) {
+            foreach ($requests as $key => $_) {
+                $results[$key] = ['success' => false, 'message' => 'AI Service not configured (Missing API Key)'];
+            }
+            return $results;
+        }
+
+        $concurrency = max(1, (int) $concurrency);
+        $maxAttempts = 3;
+        $pending = array_keys($requests);   // keys waiting to be (re)started
+        $readyAt = [];                      // key => earliest start time (retry backoff)
+        $attempts = [];
+        $active = [];                       // (int) handle id => [key, handle, data, options, startTime]
+        $mh = curl_multi_init();
+
+        $start = function ($key) use (&$active, &$attempts, $requests, $mh, &$results) {
+            $options = $requests[$key]['options'] ?? [];
+            $data = array_merge([
+                'model' => $this->model,
+                'messages' => $requests[$key]['messages'],
+                'temperature' => 0.7,
+                'max_tokens' => 1000
+            ], $options);
+            unset($data['audit_method']);
+            $data = $this->utf8ize($data);
+            $payload = json_encode($data);
+            if ($payload === false) {
+                $results[$key] = ['success' => false, 'message' => 'JSON Encode Error: ' . json_last_error_msg()];
+                return;
+            }
+
+            $ch = curl_init($this->apiUrl);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_POST, true);
+            curl_setopt($ch, CURLOPT_POSTFIELDS, $payload);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, [
+                'Content-Type: application/json',
+                'Authorization: Bearer ' . $this->apiKey
+            ]);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 120);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+            curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+
+            curl_multi_add_handle($mh, $ch);
+            $attempts[$key] = ($attempts[$key] ?? 0) + 1;
+            $active[(int) $ch] = [$key, $ch, $data, $options, microtime(true)];
+        };
+
+        while (!empty($pending) || !empty($active)) {
+            // Fill free slots with requests whose backoff has elapsed
+            $now = microtime(true);
+            foreach ($pending as $i => $key) {
+                if (count($active) >= $concurrency) {
+                    break;
+                }
+                if (($readyAt[$key] ?? 0) <= $now) {
+                    unset($pending[$i]);
+                    $start($key);
+                }
+            }
+
+            if (empty($active)) {
+                // Only backed-off retries remain
+                usleep(200000);
+                continue;
+            }
+
+            do {
+                $status = curl_multi_exec($mh, $running);
+            } while ($status === CURLM_CALL_MULTI_PERFORM);
+
+            if (curl_multi_select($mh, 1.0) === -1) {
+                usleep(20000); // select() can return -1 immediately on Windows builds
+            }
+
+            while ($info = curl_multi_info_read($mh)) {
+                $ch = $info['handle'];
+                $id = (int) $ch;
+                if (!isset($active[$id])) {
+                    continue;
+                }
+                [$key, , $data, $options, $startTime] = $active[$id];
+                unset($active[$id]);
+
+                $response = curl_multi_getcontent($ch);
+                $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+                $curlErrno = $info['result'];
+                $curlError = $curlErrno ? curl_strerror($curlErrno) : '';
+                curl_multi_remove_handle($mh, $ch);
+                curl_close($ch);
+
+                $isTransientHttp = $httpCode === 429 || $httpCode === 408 || ($httpCode >= 500 && $httpCode < 600);
+                $isTransientCurl = in_array($curlErrno, [6, 7, 28, 35, 52, 55, 56], true);
+                if ((($curlErrno === 0 && $isTransientHttp) || $isTransientCurl) && $attempts[$key] < $maxAttempts) {
+                    // Exponential backoff (2s, 4s) without holding up other requests
+                    $readyAt[$key] = microtime(true) + pow(2, $attempts[$key]);
+                    $pending[] = $key;
+                    continue;
+                }
+
+                $auditMethod = $options['audit_method'] ?? 'unknown';
+                $latency = (int) ((microtime(true) - $startTime) * 1000);
+
+                if ($curlErrno) {
+                    $result = ['success' => false, 'message' => "CURL Error: $curlError"];
+                } elseif ($httpCode !== 200) {
+                    $errorMsg = "API Error (Code $httpCode): " . $response;
+                    $this->auditLog($auditMethod, $data['model'] ?? $this->model, [], $latency, 'failure', $errorMsg);
+                    $result = ['success' => false, 'message' => $errorMsg];
+                } else {
+                    $decoded = json_decode($response, true);
+                    $content = $decoded['choices'][0]['message']['content'] ?? '';
+                    $parsed = $content;
+                    if (isset($options['response_format']['type']) && $options['response_format']['type'] === 'json_object') {
+                        $clean = preg_replace('/^```json\s*(.*?)\s*```$/s', '$1', trim($content));
+                        $json = json_decode($clean, true);
+                        if (json_last_error() === JSON_ERROR_NONE) {
+                            $parsed = $json;
+                        }
+                    }
+                    $this->auditLog($auditMethod, $decoded['model'] ?? ($data['model'] ?? $this->model), $decoded['usage'] ?? [], $latency, 'success');
+                    $result = [
+                        'success' => true,
+                        'content' => $content,
+                        'parsed' => $parsed,
+                        'usage' => $decoded['usage'] ?? [],
+                        'latency' => $latency
+                    ];
+                }
+
+                $results[$key] = $result;
+                if ($onEach) {
+                    try {
+                        $onEach($key, $result);
+                    } catch (\Throwable $e) {
+                        error_log("callAPIMulti progress callback failed: " . $e->getMessage());
+                    }
+                }
+            }
+        }
+
+        curl_multi_close($mh);
+        return $results;
+    }
+
+    /**
+     * Split a concept into $count distinct sub-topics so parallel batches don't
+     * all produce the same questions. Falls back to the comma-separated concepts.
+     */
+    public function planSubTopics($roundType, $concept, $count)
+    {
+        $count = max(1, (int) $count);
+        $userTopics = array_values(array_filter(array_map('trim', explode(',', (string) $concept)), 'strlen'));
+
+        $response = $this->callAPI([
+            ['role' => 'system', 'content' => "You plan question papers for campus placement $roundType tests. Return JSON only."],
+            ['role' => 'user', 'content' => "Split the syllabus '$concept' into exactly $count distinct, non-overlapping sub-topics for a $roundType test. "
+                . "Every sub-topic must belong to the syllabus. If the syllabus is narrow, use distinct question patterns or angles of it instead. "
+                . "Questions are short self-contained MCQs with no passages, graphs, charts, tables or images, so never use sub-topics such as "
+                . "'Reading Comprehension', 'Passage-based questions' or chart/graph-based 'Data Interpretation' (use 'Data Interpretation with inline numbers' instead). "
+                . "Return {\"subtopics\": [\"...\", ...]} with exactly $count short strings."]
+        ], [
+            'audit_method' => 'planSubTopics',
+            'response_format' => ['type' => 'json_object'],
+            'max_tokens' => min(4000, 40 * $count + 200),
+            'temperature' => 0.4
+        ]);
+
+        $topics = [];
+        if (!empty($response['success']) && is_array($response['parsed']) && is_array($response['parsed']['subtopics'] ?? null)) {
+            foreach ($response['parsed']['subtopics'] as $t) {
+                if (is_string($t) && trim($t) !== '') {
+                    $topics[] = mb_substr(trim($t), 0, 150);
+                }
+            }
+            $topics = array_values(array_unique($topics));
+        }
+
+        if (empty($topics)) {
+            $topics = $userTopics ?: [(string) $concept];
+        }
+
+        // Cycle so there is always exactly one sub-topic per batch
+        $plan = [];
+        for ($i = 0; $i < $count; $i++) {
+            $plan[] = $topics[$i % count($topics)];
+        }
+        return $plan;
+    }
+
+    /**
+     * Generate MCQs in parallel batches, one sub-topic per batch.
+     * Only structurally valid questions with a resolvable answer are returned —
+     * a question whose answer key can't be determined is dropped, never guessed.
+     *
+     * $onProgress(int $validSoFar) is called as batches complete.
+     */
+    public function generateMCQsParallel($roundType, $concept, array $subTopics, $perBatch, $driveName, $difficulty = 'Medium', ?callable $onProgress = null, $concurrency = 6)
+    {
+        $difficultyGuide = match (strtolower((string) $difficulty)) {
+            'low' => 'Keep every question easy (fresher / foundational level).',
+            'high' => 'Make every question hard (top-tier company level, multi-step reasoning).',
+            default => 'Keep questions at standard campus placement (medium) level.',
+        };
+
+        $requests = [];
+        foreach ($subTopics as $i => $subTopic) {
+            $systemPrompt = "You are an Elite Recruitment Question Architect for a recruitment drive named '$driveName'.
+        Generate exactly $perBatch unique Multiple Choice Questions for the **$roundType** round.
+        Overall syllabus: '$concept'. THIS SET must focus on the sub-topic: '$subTopic' (set " . ($i + 1) . " of " . count($subTopics) . ").
+        $difficultyGuide
+
+        STRICT RULES FOR ACCURACY:
+        1. Solve each question step-by-step in 'step_by_step_derivation' before choosing the options and the answer.
+        2. The correct answer MUST be mathematically, logically and factually correct, and MUST be one of the 4 options.
+        3. Answer exactly what is asked (if asked for 'girls', the answer is the number of girls).
+        4. 'answer' is the index (0-3) of the correct option. Exactly one option is correct; the 4 options are all different.
+        5. Each question must be solvable in about one minute.
+        5a. Every question MUST be fully self-contained: all numbers, data, sentences and statements needed
+            must be written inside the 'question' text itself. The student sees ONLY the question and 4 options.
+            NEVER refer to a passage, paragraph, article, author, graph, chart, table, figure, diagram or image.
+            For verbal ability use sentence-level questions (synonyms, antonyms, error spotting, sentence
+            completion, idioms, para-jumbles with the sentences written out) — never reading comprehension.
+            For data interpretation, write the small data set inline (e.g. 'Sales in 2021, 2022, 2023 were 40, 55, 70...').
+        6. Return a JSON object with a single 'questions' array. Each item:
+        {
+            \"question\": \"Clear question text\",
+            \"step_by_step_derivation\": \"Working\",
+            \"options\": [\"<full text of option 1>\", \"<full text of option 2>\", \"<full text of option 3>\", \"<full text of option 4>\"],
+            \"answer\": 0,
+            \"explanation\": \"Brief explanation of why the answer is correct\",
+            \"category\": \"$subTopic\"
+        }
+        7. 'options' MUST contain the actual answer choices written out in full (e.g. for a synonym question:
+           [\"Plentiful\", \"Scarce\", \"Rare\", \"Limited\"]; for a syllogism: [\"Only conclusion I follows\", ...]).
+           NEVER output placeholder options like \"A\", \"B\", \"C\", \"D\" or \"Option A\".
+        8. Spread the correct answer evenly across positions 0, 1, 2 and 3 — do not favour the first options.
+        9. This is an Indian campus placement test: use Indian Rupees (₹ / Rs.) for money, never \$ or dollars.
+        Return only valid JSON, no markdown.";
+
+            $requests[$i] = [
+                'messages' => [
+                    ['role' => 'system', 'content' => $systemPrompt],
+                    ['role' => 'user', 'content' => "Generate $perBatch MCQs on '$subTopic'. Output JSON only."]
+                ],
+                'options' => [
+                    'audit_method' => 'generateMCQsParallel',
+                    'response_format' => ['type' => 'json_object'],
+                    'max_tokens' => min(16000, 450 * $perBatch + 500),
+                    'temperature' => 0.6
+                ]
+            ];
+        }
+
+        $valid = [];
+        $failed = 0;
+        $lastError = null;
+        $this->callAPIMulti($requests, $concurrency, function ($key, $res) use (&$valid, &$failed, &$lastError, $subTopics, $onProgress) {
+            $items = (!empty($res['success']) && is_array($res['parsed'])) ? ($res['parsed']['questions'] ?? null) : null;
+            if (!is_array($items)) {
+                $failed++;
+                $lastError = $res['message'] ?? 'Unparseable AI response';
+                return;
+            }
+            foreach ($items as $item) {
+                $q = self::validateMCQ($item, $subTopics[$key] ?? 'General');
+                if ($q !== null) {
+                    $valid[] = $q;
+                }
+            }
+            if ($onProgress) {
+                $onProgress(count($valid));
+            }
+        });
+
+        return ['questions' => $valid, 'failed_batches' => $failed, 'last_error' => $lastError];
+    }
+
+    /**
+     * Returns a clean MCQ (question, options[4], answer 0-3, explanation, category) or null.
+     */
+    /**
+     * True when a question depends on material that isn't in its own text, e.g.
+     * "What is the significance of the statistics provided in the passage?" with no passage,
+     * or "According to the graph above..." (graphs/tables/images can't be shown at all).
+     */
+    /** A question that really contains its passage has some length and at least two sentences */
+    public static function tooShortForPassage($question)
+    {
+        $q = (string) $question;
+        // Text quoted inline ("Read: '...' Which benefit is NOT mentioned?") is self-contained
+        if (preg_match('/[\'"‘“][^\'"’”]{40,}[\'"’”]/u', $q)) {
+            return false;
+        }
+        $sentences = count(array_filter(preg_split('/[.!?]+(?:\s|$)/', $q), fn($s) => mb_strlen(trim($s)) > 15));
+        return mb_strlen($q) < 220 || $sentences < 2;
+    }
+
+    public static function referencesMissingContext($question)
+    {
+        $q = (string) $question;
+        $len = mb_strlen($q);
+
+        // Visual material can never be rendered in a text MCQ. Only explicit references count —
+        // "sit around the table" (seating) or "a map of" must not be rejected.
+        $visual = '(?:bar\s+graph|line\s+graph|pie[\s-]*chart|graph|chart|figure|diagram|image|picture|illustration|table)';
+        if (preg_match('/\b(?:above|below|given|following|shown|provided|accompanying|attached)\s+(?:\w+\s+){0,2}' . $visual . '\b/i', $q)
+            || preg_match('/\b' . $visual . '\s+(?:above|below|given|shown|provided)\b/i', $q)
+            || preg_match('/\b(?:in|from|of|according\s+to|refer\s+to|based\s+on|using|study)\s+the\s+(?:bar\s+graph|line\s+graph|pie[\s-]*chart|graph|chart|figure|diagram|image|picture|illustration)\b/i', $q)) {
+            return true;
+        }
+
+        // Reading material must actually be included (a real passage makes the question long).
+        // 'article'/'extract' only count with given/above/following — "cost price of the article" is a profit & loss item.
+        $reading = '(?:passage|paragraph|excerpt|poem|case\s*study)';
+        $readingRef = '/\b(?:the|this|above|below|given|following|preceding|aforementioned|same)\s+(?:\w+\s+){0,2}' . $reading . '\b'
+            . '|\b(?:above|below|given|following|preceding|aforementioned)\s+(?:\w+\s+){0,1}(?:article|extract|text)\b'
+            . '|\b(?:' . substr($reading, 3, -1) . '|article|extract)\s+(?:above|below|given)\b'
+            . '|\baccording\s+to\s+the\s+(?:author|writer|text)\b'
+            . '|\bthe\s+(?:author|writer)(?:\'s)?\s+(?:suggests?|implies|argues?|believes?|states?|mentions?|says|means|intends?|feels?|thinks?|view|opinion|tone|attitude|purpose|main|point|primary)\b/i';
+        // An included passage means real body text: several sentences and some length
+        $tooShortForPassage = self::tooShortForPassage($q);
+        if (preg_match($readingRef, $q) && $tooShortForPassage) {
+            return true;
+        }
+
+        // Other reading-comprehension phrasings seen in real papers: "the author's perspective",
+        // "how does the author describe", "in the text", "what is mentioned as...", "primarily discussed".
+        // ("Who is the author of Wings of Fire?" is a real GK question and is kept.)
+        if ($tooShortForPassage && preg_match('/\bthe\s+(?:author|writer)(?!\s+of\b)'
+                . '|\b(?:in|from|according\s+to)\s+the\s+text\b'
+                . '|\b(?:does|did)\s+the\s+text\b'
+                . '|\bthe\s+text\s+(?:provides?|mentions?|states?|suggests?|says|describes?|discuss(?:es)?|implies|highlights?)\b'
+                . '|\b(?:is|are|was|were)\s+(?:not\s+)?(?:primarily\s+|mainly\s+|specifically\s+|commonly\s+)?(?:discussed|mentioned|described|highlighted)\b/i', $q)) {
+            return true;
+        }
+
+        // "the data/statistics/information above" without enough text to contain it
+        if (preg_match('/\b(the|this|above|below|given|following|provided)\s+(\w+\s+){0,1}(data|statistics|information|figures|numbers|details)\s+((given|provided|shown)\s+)?(above|below)\b|\b(statistics|data|information)\s+(provided|given|shown|mentioned)\s+(above|below|in\s+the\s+(passage|paragraph|table|graph|chart|figure))\b/i', $q) && $len < 200) {
+            return true;
+        }
+        return false;
+    }
+
+    /**
+     * True when the options are template placeholders instead of real answers:
+     * exactly "A","B","C","D" (or "Option A".."Option D") while the question does not use
+     * A-D as names. "A is taller than B... who is tallest?" with options A-D is real and kept.
+     */
+    public static function hasPlaceholderOptions($question, array $options)
+    {
+        $norm = array_map(fn($o) => strtoupper(trim(preg_replace('/^option\s*/i', '', trim((string) $o)), " \t.():")), $options);
+        foreach ($options as $o) {
+            if (preg_match('/^\s*option\s*[A-D]\s*$/i', (string) $o)) {
+                return true;
+            }
+        }
+        if ($norm !== ['A', 'B', 'C', 'D']) {
+            return false;
+        }
+        preg_match_all('/(?<![A-Za-z])([A-D])(?![A-Za-z])/', (string) $question, $m);
+        return count(array_unique($m[1])) < 2;
+    }
+
+    public static function validateMCQ($item, $fallbackCategory = 'General')
+    {
+        if (!is_array($item)) {
+            return null;
+        }
+        $question = is_string($item['question'] ?? null) ? trim($item['question']) : '';
+        $options = $item['options'] ?? null;
+        if ($question === '' || !is_array($options) || count($options) !== 4) {
+            return null;
+        }
+        // Drop questions that point at a passage / graph / table that isn't there
+        if (self::referencesMissingContext($question)) {
+            return null;
+        }
+        // A "Reading Comprehension" question without its passage in the text can't be answered
+        $cat = is_string($item['category'] ?? null) ? $item['category'] : '';
+        if (preg_match('/reading\s*comprehension|passage/i', $cat) && self::tooShortForPassage($question)) {
+            return null;
+        }
+        $clean = [];
+        foreach (array_values($options) as $opt) {
+            if (!is_scalar($opt)) {
+                return null;
+            }
+            $opt = trim((string) $opt);
+            // Strip "A) " / "B. " prefixes the model sometimes adds
+            $opt = preg_replace('/^\(?[A-Da-d][\)\.:]\s+/', '', $opt);
+            if ($opt === '') {
+                return null;
+            }
+            $clean[] = $opt;
+        }
+        if (count(array_unique(array_map('mb_strtolower', $clean))) !== 4) {
+            return null;
+        }
+        if (self::hasPlaceholderOptions($question, $clean)) {
+            return null;
+        }
+
+        $ans = $item['answer'] ?? null;
+        $index = null;
+        if (is_int($ans) || (is_string($ans) && ctype_digit(trim($ans)))) {
+            $index = (int) $ans;
+        } elseif (is_string($ans)) {
+            $a = strtoupper(trim($ans));
+            if (preg_match('/^(?:OPTION\s*)?([A-D])$/', $a, $m)) {
+                $index = ord($m[1]) - 65;
+            } else {
+                foreach ($clean as $i => $opt) {
+                    if (mb_strtolower($opt) === mb_strtolower(trim($ans))) {
+                        $index = $i;
+                        break;
+                    }
+                }
+            }
+        }
+        if ($index === null || $index < 0 || $index > 3) {
+            return null;
+        }
+
+        $category = is_string($item['category'] ?? null) && trim($item['category']) !== '' ? trim($item['category']) : $fallbackCategory;
+        return [
+            'question' => $question,
+            'options' => $clean,
+            'answer' => $index,
+            'explanation' => is_string($item['explanation'] ?? null) ? trim($item['explanation']) : '',
+            'category' => mb_substr($category, 0, 150),
+        ];
+    }
+
+    /**
+     * Generate $count distinct coding problem statements for a timed technical round.
+     * Returns ['success' => bool, 'problems' => [...], 'message' => ...]
+     */
+    public function generateCodingProblems($concept, $count, $difficulty = 'Medium', $driveName = 'Company')
+    {
+        $count = max(1, (int) $count);
+        $difficultyGuide = match (strtolower((string) $difficulty)) {
+            'low' => 'Easy level: straightforward logic, arrays/strings/basic loops. Solvable in ~15 minutes each.',
+            'high' => 'Hard level: optimisation, non-trivial data structures/algorithms. Solvable in ~20 minutes each by a strong candidate.',
+            default => 'Medium level: standard placement coding questions. Solvable in ~20 minutes each.',
+        };
+        $topic = trim((string) $concept) !== '' ? $concept : 'Data Structures and Algorithms';
+
+        $systemPrompt = "You are a senior interviewer writing the coding section of a 1-hour technical round for '$driveName'.
+Write exactly $count DIFFERENT coding problem statements on: '$topic'.
+$difficultyGuide
+Rules:
+- Each problem must test a different idea; no two problems may be variations of each other.
+- Language-agnostic: never say 'write a Java/Python program'. The candidate chooses the language.
+- Fully specified: clear input format, output format, constraints, and one worked example.
+Return JSON: {\"problems\": [{\"title\": \"...\", \"problem_statement\": \"...\", \"constraints\": \"...\", \"example_input\": \"...\", \"example_output\": \"...\"}]}";
+
+        $lastError = 'Unknown error';
+        for ($attempt = 0; $attempt < 2; $attempt++) {
+            $res = $this->callAPI([
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user', 'content' => "Generate the $count problems now. JSON only."]
+            ], [
+                'audit_method' => 'generateCodingProblems',
+                'response_format' => ['type' => 'json_object'],
+                'max_tokens' => 1200 * $count,
+                'temperature' => 0.6
+            ]);
+
+            if (!empty($res['success']) && is_array($res['parsed']) && is_array($res['parsed']['problems'] ?? null)) {
+                $problems = [];
+                foreach ($res['parsed']['problems'] as $p) {
+                    if (!is_array($p)) continue;
+                    $statement = is_string($p['problem_statement'] ?? null) ? trim($p['problem_statement']) : '';
+                    if (mb_strlen($statement) < 30) continue;
+                    $problems[] = [
+                        'title' => mb_substr(is_string($p['title'] ?? null) && trim($p['title']) !== '' ? trim($p['title']) : 'Problem ' . (count($problems) + 1), 0, 255),
+                        'problem_statement' => $statement,
+                        'constraints' => is_string($p['constraints'] ?? null) ? trim($p['constraints']) : '',
+                        'example_input' => is_scalar($p['example_input'] ?? null) ? trim((string) $p['example_input']) : '',
+                        'example_output' => is_scalar($p['example_output'] ?? null) ? trim((string) $p['example_output']) : '',
+                    ];
+                }
+                if (count($problems) >= $count) {
+                    return ['success' => true, 'problems' => array_slice($problems, 0, $count)];
+                }
+                $lastError = 'AI returned only ' . count($problems) . " valid problems";
+                if (!empty($problems) && $attempt === 1) {
+                    return ['success' => true, 'problems' => $problems];
+                }
+            } else {
+                $lastError = $res['message'] ?? 'Unparseable AI response';
+            }
+        }
+        return ['success' => false, 'problems' => [], 'message' => $lastError];
     }
 }

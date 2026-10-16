@@ -65,6 +65,19 @@ $redirectPages = [
     'hr' => 'ai_hr_round.php'
 ];
 $redirectPage = $redirectPages[$task['task_type']] ?? 'dashboard.php';
+
+// Timed tasks (aptitude: chosen duration, technical: 1 hour / 3 problems)
+$isTimedTask = TaskAssessmentService::isTimed($task);
+$generationReady = !$isTimedTask || $task['generation_status'] === 'ready';
+$attempt = null;
+if ($isTimedTask && !$completion) {
+    $attempt = TaskAssessmentService::getAttempt($db, $taskId, $username, $task['duration_minutes']);
+}
+// Started earlier and the clock has fully run out (plus the submission grace window)
+// (Aptitude only: technical submissions are saved server-side, so reopening a timed-out
+// technical round just finalises it with the work already submitted.)
+$attemptTimeOver = $task['task_type'] === 'aptitude' && $attempt && $attempt['remaining'] <= 0
+    && $attempt['elapsed'] > $attempt['duration'] + TaskAssessmentService::SUBMIT_GRACE_SECONDS;
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -396,6 +409,16 @@ $redirectPage = $redirectPages[$task['task_type']] ?? 'dashboard.php';
                     <div class="info-label">Question Type</div>
                     <div class="info-value"><?php echo $task['question_source'] === 'manual' ? 'Custom Questions' : 'AI Generated'; ?></div>
                 </div>
+                <?php if ($isTimedTask): ?>
+                <div class="info-item">
+                    <div class="info-label">Duration</div>
+                    <div class="info-value"><?php echo TaskAssessmentService::formatDuration($task['duration_minutes']); ?></div>
+                </div>
+                <div class="info-item">
+                    <div class="info-label"><?php echo $task['task_type'] === 'technical' ? 'Problem Statements' : 'Questions'; ?></div>
+                    <div class="info-value"><?php echo (int) $task['question_count']; ?></div>
+                </div>
+                <?php endif; ?>
                 
                 <?php if (!empty($task['concept'])): ?>
                 <div class="info-item" style="grid-column: span 2;">
@@ -464,11 +487,55 @@ $redirectPage = $redirectPages[$task['task_type']] ?? 'dashboard.php';
                 <input type="hidden" name="company" value="<?php echo htmlspecialchars($task['company_name'] ?: 'General'); ?>">
                 <input type="hidden" name="concept" value="<?php echo htmlspecialchars($task['concept'] ?: ''); ?>">
                 <input type="hidden" name="task_id" value="<?php echo $taskId; ?>">
-                <?php if ($isExpired): ?>
+                <?php if ($isTimedTask && $attempt && !$attemptTimeOver && !$isExpired): ?>
+                    <div class="deadline-warning">
+                        <i class="fas fa-hourglass-half"></i>
+                        <?php if ($attempt['remaining'] > 0): ?>
+                        <span>You already started this test. The timer kept running — <?php echo (int) ceil($attempt['remaining'] / 60); ?> minute(s) left. Resume now.</span>
+                        <?php else: ?>
+                        <span>Your time is over. Open the test to submit the work you already saved.</span>
+                        <?php endif; ?>
+                    </div>
+                <?php endif; ?>
+                <?php if ($isExpired && !$attempt): ?>
                     <button type="button" class="btn-start" style="width:100%; cursor:not-allowed; background: #64748b; opacity: 0.7;" disabled>
                         <i class="fas fa-clock-rotate-left"></i>
                         DEADLINE EXPIRED
                     </button>
+                <?php elseif ($attemptTimeOver): ?>
+                    <button type="button" class="btn-start" style="width:100%; cursor:not-allowed; background: #64748b; opacity: 0.7;" disabled>
+                        <i class="fas fa-hourglass-end"></i>
+                        TIME OVER — CONTACT YOUR COORDINATOR
+                    </button>
+                <?php elseif (!$generationReady): ?>
+                    <button type="button" id="preparingBtn" class="btn-start" style="width:100%; cursor:wait; background: #64748b; opacity: 0.85;" disabled>
+                        <i class="fas fa-spinner fa-spin"></i>
+                        QUESTIONS ARE BEING PREPARED...
+                    </button>
+                    <p id="preparingNote" style="text-align:center; font-size: 13px; color: #64748b; margin-top: 10px;">This usually takes 1–2 minutes. The button will turn on automatically.</p>
+                    <script>
+                        (function () {
+                            const taskId = <?php echo (int) $taskId; ?>;
+                            const csrf = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
+                            const call = (action) => {
+                                const fd = new FormData();
+                                fd.append('action', action);
+                                fd.append('task_id', taskId);
+                                fd.append('csrf_token', csrf);
+                                return fetch('task_prepare.php', { method: 'POST', headers: { 'X-CSRF-TOKEN': csrf }, body: fd }).then(r => r.json());
+                            };
+                            // Safety net: starts generation if the coordinator's page never did (no-op otherwise)
+                            call('generate').catch(() => {});
+                            const timer = setInterval(() => {
+                                call('status').then(s => {
+                                    if (s.success && s.status === 'ready') {
+                                        clearInterval(timer);
+                                        window.location.reload();
+                                    }
+                                }).catch(() => {});
+                            }, 5000);
+                        })();
+                    </script>
                 <?php else: ?>
                     <button type="submit" class="btn-start" style="width:100%; cursor:pointer;">
                         <i class="fas fa-play-circle"></i>

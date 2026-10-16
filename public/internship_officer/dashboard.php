@@ -982,7 +982,7 @@ unset($item);
 
             <div class="metric-card">
                 <div class="metric-card-header">
-                    <span class="metric-label">Offers Placed</span>
+                    <span class="metric-label">Selected</span>
                     <div class="metric-icon-box icon-purple"><i class="fas fa-award"></i></div>
                 </div>
                 <div>
@@ -1083,7 +1083,7 @@ unset($item);
                                 <th>Company & Location</th>
                                 <th>Opportunity & Stipend</th>
                                 <th>Target Cohort</th>
-                                <th>Applications Funnel</th>
+                                <th>Applications</th>
                                 <th>Application Deadline</th>
                                 <th style="text-align: center;">Status</th>
                                 <th style="text-align: right;">Quick Actions</th>
@@ -1163,17 +1163,12 @@ unset($item);
                                         <?php endif; ?>
                                     </td>
 
-                                    <!-- 4. Funnel Metrics -->
+                                    <!-- 4. Applications -->
                                     <td>
                                         <div class="funnel-metric-box">
                                             <div class="funnel-count-main">
                                                 <i class="fas fa-user-group" style="color: var(--primary-maroon); font-size: 0.85rem;"></i>
                                                 <span><?php echo number_format($i['application_count']); ?> Applied</span>
-                                            </div>
-                                            <div class="funnel-substats">
-                                                <span class="shortlisted"><?php echo $i['shortlisted_count']; ?> Shortlisted</span>
-                                                <span>•</span>
-                                                <span class="selected"><?php echo $i['selected_count']; ?> Offers</span>
                                             </div>
                                         </div>
                                     </td>

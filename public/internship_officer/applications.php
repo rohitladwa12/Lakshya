@@ -22,11 +22,26 @@ if (!$internship) {
 $applicationModel = new InternshipApplication();
 $applications = $applicationModel->getByInternship($internshipId);
 
-// Handle Status Updates
+// Handle Bulk Status Updates
+if (isPost() && isset($_POST['bulk_update_status'])) {
+    $bulkStatus = post('bulk_status');
+    $appIds = $_POST['selected_ids'] ?? [];
+    if (in_array($bulkStatus, ['Applied', 'Selected']) && !empty($appIds)) {
+        foreach ($appIds as $appId) {
+            $appId = (int)$appId;
+            if ($appId > 0) {
+                $applicationModel->update($appId, ['status' => $bulkStatus]);
+            }
+        }
+    }
+    redirect("applications.php?id={$internshipId}");
+}
+
+// Handle Single Status Updates
 if (isPost() && isset($_POST['update_status'])) {
     $appId = post('app_id');
     $status = post('status');
-    if ($appId && in_array($status, ['Applied', 'Shortlisted', 'Interview', 'Selected', 'Rejected'])) {
+    if ($appId && in_array($status, ['Applied', 'Selected'])) {
         $applicationModel->update($appId, ['status' => $status]);
     }
     // Refresh to update pipeline stats
@@ -125,15 +140,14 @@ if (isset($_GET['export']) && $_GET['export'] === 'excel') {
 
 // Pipeline Breakdown Metrics
 $statusCounts = [
-    'all' => count($applications),
-    'Applied' => 0,
-    'Shortlisted' => 0,
+    'all'      => count($applications),
+    'Applied'  => 0,
     'Selected' => 0,
-    'Rejected' => 0
 ];
 foreach ($applications as $a) {
     $st = $a['status'] ?? 'Applied';
-    if ($st === 'Interview') $st = 'Shortlisted';
+    // Normalize legacy statuses: Shortlisted/Interview → Applied, Rejected → Applied (display only)
+    if (in_array($st, ['Shortlisted', 'Interview', 'Rejected'])) $st = 'Applied';
     if (isset($statusCounts[$st])) {
         $statusCounts[$st]++;
     }
@@ -999,48 +1013,59 @@ $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
             </div>
         </div>
 
-        <!-- 4-KPI Metric Pipeline Grid -->
-        <div class="pipeline-metrics-grid">
+        <!-- 3-KPI Metric Pipeline Grid -->
+        <div class="pipeline-metrics-grid" style="grid-template-columns: repeat(3,1fr);">
             <div class="kpi-pipe-card active-filter" onclick="filterByStatus('all', this)">
                 <div class="kpi-pipe-top">
-                    <span class="kpi-pipe-label">Total Applications</span>
+                    <span class="kpi-pipe-label">Total Applicants</span>
                     <div class="kpi-pipe-icon kpi-icon-all"><i class="fas fa-users"></i></div>
                 </div>
                 <div class="kpi-pipe-number"><?php echo $statusCounts['all']; ?></div>
             </div>
 
-            <div class="kpi-pipe-card" onclick="filterByStatus('Shortlisted', this)">
+            <div class="kpi-pipe-card" onclick="filterByStatus('Applied', this)">
                 <div class="kpi-pipe-top">
-                    <span class="kpi-pipe-label">In Review / Shortlisted</span>
-                    <div class="kpi-pipe-icon kpi-icon-shortlisted"><i class="fas fa-user-check"></i></div>
+                    <span class="kpi-pipe-label">Applied</span>
+                    <div class="kpi-pipe-icon" style="background:#eff6ff;color:#1d4ed8;"><i class="fas fa-paper-plane"></i></div>
                 </div>
-                <div class="kpi-pipe-number" style="color: #d97706;"><?php echo $statusCounts['Shortlisted']; ?></div>
+                <div class="kpi-pipe-number" style="color:#1d4ed8;"><?php echo $statusCounts['Applied']; ?></div>
             </div>
 
             <div class="kpi-pipe-card" onclick="filterByStatus('Selected', this)">
                 <div class="kpi-pipe-top">
-                    <span class="kpi-pipe-label">Offers Selected</span>
+                    <span class="kpi-pipe-label">Selected</span>
                     <div class="kpi-pipe-icon kpi-icon-selected"><i class="fas fa-award"></i></div>
                 </div>
-                <div class="kpi-pipe-number" style="color: #16a34a;"><?php echo $statusCounts['Selected']; ?></div>
-            </div>
-
-            <div class="kpi-pipe-card" onclick="filterByStatus('Rejected', this)">
-                <div class="kpi-pipe-top">
-                    <span class="kpi-pipe-label">Not Selected</span>
-                    <div class="kpi-pipe-icon kpi-icon-rejected"><i class="fas fa-user-xmark"></i></div>
-                </div>
-                <div class="kpi-pipe-number" style="color: #64748b;"><?php echo $statusCounts['Rejected']; ?></div>
+                <div class="kpi-pipe-number" style="color:#16a34a;"><?php echo $statusCounts['Selected']; ?></div>
             </div>
         </div>
 
         <!-- Candidates Table Card -->
         <div>
+            <!-- Bulk Action Bar (appears when rows selected) -->
+            <div id="bulkActionBar" style="display:none; background:#0f172a; color:#fff; padding:0.85rem 1.5rem; border-radius:var(--radius-lg) var(--radius-lg) 0 0; display:none; align-items:center; gap:1rem; flex-wrap:wrap;">
+                <span id="bulkSelCount" style="font-size:0.88rem; font-weight:700;">0 selected</span>
+                <form method="POST" id="bulkForm" style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                    <input type="hidden" name="bulk_update_status" value="1">
+                    <select name="bulk_status" style="padding:0.45rem 0.85rem;border-radius:8px;font-size:0.85rem;font-weight:700;border:none;cursor:pointer;outline:none;">
+                        <option value="Applied">Mark as Applied</option>
+                        <option value="Selected">Mark as Selected</option>
+                    </select>
+                    <div id="bulkIdsContainer"></div>
+                    <button type="submit" style="background:#10b981;color:#fff;border:none;padding:0.45rem 1.1rem;border-radius:8px;font-weight:700;font-size:0.85rem;cursor:pointer;">
+                        <i class="fas fa-check"></i> Apply to Selected
+                    </button>
+                    <button type="button" onclick="clearSelection()" style="background:transparent;color:#94a3b8;border:none;padding:0.45rem 0.75rem;border-radius:8px;font-weight:600;font-size:0.82rem;cursor:pointer;">
+                        <i class="fas fa-xmark"></i> Clear
+                    </button>
+                </form>
+            </div>
+
             <!-- Search & Filter Tabs Toolbar -->
-            <div class="table-toolbar-box">
+            <div class="table-toolbar-box" style="border-radius: var(--radius-lg) var(--radius-lg) 0 0;" id="toolbarBox">
                 <div class="search-input-wrap">
                     <i class="fas fa-magnifying-glass"></i>
-                    <input type="text" id="candidateSearchInput" class="search-bar-control" placeholder="Search by Student Name, USN, Branch, College..." oninput="handleClientSearch()">
+                    <input type="text" id="candidateSearchInput" class="search-bar-control" placeholder="Search by Name, USN, Branch, College..." oninput="handleClientSearch()">
                 </div>
 
                 <div class="filter-tabs-pills">
@@ -1050,14 +1075,8 @@ $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
                     <button class="filter-tab-btn" onclick="filterByStatus('Applied', this)">
                         Applied <span class="badge-count-tiny"><?php echo $statusCounts['Applied']; ?></span>
                     </button>
-                    <button class="filter-tab-btn" onclick="filterByStatus('Shortlisted', this)">
-                        Shortlisted <span class="badge-count-tiny"><?php echo $statusCounts['Shortlisted']; ?></span>
-                    </button>
                     <button class="filter-tab-btn" onclick="filterByStatus('Selected', this)">
                         Selected <span class="badge-count-tiny"><?php echo $statusCounts['Selected']; ?></span>
-                    </button>
-                    <button class="filter-tab-btn" onclick="filterByStatus('Rejected', this)">
-                        Rejected <span class="badge-count-tiny"><?php echo $statusCounts['Rejected']; ?></span>
                     </button>
                 </div>
             </div>
@@ -1079,6 +1098,10 @@ $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
                         <table class="candidates-table" id="candidatesTable">
                             <thead>
                                 <tr>
+                                    <th style="width: 44px; text-align: center; padding-left: 1.25rem;">
+                                        <input type="checkbox" id="selectAllChk" onchange="toggleSelectAll(this)"
+                                            style="width:16px;height:16px;cursor:pointer;accent-color:var(--primary-maroon);">
+                                    </th>
                                     <th style="width: 40px; text-align: center;">#</th>
                                     <th>Candidate Name</th>
                                     <th>Student ID / USN</th>
@@ -1104,7 +1127,8 @@ $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
                                     $branch = $app['branch'] ?? 'N/A';
                                     $sem = $app['sem'] ?? 'N/A';
                                     $appStatus = $app['status'] ?? 'Applied';
-                                    if ($appStatus === 'Interview') $appStatus = 'Shortlisted';
+                                    // Normalize: Shortlisted/Interview/Rejected → Applied for display
+                                    if (in_array($appStatus, ['Shortlisted', 'Interview', 'Rejected'])) $appStatus = 'Applied';
                                     
                                     // Resume token generator
                                     $token = function_exists('generateResumeToken') ? generateResumeToken($studentUsn) : '';
@@ -1118,6 +1142,13 @@ $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
                                     $initials = (count($words) >= 2) ? strtoupper(substr($words[0], 0, 1) . substr($words[1], 0, 1)) : strtoupper(substr($studentName, 0, 2));
                                 ?>
                                     <tr class="candidate-row" data-status="<?php echo htmlspecialchars($appStatus); ?>" data-search="<?php echo strtolower(htmlspecialchars($studentName . ' ' . $studentUsn . ' ' . $institution . ' ' . $course . ' ' . $branch . ' ' . $sem . ' ' . ($app['email'] ?? ''))); ?>">
+                                        <!-- Checkbox -->
+                                        <td style="text-align: center; padding-left: 1.25rem;">
+                                            <input type="checkbox" class="row-chk" data-id="<?php echo $app['id']; ?>"
+                                                onchange="onRowCheck()"
+                                                style="width:16px;height:16px;cursor:pointer;accent-color:var(--primary-maroon);">
+                                        </td>
+                                        
                                         <td style="font-weight: 700; color: #94a3b8; text-align: center;"><?php echo $slNo++; ?></td>
                                         
                                         <!-- 1. Candidate Name -->
@@ -1186,16 +1217,14 @@ $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
                                             </button>
                                         </td>
 
-                                        <!-- 11. Pipeline Status Dropdown -->
+                                        <!-- 11. Pipeline Status Dropdown (Applied / Selected only) -->
                                         <td>
                                             <form method="POST" class="status-select-wrap">
                                                 <input type="hidden" name="app_id" value="<?php echo $app['id']; ?>">
                                                 <input type="hidden" name="update_status" value="1">
                                                 <select name="status" class="status-select-control status-<?php echo strtolower($appStatus); ?>" onchange="this.form.submit()">
-                                                    <option value="Applied" <?php echo $appStatus === 'Applied' ? 'selected' : ''; ?>>Applied</option>
-                                                    <option value="Shortlisted" <?php echo $appStatus === 'Shortlisted' ? 'selected' : ''; ?>>Shortlisted</option>
+                                                    <option value="Applied"  <?php echo $appStatus === 'Applied'  ? 'selected' : ''; ?>>Applied</option>
                                                     <option value="Selected" <?php echo $appStatus === 'Selected' ? 'selected' : ''; ?>>Selected</option>
-                                                    <option value="Rejected" <?php echo $appStatus === 'Rejected' ? 'selected' : ''; ?>>Rejected</option>
                                                 </select>
                                             </form>
                                         </td>
@@ -1249,9 +1278,58 @@ $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
     <script>
         let currentStatusFilter = 'all';
 
-        // Filter by Status Tab / KPI Card
+        // ── Bulk Selection ────────────────────────────────────────────
+        function toggleSelectAll(masterChk) {
+            const visibleChks = [...document.querySelectorAll('.candidate-row')]
+                .filter(r => r.style.display !== 'none')
+                .map(r => r.querySelector('.row-chk'));
+            visibleChks.forEach(chk => chk.checked = masterChk.checked);
+            updateBulkBar();
+        }
+
+        function onRowCheck() {
+            const all = document.querySelectorAll('.row-chk');
+            const checked = document.querySelectorAll('.row-chk:checked');
+            document.getElementById('selectAllChk').indeterminate = checked.length > 0 && checked.length < all.length;
+            document.getElementById('selectAllChk').checked = checked.length === all.length && all.length > 0;
+            updateBulkBar();
+        }
+
+        function updateBulkBar() {
+            const checked = [...document.querySelectorAll('.row-chk:checked')];
+            const bar = document.getElementById('bulkActionBar');
+            const toolbar = document.getElementById('toolbarBox');
+            if (checked.length > 0) {
+                bar.style.display = 'flex';
+                toolbar.style.borderRadius = '0';
+                document.getElementById('bulkSelCount').textContent = checked.length + ' candidate' + (checked.length > 1 ? 's' : '') + ' selected';
+                // Populate hidden inputs
+                const container = document.getElementById('bulkIdsContainer');
+                container.innerHTML = '';
+                checked.forEach(chk => {
+                    const inp = document.createElement('input');
+                    inp.type = 'hidden';
+                    inp.name = 'selected_ids[]';
+                    inp.value = chk.getAttribute('data-id');
+                    container.appendChild(inp);
+                });
+            } else {
+                bar.style.display = 'none';
+                toolbar.style.borderRadius = 'var(--radius-lg) var(--radius-lg) 0 0';
+            }
+        }
+
+        function clearSelection() {
+            document.querySelectorAll('.row-chk').forEach(c => c.checked = false);
+            document.getElementById('selectAllChk').checked = false;
+            document.getElementById('selectAllChk').indeterminate = false;
+            updateBulkBar();
+        }
+
+        // ── Filter by Status Tab / KPI Card ──────────────────────────
         function filterByStatus(status, element) {
             currentStatusFilter = status;
+            clearSelection();
             
             // Highlight Tab Buttons
             document.querySelectorAll('.filter-tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -1270,12 +1348,12 @@ $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
             applyClientFilters();
         }
 
-        // Search Input Handler
+        // ── Search Input Handler ──────────────────────────────────────
         function handleClientSearch() {
             applyClientFilters();
         }
 
-        // Apply Search & Status Filter Combined
+        // ── Apply Search & Status Filter Combined ────────────────────
         function applyClientFilters() {
             const query = document.getElementById('candidateSearchInput').value.toLowerCase().trim();
             const rows = document.querySelectorAll('.candidate-row');
@@ -1291,11 +1369,14 @@ $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
                     row.style.display = '';
                 } else {
                     row.style.display = 'none';
+                    const chk = row.querySelector('.row-chk');
+                    if (chk) chk.checked = false;
                 }
             });
+            updateBulkBar();
         }
 
-        // Open SGPA Scorecard Modal
+        // ── SGPA Scorecard Modal ──────────────────────────────────────
         function viewSGPA(studentName, studentUsn, semSgpaData) {
             document.getElementById('sgpaModalTitle').textContent = studentName + ' (' + studentUsn + ') — SGPA Record';
             const grid = document.getElementById('sgpaGrid');
@@ -1329,7 +1410,7 @@ $waUrl = "https://api.whatsapp.com/send?text=" . urlencode($waMessage);
             document.getElementById('sgpaModal').style.display = 'none';
         }
 
-        // Open Student History Modal
+        // ── Student History Modal ─────────────────────────────────────
         function viewHistory(studentId, name) {
             document.getElementById('historyModalTitle').textContent = 'Drive History: ' + name + ' (' + studentId + ')';
             document.getElementById('historyModal').style.display = 'flex';

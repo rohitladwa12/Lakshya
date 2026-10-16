@@ -4,7 +4,7 @@
  * Initializes the application by loading all necessary files
  */
 if (!defined('APP_VERSION')) {
-    define('APP_VERSION', '1.1.0_async'); // Update this to force CSS/JS refresh
+    define('APP_VERSION', '1.1.2_optionA'); // Update this to force CSS/JS refresh
 }
 
 // Load Composer Autoloader
