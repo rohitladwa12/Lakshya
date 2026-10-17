@@ -756,6 +756,9 @@ $todayFormatted = date('l, d M Y');
             <a href="upload_placed_students.php" class="erp-btn erp-btn-secondary">
                 <i class="fas fa-cloud-arrow-up"></i> Upload Placed
             </a>
+            <a href="find_students.php" class="erp-btn" style="background:var(--brand); color:#FFFFFF;">
+                <i class="fas fa-brain"></i> AI Talent Finder
+            </a>
             <a href="jobs.php" class="erp-btn erp-btn-primary">
                 <i class="fas fa-plus"></i> Post New Job
             </a>
@@ -1016,6 +1019,10 @@ $todayFormatted = date('l, d M Y');
                         <a href="reports.php" class="tool-btn">
                             <i class="fas fa-chart-line"></i>
                             <span>Analytics Report</span>
+                        </a>
+                        <a href="find_students.php" class="tool-btn" style="border-color: #FECACA; background: #FFF5F5;">
+                            <i class="fas fa-brain" style="color: var(--brand);"></i>
+                            <span style="font-weight: 700; color: var(--brand);">AI Talent Finder</span>
                         </a>
                         <a href="campus_drives.php" class="tool-btn">
                             <i class="fas fa-calendar-check"></i>

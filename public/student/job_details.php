@@ -293,6 +293,11 @@ if (isPost() && isset($_POST['apply'])) {
                         <?php if (!empty($job['work_mode'])): ?><span class="hero-chip"><i class="fas fa-laptop-house"></i> <?php echo htmlspecialchars($job['work_mode']); ?></span><?php endif; ?>
                         <?php if (!empty($job['salary_min'])): ?><span class="hero-chip"><i class="fas fa-indian-rupee-sign"></i> ₹<?php echo number_format($job['salary_min']/100000,1); ?>L – ₹<?php echo number_format($job['salary_max']/100000,1); ?>L/yr</span><?php endif; ?>
                         <?php if (!empty($job['min_cgpa']) && $job['min_cgpa'] > 0): ?><span class="hero-chip"><i class="fas fa-graduation-cap"></i> Min SGPA <?php echo $job['min_cgpa']; ?>+</span><?php endif; ?>
+                        <?php if (!empty($job['application_deadline'])): ?>
+                            <span class="hero-chip" style="<?php echo ($isEnded) ? 'background:rgba(239,68,68,0.25);border-color:rgba(239,68,68,0.4);' : ''; ?>">
+                                <i class="fas fa-clock"></i> Deadline: <?php echo date('d M Y, h:i A', strtotime($job['application_deadline'])); ?>
+                            </span>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -396,7 +401,40 @@ if (isPost() && isset($_POST['apply'])) {
                     <ul class="meta-list">
                         <li class="meta-item"><div class="meta-icon"><i class="fas fa-map-marker-alt"></i></div><div><div class="meta-label">Location</div><div class="meta-value"><?php echo htmlspecialchars($job['location'] ?? '—'); ?></div></div></li>
                         <li class="meta-item"><div class="meta-icon"><i class="fas fa-indian-rupee-sign"></i></div><div><div class="meta-label">Salary</div><div class="meta-value"><?php echo !empty($job['salary_min']) ? '₹'.number_format($job['salary_min']/100000,1).'L – ₹'.number_format($job['salary_max']/100000,1).'L/yr' : '—'; ?></div></div></li>
-                        <li class="meta-item"><div class="meta-icon"><i class="fas fa-calendar-alt"></i></div><div><div class="meta-label">Deadline</div><div class="meta-value"><?php echo date('d M Y', strtotime($job['application_deadline'])); ?></div></div></li>
+                        <li class="meta-item">
+                            <div class="meta-icon"><i class="fas fa-clock"></i></div>
+                            <div>
+                                <div class="meta-label">Application Deadline</div>
+                                <div class="meta-value" style="display:flex; flex-direction:column; gap:2px;">
+                                    <span><?php echo date('d M Y, h:i A', strtotime($job['application_deadline'])); ?></span>
+                                    <?php 
+                                        $dlTimestamp = strtotime($job['application_deadline']);
+                                        $diff = $dlTimestamp - time();
+                                        if ($diff > 0): 
+                                            $days = floor($diff / 86400);
+                                            $hours = floor(($diff % 86400) / 3600);
+                                            $mins = floor(($diff % 3600) / 60);
+                                            if ($days > 1) {
+                                                $remainingText = $days . ' days left';
+                                                $remBadgeClass = 'color: #059669; font-size: 11.5px; font-weight: 600;';
+                                            } elseif ($days == 1) {
+                                                $remainingText = '1 day, ' . $hours . ' hrs left';
+                                                $remBadgeClass = 'color: #d97706; font-size: 11.5px; font-weight: 600;';
+                                            } elseif ($hours > 0) {
+                                                $remainingText = $hours . ' hrs, ' . $mins . ' mins left';
+                                                $remBadgeClass = 'color: #dc2626; font-size: 11.5px; font-weight: 700;';
+                                            } else {
+                                                $remainingText = $mins . ' mins left (Closing Soon)';
+                                                $remBadgeClass = 'color: #dc2626; font-size: 11.5px; font-weight: 700;';
+                                            }
+                                    ?>
+                                        <span style="<?php echo $remBadgeClass; ?>"><i class="fas fa-stopwatch"></i> <?php echo $remainingText; ?></span>
+                                    <?php else: ?>
+                                        <span style="color: #64748b; font-size: 11.5px; font-weight: 600;"><i class="fas fa-lock"></i> Applications Closed</span>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </li>
                         <li class="meta-item"><div class="meta-icon"><i class="fas fa-briefcase"></i></div><div><div class="meta-label">Type</div><div class="meta-value"><?php echo htmlspecialchars($job['job_type'] ?? '—'); ?></div></div></li>
                         <li class="meta-item"><div class="meta-icon"><i class="fas fa-graduation-cap"></i></div><div><div class="meta-label">Min SGPA</div><div class="meta-value"><?php echo $job['min_cgpa'] > 0 ? $job['min_cgpa'].'+' : 'Any'; ?></div></div></li>
                         <li class="meta-item"><div class="meta-icon"><i class="fas fa-venus-mars"></i></div><div><div class="meta-label">Gender</div><div class="meta-value"><?php echo (!empty($job['eligible_gender']) && $job['eligible_gender'] !== 'Both') ? htmlspecialchars($job['eligible_gender']) . ' Only' : 'All (Male & Female)'; ?></div></div></li>
@@ -416,7 +454,7 @@ if (isPost() && isset($_POST['apply'])) {
                         $salaryStr = '₹' . number_format($job['salary_min'] / 100000, 1) . 'L – ₹' . number_format($job['salary_max'] / 100000, 1) . 'L per year';
                     }
 
-                    $deadlineStr = date('M d, Y', strtotime($job['application_deadline']));
+                    $deadlineStr = date('M d, Y \a\t h:i A', strtotime($job['application_deadline']));
 
                     $genderNote = '';
                     if (!empty($job['eligible_gender']) && $job['eligible_gender'] !== 'Both') {
@@ -460,7 +498,7 @@ if (isPost() && isset($_POST['apply'])) {
                     <?php elseif ($isEnded): ?>
                         <div class="elig-box not" style="background:#f1f5f9; border-color:#e2e8f0; color:#64748b;">
                             <div class="elig-box-title"><i class="fas fa-calendar-times"></i> Application Closed</div>
-                            This job is no longer accepting applications.
+                            This job is no longer accepting applications. The deadline was <strong><?php echo date('d M Y, h:i A', strtotime($job['application_deadline'])); ?></strong>.
                         </div>
 
                     <?php elseif (!$hasAcademicProfile): ?>
@@ -487,6 +525,9 @@ if (isPost() && isset($_POST['apply'])) {
                     <?php elseif (($job['application_mode'] ?? 'Internal') === 'External' && !empty($job['external_url'])): ?>
                         <div class="elig-box ok">
                             <div class="elig-box-title"><i class="fas fa-circle-check"></i> You're Eligible!</div>
+                            <div style="font-size:12px; margin-top:4px; opacity:0.95;">
+                                <i class="fas fa-clock"></i> Deadline: <strong><?php echo date('d M Y, h:i A', strtotime($job['application_deadline'])); ?></strong>
+                            </div>
                         </div>
                         <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 12px; padding: 14px; margin-bottom: 16px;">
                             <div style="color: #1e40af; font-weight: 700; font-size: 13px; display: flex; align-items: center; gap: 6px; margin-bottom: 6px;">
@@ -506,6 +547,9 @@ if (isPost() && isset($_POST['apply'])) {
                     <?php else: ?>
                         <div class="elig-box ok">
                             <div class="elig-box-title"><i class="fas fa-circle-check"></i> You're Eligible!</div>
+                            <div style="font-size:12px; margin-top:4px; opacity:0.95;">
+                                <i class="fas fa-clock"></i> Apply before: <strong><?php echo date('d M Y, h:i A', strtotime($job['application_deadline'])); ?></strong>
+                            </div>
                         </div>
                         <div class="resume-ready-box">
                             <strong><i class="fas fa-file-pdf"></i> Resume Ready</strong>

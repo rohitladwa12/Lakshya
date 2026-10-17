@@ -372,6 +372,11 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
             </a>
         </li>
         <li>
+            <a href="find_students.php" class="<?php echo ($currentPage === 'find_students.php') ? 'active' : ''; ?>">
+                <i class="fas fa-brain"></i> <span>AI Talent Finder</span>
+            </a>
+        </li>
+        <li>
             <a href="feedback.php" class="<?php echo ($currentPage === 'feedback.php') ? 'active' : ''; ?>">
                 <i class="fas fa-comments"></i> <span>Feedback</span>
             </a>

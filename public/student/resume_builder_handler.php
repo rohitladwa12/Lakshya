@@ -267,6 +267,79 @@ if ($action === 'save_resume' && $_SERVER['REQUEST_METHOD'] === 'POST') {
         }
 
         $resumeModel = new Resume();
+        $institution = $_SESSION['institution'] ?? 'GMU';
+        $portfolioModel = new Portfolio();
+
+        // Preserve verified skills and projects if incoming autosave lacks them
+        $verifiedItems = $portfolioModel->getStudentPortfolio($username, $institution);
+        $vSkillMap = [];
+        $vProjMap = [];
+        foreach ($verifiedItems as $vItem) {
+            if (!empty($vItem['is_verified'])) {
+                if ($vItem['category'] === 'Skill') {
+                    $cat = $vItem['sub_title'] ?: 'Technical Skills';
+                    $vSkillMap[$cat][] = $vItem['title'];
+                } elseif ($vItem['category'] === 'Project') {
+                    $vProjMap[strtolower(trim($vItem['title']))] = $vItem;
+                }
+            }
+        }
+
+        if (!empty($vSkillMap) && isset($resumeData['skills']['technical'])) {
+            $existingSkillNames = [];
+            foreach ($resumeData['skills']['technical'] as $tg) {
+                foreach ($tg['items'] ?? [] as $titem) {
+                    $existingSkillNames[strtolower(trim($titem))] = true;
+                }
+            }
+            foreach ($vSkillMap as $vCat => $vItems) {
+                $missingItems = [];
+                foreach ($vItems as $vi) {
+                    if (!isset($existingSkillNames[strtolower(trim($vi))])) {
+                        $missingItems[] = $vi;
+                        $existingSkillNames[strtolower(trim($vi))] = true;
+                    }
+                }
+                if (!empty($missingItems)) {
+                    $foundCat = false;
+                    foreach ($resumeData['skills']['technical'] as &$tg) {
+                        if (strcasecmp($tg['category'] ?? '', $vCat) === 0) {
+                            $tg['items'] = array_values(array_unique(array_merge($tg['items'], $missingItems)));
+                            $foundCat = true;
+                            break;
+                        }
+                    }
+                    unset($tg);
+                    if (!$foundCat) {
+                        $resumeData['skills']['technical'][] = [
+                            'category' => $vCat,
+                            'items' => $missingItems
+                        ];
+                    }
+                }
+            }
+        }
+
+        if (!empty($vProjMap) && isset($resumeData['projects'])) {
+            $existingProjNames = [];
+            foreach ($resumeData['projects'] as $p) {
+                $existingProjNames[strtolower(trim($p['title'] ?? ''))] = true;
+            }
+            foreach ($vProjMap as $vpTitleLower => $vpItem) {
+                if (!isset($existingProjNames[$vpTitleLower])) {
+                    $resumeData['projects'][] = [
+                        'title' => $vpItem['title'],
+                        'technologies' => $vpItem['sub_title'] ?? '',
+                        'description' => $vpItem['description'] ?? '',
+                        'link' => $vpItem['link'] ?? '',
+                        'start_date' => $vpItem['start_date'] ? substr($vpItem['start_date'], 0, 7) : '',
+                        'end_date' => $vpItem['end_date'] ? substr($vpItem['end_date'], 0, 7) : '',
+                        'ongoing' => empty($vpItem['end_date']),
+                    ];
+                }
+            }
+        }
+
         $ok = $resumeModel->saveResume($userId, $resumeData);
 
         // --- SYNCHRONIZE WITH PORTFOLIO ---

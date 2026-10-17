@@ -3262,4 +3262,307 @@ Return JSON: {\"problems\": [{\"title\": \"...\", \"problem_statement\": \"...\"
         }
         return ['success' => false, 'problems' => [], 'message' => $lastError];
     }
+
+    /**
+     * Expand an arbitrary job role or title into core technical skills, related tools, and project keywords.
+     * Caches result in Redis when available.
+     *
+     * @param string $targetRole (e.g. 'Mobile App Developer', 'Cloud Engineer')
+     * @return array
+     */
+    public function expandRoleSkills($targetRole)
+    {
+        $targetRole = trim((string)$targetRole);
+        if ($targetRole === '') {
+            return [
+                'success' => false,
+                'role' => '',
+                'core_skills' => [],
+                'related_skills' => [],
+                'project_keywords' => [],
+                'role_summary' => ''
+            ];
+        }
+
+        $cacheKey = 'ai_role_skills_' . md5(strtolower($targetRole));
+        try {
+            $redis = \App\Helpers\RedisHelper::getInstance();
+            if ($redis && $redis->isConnected()) {
+                $cached = $redis->getClient()->get($cacheKey);
+                if (!empty($cached)) {
+                    $decoded = json_decode($cached, true);
+                    if (is_array($decoded) && !empty($decoded['core_skills'])) {
+                        return $decoded;
+                    }
+                }
+            }
+        } catch (\Throwable $e) {}
+
+        $systemPrompt = "You are an expert technical recruitment and talent mapping AI.
+When given a job role or search query from a campus placement officer, output a JSON object deconstructing the role:
+{
+    \"role_normalized\": \"Official Title\",
+    \"core_skills\": [\"Primary tech skills, languages, frameworks (5 to 10 items)\"],
+    \"related_skills\": [\"Secondary, supporting tools, databases, libraries (5 to 10 items)\"],
+    \"project_keywords\": [\"Keywords commonly found in project titles or descriptions for this role (6 to 12 items)\"],
+    \"role_summary\": \"1-sentence summary of what this role does.\"
+}
+Keep each skill and keyword concise (1-3 words). Output only valid JSON.";
+
+        $messages = [
+            ['role' => 'system', 'content' => $systemPrompt],
+            ['role' => 'user', 'content' => "Deconstruct the job role: '" . $targetRole . "' for student skill & project matching."]
+        ];
+
+        $result = null;
+        try {
+            $response = $this->callAPI($messages, [
+                'audit_method' => __FUNCTION__,
+                'response_format' => ['type' => 'json_object'],
+                'max_tokens' => 600,
+                'temperature' => 0.2
+            ]);
+
+            if (!empty($response['success'])) {
+                $parsed = !empty($response['parsed']) ? $response['parsed'] : json_decode($response['content'] ?? '{}', true);
+                if (is_array($parsed) && !empty($parsed['core_skills'])) {
+                    $result = [
+                        'success' => true,
+                        'role' => $targetRole,
+                        'role_normalized' => $parsed['role_normalized'] ?? $targetRole,
+                        'core_skills' => array_values(array_filter(array_map('trim', (array)($parsed['core_skills'] ?? [])))),
+                        'related_skills' => array_values(array_filter(array_map('trim', (array)($parsed['related_skills'] ?? [])))),
+                        'project_keywords' => array_values(array_filter(array_map('trim', (array)($parsed['project_keywords'] ?? [])))),
+                        'role_summary' => trim((string)($parsed['role_summary'] ?? ''))
+                    ];
+                }
+            }
+        } catch (\Throwable $e) {
+            logMessage("expandRoleSkills API error: " . $e->getMessage(), 'WARNING');
+        }
+
+        // Resilient rule-based fallback if AI API is unreachable or fails
+        if (!$result || empty($result['core_skills'])) {
+            $result = $this->fallbackRoleSkills($targetRole);
+        }
+
+        // Cache in Redis for 7 days
+        try {
+            $redis = \App\Helpers\RedisHelper::getInstance();
+            if ($redis && $redis->isConnected() && !empty($result['core_skills'])) {
+                $redis->getClient()->setex($cacheKey, 604800, json_encode($result));
+            }
+        } catch (\Throwable $e) {}
+
+        return $result;
+    }
+
+    /**
+     * Fallback dictionary for common roles when AI API is unavailable
+     */
+    protected function fallbackRoleSkills($targetRole)
+    {
+        $roleLower = strtolower($targetRole);
+        $core = [];
+        $related = [];
+        $projects = [];
+        $summary = "Specialized candidate profile matching '$targetRole'.";
+
+        if (strpos($roleLower, 'mobile') !== false || strpos($roleLower, 'android') !== false || strpos($roleLower, 'ios') !== false || strpos($roleLower, 'flutter') !== false) {
+            $core = ['Flutter', 'React Native', 'Android', 'Kotlin', 'Java', 'Swift', 'iOS', 'Dart'];
+            $related = ['Firebase', 'SQLite', 'REST API', 'UI/UX Design', 'Git', 'App Store'];
+            $projects = ['mobile app', 'android app', 'ios app', 'flutter app', 'apk', 'cross-platform', 'mobile application'];
+            $summary = "Develops native and cross-platform mobile applications for smartphones and tablets.";
+        } elseif (strpos($roleLower, 'data scien') !== false || strpos($roleLower, 'machine learn') !== false || strpos($roleLower, 'ai') !== false || strpos($roleLower, 'ml') !== false) {
+            $core = ['Python', 'Machine Learning', 'Data Science', 'TensorFlow', 'PyTorch', 'Pandas', 'NumPy', 'Scikit-learn'];
+            $related = ['SQL', 'Deep Learning', 'Computer Vision', 'NLP', 'Data Visualization', 'Tableau', 'Power BI'];
+            $projects = ['detection', 'prediction', 'classifier', 'machine learning', 'yolo', 'neural network', 'nlp', 'data analysis', 'model'];
+            $summary = "Analyzes complex datasets and builds predictive machine learning and AI models.";
+        } elseif (strpos($roleLower, 'full stack') !== false || strpos($roleLower, 'web') !== false || strpos($roleLower, 'frontend') !== false || strpos($roleLower, 'backend') !== false) {
+            $core = ['React', 'Node.js', 'JavaScript', 'HTML5', 'CSS3', 'Python', 'Java', 'PHP', 'SQL'];
+            $related = ['Express', 'MongoDB', 'MySQL', 'Tailwind CSS', 'Git', 'REST APIs', 'TypeScript'];
+            $projects = ['website', 'web application', 'portal', 'management system', 'dashboard', 'e-commerce', 'full stack'];
+            $summary = "Designs and deploys scalable web applications across client and server tiers.";
+        } elseif (strpos($roleLower, 'cloud') !== false || strpos($roleLower, 'devops') !== false) {
+            $core = ['AWS', 'Docker', 'Kubernetes', 'Linux', 'CI/CD', 'Git', 'Terraform', 'Azure'];
+            $related = ['Jenkins', 'Python', 'Bash Scripting', 'Nginx', 'Prometheus', 'Ansible'];
+            $projects = ['cloud deployment', 'pipeline', 'docker container', 'cluster', 'automation', 'infrastructure'];
+            $summary = "Automates application deployment, containerization, and reliable cloud operations.";
+        } else {
+            // Generic tokenization
+            $words = array_filter(explode(' ', preg_replace('/[^a-zA-Z0-9\s]/', '', $targetRole)));
+            $core = array_slice($words, 0, 5);
+            $related = ['Git', 'Problem Solving', 'Data Structures', 'Database Management'];
+            $projects = [$targetRole, 'project', 'system', 'application'];
+        }
+
+        return [
+            'success' => true,
+            'role' => $targetRole,
+            'role_normalized' => ucwords($targetRole),
+            'core_skills' => $core,
+            'related_skills' => $related,
+            'project_keywords' => $projects,
+            'role_summary' => $summary
+        ];
+    }
+
+    /**
+     * Deep AI Technical Evaluation of candidates against a target role.
+     * Evaluates actual implementation depth, architecture, and project defense evidence.
+     * Caches evaluations in Redis per (role + usn).
+     *
+     * @param string $targetRole
+     * @param array $candidatesData Array of candidates with skills and projects
+     * @return array Map of [usn => evaluation_object]
+     */
+    public function evaluateCandidatesBatchAI($targetRole, $candidatesData)
+    {
+        $targetRole = trim((string)$targetRole);
+        if ($targetRole === '' || empty($candidatesData)) {
+            return [];
+        }
+
+        $roleHash = md5(strtolower($targetRole));
+        $evaluationsMap = [];
+        $candidatesToEvaluate = [];
+
+        // 1. Check Redis cache first
+        try {
+            $redis = \App\Helpers\RedisHelper::getInstance();
+            if ($redis && $redis->isConnected()) {
+                foreach ($candidatesData as $c) {
+                    $usn = strtoupper(trim((string)$c['usn']));
+                    $cacheKey = "ai_eval_v5_{$roleHash}_{$usn}";
+                    $cached = $redis->getClient()->get($cacheKey);
+                    if (!empty($cached)) {
+                        $dec = json_decode($cached, true);
+                        if (is_array($dec) && !empty($dec['technical_appraisal'])) {
+                            $evaluationsMap[$usn] = $dec;
+                            continue;
+                        }
+                    }
+                    $candidatesToEvaluate[] = $c;
+                }
+            } else {
+                $candidatesToEvaluate = $candidatesData;
+            }
+        } catch (\Throwable $e) {
+            $candidatesToEvaluate = $candidatesData;
+        }
+
+        if (empty($candidatesToEvaluate)) {
+            return $evaluationsMap;
+        }
+
+        // Limit evaluation batch to top 15 candidates per LLM call to keep latency low
+        $batch = array_slice($candidatesToEvaluate, 0, 15);
+
+        // Prepare compact summaries of each candidate's projects & skills
+        $compactCandidates = [];
+        foreach ($batch as $c) {
+            $usn = strtoupper(trim((string)$c['usn']));
+            $projSummaries = [];
+            foreach (($c['matched_projects'] ?? ($c['projects'] ?? [])) as $p) {
+                $projSummaries[] = [
+                    'title' => $p['title'] ?? '',
+                    'tech' => $p['tech'] ?? '',
+                    'summary' => mb_substr(strip_tags((string)($p['summary'] ?? '')), 0, 180),
+                    'verified' => !empty($p['is_verified']),
+                    'score' => $p['score'] ?? null
+                ];
+            }
+
+            $compactCandidates[] = [
+                'usn' => $usn,
+                'name' => $c['name'] ?? $usn,
+                'department' => $c['discipline'] ?? '',
+                'skills' => array_slice(array_column($c['matched_skills'] ?? [], 'name'), 0, 8),
+                'projects' => $projSummaries,
+                'proof_of_work' => [
+                    'status' => $c['proof_of_work']['status'] ?? 'SELF_REPORTED',
+                    'viva_score' => $c['proof_of_work']['viva_score'] ?? null,
+                    'summary' => $c['proof_of_work']['summary'] ?? ''
+                ]
+            ];
+        }
+
+        $systemPrompt = "You are an uncompromising Senior Technical Bar Raiser evaluating college candidates for the target role: '$targetRole'.
+You MUST be strict, critical, and objective. Do NOT give away high scores easily.
+
+STRICT SCORING GUIDELINES:
+1. TARGET ROLE FOCUS ONLY:
+   - Critically evaluate ONLY projects and skills directly solving problems in '$targetRole'.
+   - NEVER praise or choose an unrelated project as 'standout_project'. For example, if evaluating for 'Mobile App Developer', you must evaluate mobile app projects (e.g. Flutter, React Native, Swift, Kotlin, Android, iOS). Do NOT select a website, machine learning, face recognition, or generic script as the standout project for a mobile app role! If no relevant project exists, set 'standout_project' to 'None'.
+2. ANTI-FAKE PROOF-OF-WORK AUDIT:
+   - If 'proof_of_work.status' is 'VERIFIED_VIVA' (viva_score >= 60) or 'VERIFIED_TESTS', acknowledge their verified oral defense (e.g., 'Defended architecture with viva score X/100').
+   - If status is 'SELF_REPORTED', note that the project claims are self-reported on their resume without viva verification on record.
+3. STRICT SCORE BANDS (30 to 98):
+   - 88 to 98 [Top Tier Fit]: Candidate has built an actual, functional application specifically in '$targetRole' with architectural depth AND verified viva defense score >= 75.
+   - 70 to 87 [Strong Fit]: Has hands-on domain project directly in '$targetRole' with solid skills, but moderate complexity or self-reported.
+   - 50 to 69 [Moderate Fit]: Only tangential skills, general programming background, or basic toy projects lacking domain depth.
+   - 30 to 49 [Potential]: Peripheral skills only, no relevant projects in '$targetRole'.
+4. APPRAISAL REQUIREMENTS:
+   - 'technical_appraisal': Exactly 1 to 2 sharp, technical sentences focusing squarely on their capability in '$targetRole' and noting proof-of-work authenticity.
+   - 'standout_project': MUST be the exact title of their most relevant project for '$targetRole' (or 'None').
+
+Output JSON format:
+{
+  \"evaluations\": [
+    {
+      \"usn\": \"Candidate USN\",
+      \"ai_score\": 85,
+      \"fit_level\": \"Top Tier Fit\" | \"Strong Fit\" | \"Moderate Fit\" | \"Potential\",
+      \"technical_appraisal\": \"1-2 dense sentences on their practical architecture, depth, and proof-of-work status for $targetRole.\",
+      \"standout_project\": \"Exact project title or 'None'\"
+    }
+  ]
+}";
+
+        try {
+            $messages = [
+                ['role' => 'system', 'content' => $systemPrompt],
+                ['role' => 'user', 'content' => "Evaluate these candidates strictly for '$targetRole': " . json_encode($compactCandidates)]
+            ];
+
+            $response = $this->callAPI($messages, [
+                'audit_method' => __FUNCTION__,
+                'response_format' => ['type' => 'json_object'],
+                'max_tokens' => 1500,
+                'temperature' => 0.1
+            ]);
+
+            if (!empty($response['success'])) {
+                $data = !empty($response['parsed']) ? $response['parsed'] : json_decode($response['content'] ?? '{}', true);
+                $evals = $data['evaluations'] ?? [];
+
+                $redis = null;
+                try {
+                    $redis = \App\Helpers\RedisHelper::getInstance();
+                } catch (\Throwable $e) {}
+
+                foreach ($evals as $ev) {
+                    $usn = strtoupper(trim((string)($ev['usn'] ?? '')));
+                    if ($usn !== '') {
+                        $evaluationsMap[$usn] = [
+                            'ai_score' => (int)($ev['ai_score'] ?? 75),
+                            'fit_level' => $ev['fit_level'] ?? 'Good Fit',
+                            'technical_appraisal' => trim((string)($ev['technical_appraisal'] ?? '')),
+                            'standout_project' => trim((string)($ev['standout_project'] ?? ''))
+                        ];
+
+                        // Cache in Redis for 7 days
+                        if ($redis && $redis->isConnected()) {
+                            $cacheKey = "ai_eval_v5_{$roleHash}_{$usn}";
+                            $redis->getClient()->setex($cacheKey, 604800, json_encode($evaluationsMap[$usn]));
+                        }
+                    }
+                }
+            }
+        } catch (\Throwable $e) {
+            logMessage("evaluateCandidatesBatchAI error: " . $e->getMessage(), 'WARNING');
+        }
+
+        return $evaluationsMap;
+    }
 }

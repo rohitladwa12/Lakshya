@@ -883,4 +883,761 @@ class PlacementOfficer extends Model {
             'total_pages' => ceil($total / $limit)
         ];
     }
+
+    /**
+     * Search and rank students by target role / skills using AI matching
+     */
+    public function searchStudentsByRoleAI($role, $filters = [], $page = 1, $limit = 25) {
+        $aiService = new \AIService();
+        $aiProfile = $aiService->expandRoleSkills($role);
+
+        $coreSkills = $aiProfile['core_skills'] ?? [];
+        $relatedSkills = $aiProfile['related_skills'] ?? [];
+        $projectKeywords = $aiProfile['project_keywords'] ?? [];
+
+        // Build list of all search terms for DB query
+        $allSkills = array_values(array_unique(array_filter(array_merge($coreSkills, $relatedSkills))));
+        $allKeywords = array_values(array_unique(array_filter(array_merge($coreSkills, $relatedSkills, $projectKeywords))));
+
+        if (empty($allKeywords)) {
+            $allKeywords = [trim($role)];
+        }
+
+        $roleTokens = array_filter(preg_split('/[\s,\-\/]+/', strtolower(trim((string)$role))), fn($t) => strlen($t) >= 3);
+
+        // 1. Find matching portfolio items from student_portfolio (local DB)
+        $portfolioMatches = [];
+        try {
+            $skillConditions = [];
+            $skillParams = [];
+            foreach ($allSkills as $s) {
+                $skillConditions[] = "title LIKE ? OR sub_title LIKE ?";
+                $skillParams[] = "%$s%";
+                $skillParams[] = "%$s%";
+            }
+
+            $projectConditions = [];
+            $projectParams = [];
+            foreach ($allKeywords as $k) {
+                $projectConditions[] = "title LIKE ? OR sub_title LIKE ? OR description LIKE ?";
+                $projectParams[] = "%$k%";
+                $projectParams[] = "%$k%";
+                $projectParams[] = "%$k%";
+            }
+
+            $condSql = [];
+            $execParams = [];
+            if (!empty($skillConditions)) {
+                $condSql[] = "(" . implode(' OR ', $skillConditions) . ")";
+                $execParams = array_merge($execParams, $skillParams);
+            }
+            if (!empty($projectConditions)) {
+                $condSql[] = "(" . implode(' OR ', $projectConditions) . ")";
+                $execParams = array_merge($execParams, $projectParams);
+            }
+
+            if (!empty($condSql)) {
+                $sqlPortfolio = "SELECT id, student_id, institution, category, title, sub_title, description, link, is_verified, verification_score 
+                                 FROM student_portfolio 
+                                 WHERE " . implode(' OR ', $condSql);
+                
+                $stmtPort = $this->db->prepare($sqlPortfolio);
+                $stmtPort->execute($execParams);
+                while ($pRow = $stmtPort->fetch(PDO::FETCH_ASSOC)) {
+                    $sid = strtoupper(trim((string)$pRow['student_id']));
+                    if (!isset($portfolioMatches[$sid])) {
+                        $portfolioMatches[$sid] = ['skills' => [], 'projects' => []];
+                    }
+                    if ($pRow['category'] === 'Skill') {
+                        $portfolioMatches[$sid]['skills'][] = $pRow;
+                    } else {
+                        $portfolioMatches[$sid]['projects'][] = $pRow;
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            error_log("Error in portfolio search: " . $e->getMessage());
+        }
+
+        // 2. Also search student_resumes (local DB) for matching skills & projects
+        $resumeMatches = [];
+        try {
+            $resumeConds = [];
+            $resumeParams = [];
+            foreach ($allKeywords as $k) {
+                $resumeConds[] = "skills LIKE ? OR projects LIKE ? OR professional_summary LIKE ?";
+                $resumeParams[] = "%$k%";
+                $resumeParams[] = "%$k%";
+                $resumeParams[] = "%$k%";
+            }
+
+            if (!empty($resumeConds)) {
+                $sqlResume = "SELECT student_id, full_name, email, phone, skills, projects, professional_summary, resume_data 
+                              FROM student_resumes 
+                              WHERE " . implode(' OR ', $resumeConds);
+                $stmtRes = $this->db->prepare($sqlResume);
+                $stmtRes->execute($resumeParams);
+                while ($rRow = $stmtRes->fetch(PDO::FETCH_ASSOC)) {
+                    $sid = strtoupper(trim((string)$rRow['student_id']));
+                    $resumeMatches[$sid] = $rRow;
+                }
+            }
+        } catch (\Exception $e) {
+            error_log("Error in resume search: " . $e->getMessage());
+        }
+
+        // Combined pool of matching student USNs/IDs
+        $candidateIds = array_values(array_unique(array_merge(array_keys($portfolioMatches), array_keys($resumeMatches))));
+
+        if (empty($candidateIds)) {
+            return [
+                'data' => [],
+                'all_data' => [],
+                'total' => 0,
+                'page' => $page,
+                'limit' => $limit,
+                'total_pages' => 0,
+                'ai_profile' => $aiProfile
+            ];
+        }
+
+        // 3. Multi-source Student Details Resolution (Remote DB + Local users + student_resumes + unified_ai_assessments)
+        $gmuPrefix = DB_GMU_PREFIX;
+        $gmitPrefix = DB_GMIT_PREFIX;
+        $students = [];
+
+        // A. Local users table lookup
+        $localUsersMap = [];
+        try {
+            $phUsers = implode(',', array_fill(0, count($candidateIds), '?'));
+            $stmtUsers = $this->db->prepare("SELECT USER_NAME as usn, NAME as name, DISCIPLINE as discipline, MOBILE_NO as phone, COLLEGE as college FROM users WHERE USER_NAME IN ($phUsers)");
+            $stmtUsers->execute($candidateIds);
+            while ($uRow = $stmtUsers->fetch(PDO::FETCH_ASSOC)) {
+                $localUsersMap[strtoupper(trim((string)$uRow['usn']))] = $uRow;
+            }
+        } catch (\Exception $e) {}
+
+        // B. Local student_resumes lookup for all candidate IDs
+        $allResumesMap = [];
+        try {
+            $phRes = implode(',', array_fill(0, count($candidateIds), '?'));
+            $stmtResAll = $this->db->prepare("SELECT student_id, full_name, email, phone FROM student_resumes WHERE student_id IN ($phRes)");
+            $stmtResAll->execute($candidateIds);
+            while ($rRow = $stmtResAll->fetch(PDO::FETCH_ASSOC)) {
+                $allResumesMap[strtoupper(trim((string)$rRow['student_id']))] = $rRow;
+            }
+        } catch (\Exception $e) {}
+
+        // C. Local unified_ai_assessments lookup (Demographics & Anti-Fake Proof of Work Data)
+        $localAssessMap = [];
+        $proofOfWorkMap = [];
+        try {
+            $phAss = implode(',', array_fill(0, count($candidateIds), '?'));
+            $stmtAss = $this->db->prepare("SELECT usn, student_id, student_name, branch, current_sem, assessment_type, score, total_marks, feedback 
+                                          FROM unified_ai_assessments 
+                                          WHERE usn IN ($phAss) OR student_id IN ($phAss)");
+            $stmtAss->execute(array_merge($candidateIds, $candidateIds));
+            while ($aRow = $stmtAss->fetch(PDO::FETCH_ASSOC)) {
+                $uKey = strtoupper(trim((string)($aRow['usn'] ?: $aRow['student_id'])));
+                if (!isset($localAssessMap[$uKey])) {
+                    $localAssessMap[$uKey] = $aRow;
+                }
+                if (!isset($proofOfWorkMap[$uKey])) {
+                    $proofOfWorkMap[$uKey] = [
+                        'viva_score' => null,
+                        'viva_feedback' => '',
+                        'skills_verified_count' => 0,
+                        'technical_score' => null,
+                        'aptitude_score' => null
+                    ];
+                }
+
+                $type = trim((string)($aRow['assessment_type'] ?? ''));
+                $sc = is_numeric($aRow['score']) ? (float)$aRow['score'] : null;
+
+                if ($type === 'Project Defense' && $sc !== null) {
+                    if ($proofOfWorkMap[$uKey]['viva_score'] === null || $sc > $proofOfWorkMap[$uKey]['viva_score']) {
+                        $proofOfWorkMap[$uKey]['viva_score'] = round($sc, 1);
+                        $proofOfWorkMap[$uKey]['viva_feedback'] = trim((string)($aRow['feedback'] ?? ''));
+                    }
+                } elseif ($type === 'Skill Verification') {
+                    $proofOfWorkMap[$uKey]['skills_verified_count']++;
+                } elseif ($type === 'Technical' && $sc !== null) {
+                    if ($proofOfWorkMap[$uKey]['technical_score'] === null || $sc > $proofOfWorkMap[$uKey]['technical_score']) {
+                        $proofOfWorkMap[$uKey]['technical_score'] = round($sc, 1);
+                    }
+                } elseif ($type === 'Aptitude' && $sc !== null) {
+                    if ($proofOfWorkMap[$uKey]['aptitude_score'] === null || $sc > $proofOfWorkMap[$uKey]['aptitude_score']) {
+                        $proofOfWorkMap[$uKey]['aptitude_score'] = round($sc, 1);
+                    }
+                }
+            }
+        } catch (\Exception $e) {}
+
+        // D. Remote DB lookup
+        try {
+            $placeholders = implode(',', array_fill(0, count($candidateIds), '?'));
+
+            if ($this->remoteDB) {
+                // Query GMU students
+                $sqlGmu = "SELECT ad.usn, ad.name, COALESCE(ad.discipline, ad.branch, '') as discipline, ad.sem, det.mobile as phone, det.email, '" . INSTITUTION_GMU . "' as institution
+                           FROM {$gmuPrefix}ad_student_approved ad
+                           LEFT JOIN {$gmuPrefix}ad_student_details det ON ad.usn = det.usn
+                           WHERE ad.usn IN ($placeholders)";
+                $stmtGmu = $this->remoteDB->prepare($sqlGmu);
+                $stmtGmu->execute($candidateIds);
+                while ($row = $stmtGmu->fetch(PDO::FETCH_ASSOC)) {
+                    $students[strtoupper(trim((string)$row['usn']))] = $row;
+                }
+
+                // Query GMIT students
+                $sqlGmit = "SELECT ad.student_id as usn, ad.name, COALESCE(ad.discipline, ad.branch, '') as discipline, 0 as sem, '' as phone, '' as email, '" . INSTITUTION_GMIT . "' as institution
+                            FROM {$gmitPrefix}ad_student_details ad
+                            WHERE ad.student_id IN ($placeholders) OR ad.enquiry_no IN ($placeholders)";
+                $stmtGmit = $this->remoteDB->prepare($sqlGmit);
+                $stmtGmit->execute(array_merge($candidateIds, $candidateIds));
+                while ($row = $stmtGmit->fetch(PDO::FETCH_ASSOC)) {
+                    $usnKey = strtoupper(trim((string)$row['usn']));
+                    if (!isset($students[$usnKey])) {
+                        $students[$usnKey] = $row;
+                    }
+                }
+            }
+        } catch (\Exception $e) {
+            error_log("Error fetching candidate student details from remote: " . $e->getMessage());
+        }
+
+        // Branch code dictionary to decode branch from USN when missing
+        $branchCodeMap = [
+            'CS' => 'Computer Science & Engineering',
+            'CY' => 'Cyber Security',
+            'AI' => 'AI & Machine Learning',
+            'IS' => 'Information Science & Engineering',
+            'IT' => 'Information Technology',
+            'IO' => 'Computer Science & Engineering (IT)',
+            'IY' => 'Computer Science & Engineering (Cyber)',
+            'EC' => 'Electronics & Communication',
+            'EE' => 'Electrical & Electronics',
+            'ME' => 'Mechanical Engineering',
+            'CV' => 'Civil Engineering',
+            'BT' => 'Biotechnology',
+            'RO' => 'Robotics & Automation',
+        ];
+
+        // 4. Consolidate and resolve Name, Institution, Department, Semester, Phone, Email
+        foreach ($candidateIds as $cid) {
+            $u = $localUsersMap[$cid] ?? [];
+            $r = $allResumesMap[$cid] ?? [];
+            $a = $localAssessMap[$cid] ?? [];
+            $remote = $students[$cid] ?? [];
+
+            // A. Institution
+            $inst = !empty($remote['institution']) ? $remote['institution']
+                  : ((strpos($cid, 'GMIT') !== false || preg_match('/^4GM/i', $cid)) ? INSTITUTION_GMIT : INSTITUTION_GMU);
+
+            // B. Resolve Name (Strictly avoid showing USN as Name)
+            $resolvedName = '';
+            $candidates = [
+                $r['full_name'] ?? '',
+                $remote['name'] ?? '',
+                $u['name'] ?? '',
+                $a['student_name'] ?? ''
+            ];
+            foreach ($candidates as $cand) {
+                $candTrim = trim((string)$cand);
+                if ($candTrim !== '' && strtoupper($candTrim) !== $cid && strpos($candTrim, '@') === false) {
+                    $resolvedName = $candTrim;
+                    break;
+                }
+            }
+            if ($resolvedName === '') {
+                $resolvedName = $cid; // Ultimate fallback
+            }
+
+            // C. Resolve Department / Discipline
+            $resolvedDept = '';
+            if (!empty($remote['discipline']) && $remote['discipline'] !== '-') {
+                $resolvedDept = $remote['discipline'];
+            } elseif (!empty($u['discipline']) && $u['discipline'] !== '-') {
+                $resolvedDept = $u['discipline'];
+            } elseif (!empty($a['branch']) && $a['branch'] !== '-') {
+                $resolvedDept = $a['branch'];
+            } else {
+                // Decode from USN pattern (e.g. U23E01CY023 -> CY -> Cyber Security)
+                if (preg_match('/(?:[A-Z0-9]{2,3}E01([A-Z]{2})|GMIT\d{2}([A-Z]{2})|4GM\d{2}([A-Z]{2}))/i', $cid, $m)) {
+                    $code = strtoupper($m[1] ?: ($m[2] ?: ($m[3] ?? '')));
+                    if (isset($branchCodeMap[$code])) {
+                        $resolvedDept = $branchCodeMap[$code];
+                    }
+                }
+            }
+            if ($resolvedDept === '') $resolvedDept = '-';
+
+            // D. Resolve Semester
+            $resolvedSem = '-';
+            if (!empty($remote['sem']) && (int)$remote['sem'] > 0) {
+                $resolvedSem = (int)$remote['sem'];
+            } elseif (!empty($a['current_sem']) && (int)$a['current_sem'] > 0) {
+                $resolvedSem = (int)$a['current_sem'];
+            } else {
+                // Check local student_sem_sgpa
+                try {
+                    $stmtSgpa = $this->db->prepare("SELECT semester FROM student_sem_sgpa WHERE (student_id = ? OR student_id = ?) AND is_current = 1 LIMIT 1");
+                    $stmtSgpa->execute([$cid, $cid]);
+                    $semRow = $stmtSgpa->fetch();
+                    if ($semRow && !empty($semRow['semester'])) {
+                        $resolvedSem = (int)$semRow['semester'];
+                    }
+                } catch (\Exception $e) {}
+            }
+
+            // Fallback semester inference by batch year (e.g. 2023 batch in 2026 -> 7th sem)
+            if ($resolvedSem === '-' || $resolvedSem === 0) {
+                if (preg_match('/(?:U23|GMIT23|4GM22)/i', $cid)) {
+                    $resolvedSem = 7;
+                } elseif (preg_match('/(?:U24|GMIT24|4GM23)/i', $cid)) {
+                    $resolvedSem = 5;
+                }
+            }
+
+            // E. Resolve Phone & Email
+            $resolvedPhone = !empty($r['phone']) && $r['phone'] !== 'N/A' ? $r['phone']
+                           : (!empty($remote['phone']) && $remote['phone'] !== 'N/A' ? $remote['phone']
+                           : (!empty($u['phone']) && $u['phone'] !== 'N/A' ? $u['phone'] : ''));
+
+            $resolvedEmail = !empty($r['email']) && $r['email'] !== 'N/A' ? $r['email']
+                           : (!empty($remote['email']) && $remote['email'] !== 'N/A' ? $remote['email'] : '');
+
+            $students[$cid] = [
+                'usn' => $cid,
+                'name' => $resolvedName,
+                'institution' => $inst,
+                'discipline' => $resolvedDept,
+                'sem' => $resolvedSem,
+                'phone' => $resolvedPhone,
+                'email' => $resolvedEmail
+            ];
+        }
+
+        // 5. Filter students by institution and department if specified
+        $filteredStudents = [];
+        foreach ($students as $usnKey => $s) {
+            if (!empty($filters['institution']) && strtoupper((string)$s['institution']) !== strtoupper((string)$filters['institution'])) {
+                continue;
+            }
+            if (!empty($filters['discipline']) && strtolower(trim((string)$s['discipline'])) !== strtolower(trim((string)$filters['discipline']))) {
+                continue;
+            }
+            if (!empty($filters['semester']) && (int)$s['sem'] !== (int)$filters['semester']) {
+                continue;
+            }
+            $filteredStudents[$usnKey] = $s;
+        }
+
+        // 6. Calculate AI Match Score & extract matching skills and projects
+        $scoredList = [];
+        foreach ($filteredStudents as $usnKey => $s) {
+            $matchedSkills = [];
+            $matchedProjects = [];
+            $score = 0;
+            $hasDirectDomainProject = false;
+            $hasVerifiedDomainProject = false;
+            $directDomainProjectCount = 0;
+            $coreSkillsFoundCount = 0;
+
+            // A. Portfolio Skills
+            $portItems = $portfolioMatches[$usnKey] ?? ['skills' => [], 'projects' => []];
+            foreach ($portItems['skills'] as $sk) {
+                $skTitle = $sk['title'];
+                $isCore = false;
+                foreach ($coreSkills as $cs) {
+                    if (stripos($skTitle, $cs) !== false) {
+                        $isCore = true;
+                        $coreSkillsFoundCount++;
+                        break;
+                    }
+                }
+                $matchedSkills[] = [
+                    'name' => $skTitle,
+                    'level' => $sk['sub_title'] ?? '',
+                    'is_verified' => (int)($sk['is_verified'] ?? 0),
+                    'is_core' => $isCore
+                ];
+                if ($isCore) {
+                    $score += 12;
+                    if (!empty($sk['is_verified'])) $score += 6;
+                } else {
+                    $score += 2;
+                }
+            }
+
+            // B. Portfolio Projects
+            foreach ($portItems['projects'] as $pr) {
+                $prTitle = $pr['title'];
+                $prDesc = $pr['description'] ?? '';
+                $prSub = $pr['sub_title'] ?? '';
+                $combinedPr = $prTitle . ' ' . $prSub . ' ' . $prDesc;
+
+                // Check direct relevance to target role
+                $isDirect = false;
+                foreach ($coreSkills as $cs) {
+                    if (stripos($combinedPr, $cs) !== false) {
+                        $isDirect = true;
+                        break;
+                    }
+                }
+                if (!$isDirect) {
+                    foreach ($roleTokens as $rt) {
+                        if (strlen($rt) >= 4 && stripos($combinedPr, $rt) !== false) {
+                            $isDirect = true;
+                            break;
+                        }
+                    }
+                }
+
+                $isVerified = (int)($pr['is_verified'] ?? 0);
+                if ($isDirect) {
+                    $hasDirectDomainProject = true;
+                    $directDomainProjectCount++;
+                    if ($isVerified) $hasVerifiedDomainProject = true;
+                    $score += 30;
+                    if ($isVerified) $score += 12;
+                } else {
+                    // Peripheral / unrelated project
+                    $score += 3;
+                }
+
+                $matchedProjects[] = [
+                    'title' => $prTitle,
+                    'tech' => $prSub,
+                    'summary' => $prDesc,
+                    'link' => $pr['link'] ?? '',
+                    'is_verified' => $isVerified,
+                    'score' => $pr['verification_score'] ?? null,
+                    'is_direct' => $isDirect
+                ];
+            }
+
+            // C. Resume Skills and Projects
+            if (isset($resumeMatches[$usnKey])) {
+                $r = $resumeMatches[$usnKey];
+                $rSkillsText = $r['skills'] ?? '';
+                if (!empty($rSkillsText)) {
+                    $skillsList = json_decode($rSkillsText, true);
+                    if (is_array($skillsList)) {
+                        foreach ($skillsList as $rSk) {
+                            $rName = is_array($rSk) ? ($rSk['name'] ?? '') : (string)$rSk;
+                            if (empty($rName)) continue;
+                            foreach ($coreSkills as $cs) {
+                                if (stripos($rName, $cs) !== false && !in_array($rName, array_column($matchedSkills, 'name'))) {
+                                    $matchedSkills[] = ['name' => $rName, 'level' => '', 'is_verified' => 0, 'is_core' => true];
+                                    $score += 10;
+                                    $coreSkillsFoundCount++;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                $rProjText = $r['projects'] ?? '';
+                if (!empty($rProjText)) {
+                    $projList = json_decode($rProjText, true);
+                    if (is_array($projList)) {
+                        foreach ($projList as $rPr) {
+                            $pTitle = $rPr['title'] ?? ($rPr['project_title'] ?? '');
+                            $pDesc = $rPr['description'] ?? '';
+                            $pTech = $rPr['technologies'] ?? ($rPr['tech_stack'] ?? '');
+                            if (empty($pTitle)) continue;
+
+                            $combinedPr = $pTitle . ' ' . (is_array($pTech) ? implode(' ', $pTech) : $pTech) . ' ' . (is_array($pDesc) ? implode(' ', $pDesc) : $pDesc);
+                            
+                            $isDirect = false;
+                            foreach ($coreSkills as $cs) {
+                                if (stripos($combinedPr, $cs) !== false) {
+                                    $isDirect = true;
+                                    break;
+                                }
+                            }
+                            if (!$isDirect) {
+                                foreach ($roleTokens as $rt) {
+                                    if (strlen($rt) >= 4 && stripos($combinedPr, $rt) !== false) {
+                                        $isDirect = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            $isRelevant = $isDirect;
+                            if (!$isRelevant) {
+                                foreach ($allKeywords as $kw) {
+                                    if (stripos($combinedPr, $kw) !== false) {
+                                        $isRelevant = true;
+                                        break;
+                                    }
+                                }
+                            }
+
+                            if ($isRelevant && !in_array($pTitle, array_column($matchedProjects, 'title'))) {
+                                if ($isDirect) {
+                                    $hasDirectDomainProject = true;
+                                    $directDomainProjectCount++;
+                                    $score += 26;
+                                } else {
+                                    $score += 3;
+                                }
+
+                                $matchedProjects[] = [
+                                    'title' => $pTitle,
+                                    'tech' => is_array($pTech) ? implode(', ', $pTech) : (string)$pTech,
+                                    'summary' => is_array($pDesc) ? implode(' ', $pDesc) : (string)$pDesc,
+                                    'link' => $rPr['link'] ?? '',
+                                    'is_verified' => 0,
+                                    'score' => null,
+                                    'is_direct' => $isDirect
+                                ];
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Deduplicate matched skills and put core skills first
+            $uniqueSkills = [];
+            $seenSkillNames = [];
+            foreach ($matchedSkills as $sk) {
+                $lower = strtolower(trim((string)$sk['name']));
+                if (!isset($seenSkillNames[$lower])) {
+                    $seenSkillNames[$lower] = true;
+                    $uniqueSkills[] = $sk;
+                }
+            }
+            usort($uniqueSkills, function($sa, $sb) {
+                $ca = !empty($sa['is_core']) ? 1 : 0;
+                $cb = !empty($sb['is_core']) ? 1 : 0;
+                if ($ca !== $cb) return $cb <=> $ca;
+                $va = !empty($sa['is_verified']) ? 1 : 0;
+                $vb = !empty($sb['is_verified']) ? 1 : 0;
+                return $vb <=> $va;
+            });
+
+            // Sort matched projects: Direct domain projects ALWAYS first, verified first
+            usort($matchedProjects, function($pa, $pb) {
+                $da = !empty($pa['is_direct']) ? 1 : 0;
+                $db = !empty($pb['is_direct']) ? 1 : 0;
+                if ($da !== $db) return $db <=> $da;
+                $va = !empty($pa['is_verified']) ? 1 : 0;
+                $vb = !empty($pb['is_verified']) ? 1 : 0;
+                return $vb <=> $va;
+            });
+
+            // Assemble Proof-of-Work & Authenticity Data
+            $powData = $proofOfWorkMap[$usnKey] ?? [
+                'viva_score' => null,
+                'viva_feedback' => '',
+                'skills_verified_count' => 0,
+                'technical_score' => null,
+                'aptitude_score' => null
+            ];
+
+            // Check if portfolio has verified viva scores
+            $bestViva = $powData['viva_score'];
+            foreach ($matchedProjects as $pr) {
+                if (!empty($pr['is_verified']) && !empty($pr['score']) && is_numeric($pr['score'])) {
+                    $bestViva = max($bestViva ?? 0, (float)$pr['score']);
+                }
+            }
+
+            $isVivaDefended = ($bestViva !== null && $bestViva >= 60);
+            $hasTestVerified = ($powData['skills_verified_count'] > 0 || ($powData['technical_score'] !== null && $powData['technical_score'] >= 60));
+
+            if ($isVivaDefended) {
+                $powBadge = 'Verified Viva (' . round($bestViva) . '%)';
+                $powStatus = 'VERIFIED_VIVA';
+                $powSummary = 'Oral Project Defense Passed (' . round($bestViva) . '/100)';
+                $isPoWVerified = true;
+            } elseif ($hasTestVerified) {
+                $powBadge = 'Tests Verified';
+                $powStatus = 'VERIFIED_TESTS';
+                $powSummary = $powData['skills_verified_count'] > 0 
+                    ? "{$powData['skills_verified_count']} Skill Test(s) Passed" 
+                    : "Technical Round: " . round($powData['technical_score']) . "%";
+                $isPoWVerified = true;
+            } else {
+                $powBadge = 'Self-Reported';
+                $powStatus = 'SELF_REPORTED';
+                $powSummary = 'Self-Reported Claim (No viva defense or tests on file)';
+                $isPoWVerified = false;
+            }
+
+            $proofOfWorkInfo = [
+                'is_verified' => $isPoWVerified,
+                'badge' => $powBadge,
+                'status' => $powStatus,
+                'summary' => $powSummary,
+                'viva_score' => $bestViva,
+                'viva_feedback' => $powData['viva_feedback'],
+                'skills_verified_count' => $powData['skills_verified_count'],
+                'technical_score' => $powData['technical_score'],
+                'aptitude_score' => $powData['aptitude_score']
+            ];
+
+            // ANTI-FAKE STRICT SCORING & CAPPING:
+            // 1. Both Verified Viva + Direct Domain Projects + Core Skills: Top Tier Fit (88% - 98%)
+            // 2. Direct Domain Projects + Core Skills but UNVERIFIED (Self-reported claims): Cap at 78% (Strong Fit)
+            // 3. Tests Verified + Core Skills (no direct project): Cap at 65% (Moderate Fit)
+            // 4. Self-reported claim only (unverified projects/skills): Cap at 45% (Potential)
+            if ($isPoWVerified && $hasDirectDomainProject && $coreSkillsFoundCount > 0) {
+                $finalScore = min(98, max(88, $score + 10));
+                $fitLevel = 'Top Tier Fit';
+            } elseif ($hasDirectDomainProject && $coreSkillsFoundCount > 0) {
+                // Good projects & skills claimed, but NOT verified in viva defense
+                $finalScore = min(78, max(68, $score));
+                $fitLevel = 'Strong Fit';
+            } elseif ($isPoWVerified && $coreSkillsFoundCount > 0) {
+                $finalScore = min(68, max(52, $score));
+                $fitLevel = 'Moderate Fit';
+            } elseif ($hasDirectDomainProject) {
+                $finalScore = min(65, max(50, $score));
+                $fitLevel = 'Moderate Fit';
+            } else {
+                $finalScore = min(45, max(30, $score));
+                $fitLevel = 'Potential';
+            }
+
+            // Generate precise reasoning
+            $coreSkillsFound = array_filter($uniqueSkills, fn($sk) => !empty($sk['is_core']));
+            $coreNames = implode(', ', array_slice(array_column($coreSkillsFound, 'name'), 0, 3));
+
+            if ($directDomainProjectCount > 0 && count($coreSkillsFound) > 0) {
+                $proofPrefix = $isPoWVerified ? "Verified Proof-of-Work: " : "Self-Reported Claim: ";
+                $reasoning = "{$proofPrefix}{$directDomainProjectCount} project(s) in {$role} stack + hands-on {$coreNames}.";
+            } elseif ($directDomainProjectCount > 0) {
+                $reasoning = "Practical project match: {$directDomainProjectCount} direct domain project(s) identified.";
+            } elseif (count($coreSkillsFound) > 0) {
+                $reasoning = "Skill match: Verified in {$coreNames}, but lacking end-to-end domain projects.";
+            } else {
+                $reasoning = "Peripheral foundation: Basic programming background; no direct {$role} projects.";
+            }
+
+            // Resume file existence check
+            $resumeFile = strtoupper((string)$s['usn']) . '_Resume.pdf';
+            $resumePath = UPLOADS_PATH . '/resumes/Student_Resumes/' . $resumeFile;
+            $hasResume = file_exists($resumePath);
+            $token = function_exists('generateResumeToken') ? generateResumeToken($s['usn']) : '';
+            $resumeUrl = APP_URL . '/student/view_resume.php?usn=' . urlencode($s['usn']) . ($token ? '&token=' . $token : '');
+
+            $s['matched_skills'] = $uniqueSkills;
+            $s['matched_projects'] = $matchedProjects;
+            $s['match_score'] = $finalScore;
+            $s['fit_level'] = $fitLevel;
+            $s['proof_of_work'] = $proofOfWorkInfo;
+            $s['ai_reasoning'] = $reasoning;
+            $s['has_resume'] = $hasResume;
+            $s['resume_url'] = $resumeUrl;
+
+            $scoredList[] = $s;
+        }
+
+        // Filter by AI Fit & Match Score if specified
+        if (!empty($filters['ai_fit'])) {
+            $fitFilter = strtolower(trim((string)$filters['ai_fit']));
+            $scoredList = array_values(array_filter($scoredList, function($cand) use ($fitFilter) {
+                $score = (int)($cand['match_score'] ?? 0);
+                if ($fitFilter === 'top' || $fitFilter === 'top_tier') {
+                    return $score >= 75;
+                } elseif ($fitFilter === 'strong') {
+                    return $score >= 60 && $score < 75;
+                } elseif ($fitFilter === 'moderate' || $fitFilter === 'potential') {
+                    return $score < 60;
+                } elseif ($fitFilter === 'verified' || $fitFilter === 'verified_projects' || $fitFilter === 'pow' || $fitFilter === 'viva') {
+                    return !empty($cand['proof_of_work']['is_verified']);
+                }
+                return true;
+            }));
+        }
+
+        // Filter by AI Reasoning & Competency keywords if specified
+        if (!empty($filters['reasoning'])) {
+            $rQuery = strtolower(trim((string)$filters['reasoning']));
+            $scoredList = array_values(array_filter($scoredList, function($cand) use ($rQuery) {
+                if (stripos((string)($cand['ai_reasoning'] ?? ''), $rQuery) !== false) return true;
+                foreach ($cand['matched_skills'] as $sk) {
+                    if (stripos((string)($sk['name'] ?? ''), $rQuery) !== false) return true;
+                }
+                foreach ($cand['matched_projects'] as $pr) {
+                    $combinedPr = ($pr['title'] ?? '') . ' ' . ($pr['tech'] ?? '') . ' ' . ($pr['summary'] ?? '');
+                    if (stripos($combinedPr, $rQuery) !== false) return true;
+                }
+                return false;
+            }));
+        }
+
+        // Sort descending by match score, then verified viva score, then name ascending
+        usort($scoredList, function($a, $b) {
+            if ($b['match_score'] !== $a['match_score']) {
+                return $b['match_score'] <=> $a['match_score'];
+            }
+            $vivaB = (float)($b['proof_of_work']['viva_score'] ?? 0);
+            $vivaA = (float)($a['proof_of_work']['viva_score'] ?? 0);
+            if ($vivaB !== $vivaA) {
+                return $vivaB <=> $vivaA;
+            }
+            return strcmp((string)$a['name'], (string)$b['name']);
+        });
+
+        $total = count($scoredList);
+        $totalPages = $limit > 0 ? (int)ceil($total / $limit) : 1;
+        $offset = ($page - 1) * $limit;
+        $pagedSlice = array_slice($scoredList, $offset, $limit);
+
+        // Deep AI Technical Evaluation for displayed candidates
+        if (!empty($pagedSlice)) {
+            $deepEvaluations = $aiService->evaluateCandidatesBatchAI($role, $pagedSlice);
+            if (!empty($deepEvaluations)) {
+                foreach ($pagedSlice as &$cand) {
+                    $uKey = strtoupper(trim((string)$cand['usn']));
+                    if (isset($deepEvaluations[$uKey])) {
+                        $ev = $deepEvaluations[$uKey];
+                        if (!empty($ev['technical_appraisal'])) {
+                            $cand['ai_reasoning'] = $ev['technical_appraisal'];
+                        }
+                        if (!empty($ev['ai_score'])) {
+                            $cand['match_score'] = (int)$ev['ai_score'];
+                        }
+                        if (!empty($ev['fit_level'])) {
+                            $cand['fit_level'] = $ev['fit_level'];
+                        }
+                        if (!empty($ev['standout_project'])) {
+                            $cand['standout_project'] = $ev['standout_project'];
+                        }
+                    }
+                }
+                unset($cand);
+
+                // CRITICAL: Re-sort current displayed slice strictly descending by match_score & verified proof
+                usort($pagedSlice, function($a, $b) {
+                    if ($b['match_score'] !== $a['match_score']) {
+                        return $b['match_score'] <=> $a['match_score'];
+                    }
+                    $vivaB = (float)($b['proof_of_work']['viva_score'] ?? 0);
+                    $vivaA = (float)($a['proof_of_work']['viva_score'] ?? 0);
+                    if ($vivaB !== $vivaA) {
+                        return $vivaB <=> $vivaA;
+                    }
+                    return strcmp((string)$a['name'], (string)$b['name']);
+                });
+            }
+        }
+
+        return [
+            'data' => $pagedSlice,
+            'all_data' => $scoredList,
+            'total' => $total,
+            'page' => $page,
+            'limit' => $limit,
+            'total_pages' => $totalPages,
+            'ai_profile' => $aiProfile
+        ];
+    }
 }

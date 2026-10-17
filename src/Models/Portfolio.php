@@ -133,7 +133,7 @@ class Portfolio extends Model {
             $db->beginTransaction();
 
             // 1. Fetch existing verification data for skills to preserve it
-            $sqlFetch = "SELECT title, is_verified, verification_score, verification_date, verification_details 
+            $sqlFetch = "SELECT title, sub_title, is_verified, verification_score, verification_date, verification_details 
                         FROM {$this->table} 
                         WHERE student_id = ? AND institution = ? AND category = 'Skill' AND is_verified = 1";
             $stmtFetch = $db->prepare($sqlFetch);
@@ -151,6 +151,7 @@ class Portfolio extends Model {
                          VALUES (?, ?, 'Skill', ?, ?, ?, ?, ?, ?)";
             $stmtIns = $db->prepare($sqlInsert);
 
+            $insertedSkills = [];
             foreach ($skillGroups as $group) {
                 $categoryName = !empty($group['category']) ? $group['category'] : 'Technical Skills';
                 foreach ($group['items'] as $skillName) {
@@ -181,6 +182,24 @@ class Portfolio extends Model {
                         $date,
                         $details
                     ]);
+                    $insertedSkills[strtolower($trimmedSkill)] = true;
+                }
+            }
+
+            // 4. Preserve any verified skills not present in incoming array
+            foreach ($existingVerifications as $skillName => $records) {
+                if (!isset($insertedSkills[strtolower($skillName)])) {
+                    $oldData = $records[0];
+                    $stmtIns->execute([
+                        $studentId,
+                        $institution,
+                        $skillName,
+                        $oldData['sub_title'] ?? 'Technical Skills',
+                        1,
+                        $oldData['verification_score'] ?? 95,
+                        $oldData['verification_date'] ?? date('Y-m-d H:i:s'),
+                        $oldData['verification_details'] ?? null
+                    ]);
                 }
             }
 
@@ -205,7 +224,7 @@ class Portfolio extends Model {
             $db->beginTransaction();
 
             // 1. Fetch existing verification data for projects to preserve it
-            $sqlFetch = "SELECT title, is_verified, verification_score, verification_date, verification_details 
+            $sqlFetch = "SELECT title, sub_title, description, link, start_date, end_date, is_verified, verification_score, verification_date, verification_details 
                         FROM {$this->table} 
                         WHERE student_id = ? AND institution = ? AND category = 'Project' AND is_verified = 1";
             $stmtFetch = $db->prepare($sqlFetch);
@@ -223,6 +242,7 @@ class Portfolio extends Model {
                          VALUES (?, ?, 'Project', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
             $stmtIns = $db->prepare($sqlInsert);
 
+            $insertedProjects = [];
             foreach ($projects as $proj) {
                 $title = trim($proj['title'] ?? '');
                 if (empty($title)) continue;
@@ -273,6 +293,28 @@ class Portfolio extends Model {
                     $date,
                     $details
                 ]);
+                $insertedProjects[strtolower($title)] = true;
+            }
+
+            // 4. Preserve any verified projects not present in incoming array
+            foreach ($existingVerifications as $projTitle => $records) {
+                if (!isset($insertedProjects[strtolower($projTitle)])) {
+                    $old = $records[0];
+                    $stmtIns->execute([
+                        $studentId,
+                        $institution,
+                        $projTitle,
+                        $old['sub_title'] ?? '',
+                        $old['description'] ?? '',
+                        $old['link'] ?? '',
+                        $old['start_date'] ?? null,
+                        $old['end_date'] ?? null,
+                        1,
+                        $old['verification_score'] ?? 95,
+                        $old['verification_date'] ?? date('Y-m-d H:i:s'),
+                        $old['verification_details'] ?? null
+                    ]);
+                }
             }
 
             $db->commit();

@@ -105,3 +105,4 @@ tables.txt
 !QUICK_START.md
 !composer.json
 !composer.lock
+!public/officer/find_students.php
