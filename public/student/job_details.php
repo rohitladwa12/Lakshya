@@ -334,32 +334,72 @@ if (isPost() && isset($_POST['apply'])) {
                     </div>
                 </div></div><?php endif; ?>
 
-                <?php if (!empty($job['attachment_url'])): 
-                    $attPath = $job['attachment_url'];
-                    $attUrl = (strpos($attPath, 'http') === 0) ? $attPath : APP_URL . '/' . ltrim($attPath, '/');
-                    $attExt = strtolower(pathinfo($attPath, PATHINFO_EXTENSION));
-                    $iconClass = match($attExt) {
-                        'pdf' => 'fa-file-pdf text-danger',
-                        'doc', 'docx' => 'fa-file-word text-primary',
-                        'ppt', 'pptx' => 'fa-file-powerpoint text-warning',
-                        default => 'fa-file-lines text-secondary'
-                    };
+                <?php 
+                $jobAttachments = [];
+                if (!empty($job['attachment_url'])) {
+                    $rawAtt = $job['attachment_url'];
+                    $decodedAtt = json_decode($rawAtt, true);
+                    if (is_array($decodedAtt)) {
+                        foreach ($decodedAtt as $d) {
+                            if (is_array($d) && !empty($d['path'])) {
+                                $jobAttachments[] = [
+                                    'name' => $d['name'] ?? basename($d['path']),
+                                    'path' => $d['path']
+                                ];
+                            } elseif (is_string($d) && trim($d) !== '') {
+                                $jobAttachments[] = [
+                                    'name' => basename($d),
+                                    'path' => trim($d)
+                                ];
+                            }
+                        }
+                    } elseif (is_string($rawAtt) && trim($rawAtt) !== '') {
+                        $jobAttachments[] = [
+                            'name' => 'Official Job Attachment',
+                            'path' => trim($rawAtt)
+                        ];
+                    }
+                }
                 ?>
+                <?php if (!empty($jobAttachments)): ?>
                 <div class="card"><div class="card-pad">
-                    <div class="section-title"><i class="fas fa-paperclip"></i> Job Description / Brochure</div>
-                    <div style="display:flex;align-items:center;justify-content:space-between;background:#f8fafc;padding:16px 20px;border-radius:14px;border:1px solid #e2e8f0;flex-wrap:wrap;gap:12px;">
-                        <div style="display:flex;align-items:center;gap:14px;">
-                            <div style="width:42px;height:42px;border-radius:10px;background:#fee2e2;display:flex;align-items:center;justify-content:center;font-size:20px;color:#dc2626;">
-                                <i class="fas <?php echo $iconClass; ?>"></i>
+                    <div class="section-title"><i class="fas fa-paperclip"></i> Job Documents & Attachments (<?php echo count($jobAttachments); ?>)</div>
+                    <div style="display:flex;flex-direction:column;gap:12px;">
+                        <?php foreach ($jobAttachments as $att): 
+                            $attPath = $att['path'];
+                            $attUrl = (strpos($attPath, 'http') === 0) ? $attPath : APP_URL . '/' . ltrim($attPath, '/');
+                            $attExt = strtolower(pathinfo($attPath, PATHINFO_EXTENSION));
+                            $iconClass = match($attExt) {
+                                'pdf' => 'fa-file-pdf text-danger',
+                                'doc', 'docx' => 'fa-file-word text-primary',
+                                'ppt', 'pptx' => 'fa-file-powerpoint text-warning',
+                                'xls', 'xlsx' => 'fa-file-excel text-success',
+                                'zip' => 'fa-file-zipper text-secondary',
+                                default => 'fa-file-lines text-secondary'
+                            };
+                            $badgeStyle = match($attExt) {
+                                'pdf' => 'background:#fee2e2;color:#dc2626;',
+                                'doc', 'docx' => 'background:#e0e7ff;color:#4338ca;',
+                                'ppt', 'pptx' => 'background:#fef3c7;color:#d97706;',
+                                'xls', 'xlsx' => 'background:#dcfce7;color:#15803d;',
+                                default => 'background:#f1f5f9;color:#475569;'
+                            };
+                        ?>
+                        <div style="display:flex;align-items:center;justify-content:space-between;background:#f8fafc;padding:14px 18px;border-radius:12px;border:1px solid #e2e8f0;flex-wrap:wrap;gap:12px;">
+                            <div style="display:flex;align-items:center;gap:14px;min-width:0;flex:1;">
+                                <div style="width:40px;height:40px;border-radius:10px;<?php echo $badgeStyle; ?>display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">
+                                    <i class="fas <?php echo $iconClass; ?>"></i>
+                                </div>
+                                <div style="min-width:0;">
+                                    <div style="font-weight:700;font-size:14px;color:#0f172a;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="<?php echo htmlspecialchars($att['name']); ?>"><?php echo htmlspecialchars($att['name']); ?></div>
+                                    <div style="font-size:12px;color:#64748b;"><?php echo strtoupper($attExt); ?> Document • Review complete roles, brochure & guidelines</div>
+                                </div>
                             </div>
-                            <div>
-                                <div style="font-weight:700;font-size:14px;color:#0f172a;">Official Job Attachment</div>
-                                <div style="font-size:12px;color:#64748b;">Review complete job brochure, roles & guidelines</div>
-                            </div>
+                            <a href="<?php echo htmlspecialchars($attUrl); ?>" target="_blank" download class="btn-builder" style="background:var(--brand);color:#fff;text-decoration:none;padding:8px 16px;border-radius:8px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:6px;flex-shrink:0;">
+                                <i class="fas fa-download"></i> View / Download
+                            </a>
                         </div>
-                        <a href="<?php echo htmlspecialchars($attUrl); ?>" target="_blank" download class="btn-builder" style="background:var(--brand);color:#fff;text-decoration:none;padding:10px 20px;border-radius:10px;font-size:13px;font-weight:700;display:inline-flex;align-items:center;gap:8px;">
-                            <i class="fas fa-download"></i> View / Download
-                        </a>
+                        <?php endforeach; ?>
                     </div>
                 </div></div>
                 <?php endif; ?>
@@ -436,7 +476,7 @@ if (isPost() && isset($_POST['apply'])) {
                             </div>
                         </li>
                         <li class="meta-item"><div class="meta-icon"><i class="fas fa-briefcase"></i></div><div><div class="meta-label">Type</div><div class="meta-value"><?php echo htmlspecialchars($job['job_type'] ?? '—'); ?></div></div></li>
-                        <li class="meta-item"><div class="meta-icon"><i class="fas fa-graduation-cap"></i></div><div><div class="meta-label">Min SGPA</div><div class="meta-value"><?php echo $job['min_cgpa'] > 0 ? $job['min_cgpa'].'+' : 'Any'; ?></div></div></li>
+                        <li class="meta-item"><div class="meta-icon"><i class="fas fa-graduation-cap"></i></div><div><div class="meta-label">Min SGPA</div><div class="meta-value"><?php echo $job['min_cgpa'] > 0 ? htmlspecialchars($job['min_cgpa']) . '+ (Avg of completed sems)' : 'Any'; ?></div></div></li>
                         <li class="meta-item"><div class="meta-icon"><i class="fas fa-venus-mars"></i></div><div><div class="meta-label">Gender</div><div class="meta-value"><?php echo (!empty($job['eligible_gender']) && $job['eligible_gender'] !== 'Both') ? htmlspecialchars($job['eligible_gender']) . ' Only' : 'All (Male & Female)'; ?></div></div></li>
                         <li class="meta-item"><div class="meta-icon"><i class="fas fa-paper-plane"></i></div><div><div class="meta-label">Apply Via</div><div class="meta-value"><?php echo (($job['application_mode'] ?? 'Internal') === 'External') ? 'Company Website' : 'Lakshya Portal'; ?></div></div></li>
                     </ul>
@@ -520,11 +560,25 @@ if (isPost() && isset($_POST['apply'])) {
                             <div class="elig-box-title"><i class="fas fa-triangle-exclamation"></i> Not Eligible</div>
                             You do not meet the criteria:
                             <ul style="margin-top:8px;"><?php foreach ($ineligibilityReasons as $r): ?><li><?php echo htmlspecialchars($r); ?></li><?php endforeach; ?></ul>
+                            <?php if (!empty($eligibilityCheck['completed_sems_count']) && (float)($job['min_cgpa'] ?? 0) > 0): ?>
+                                <div style="margin-top: 10px; padding: 10px 12px; background: rgba(220, 38, 38, 0.08); border-radius: 8px; font-size: 12px; border: 1px dashed rgba(220, 38, 38, 0.25);">
+                                    <div style="font-weight: 700; color: #991b1b; margin-bottom: 3px;"><i class="fas fa-calculator"></i> SGPA Calculation Breakdown:</div>
+                                    <div style="color: #7f1d1d;">
+                                        Total SGPA (<?php echo number_format($eligibilityCheck['total_sgpa'], 2); ?>) / <?php echo $eligibilityCheck['completed_sems_count']; ?> completed sems = <strong><?php echo number_format($eligibilityCheck['average_sgpa'], 2); ?> Average SGPA</strong>
+                                        <br><span style="opacity: 0.9;">Required Minimum: <strong><?php echo number_format((float)$job['min_cgpa'], 2); ?></strong></span>
+                                    </div>
+                                </div>
+                            <?php endif; ?>
                         </div>
 
                     <?php elseif (($job['application_mode'] ?? 'Internal') === 'External' && !empty($job['external_url'])): ?>
                         <div class="elig-box ok">
                             <div class="elig-box-title"><i class="fas fa-circle-check"></i> You're Eligible!</div>
+                            <?php if (!empty($eligibilityCheck['completed_sems_count']) && (float)($job['min_cgpa'] ?? 0) > 0): ?>
+                                <div style="font-size: 12px; margin-top: 8px; padding: 8px 12px; background: rgba(22, 163, 74, 0.12); border-radius: 8px; color: #166534; border: 1px solid rgba(22, 163, 74, 0.25);">
+                                    <i class="fas fa-calculator"></i> <strong>Academic Average:</strong> Total SGPA (<?php echo number_format($eligibilityCheck['total_sgpa'], 2); ?>) / <?php echo $eligibilityCheck['completed_sems_count']; ?> completed sems = <strong><?php echo number_format($eligibilityCheck['average_sgpa'], 2); ?> Average SGPA</strong> (Min Required: <?php echo number_format((float)$job['min_cgpa'], 2); ?>)
+                                </div>
+                            <?php endif; ?>
                             <div style="font-size:12px; margin-top:4px; opacity:0.95;">
                                 <i class="fas fa-clock"></i> Deadline: <strong><?php echo date('d M Y, h:i A', strtotime($job['application_deadline'])); ?></strong>
                             </div>
@@ -547,6 +601,11 @@ if (isPost() && isset($_POST['apply'])) {
                     <?php else: ?>
                         <div class="elig-box ok">
                             <div class="elig-box-title"><i class="fas fa-circle-check"></i> You're Eligible!</div>
+                            <?php if (!empty($eligibilityCheck['completed_sems_count']) && (float)($job['min_cgpa'] ?? 0) > 0): ?>
+                                <div style="font-size: 12px; margin-top: 8px; padding: 8px 12px; background: rgba(22, 163, 74, 0.12); border-radius: 8px; color: #166534; border: 1px solid rgba(22, 163, 74, 0.25);">
+                                    <i class="fas fa-calculator"></i> <strong>Academic Average:</strong> Total SGPA (<?php echo number_format($eligibilityCheck['total_sgpa'], 2); ?>) / <?php echo $eligibilityCheck['completed_sems_count']; ?> completed sems = <strong><?php echo number_format($eligibilityCheck['average_sgpa'], 2); ?> Average SGPA</strong> (Min Required: <?php echo number_format((float)$job['min_cgpa'], 2); ?>)
+                                </div>
+                            <?php endif; ?>
                             <div style="font-size:12px; margin-top:4px; opacity:0.95;">
                                 <i class="fas fa-clock"></i> Apply before: <strong><?php echo date('d M Y, h:i A', strtotime($job['application_deadline'])); ?></strong>
                             </div>

@@ -26,12 +26,43 @@ if (isPost() && isset($_POST['action']) && $_POST['action'] === 'refresh_cache')
     redirect('dashboard.php');
 }
 
+// Handle placement interest decision from modal prompt (No extra DB table)
+if (isPost() && isset($_POST['action']) && $_POST['action'] === 'save_placement_interest') {
+    require_once ROOT_PATH . '/src/Helpers/PlacementInterestHelper.php';
+    $interested = isset($_POST['interested']) && ($_POST['interested'] === '1' || $_POST['interested'] === 'true' || $_POST['interested'] === 1);
+    $currentUsn = getUsername();
+    \App\Helpers\PlacementInterestHelper::setDecision($currentUsn, $interested, [
+        'user_id' => getUserId(),
+        'source' => 'dashboard_popup'
+    ]);
+
+    if (isAjax()) {
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => true,
+            'interested' => $interested,
+            'redirect' => $interested ? 'casp_policy_undertaking.php' : 'casp_opt_out_undertaking.php'
+        ]);
+        exit;
+    }
+
+    if ($interested) {
+        redirect('casp_policy_undertaking.php');
+    } else {
+        redirect('casp_opt_out_undertaking.php');
+    }
+}
+
 // Require student role
 requireRole(ROLE_STUDENT);
 
 $userId = getUserId();
 $username = getUsername();
 $fullName = getFullName();
+
+// Placement Interest Check (Ask only once per student)
+require_once ROOT_PATH . '/src/Helpers/PlacementInterestHelper.php';
+$showPlacementPrompt = !\App\Helpers\PlacementInterestHelper::hasDecision($username);
 
 // Detect first visit this session for splash screen
 $showWelcomeSplash = false;
@@ -3023,10 +3054,12 @@ $dailyQuote = $_SESSION['grind_quote'];
                 <div class="student-card">
                     <div class="profile-pic-container" id="profilePicContainer">
                         <?php
-                        $displayPhoto = !empty($profile['profile_photo']) ? $profile['profile_photo'] : getPhoto();
+                        $rawPhoto = !empty($profile['profile_photo']) ? $profile['profile_photo'] : getPhoto();
+                        $displayPhoto = normalizePhotoUrl($rawPhoto);
                         if (!empty($displayPhoto)): ?>
                             <img src="<?php echo htmlspecialchars((string) $displayPhoto); ?>" alt="Profile"
                                 id="profileRealPhoto"
+                                onerror="this.style.display='none'; document.getElementById('profileAvatarDisplay').style.display='flex';"
                                 style="display:block; width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">
                         <?php endif; ?>
                         <div id="profileAvatarDisplay"
@@ -5224,6 +5257,138 @@ $dailyQuote = $_SESSION['grind_quote'];
                 console.error("AI Auto-Init connection error:", e);
             }
         })();
+    </script>
+    <?php endif; ?>
+
+    <?php if (!empty($showPlacementPrompt)): ?>
+    <!-- Placement Interest Prompt Modal (One-time Confirmation) -->
+    <div id="placementInterestModal" style="position: fixed; inset: 0; background: rgba(15, 23, 42, 0.78); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); z-index: 999999; display: flex; align-items: center; justify-content: center; padding: 20px; animation: fadeInPlacementModal 0.3s cubic-bezier(0.16, 1, 0.3, 1);">
+        <div style="background: #ffffff; border-radius: 20px; max-width: 520px; width: 100%; box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(0, 0, 0, 0.06); overflow: hidden; position: relative;">
+            <!-- Top decorative header -->
+            <div style="background: linear-gradient(135deg, #800000 0%, #4a0000 100%); padding: 28px 24px 22px; text-align: center; color: #ffffff; position: relative;">
+                <div style="position: absolute; top: -20px; right: -20px; width: 100px; height: 100px; background: rgba(255,255,255,0.06); border-radius: 50%;"></div>
+                <div style="width: 58px; height: 58px; margin: 0 auto 14px; background: rgba(255, 255, 255, 0.15); border-radius: 16px; display: flex; align-items: center; justify-content: center; border: 1px solid rgba(255,255,255,0.25); box-shadow: 0 8px 16px rgba(0,0,0,0.15);">
+                    <i class="fas fa-briefcase" style="font-size: 26px; color: #fde047;"></i>
+                </div>
+                <h3 style="font-size: 20px; font-weight: 700; margin: 0 0 6px; letter-spacing: -0.3px; color: #ffffff;">Campus Placement Confirmation</h3>
+                <p style="font-size: 13px; margin: 0; color: #fecdd3; font-weight: 500;">Career Advice and Student Placements (CASP)</p>
+            </div>
+
+            <!-- Content Body -->
+            <div style="padding: 24px 26px;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h4 style="font-size: 17px; font-weight: 700; color: #1e293b; margin: 0 0 10px; line-height: 1.35;">
+                        Are you really interested for Placement?
+                    </h4>
+                    <p style="font-size: 13.5px; color: #64748b; line-height: 1.55; margin: 0;">
+                        Please confirm your placement interest. This ensures that only active placement aspirants are mapped to upcoming campus drives and recruitment opportunities.
+                    </p>
+                </div>
+
+                <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; margin-bottom: 22px; font-size: 12px; color: #475569; line-height: 1.5;">
+                    <i class="fas fa-info-circle" style="color: #800000; margin-right: 6px;"></i>
+                    <strong>Important:</strong> If you select <strong>"Yes"</strong>, you will complete the official <strong>CASP Placement Policy &amp; Undertaking</strong>. If you select <strong>"No"</strong> (opting for Higher Studies, Family Business, Competitive Exams, etc.), you will complete the <strong>CASP Placement Opt-Out Undertaking</strong>.
+                </div>
+
+                <!-- Action Buttons -->
+                <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <button type="button" id="btnInterestedYes" onclick="submitPlacementChoice(true)" style="width: 100%; padding: 13px 18px; background: #059669; color: #ffffff; border: none; border-radius: 12px; font-size: 14.5px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s ease; box-shadow: 0 4px 12px rgba(5, 150, 105, 0.25);">
+                        <i class="fas fa-check-circle"></i> Yes, I am Interested (Sign Placement Policy)
+                    </button>
+                    <button type="button" id="btnInterestedNo" onclick="submitPlacementChoice(false)" style="width: 100%; padding: 12px 18px; background: #fef2f2; color: #b91c1c; border: 1.5px solid #fecaca; border-radius: 12px; font-size: 14px; font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: all 0.2s ease;">
+                        <i class="fas fa-times-circle"></i> No, I am Not Interested (Opt-Out Undertaking)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <style>
+    @keyframes fadeInPlacementModal {
+        from { opacity: 0; transform: scale(0.96); }
+        to { opacity: 1; transform: scale(1); }
+    }
+    #btnInterestedYes:hover {
+        background: #047857 !important;
+        transform: translateY(-1px);
+        box-shadow: 0 6px 16px rgba(5, 150, 105, 0.35) !important;
+    }
+    #btnInterestedNo:hover {
+        background: #fee2e2 !important;
+        border-color: #fca5a5 !important;
+    }
+    </style>
+
+    <script>
+    function submitPlacementChoice(interested) {
+        const modal = document.getElementById('placementInterestModal');
+        const btnYes = document.getElementById('btnInterestedYes');
+        const btnNo = document.getElementById('btnInterestedNo');
+
+        if (btnYes) btnYes.disabled = true;
+        if (btnNo) btnNo.disabled = true;
+
+        if (!interested) {
+            if (btnNo) btnNo.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Redirecting to Opt-Out Undertaking...';
+        } else {
+            if (btnYes) btnYes.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Redirecting to Placement Policy...';
+        }
+
+        const formData = new URLSearchParams();
+        formData.append('action', 'save_placement_interest');
+        formData.append('interested', interested ? '1' : '0');
+        formData.append('csrf_token', window.CSRF_TOKEN || '<?php echo $_SESSION['csrf_token'] ?? ''; ?>');
+
+        fetch('dashboard.php', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            body: formData.toString()
+        })
+        .then(res => res.json())
+        .then(data => {
+            if (data.redirect) {
+                window.location.href = data.redirect;
+            } else {
+                if (modal) {
+                    modal.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+                    modal.style.opacity = '0';
+                    modal.style.transform = 'scale(0.96)';
+                    setTimeout(() => modal.remove(), 260);
+                }
+            }
+        })
+        .catch(err => {
+            console.error('Error submitting placement interest:', err);
+            // Fallback standard submit
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = 'dashboard.php';
+            
+            const act = document.createElement('input');
+            act.type = 'hidden';
+            act.name = 'action';
+            act.value = 'save_placement_interest';
+            form.appendChild(act);
+
+            const val = document.createElement('input');
+            val.type = 'hidden';
+            val.name = 'interested';
+            val.value = interested ? '1' : '0';
+            form.appendChild(val);
+
+            const csrf = document.createElement('input');
+            csrf.type = 'hidden';
+            csrf.name = 'csrf_token';
+            csrf.value = '<?php echo $_SESSION['csrf_token'] ?? ''; ?>';
+            form.appendChild(csrf);
+
+            document.body.appendChild(form);
+            form.submit();
+        });
+    }
     </script>
     <?php endif; ?>
 </body>

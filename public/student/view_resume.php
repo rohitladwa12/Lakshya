@@ -111,6 +111,48 @@ if (!empty($requestedPath)) {
 }
 
 if (empty($filePath)) {
+    // Check if an undertaking or policy document was requested via type
+    $typeLower = strtolower(trim($requestedType));
+    if (in_array($typeLower, ['policy', 'placement_policy', 'opt_out', 'optout', 'undertaking', 'casp_undertaking'])) {
+        require_once ROOT_PATH . '/src/Helpers/PlacementInterestHelper.php';
+        if ($typeLower === 'policy' || $typeLower === 'placement_policy') {
+            $p = \App\Helpers\PlacementInterestHelper::getPolicyPdfPath($requestedUsn);
+            if (file_exists($p) && filesize($p) > 0) {
+                $filePath = $p;
+                $fileName = 'POLICY_' . strtoupper($requestedUsn) . '_Undertaking.pdf';
+            }
+        } elseif ($typeLower === 'opt_out' || $typeLower === 'optout') {
+            $p = \App\Helpers\PlacementInterestHelper::getOptOutPdfPath($requestedUsn);
+            if (file_exists($p) && filesize($p) > 0) {
+                $filePath = $p;
+                $fileName = 'OPT_OUT_' . strtoupper($requestedUsn) . '_Undertaking.pdf';
+            }
+        } else {
+            $decision = \App\Helpers\PlacementInterestHelper::getDecision($requestedUsn);
+            if ($decision && isset($decision['opt_out']) && $decision['opt_out']) {
+                $pOpt = \App\Helpers\PlacementInterestHelper::getOptOutPdfPath($requestedUsn);
+                if (file_exists($pOpt) && filesize($pOpt) > 0) {
+                    $filePath = $pOpt;
+                    $fileName = 'OPT_OUT_' . strtoupper($requestedUsn) . '_Undertaking.pdf';
+                }
+            } else {
+                $pPol = \App\Helpers\PlacementInterestHelper::getPolicyPdfPath($requestedUsn);
+                if (file_exists($pPol) && filesize($pPol) > 0) {
+                    $filePath = $pPol;
+                    $fileName = 'POLICY_' . strtoupper($requestedUsn) . '_Undertaking.pdf';
+                } else {
+                    $pOpt = \App\Helpers\PlacementInterestHelper::getOptOutPdfPath($requestedUsn);
+                    if (file_exists($pOpt) && filesize($pOpt) > 0) {
+                        $filePath = $pOpt;
+                        $fileName = 'OPT_OUT_' . strtoupper($requestedUsn) . '_Undertaking.pdf';
+                    }
+                }
+            }
+        }
+    }
+}
+
+if (empty($filePath)) {
     // Search across standard resume storage directories and variants
     $searchDirs = [
         UPLOADS_PATH . '/resumes/Student_Resumes',

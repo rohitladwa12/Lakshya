@@ -270,27 +270,28 @@ class StudentProfile extends Model {
         if ($userRow) {
             $p = $userRow['photo'] ?? ($userRow['PHOTO'] ?? null);
             if (!empty($p)) {
-                // Handle JSON-encoded photo data
-                if (strpos($p, '[{') === 0 || strpos($p, '{') === 0) {
-                    $decoded = json_decode($p, true);
-                    if (is_array($decoded)) {
-                        if (isset($decoded[0]['thumbnail'])) $p = $decoded[0]['thumbnail'];
-                        elseif (isset($decoded[0]['url'])) $p = $decoded[0]['url'];
-                        elseif (isset($decoded['thumbnail'])) $p = $decoded['thumbnail'];
-                        elseif (isset($decoded['url'])) $p = $decoded['url'];
-                    }
-                }
-                $photo = $p;
+                $photo = normalizePhotoUrl($p);
             }
         }
 
-        // Final URL normalization
-        if ($photo && !preg_match('/^https?:\/\//', $photo)) {
-            if (strpos($photo, 'attachments/') !== false) {
-                $photo = "https://erp.gmit.info/" . ltrim($photo, '/');
-            } else {
-                $photo = "https://erp.gmit.info/attachments/gmu/profile/" . ltrim($photo, '/');
+        // Fallback: check row or detailsRow
+        if (empty($photo)) {
+            $p = $row['photo'] ?? ($row['PHOTO'] ?? ($detailsRow['photo'] ?? ($detailsRow['PHOTO'] ?? null)));
+            if (!empty($p)) {
+                $photo = normalizePhotoUrl($p);
             }
+        }
+
+        // Fallback: check local users table if still empty
+        if (empty($photo) && !empty($userRow['username'])) {
+            try {
+                $stmtP = $this->db->prepare("SELECT PHOTO FROM users WHERE USER_NAME = ? AND PHOTO IS NOT NULL AND PHOTO != '' LIMIT 1");
+                $stmtP->execute([$userRow['username']]);
+                $localPhoto = $stmtP->fetchColumn();
+                if (!empty($localPhoto)) {
+                    $photo = normalizePhotoUrl($localPhoto);
+                }
+            } catch (\Throwable $e) {}
         }
 
         return [
@@ -407,16 +408,47 @@ class StudentProfile extends Model {
         $history = $this->getAcademicHistory($userId);
 
         if (empty($history) && $threshold > 0) {
-            return ['eligible' => false, 'reasons' => ["Academic history not found"]];
+            return [
+                'eligible' => false, 
+                'reasons' => ["Academic history not found"],
+                'average_sgpa' => 0.0,
+                'total_sgpa' => 0.0,
+                'completed_sems_count' => 0,
+                'completed_sems' => [],
+                'threshold' => (float)$threshold,
+                'current_semester' => 0
+            ];
         }
 
-        // Derive current semester from history (highest sem recorded)
+        // Derive current semester from profile, or fallback to history
         $currentSem = (isset($profile['semester']) && (int)$profile['semester'] > 0)
             ? (int)$profile['semester'] : 0;
+            
         if ($currentSem === 0 && !empty($history)) {
+            // Check if any history record is flagged as current (e.g. GMIT is_current = 1)
             foreach ($history as $h) {
-                if ((int)($h['semester'] ?? 0) > $currentSem) {
-                    $currentSem = (int)$h['semester'];
+                if (!empty($h['is_current']) && (int)($h['semester'] ?? ($h['sem'] ?? 0)) > 0) {
+                    $currentSem = (int)($h['semester'] ?? $h['sem']);
+                    break;
+                }
+            }
+            // If still 0, check for any record with empty/zero sgpa (active sem)
+            if ($currentSem === 0) {
+                foreach ($history as $h) {
+                    $s = (int)($h['semester'] ?? ($h['sem'] ?? 0));
+                    $g = (float)($h['sgpa'] ?? 0);
+                    if ($s > 0 && $g == 0.0) {
+                        $currentSem = max($currentSem, $s);
+                    }
+                }
+            }
+            // If still 0, fallback to highest sem recorded
+            if ($currentSem === 0) {
+                foreach ($history as $h) {
+                    $s = (int)($h['semester'] ?? ($h['sem'] ?? 0));
+                    if ($s > $currentSem) {
+                        $currentSem = $s;
+                    }
                 }
             }
         }
@@ -424,17 +456,43 @@ class StudentProfile extends Model {
         $eligible = true;
         $reasons  = [];
 
-        // --- SGPA check: all completed semesters must meet threshold ---
-        if ($threshold > 0) {
-            $checkedSems = 0;
-            foreach ($history as $sem) {
-                $semNum = (int)($sem['semester'] ?? 0);
-                if ($semNum === 0 || $semNum >= $currentSem) continue; // skip current/future
-                $checkedSems++;
-                if ((float)$sem['sgpa'] < (float)$threshold) {
-                    $eligible = false;
-                    $reasons[] = "SGPA in Semester $semNum ({$sem['sgpa']}) is below required $threshold";
+        // --- Average SGPA check across completed semesters (sem < currentSem) ---
+        $completedSems = [];
+        foreach ($history as $sem) {
+            $semNum = (int)($sem['semester'] ?? ($sem['sem'] ?? 0));
+            $sgpa = isset($sem['sgpa']) && is_numeric($sem['sgpa']) ? (float)$sem['sgpa'] : (isset($sem['cgpa']) && is_numeric($sem['cgpa']) ? (float)$sem['cgpa'] : 0.0);
+            
+            // Only consider completed semesters (< currentSem) with valid SGPA > 0
+            if ($semNum > 0 && $semNum < $currentSem && $sgpa > 0) {
+                // Keep the highest / latest SGPA if duplicates exist
+                if (!isset($completedSems[$semNum]) || $sgpa > $completedSems[$semNum]) {
+                    $completedSems[$semNum] = $sgpa;
                 }
+            }
+        }
+        ksort($completedSems);
+
+        $completedCount = count($completedSems);
+        $totalSgpa = array_sum($completedSems);
+        $averageSgpa = $completedCount > 0 ? round($totalSgpa / $completedCount, 2) : 0.0;
+
+        if ($threshold > 0) {
+            if ($completedCount === 0) {
+                $eligible = false;
+                $reasons[] = "No completed semester academic records found to evaluate SGPA eligibility";
+            } elseif ($averageSgpa < (float)$threshold) {
+                $eligible = false;
+                $semRangeDesc = '';
+                if (!empty($completedSems)) {
+                    $keys = array_keys($completedSems);
+                    $first = min($keys);
+                    $last = max($keys);
+                    $semRangeDesc = ($first === 1 && $last === count($keys))
+                        ? "Semesters 1 to $last"
+                        : "Semesters " . implode(', ', $keys);
+                }
+                $rangePrefix = $semRangeDesc ? "$semRangeDesc: " : "";
+                $reasons[] = "Average SGPA across completed semesters ({$rangePrefix}Total " . number_format($totalSgpa, 2) . " / {$completedCount} sems = " . number_format($averageSgpa, 2) . ") is below required " . number_format((float)$threshold, 2);
             }
         }
 
@@ -540,7 +598,16 @@ class StudentProfile extends Model {
             }
         }
 
-        return ['eligible' => $eligible, 'reasons' => $reasons];
+        return [
+            'eligible' => $eligible, 
+            'reasons' => $reasons,
+            'average_sgpa' => $averageSgpa,
+            'total_sgpa' => $totalSgpa,
+            'completed_sems_count' => $completedCount,
+            'completed_sems' => $completedSems,
+            'threshold' => (float)$threshold,
+            'current_semester' => $currentSem
+        ];
     }
 
     

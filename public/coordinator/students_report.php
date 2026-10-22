@@ -640,6 +640,10 @@ if ($page > $total_pages) {
     }
 }
 
+// Load placement opt-out & policy registry (No extra DB table)
+require_once ROOT_PATH . '/src/Helpers/PlacementInterestHelper.php';
+$placementStatusMap = \App\Helpers\PlacementInterestHelper::getStatusMap();
+
 if (isset($filters['export']) && $section === 'details') {
     SessionFilterHelper::updateFilters($pageId, ['export' => null]);
     header('Content-Type: application/vnd.ms-excel');
@@ -648,10 +652,10 @@ if (isset($filters['export']) && $section === 'details') {
     $stmtExp->execute($detailsParamsOpt);
     $all_students = $stmtExp->fetchAll();
     echo '<table border="1">';
-    echo '<tr><th>Institution</th><th>USN</th><th>Name</th><th>Sem</th><th>Aadhar</th><th>Faculty</th><th>Discipline</th><th>Programme</th><th>Father</th><th>Mother</th><th>Parent Mobile</th>';
+    echo '<tr><th>Institution</th><th>USN</th><th>Name</th><th>Placement Status</th><th>Sem</th><th>Aadhar</th><th>Faculty</th><th>Discipline</th><th>Programme</th><th>Father</th><th>Mother</th><th>Parent Mobile</th>';
     echo '<th>Applied Jobs</th>';
     for($i=1; $i<=8; $i++) echo "<th>Sem $i SGPA</th>";
-    echo '<th>PUC %</th><th>SSLC %</th><th>Mobile</th><th>Email</th><th>Resume Link</th></tr>';
+    echo '<th>PUC %</th><th>SSLC %</th><th>Mobile</th><th>Email</th><th>Resume Link</th><th>Undertaking Link</th></tr>';
     foreach($all_students as $s) {
         $sgpaData = getSemesterSGPACoord($db, $localDB, $s['usn'], $s['aadhar'], $s['institution']);
         $appCount = $localDB->prepare("SELECT COUNT(*) FROM job_applications WHERE student_id = ?");
@@ -662,6 +666,30 @@ if (isset($filters['export']) && $section === 'details') {
         $resumePath = UPLOADS_PATH . '/resumes/Student_Resumes/' . $resumeFile;
         $resumeLink = file_exists($resumePath) ? (APP_URL . '/student/view_resume.php?usn=' . urlencode($s['usn'])) : 'No Resume';
 
+        $sUsnUpper = strtoupper(trim($s['usn'] ?? ''));
+        $stInfo = $placementStatusMap[$sUsnUpper] ?? null;
+        if ($stInfo && !empty($stInfo['opt_out'])) {
+            $placementText = 'Not Interested (Opt-Out)';
+            $placementStyle = 'color:#b91c1c; font-weight:bold;';
+        } elseif ($stInfo && !empty($stInfo['has_policy_pdf'])) {
+            $placementText = 'Interested (Policy Signed)';
+            $placementStyle = 'color:#059669; font-weight:bold;';
+        } elseif ($stInfo && !empty($stInfo['interested'])) {
+            $placementText = 'Interested (Policy Pending)';
+            $placementStyle = 'color:#0284c7; font-weight:600;';
+        } else {
+            $placementText = 'Active / Unspecified';
+            $placementStyle = 'color:#475569;';
+        }
+
+        $undertakingLink = 'No Undertaking';
+        if ($stInfo && (!empty($stInfo['has_opt_out_pdf']) || !empty($stInfo['has_policy_pdf']))) {
+            $uToken = function_exists('generateResumeToken') ? generateResumeToken($s['usn']) : '';
+            $uType = !empty($stInfo['has_policy_pdf']) ? 'policy' : 'opt_out';
+            $undertakingUrl = APP_URL . '/student/view_undertaking.php?usn=' . urlencode($s['usn']) . '&type=' . $uType . ($uToken ? '&token=' . $uToken : '');
+            $undertakingLink = "<a href=\"" . htmlspecialchars($undertakingUrl) . "\">" . htmlspecialchars($undertakingUrl) . "</a>";
+        }
+
         echo "<tr>";
         $currentSem = $s['sem'];
         if ($s['institution'] === INSTITUTION_GMIT) {
@@ -670,11 +698,11 @@ if (isset($filters['export']) && $section === 'details') {
             $resC = $stmtC->fetchColumn();
             if ($resC) $currentSem = $resC;
         }
-        echo "<td>{$s['institution']}</td><td style=\"mso-number-format:'\@';\">{$s['usn']}</td><td>{$s['name']}</td><td>{$currentSem}</td><td style=\"mso-number-format:'\@';\">{$s['aadhar']}</td><td>{$s['faculty']}</td><td>{$s['discipline']}</td><td>{$s['programme']}</td>";
+        echo "<td>{$s['institution']}</td><td style=\"mso-number-format:'\@';\">{$s['usn']}</td><td>{$s['name']}</td><td style=\"{$placementStyle}\">{$placementText}</td><td>{$currentSem}</td><td style=\"mso-number-format:'\@';\">{$s['aadhar']}</td><td>{$s['faculty']}</td><td>{$s['discipline']}</td><td>{$s['programme']}</td>";
         echo "<td>{$s['father_name']}</td><td>{$s['mother_name']}</td><td style=\"mso-number-format:'\@';\">{$s['parent_mobile']}</td>";
         echo "<td>{$count}</td>";
         foreach ($sgpaData as $val) echo "<td>" . ($val !== null ? number_format($val, 2) : '-') . "</td>";
-        echo "<td>" . ($s['puc_percentage'] ?? '-') . "</td><td>" . ($s['sslc_percentage'] ?? '-') . "</td><td style=\"mso-number-format:'\@';\">{$s['student_mobile']}</td><td>{$s['email_id']}</td><td>" . ($resumeLink !== 'No Resume' ? "<a href=\"" . htmlspecialchars($resumeLink) . "\">" . htmlspecialchars($resumeLink) . "</a>" : "No Resume") . "</td>";
+        echo "<td>" . ($s['puc_percentage'] ?? '-') . "</td><td>" . ($s['sslc_percentage'] ?? '-') . "</td><td style=\"mso-number-format:'\@';\">{$s['student_mobile']}</td><td>{$s['email_id']}</td><td>" . ($resumeLink !== 'No Resume' ? "<a href=\"" . htmlspecialchars($resumeLink) . "\">" . htmlspecialchars($resumeLink) . "</a>" : "No Resume") . "</td><td>{$undertakingLink}</td>";
         echo "</tr>";
     }
 
@@ -1277,6 +1305,23 @@ $fullName = getFullName();
                                         <span class="usn-text"><?php echo htmlspecialchars($student['usn']); ?></span>
                                         <?php if ($isDiploma): ?>
                                             <span class="badge-simple" style="background:#fef3c7; color:#92400e; border:1px solid #fde68a; font-size:9.5px; padding:1px 5px; font-weight:700; border-radius:3px;" title="Diploma / Lateral Entry (Admitted directly to Sem 3)">Diploma</span>
+                                        <?php endif; ?>
+                                        <?php 
+                                        $sUsnUpper = strtoupper(trim($student['usn'] ?? ''));
+                                        $stInfo = $placementStatusMap[$sUsnUpper] ?? null;
+                                        if ($stInfo && !empty($stInfo['opt_out'])): 
+                                        ?>
+                                            <span class="badge-simple" style="background:#fee2e2; color:#991b1b; border:1px solid #fecaca; font-size:9.5px; padding:1px 6px; font-weight:700; border-radius:3px; display:inline-flex; align-items:center; gap:4px;" title="Student declared not interested in Campus Placements (CASP Opt-Out Undertaking)">
+                                                <i class="fas fa-ban"></i> Not Interested (Opt-Out)
+                                                <?php if (!empty($stInfo['has_opt_out_pdf'])): ?>
+                                                    <a href="../student/view_undertaking.php?usn=<?php echo urlencode($sUsnUpper); ?>&type=opt_out" target="_blank" style="color:#991b1b; margin-left:3px; text-decoration:none;" title="View Non-Participation PDF"><i class="fas fa-file-pdf"></i></a>
+                                                <?php endif; ?>
+                                            </span>
+                                        <?php elseif ($stInfo && !empty($stInfo['has_policy_pdf'])): ?>
+                                            <span class="badge-simple" style="background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; font-size:9.5px; padding:1px 6px; font-weight:700; border-radius:3px; display:inline-flex; align-items:center; gap:4px;" title="Student signed the CASP Placement Policy & Undertaking">
+                                                <i class="fas fa-file-signature"></i> Policy Signed
+                                                <a href="../student/view_undertaking.php?usn=<?php echo urlencode($sUsnUpper); ?>&type=policy" target="_blank" style="color:#065f46; margin-left:3px; text-decoration:none;" title="View Signed Policy PDF"><i class="fas fa-file-pdf"></i></a>
+                                            </span>
                                         <?php endif; ?>
                                     </div>
                                 </td>

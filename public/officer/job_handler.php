@@ -184,24 +184,89 @@ switch ($action) {
                 'posted_by' => getUserId()
             ];
 
-            // File Upload: Job Attachment / Brochure (PDF, DOC, DOCX, PPT, PPTX)
-            if (!empty($_FILES['job_attachment']['name']) && $_FILES['job_attachment']['error'] === UPLOAD_ERR_OK) {
-                $ext = strtolower(pathinfo($_FILES['job_attachment']['name'], PATHINFO_EXTENSION));
-                $allowed = ['pdf', 'doc', 'docx', 'ppt', 'pptx'];
-                if (in_array($ext, $allowed)) {
-                    if ($_FILES['job_attachment']['size'] > 10 * 1024 * 1024) {
-                        throw new Exception("Job attachment exceeds 10MB limit.");
-                    }
-                    $attName = 'job_brochure_' . time() . '_' . uniqid() . '.' . $ext;
-                    $uploadDir = DOCUMENT_UPLOAD_PATH . '/';
-                    if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
+            // File Upload: Job Attachments / Brochures (PDF, DOC, DOCX, PPT, PPTX, TXT, ZIP, XLS, XLSX)
+            $allowedAttExts = ['pdf', 'doc', 'docx', 'ppt', 'pptx', 'txt', 'zip', 'xls', 'xlsx'];
+            $uploadDir = DOCUMENT_UPLOAD_PATH . '/';
+            if (!is_dir($uploadDir)) mkdir($uploadDir, 0777, true);
 
-                    if (move_uploaded_file($_FILES['job_attachment']['tmp_name'], $uploadDir . $attName)) {
-                        $jobData['attachment_url'] = 'uploads/documents/' . $attName;
+            $finalAttachments = [];
+
+            // 1. Process retained existing attachments (on update)
+            if ($action === 'update' && isset($_POST['retained_attachments'])) {
+                $rawRetained = json_decode($_POST['retained_attachments'], true);
+                if (is_array($rawRetained)) {
+                    foreach ($rawRetained as $item) {
+                        if (is_array($item) && !empty($item['path'])) {
+                            $finalAttachments[] = [
+                                'name' => $item['name'] ?? basename($item['path']),
+                                'path' => $item['path']
+                            ];
+                        } elseif (is_string($item) && trim($item) !== '') {
+                            $finalAttachments[] = [
+                                'name' => basename($item),
+                                'path' => trim($item)
+                            ];
+                        }
+                    }
+                }
+            }
+
+            // 2. Process multiple uploaded files: job_attachments[]
+            if (!empty($_FILES['job_attachments']['name'])) {
+                $names = (array)$_FILES['job_attachments']['name'];
+                $tmpNames = (array)$_FILES['job_attachments']['tmp_name'];
+                $errors = (array)$_FILES['job_attachments']['error'];
+                $sizes = (array)$_FILES['job_attachments']['size'];
+
+                foreach ($names as $idx => $origName) {
+                    if (empty($origName) || ($errors[$idx] ?? UPLOAD_ERR_NO_FILE) !== UPLOAD_ERR_OK) {
+                        continue;
+                    }
+                    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+                    if (!in_array($ext, $allowedAttExts, true)) {
+                        throw new Exception("Invalid attachment format for '{$origName}'. Allowed formats: PDF, DOC, DOCX, PPT, PPTX, TXT, ZIP, XLS, XLSX.");
+                    }
+                    if (($sizes[$idx] ?? 0) > 15 * 1024 * 1024) {
+                        throw new Exception("Attachment '{$origName}' exceeds 15MB limit.");
+                    }
+                    $cleanBase = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $origName);
+                    $attFileName = 'job_doc_' . time() . '_' . uniqid() . '_' . $cleanBase;
+                    if (move_uploaded_file($tmpNames[$idx], $uploadDir . $attFileName)) {
+                        $finalAttachments[] = [
+                            'name' => $origName,
+                            'path' => 'uploads/documents/' . $attFileName
+                        ];
+                    }
+                }
+            }
+
+            // 3. Fallback for single file upload: job_attachment (legacy support)
+            if (!empty($_FILES['job_attachment']['name']) && $_FILES['job_attachment']['error'] === UPLOAD_ERR_OK) {
+                $origName = $_FILES['job_attachment']['name'];
+                $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+                if (in_array($ext, $allowedAttExts, true)) {
+                    if ($_FILES['job_attachment']['size'] > 15 * 1024 * 1024) {
+                        throw new Exception("Job attachment exceeds 15MB limit.");
+                    }
+                    $cleanBase = preg_replace('/[^a-zA-Z0-9_\-\.]/', '_', $origName);
+                    $attFileName = 'job_doc_' . time() . '_' . uniqid() . '_' . $cleanBase;
+                    if (move_uploaded_file($_FILES['job_attachment']['tmp_name'], $uploadDir . $attFileName)) {
+                        $finalAttachments[] = [
+                            'name' => $origName,
+                            'path' => 'uploads/documents/' . $attFileName
+                        ];
                     }
                 } else {
-                    throw new Exception("Invalid job attachment format. Allowed formats: PDF, DOC, DOCX, PPT, PPTX.");
+                    throw new Exception("Invalid job attachment format. Allowed formats: PDF, DOC, DOCX, PPT, PPTX, TXT, ZIP, XLS, XLSX.");
                 }
+            }
+
+            // If any attachments exist (retained or newly uploaded), save JSON
+            if (!empty($finalAttachments)) {
+                $jobData['attachment_url'] = json_encode(array_values($finalAttachments));
+            } elseif ($action === 'update' && isset($_POST['retained_attachments'])) {
+                // Officer explicitly removed all attachments
+                $jobData['attachment_url'] = null;
             }
 
             if ($action === 'create') {

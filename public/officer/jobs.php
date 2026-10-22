@@ -904,14 +904,16 @@ $fullName = getFullName();
                         </div>
                         <div class="form-group" style="grid-column: span 2;">
                             <label style="display: flex; justify-content: space-between; align-items: center;">
-                                <span><i class="fas fa-paperclip" style="color: var(--primary-maroon);"></i> Job Description / Brochure Attachment</span>
-                                <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">PDF, DOC, DOCX, PPT, PPTX (Max 10MB)</span>
+                                <span><i class="fas fa-paperclip" style="color: var(--primary-maroon);"></i> Job Description & Brochure Documents <span style="font-size: 11px; font-weight: normal; color: var(--primary-maroon);">(Select one or more files)</span></span>
+                                <span style="font-size: 11px; font-weight: normal; color: var(--text-muted);">PDF, DOC, DOCX, PPT, PPTX, TXT, ZIP, XLS (Max 15MB each)</span>
                             </label>
-                            <input type="file" name="job_attachment" id="jobAttachment" class="form-control" accept=".pdf,.doc,.docx,.ppt,.pptx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation">
-                            <div id="jobAttachmentPreviewContainer" style="margin-top: 8px; display: none; align-items: center; gap: 10px; background: #eef2ff; border: 1px solid #c7d2fe; padding: 8px 14px; border-radius: 8px;">
-                                <i class="fas fa-file-arrow-down" style="color: #4318ff; font-size: 16px;"></i>
-                                <a id="jobAttachmentLink" href="#" target="_blank" style="font-size: 13px; font-weight: 600; color: #4318ff; text-decoration: none;">View Attached Brochure</a>
-                                <span style="font-size: 11px; color: #64748b; margin-left: auto;">(Upload new file to replace)</span>
+                            <input type="file" name="job_attachments[]" id="jobAttachment" class="form-control" multiple accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.zip,.xls,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,application/zip" onchange="handleJobAttachmentsChange(this)">
+                            <input type="hidden" name="retained_attachments" id="retainedAttachments" value="[]">
+
+                            <!-- Attachment List & Preview -->
+                            <div id="jobAttachmentPreviewContainer" style="margin-top: 10px; display: none; flex-direction: column; gap: 8px;">
+                                <div id="existingAttachmentsList" style="display: flex; flex-direction: column; gap: 6px;"></div>
+                                <div id="newAttachmentsList" style="display: flex; flex-direction: column; gap: 6px;"></div>
                             </div>
                         </div>
                     </div>
@@ -1158,14 +1160,144 @@ $fullName = getFullName();
             if (urlInput) urlInput.required = isExt;
         }
 
+        // Multiple Attachments Manager for Opportunities
+        let currentJobAttachments = [];
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
+        }
+
+        function parseJobAttachments(raw) {
+            if (!raw) return [];
+            try {
+                const parsed = JSON.parse(raw);
+                if (Array.isArray(parsed)) {
+                    return parsed.map(item => {
+                        if (typeof item === 'string') {
+                            return { name: item.split('/').pop(), path: item };
+                        } else if (item && typeof item === 'object' && item.path) {
+                            return { name: item.name || item.path.split('/').pop(), path: item.path };
+                        }
+                        return null;
+                    }).filter(Boolean);
+                }
+            } catch (e) {}
+            if (typeof raw === 'string' && raw.trim() !== '') {
+                return [{ name: raw.split('/').pop() || 'Attached Document', path: raw.trim() }];
+            }
+            return [];
+        }
+
+        function getFileIcon(ext) {
+            switch(ext.toLowerCase()) {
+                case 'pdf': return 'fa-file-pdf text-danger';
+                case 'doc':
+                case 'docx': return 'fa-file-word text-primary';
+                case 'ppt':
+                case 'pptx': return 'fa-file-powerpoint text-warning';
+                case 'xls':
+                case 'xlsx': return 'fa-file-excel text-success';
+                case 'zip': return 'fa-file-zipper text-secondary';
+                default: return 'fa-file-lines text-secondary';
+            }
+        }
+
+        function renderExistingAttachments() {
+            const listEl = document.getElementById('existingAttachmentsList');
+            if (!listEl) return;
+            listEl.innerHTML = '';
+
+            const baseUrl = '<?php echo APP_URL; ?>/';
+
+            if (currentJobAttachments.length > 0) {
+                const header = document.createElement('div');
+                header.style.cssText = 'font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;margin-bottom:2px;';
+                header.textContent = `Attached Documents (${currentJobAttachments.length}):`;
+                listEl.appendChild(header);
+
+                currentJobAttachments.forEach((att, idx) => {
+                    const ext = att.path.split('.').pop() || '';
+                    const href = att.path.startsWith('http') ? att.path : baseUrl + att.path.replace(/^\/+/, '');
+                    
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:#f1f5f9;border:1px solid #cbd5e1;padding:8px 12px;border-radius:8px;font-size:13px;';
+                    row.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:10px;min-width:0;flex:1;">
+                            <i class="fas ${getFileIcon(ext)}" style="font-size:16px;"></i>
+                            <a href="${escapeHtml(href)}" target="_blank" style="font-weight:600;color:#1e293b;text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="Click to view">${escapeHtml(att.name)}</a>
+                        </div>
+                        <button type="button" onclick="removeExistingAttachment(${idx})" title="Remove this document" style="background:transparent;border:none;color:#ef4444;cursor:pointer;padding:4px 8px;font-size:13px;border-radius:4px;display:inline-flex;align-items:center;gap:4px;font-weight:600;">
+                            <i class="fas fa-trash-alt"></i> Remove
+                        </button>
+                    `;
+                    listEl.appendChild(row);
+                });
+            }
+
+            document.getElementById('retainedAttachments').value = JSON.stringify(currentJobAttachments);
+            updateAttachmentContainerVisibility();
+        }
+
+        function removeExistingAttachment(idx) {
+            currentJobAttachments.splice(idx, 1);
+            renderExistingAttachments();
+        }
+
+        function handleJobAttachmentsChange(input) {
+            const listEl = document.getElementById('newAttachmentsList');
+            if (!listEl) return;
+            listEl.innerHTML = '';
+
+            if (input.files && input.files.length > 0) {
+                const header = document.createElement('div');
+                header.style.cssText = 'font-size:11px;font-weight:700;color:#059669;text-transform:uppercase;margin-top:4px;';
+                header.textContent = `New Files Selected for Upload (${input.files.length}):`;
+                listEl.appendChild(header);
+
+                Array.from(input.files).forEach(f => {
+                    const ext = f.name.split('.').pop() || '';
+                    const sizeMb = (f.size / (1024 * 1024)).toFixed(2);
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;background:#ecfdf5;border:1px solid #a7f3d0;padding:6px 12px;border-radius:8px;font-size:12px;color:#065f46;';
+                    row.innerHTML = `
+                        <div style="display:flex;align-items:center;gap:8px;overflow:hidden;min-width:0;flex:1;">
+                            <i class="fas ${getFileIcon(ext)}" style="font-size:14px;"></i>
+                            <span style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(f.name)}</span>
+                        </div>
+                        <span style="font-size:11px;color:#047857;margin-left:10px;white-space:nowrap;">${sizeMb} MB (Ready)</span>
+                    `;
+                    listEl.appendChild(row);
+                });
+            }
+            updateAttachmentContainerVisibility();
+        }
+
+        function updateAttachmentContainerVisibility() {
+            const container = document.getElementById('jobAttachmentPreviewContainer');
+            const fileInput = document.getElementById('jobAttachment');
+            const hasNew = fileInput && fileInput.files && fileInput.files.length > 0;
+            const hasExisting = currentJobAttachments && currentJobAttachments.length > 0;
+            if (container) {
+                container.style.display = (hasNew || hasExisting) ? 'flex' : 'none';
+            }
+        }
+
         function openModal() {
             document.getElementById('modalTitle').innerText = 'Post Opportunity';
             document.getElementById('formAction').value = 'create';
             form.reset();
             document.getElementById('companyLogoPreviewContainer').style.display = 'none';
             document.getElementById('companyLogoPreview').src = '';
-            document.getElementById('jobAttachmentPreviewContainer').style.display = 'none';
+            
+            // Reset attachments
+            currentJobAttachments = [];
+            document.getElementById('retainedAttachments').value = '[]';
             document.getElementById('jobAttachment').value = '';
+            document.getElementById('existingAttachmentsList').innerHTML = '';
+            document.getElementById('newAttachmentsList').innerHTML = '';
+            document.getElementById('jobAttachmentPreviewContainer').style.display = 'none';
+
             document.getElementById('companyId').value = '';
             document.getElementById('companySearch').value = '';
             document.getElementById('academicYear').value = '';
@@ -1213,17 +1345,11 @@ $fullName = getFullName();
             document.getElementById('description').value = job.description || '';
             document.getElementById('requirements').value = job.requirements || '';
             
-            // Job Attachment preview
-            const attPreview = document.getElementById('jobAttachmentPreviewContainer');
-            const attLink = document.getElementById('jobAttachmentLink');
+            // Multiple Job Attachments preview & retention
+            currentJobAttachments = parseJobAttachments(job.attachment_url);
             document.getElementById('jobAttachment').value = '';
-            if (job.attachment_url) {
-                const baseUrl = '<?php echo APP_URL; ?>/';
-                attLink.href = job.attachment_url.startsWith('http') ? job.attachment_url : baseUrl + job.attachment_url.replace(/^\/+/, '');
-                attPreview.style.display = 'flex';
-            } else {
-                attPreview.style.display = 'none';
-            }
+            document.getElementById('newAttachmentsList').innerHTML = '';
+            renderExistingAttachments();
 
             document.getElementById('companyId').value = job.company_id;
             document.getElementById('companyName').value = job.company_name;

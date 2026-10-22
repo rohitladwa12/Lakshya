@@ -1147,3 +1147,69 @@ function verifyResumeToken($usn, $token) {
     $expected = generateResumeToken($usn);
     return hash_equals($expected, trim($token));
 }
+
+/**
+ * Normalize and sanitize student profile photo URLs (GMU & GMIT)
+ * Strips ERP path traversal (../../), decodes JSON structures, encodes spaces/special chars,
+ * and builds absolute URL to erp.gmit.info.
+ *
+ * @param mixed $raw
+ * @return string|null
+ */
+function normalizePhotoUrl($raw) {
+    if (empty($raw)) return null;
+    $p = trim((string)$raw);
+    if ($p === '' || $p === 'null' || $p === '[]' || $p === '{}') return null;
+
+    // Handle JSON-encoded photo data (e.g. [{"name":"../../attachments/gmu/profile/...","usrName":"...","thumbnail":"..."}])
+    if (strpos($p, '[{') === 0 || strpos($p, '{') === 0) {
+        $decoded = json_decode($p, true);
+        if (is_array($decoded)) {
+            $item = isset($decoded[0]) && is_array($decoded[0]) ? $decoded[0] : $decoded;
+            // Priority: thumbnail -> name -> url -> any valid string value
+            if (!empty($item['thumbnail']) && is_string($item['thumbnail'])) {
+                $p = $item['thumbnail'];
+            } elseif (!empty($item['name']) && is_string($item['name'])) {
+                $p = $item['name'];
+            } elseif (!empty($item['url']) && is_string($item['url'])) {
+                $p = $item['url'];
+            } else {
+                $found = null;
+                foreach ($item as $val) {
+                    if (is_string($val) && (strpos($val, '.') !== false || strpos($val, '/') !== false)) {
+                        $found = $val;
+                        break;
+                    }
+                }
+                $p = $found ?: $p;
+            }
+        }
+    }
+
+    if (empty($p) || !is_string($p)) return null;
+
+    // If it's already an absolute HTTP/HTTPS URL
+    if (preg_match('/^https?:\/\//i', $p)) {
+        // Fix any accidental ../ in the URL (e.g. https://erp.gmit.info/../../attachments/...)
+        if (strpos($p, 'attachments/') !== false) {
+            $pathPart = substr($p, strpos($p, 'attachments/'));
+            $p = "https://erp.gmit.info/" . $pathPart;
+        } else {
+            $p = preg_replace('#https?://[^/]+(/\.\.)+#i', 'https://erp.gmit.info', $p);
+        }
+        return str_replace(' ', '%20', $p);
+    }
+
+    // Clean any leading ../ or ./ or slashes
+    $cleanPath = preg_replace('#^(\.\./|\./|/)+#', '', $p);
+
+    if (strpos($cleanPath, 'attachments/') !== false) {
+        $cleanPath = substr($cleanPath, strpos($cleanPath, 'attachments/'));
+        $url = "https://erp.gmit.info/" . $cleanPath;
+    } else {
+        $url = "https://erp.gmit.info/attachments/gmu/profile/" . ltrim($cleanPath, '/');
+    }
+
+    return str_replace(' ', '%20', $url);
+}
+

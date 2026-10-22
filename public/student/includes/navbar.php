@@ -495,10 +495,18 @@ if ($db && getUsername()) {
                     </a>
                     <a href="internship_undertakings" class="dropdown-item">
                         <i class="fas fa-file-contract" style="color: #d97706; background: rgba(217,119,6,0.1);"></i>
-                        Undertakings
+                        Internship Undertakings
+                    </a>
+                    <a href="casp_policy_undertaking.php" class="dropdown-item">
+                        <i class="fas fa-file-signature" style="color: #059669; background: rgba(5,150,105,0.1);"></i>
+                        Placement Policy Undertaking
+                    </a>
+                    <a href="casp_opt_out_undertaking.php" class="dropdown-item">
+                        <i class="fas fa-ban" style="color: #991b1b; background: rgba(153,27,27,0.1);"></i>
+                        Placement Opt-Out Undertaking
                     </a>
                     <a href="applications" class="dropdown-item">
-                        <i class="fas fa-file-signature" style="color: #4f46e5; background: rgba(79,70,229,0.1);"></i>
+                        <i class="fas fa-folder-open" style="color: #4f46e5; background: rgba(79,70,229,0.1);"></i>
                         My Applications
                     </a>
                 </div>
