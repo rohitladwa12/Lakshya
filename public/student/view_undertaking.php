@@ -12,11 +12,14 @@ require_once __DIR__ . '/../../config/bootstrap.php';
 require_once ROOT_PATH . '/src/Helpers/PlacementInterestHelper.php';
 use App\Helpers\PlacementInterestHelper;
 
-// 1. Get requested USN and token from URL
-$requestedUsn = isset($_GET['usn']) ? preg_replace('/[^a-zA-Z0-9_-]/', '', trim($_GET['usn'])) : '';
-$token = isset($_GET['token']) ? trim($_GET['token']) : '';
-$requestedType = isset($_GET['type']) ? strtolower(trim($_GET['type'])) : '';
-$isDownload = isset($_GET['download']) && $_GET['download'] == '1';
+// 1. Get requested USN, token, type, and download preference from POST or GET (prioritizing POST)
+$rawUsn = $_POST['usn'] ?? ($_GET['usn'] ?? '');
+$requestedUsn = preg_replace('/[^a-zA-Z0-9_-]/', '', trim((string)$rawUsn));
+$token = trim((string)($_POST['token'] ?? ($_GET['token'] ?? '')));
+$requestedType = strtolower(trim((string)($_POST['type'] ?? ($_GET['type'] ?? ''))));
+$isDownload = (isset($_POST['download']) && $_POST['download'] == '1') || 
+              (isset($_GET['download']) && $_GET['download'] == '1') ||
+              (isset($_POST['action']) && $_POST['action'] === 'download');
 
 // If student is logged in and no USN is provided, default to current student
 if (empty($requestedUsn) && isLoggedIn() && getRole() === ROLE_STUDENT) {

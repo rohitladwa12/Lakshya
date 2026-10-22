@@ -372,6 +372,11 @@ $officerInstitution = $_SESSION['user']['institution'] ?? 'GMU';
             </a>
         </li>
         <li>
+            <a href="casp_undertakings.php" class="<?php echo ($currentPage === 'casp_undertakings.php' || $currentPage === 'students_report.php') ? 'active' : ''; ?>">
+                <i class="fas fa-file-contract"></i> <span>CASP Undertakings</span>
+            </a>
+        </li>
+        <li>
             <a href="find_students.php" class="<?php echo ($currentPage === 'find_students.php') ? 'active' : ''; ?>">
                 <i class="fas fa-brain"></i> <span>AI Talent Finder</span>
             </a>

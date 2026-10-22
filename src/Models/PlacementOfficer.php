@@ -738,32 +738,47 @@ class PlacementOfficer extends Model {
         $gmuPrefix = DB_GMU_PREFIX;
         $gmitPrefix = DB_GMIT_PREFIX;
         
+        $hasSpecificSem = !empty($filters['semester']);
+        $hasUsnList = !empty($filters['usn_list']);
+        $allowAllSems = !empty($filters['all_semesters']) || ($hasUsnList && !$hasSpecificSem);
+
         // 1. Fetch eligible GMIT Student IDs from LOCAL DB (lakshya)
         $eligibleGmitUsns = [];
-        try {
-            $gmitSems = !empty($filters['semester']) ? [(int)$filters['semester']] : [5, 6, 7, 8];
-            $semPlaceholders = implode(',', array_fill(0, count($gmitSems), '?'));
-            
-            $sqlGmitIds = "SELECT DISTINCT student_id FROM student_sem_sgpa 
-                           WHERE institution = ? AND semester IN ($semPlaceholders) AND is_current = 1";
-            $stmtGmitIds = $this->db->prepare($sqlGmitIds);
-            $stmtGmitIds->execute(array_merge([INSTITUTION_GMIT], $gmitSems));
-            $eligibleGmitUsns = $stmtGmitIds->fetchAll(PDO::FETCH_COLUMN);
-        } catch (Exception $e) {
-            error_log("Warning: Permission denied or table missing for student_sem_sgpa: " . $e->getMessage());
-            // Fallback: Continue without GMIT semester filter if denied
-        }
-
-        $gmitFilterSql = "1=0"; // Default: no GMIT students if no sem records
+        $gmitFilterSql = "1=0";
         $gmitParams = [];
-        if (!empty($eligibleGmitUsns)) {
-            $ph = implode(',', array_fill(0, count($eligibleGmitUsns), '?'));
-            $gmitFilterSql = "ad.student_id IN ($ph)";
-            $gmitParams = $eligibleGmitUsns;
+
+        if ($hasUsnList && !$hasSpecificSem) {
+            $gmitFilterSql = "1=1";
+        } elseif ($allowAllSems) {
+            $gmitFilterSql = "1=1";
+        } else {
+            try {
+                $gmitSems = $hasSpecificSem ? [(int)$filters['semester']] : [5, 6, 7, 8];
+                $semPlaceholders = implode(',', array_fill(0, count($gmitSems), '?'));
+                
+                $sqlGmitIds = "SELECT DISTINCT student_id FROM student_sem_sgpa 
+                               WHERE institution = ? AND semester IN ($semPlaceholders) AND is_current = 1";
+                $stmtGmitIds = $this->db->prepare($sqlGmitIds);
+                $stmtGmitIds->execute(array_merge([INSTITUTION_GMIT], $gmitSems));
+                $eligibleGmitUsns = $stmtGmitIds->fetchAll(PDO::FETCH_COLUMN);
+            } catch (Exception $e) {
+                error_log("Warning: Permission denied or table missing for student_sem_sgpa: " . $e->getMessage());
+            }
+
+            if (!empty($eligibleGmitUsns)) {
+                $ph = implode(',', array_fill(0, count($eligibleGmitUsns), '?'));
+                $gmitFilterSql = "ad.student_id IN ($ph)";
+                $gmitParams = $eligibleGmitUsns;
+            }
         }
 
         // 2. Base combined query on REMOTE DB
-        $gmuSemFilter = !empty($filters['semester']) ? "AND ad.sem = " . (int)$filters['semester'] : "AND ad.sem IN (5,6,7,8)";
+        $gmuSemFilter = "";
+        if ($hasSpecificSem) {
+            $gmuSemFilter = "AND ad.sem = " . (int)$filters['semester'];
+        } elseif (!$allowAllSems) {
+            $gmuSemFilter = "AND ad.sem IN (5,6,7,8)";
+        }
 
         $combinedSql = "
             (SELECT ad.usn, ad.name, ad.aadhar, ad.faculty, ad.school, ad.programme, ad.course, ad.discipline, ad.year, ad.sem, ad.sgpa, ad.registered, ad.usn as student_id_map, 
@@ -805,6 +820,28 @@ class PlacementOfficer extends Model {
             $placeholders = implode(',', array_fill(0, count($disciplines), '?'));
             $where[] = "discipline IN ($placeholders)";
             foreach ($disciplines as $d) $params[] = $d;
+        }
+
+        if (isset($filters['usn_list'])) {
+            $uList = is_array($filters['usn_list']) ? $filters['usn_list'] : [$filters['usn_list']];
+            $uList = array_values(array_filter($uList));
+            if (!empty($uList)) {
+                $placeholders = implode(',', array_fill(0, count($uList), '?'));
+                $where[] = "usn IN ($placeholders)";
+                foreach ($uList as $u) $params[] = $u;
+            } else {
+                $where[] = "1=0";
+            }
+        }
+
+        if (isset($filters['exclude_usn_list'])) {
+            $exList = is_array($filters['exclude_usn_list']) ? $filters['exclude_usn_list'] : [$filters['exclude_usn_list']];
+            $exList = array_values(array_filter($exList));
+            if (!empty($exList)) {
+                $placeholders = implode(',', array_fill(0, count($exList), '?'));
+                $where[] = "usn NOT IN ($placeholders)";
+                foreach ($exList as $u) $params[] = $u;
+            }
         }
 
         $whereStr = implode(" AND ", $where);

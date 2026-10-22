@@ -10,12 +10,16 @@ require_once ROOT_PATH . '/src/Helpers/PlacementInterestHelper.php';
 use App\Helpers\PlacementInterestHelper;
 
 // 1. Authorization: Allow student, coordinator, or admin
-if ((isset($_GET['view']) || isset($_GET['download'])) && !empty($_GET['usn'])) {
+$isViewAction = (isset($_POST['view']) || isset($_GET['view']) || (isset($_POST['action']) && $_POST['action'] === 'view_pdf'));
+$isDownloadAction = (isset($_POST['download']) || isset($_GET['download']) || (isset($_POST['action']) && $_POST['action'] === 'download_pdf'));
+$rawUsnParam = $_POST['usn'] ?? ($_GET['usn'] ?? '');
+
+if (($isViewAction || $isDownloadAction) && !empty($rawUsnParam)) {
     requireAnyRole([ROLE_STUDENT, ROLE_DEPT_COORDINATOR, ROLE_PLACEMENT_OFFICER, ROLE_INTERNSHIP_OFFICER, ROLE_ADMIN, ROLE_HOD, ROLE_VC]);
-    $requestedUsn = preg_replace('/[^a-zA-Z0-9_-]/', '', trim($_GET['usn']));
+    $requestedUsn = preg_replace('/[^a-zA-Z0-9_-]/', '', trim((string)$rawUsnParam));
     $targetPdfPath = PlacementInterestHelper::getPolicyPdfPath($requestedUsn);
     if (file_exists($targetPdfPath) && filesize($targetPdfPath) > 0) {
-        $disposition = isset($_GET['download']) ? 'attachment' : 'inline';
+        $disposition = $isDownloadAction ? 'attachment' : 'inline';
         header('Content-Type: application/pdf');
         header('Content-Disposition: ' . $disposition . '; filename="' . basename($targetPdfPath) . '"');
         header('Content-Length: ' . filesize($targetPdfPath));
@@ -40,12 +44,23 @@ $institution = $_SESSION['institution'] ?? getInstitution();
 require_once ROOT_PATH . '/src/Models/StudentProfile.php';
 $studentProfileModel = new StudentProfile();
 $profile = $studentProfileModel->getProfile($userId) ?: [];
+if (empty($profile['name']) || empty($profile['department'])) {
+    if (!empty($username) && $username !== $userId) {
+        $profile = $studentProfileModel->getByUserId($username) ?: $profile;
+    }
+    if ((empty($profile['name']) || empty($profile['department'])) && !empty($_SESSION['user']['aadhar'])) {
+        $profile = $studentProfileModel->getByUserId($_SESSION['user']['aadhar']) ?: $profile;
+    }
+}
 
 $studentUSN = $profile['usn'] ?? ($profile['student_id'] ?? $username);
 $studentName = $profile['name'] ?? $fullName;
 $studentDept = $profile['department'] ?? ($profile['course'] ?? '');
 $studentSem = $profile['semester'] ?? '';
 $branchSem = trim($studentDept . (!empty($studentSem) ? (" & Semester " . $studentSem) : ''));
+
+// Strict Mutual Exclusion: If student already opted out, they CANNOT opt in
+$isOptedOut = PlacementInterestHelper::isOptedOut($studentUSN);
 
 $parentName = $profile['father_name'] ?? ($profile['mother_name'] ?? '');
 
@@ -62,28 +77,22 @@ try {
         if (!empty($resRow['phone'])) {
             $contactNumber = trim($resRow['phone']);
         }
-        if (!empty($resRow['email'])) {
+        if (!empty($resRow['email']) && filter_var(trim($resRow['email']), FILTER_VALIDATE_EMAIL)) {
             $emailId = trim($resRow['email']);
-        }
-
-        // 2. Check local users table (student login MOBILE_NO)
-        if (empty($contactNumber)) {
-            $stmtUser = $db->prepare("SELECT MOBILE_NO FROM users WHERE USER_NAME = ? LIMIT 1");
-            $stmtUser->execute([$studentUSN]);
-            $uMob = $stmtUser->fetchColumn();
-            if (!empty($uMob)) {
-                $contactNumber = trim($uMob);
-            }
         }
     }
 } catch (\Throwable $e) {}
 
-// 3. Fallback to StudentProfile
+// 2. Fallback to StudentProfile
 if (empty($contactNumber)) {
     $contactNumber = $profile['student_mobile'] ?? ($profile['phone'] ?? '');
 }
 if (empty($contactNumber) && isset($_SESSION['user']['phone'])) {
     $contactNumber = $_SESSION['user']['phone'];
+}
+
+if (empty($emailId) && !empty($profile['email']) && filter_var(trim($profile['email']), FILTER_VALIDATE_EMAIL)) {
+    $emailId = trim($profile['email']);
 }
 
 // Detection for ERP swapped numbers:
@@ -129,6 +138,14 @@ $successMsg = Session::flash('success') ?: '';
 $errorMsg = Session::flash('error') ?: '';
 
 if (isPost() && post('action') === 'generate_policy_pdf') {
+    if ($isOptedOut) {
+        Session::flash('error', 'You have already opted out of placements. University placement regulations do not allow opting in after an opt-out has been submitted.');
+        redirect('casp_policy_undertaking.php');
+    }
+    if ($hasExistingPdf) {
+        Session::flash('error', 'You have already signed and submitted your Placement Policy & Undertaking. Resubmission is not permitted.');
+        redirect('casp_policy_undertaking.php');
+    }
     $formName = trim(post('student_name')) ?: $studentName;
     $formUsn = trim(post('student_usn')) ?: $studentUSN;
     $formBranchSem = trim(post('branch_semester')) ?: $branchSem;
@@ -653,31 +670,70 @@ if (isPost() && post('action') === 'generate_policy_pdf') {
         </div>
     <?php endif; ?>
 
-    <?php if ($hasExistingPdf): ?>
-        <div class="existing-card">
-            <div style="display: flex; align-items: center; gap: 14px;">
-                <div style="width: 44px; height: 44px; background: #ecfdf5; border-radius: 10px; display: flex; align-items: center; justify-content: center; color: #059669; font-size: 22px;">
-                    <i class="fas fa-file-signature"></i>
-                </div>
-                <div>
-                    <h4 style="font-size: 15px; font-weight: 700; margin: 0 0 4px; color: #065f46;">
-                        Placement Policy &amp; Undertaking Signed
-                    </h4>
-                    <p style="font-size: 12.5px; color: #64748b; margin: 0;">
-                        Your signed placement policy has been securely submitted and verified for campus drives.
-                    </p>
-                </div>
+    <?php if ($isOptedOut): ?>
+        <!-- Locked Card: Opt-Out Enforced -->
+        <div style="background: #ffffff; border: 1px solid #fecaca; border-radius: 16px; padding: 40px 30px; text-align: center; box-shadow: 0 10px 30px rgba(153, 27, 27, 0.08); max-width: 720px; margin: 30px auto;">
+            <div style="width: 72px; height: 72px; background: #fef2f2; border: 2px solid #fecaca; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; color: #991b1b; font-size: 32px;">
+                <i class="fas fa-ban"></i>
             </div>
-            <div style="display: flex; gap: 8px;">
-                <a href="view_undertaking.php?usn=<?php echo urlencode($formUsn); ?>&type=policy" target="_blank" class="btn-view">
-                    <i class="fas fa-eye"></i> View PDF
-                </a>
-                <a href="view_undertaking.php?usn=<?php echo urlencode($formUsn); ?>&type=policy&download=1" class="btn-view" style="background:#059669;">
-                    <i class="fas fa-download"></i> Download
+            <div style="display: inline-block; padding: 4px 14px; background: #fee2e2; color: #991b1b; font-size: 12px; font-weight: 700; border-radius: 20px; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 12px;">
+                Opt-Out Finalized &bull; Opt-In Locked
+            </div>
+            <h2 style="font-size: 22px; font-weight: 800; color: #1e293b; margin-bottom: 12px;">Placement Policy Undertaking Not Available</h2>
+            <p style="font-size: 14.5px; color: #64748b; line-height: 1.6; max-width: 540px; margin: 0 auto 24px;">
+                You have officially submitted the <strong>Placement Opt-Out Declaration</strong>. Under GM University placement regulations, once a student opts out of placements, they <strong>cannot opt in</strong> or sign the placement policy undertaking.
+            </p>
+            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+                <form method="POST" action="view_undertaking.php" target="_blank" style="margin: 0;">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
+                    <input type="hidden" name="usn" value="<?php echo htmlspecialchars($studentUSN); ?>">
+                    <input type="hidden" name="type" value="opt_out">
+                    <button type="submit" class="btn-view" style="background:#991b1b; color:#fff; border:none; padding:12px 22px; border-radius:10px; font-weight:600; cursor:pointer; font-size:14px; display:inline-flex; align-items:center; gap:8px;">
+                        <i class="fas fa-file-contract"></i> View Opt-Out Undertaking
+                    </button>
+                </form>
+                <a href="dashboard.php" style="display: inline-flex; align-items: center; gap: 8px; background: #f1f5f9; color: #334155; padding: 12px 22px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 14px;">
+                    <i class="fas fa-arrow-left"></i> Return to Dashboard
                 </a>
             </div>
         </div>
-    <?php endif; ?>
+    <?php elseif ($hasExistingPdf): ?>
+        <!-- Locked Card: Already Signed & Enrolled (Cannot re-submit) -->
+        <div style="background: #ffffff; border: 1px solid #bbf7d0; border-radius: 16px; padding: 40px 30px; text-align: center; box-shadow: 0 10px 30px rgba(5, 150, 105, 0.08); max-width: 720px; margin: 30px auto;">
+            <div style="width: 72px; height: 72px; background: #ecfdf5; border: 2px solid #a7f3d0; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; color: #059669; font-size: 32px;">
+                <i class="fas fa-file-signature"></i>
+            </div>
+            <div style="display: inline-block; padding: 4px 14px; background: #d1fae5; color: #065f46; font-size: 12px; font-weight: 700; border-radius: 20px; letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 12px;">
+                Enrolled in Placements &bull; Undertaking Signed
+            </div>
+            <h2 style="font-size: 22px; font-weight: 800; color: #1e293b; margin-bottom: 12px;">Placement Policy &amp; Undertaking Submitted</h2>
+            <p style="font-size: 14.5px; color: #64748b; line-height: 1.6; max-width: 540px; margin: 0 auto 24px;">
+                Your signed Placement Policy &amp; Undertaking is active and permanently on record with CASP. As per university placement regulations, your placement enrollment is finalized and resubmissions are disabled.
+            </p>
+            <div style="display: flex; gap: 12px; justify-content: center; flex-wrap: wrap;">
+                <form method="POST" action="view_undertaking.php" target="_blank" style="margin: 0;">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
+                    <input type="hidden" name="usn" value="<?php echo htmlspecialchars($studentUSN); ?>">
+                    <input type="hidden" name="type" value="policy">
+                    <button type="submit" class="btn-view" style="background:#059669; color:#fff; border:none; padding:12px 22px; border-radius:10px; font-weight:600; cursor:pointer; font-size:14px; display:inline-flex; align-items:center; gap:8px; box-shadow: 0 4px 12px rgba(5,150,105,0.25);">
+                        <i class="fas fa-eye"></i> View Signed Policy PDF
+                    </button>
+                </form>
+                <form method="POST" action="view_undertaking.php" style="margin: 0;">
+                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
+                    <input type="hidden" name="usn" value="<?php echo htmlspecialchars($studentUSN); ?>">
+                    <input type="hidden" name="type" value="policy">
+                    <input type="hidden" name="download" value="1">
+                    <button type="submit" class="btn-view" style="background:#047857; color:#fff; border:none; padding:12px 22px; border-radius:10px; font-weight:600; cursor:pointer; font-size:14px; display:inline-flex; align-items:center; gap:8px;">
+                        <i class="fas fa-download"></i> Download PDF
+                    </button>
+                </form>
+                <a href="dashboard.php" style="display: inline-flex; align-items: center; gap: 8px; background: #f1f5f9; color: #334155; padding: 12px 22px; border-radius: 10px; text-decoration: none; font-weight: 600; font-size: 14px;">
+                    <i class="fas fa-arrow-left"></i> Return to Dashboard
+                </a>
+            </div>
+        </div>
+    <?php else: ?>
 
     <!-- Document Paper Replica -->
     <div class="doc-paper-container">
@@ -691,7 +747,7 @@ if (isPost() && post('action') === 'generate_policy_pdf') {
             <div style="font-size: 12.5px; font-style: italic; color: #475569;">Applicable to all students participating in CASP placement and recruitment activities</div>
         </div>
 
-        <form method="POST" action="casp_policy_undertaking.php">
+        <form id="policyUndertakingForm" method="POST" action="casp_policy_undertaking.php">
             <input type="hidden" name="action" value="generate_policy_pdf">
             <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
 
@@ -851,94 +907,100 @@ if (isPost() && post('action') === 'generate_policy_pdf') {
             </div>
         </form>
     </div>
+    <?php endif; ?>
 </div>
 
 <script>
 const canvas = document.getElementById('sigCanvas');
-const ctx = canvas.getContext('2d');
-const placeholder = document.getElementById('sigPlaceholder');
-const sigInput = document.getElementById('signature_data');
-const sigThumb = document.getElementById('sigThumbnailPreview');
-let isDrawing = false;
-let hasDrawn = false;
+if (canvas) {
+    const ctx = canvas.getContext('2d');
+    const placeholder = document.getElementById('sigPlaceholder');
+    const sigInput = document.getElementById('signature_data');
+    const sigThumb = document.getElementById('sigThumbnailPreview');
+    let isDrawing = false;
+    let hasDrawn = false;
 
-// Configure stroke
-ctx.strokeStyle = '#002663';
-ctx.lineWidth = 2.8;
-ctx.lineCap = 'round';
-ctx.lineJoin = 'round';
+    // Configure stroke
+    ctx.strokeStyle = '#002663';
+    ctx.lineWidth = 2.8;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
 
-function getPos(e) {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = canvas.width / rect.width;
-    const scaleY = canvas.height / rect.height;
-    return {
-        x: (e.clientX - rect.left) * scaleX,
-        y: (e.clientY - rect.top) * scaleY
-    };
-}
+    function getPos(e) {
+        const rect = canvas.getBoundingClientRect();
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        return {
+            x: (e.clientX - rect.left) * scaleX,
+            y: (e.clientY - rect.top) * scaleY
+        };
+    }
 
-function startDrawing(e) {
-    e.preventDefault();
-    isDrawing = true;
-    hasDrawn = true;
-    if (placeholder) placeholder.style.display = 'none';
-    const pos = getPos(e);
-    ctx.beginPath();
-    ctx.moveTo(pos.x, pos.y);
-}
+    function startDrawing(e) {
+        e.preventDefault();
+        isDrawing = true;
+        hasDrawn = true;
+        if (placeholder) placeholder.style.display = 'none';
+        const pos = getPos(e);
+        ctx.beginPath();
+        ctx.moveTo(pos.x, pos.y);
+    }
 
-function draw(e) {
-    if (!isDrawing) return;
-    e.preventDefault();
-    const pos = getPos(e);
-    ctx.lineTo(pos.x, pos.y);
-    ctx.stroke();
-    updateThumbnail();
-}
-
-function stopDrawing() {
-    if (isDrawing) {
-        isDrawing = false;
-        ctx.closePath();
+    function draw(e) {
+        if (!isDrawing) return;
+        e.preventDefault();
+        const pos = getPos(e);
+        ctx.lineTo(pos.x, pos.y);
+        ctx.stroke();
         updateThumbnail();
     }
-}
 
-// Pointer events support desktop mouse, iOS/Android touch, and pen/stylus
-canvas.addEventListener('pointerdown', startDrawing);
-canvas.addEventListener('pointermove', draw);
-canvas.addEventListener('pointerup', stopDrawing);
-canvas.addEventListener('pointercancel', stopDrawing);
-canvas.addEventListener('pointerleave', stopDrawing);
+    function stopDrawing() {
+        if (isDrawing) {
+            isDrawing = false;
+            ctx.closePath();
+            updateThumbnail();
+        }
+    }
 
-function clearSignature() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    hasDrawn = false;
-    if (placeholder) placeholder.style.display = 'flex';
-    if (sigInput) sigInput.value = '';
-    if (sigThumb) sigThumb.innerHTML = '<span style="color: #64748b; font-size: 11px; font-style: italic;">(Drawn signature appears here)</span>';
-}
+    // Pointer events support desktop mouse, iOS/Android touch, and pen/stylus
+    canvas.addEventListener('pointerdown', startDrawing);
+    canvas.addEventListener('pointermove', draw);
+    canvas.addEventListener('pointerup', stopDrawing);
+    canvas.addEventListener('pointercancel', stopDrawing);
+    canvas.addEventListener('pointerleave', stopDrawing);
 
-function updateThumbnail() {
-    const dataUrl = canvas.toDataURL('image/png');
-    if (sigInput) sigInput.value = dataUrl;
-    if (sigThumb) {
-        sigThumb.innerHTML = '<img src="' + dataUrl + '" style="max-height: 34px; max-width: 140px; display: block;">';
+    window.clearSignature = function() {
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        hasDrawn = false;
+        if (placeholder) placeholder.style.display = 'flex';
+        if (sigInput) sigInput.value = '';
+        if (sigThumb) sigThumb.innerHTML = '<span style="color: #64748b; font-size: 11px; font-style: italic;">(Drawn signature appears here)</span>';
+    };
+
+    function updateThumbnail() {
+        const dataUrl = canvas.toDataURL('image/png');
+        if (sigInput) sigInput.value = dataUrl;
+        if (sigThumb) {
+            sigThumb.innerHTML = '<img src="' + dataUrl + '" style="max-height: 34px; max-width: 140px; display: block;">';
+        }
+    }
+
+    // Enforce signature on submit
+    const policyForm = document.getElementById('policyUndertakingForm');
+    if (policyForm) {
+        policyForm.addEventListener('submit', (e) => {
+            if (!hasDrawn || !sigInput.value) {
+                e.preventDefault();
+                alert('Please draw your digital signature on the signature pad before submitting.');
+                canvas.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                canvas.parentElement.style.borderColor = '#ef4444';
+                setTimeout(() => { canvas.parentElement.style.borderColor = '#94a3b8'; }, 2500);
+                return false;
+            }
+        });
     }
 }
-
-// Enforce signature on submit
-document.querySelector('form').addEventListener('submit', (e) => {
-    if (!hasDrawn || !sigInput.value) {
-        e.preventDefault();
-        alert('Please draw your digital signature on the signature pad before submitting.');
-        canvas.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        canvas.parentElement.style.borderColor = '#ef4444';
-        setTimeout(() => { canvas.parentElement.style.borderColor = '#94a3b8'; }, 2500);
-        return false;
-    }
-});
 </script>
 
 </body>

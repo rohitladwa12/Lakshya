@@ -58,6 +58,9 @@ try {
 // 2. Fetch Data based on Section
 $data = ['data' => [], 'total' => 0, 'page' => $page, 'total_pages' => 0, 'summary' => []];
 
+require_once ROOT_PATH . '/src/Helpers/PlacementInterestHelper.php';
+$placementStatusMap = \App\Helpers\PlacementInterestHelper::getStatusMap();
+
 try {
     if ($section === 'details') {
         $data = $officerModel->getStudentsPaged($filters, $page, $limit);
@@ -69,13 +72,32 @@ try {
             
             $allData = $officerModel->getStudentsPaged($filters, 1, 10000);
             echo '<table border="1">';
-            echo '<tr><th>Name</th><th>Institution</th><th>Contact No</th><th>Email ID</th><th>USN</th><th>Sem</th><th>SGPA</th><th>10th %</th><th>12th %</th><th>Father Name</th><th>Mother Name</th><th>Address</th><th>Status</th><th>Resume Link</th></tr>';
+            echo '<tr><th>Name</th><th>Institution</th><th>Contact No</th><th>Email ID</th><th>USN</th><th>Sem</th><th>SGPA</th><th>10th %</th><th>12th %</th><th>Father Name</th><th>Mother Name</th><th>Address</th><th>Status</th><th>Placement Status</th><th>Resume Link</th><th>Undertaking Link</th></tr>';
             foreach ($allData['data'] as $s) {
                 $resumeFile = strtoupper($s['usn']) . '_Resume.pdf';
                 $token = function_exists('generateResumeToken') ? generateResumeToken($s['usn']) : '';
                 $resumeUrl = APP_URL . '/student/view_resume.php?usn=' . urlencode($s['usn']) . ($token ? '&token=' . $token : '');
                 $resumePath = UPLOADS_PATH . '/resumes/Student_Resumes/' . $resumeFile;
                 $resumeLink = file_exists($resumePath) ? '=HYPERLINK("' . $resumeUrl . '", "View Resume")' : 'No Resume';
+
+                $uUpper = strtoupper(trim($s['usn'] ?? ''));
+                $st = $placementStatusMap[$uUpper] ?? null;
+                if ($st && !empty($st['opt_out'])) {
+                    $pStatusText = 'Not Interested (Opt-Out)';
+                } elseif ($st && !empty($st['has_policy_pdf'])) {
+                    $pStatusText = 'Interested (Policy Signed)';
+                } elseif ($st && !empty($st['interested'])) {
+                    $pStatusText = 'Interested (Policy Pending)';
+                } else {
+                    $pStatusText = 'Active / Unspecified';
+                }
+
+                $undertakingLink = 'No Undertaking';
+                if ($st && (!empty($st['has_opt_out_pdf']) || !empty($st['has_policy_pdf']))) {
+                    $uType = !empty($st['has_policy_pdf']) ? 'policy' : 'opt_out';
+                    $undertakingUrl = APP_URL . '/student/view_undertaking.php?usn=' . urlencode($s['usn']) . '&type=' . $uType . ($token ? '&token=' . $token : '');
+                    $undertakingLink = '=HYPERLINK("' . $undertakingUrl . '", "' . (!empty($st['has_policy_pdf']) ? 'View Signed Policy' : 'View Opt-Out') . '")';
+                }
 
                 echo "<tr>
                         <td>".htmlspecialchars((string)$s['name'])."</td>
@@ -91,7 +113,9 @@ try {
                         <td>".htmlspecialchars((string)$s['mother_name'])."</td>
                         <td>".htmlspecialchars((string)$s['address'])."</td>
                         <td>" . ($s['registered'] ? 'Active' : 'Pending') . "</td>
+                        <td>{$pStatusText}</td>
                         <td>{$resumeLink}</td>
+                        <td>{$undertakingLink}</td>
                       </tr>";
             }
             echo '</table>';
@@ -547,6 +571,7 @@ $fullName = getFullName();
                             <th>Contact No</th>
                             <th>Email ID</th>
                             <th>USN / ID</th>
+                            <th>Placement Status</th>
                             <th>10th %</th>
                             <th>12th %</th>
                             <th>Father Name</th>
@@ -565,6 +590,40 @@ $fullName = getFullName();
                             <td style="font-weight: 600; font-size: 12px; color: #1e293b; mso-number-format:'\@';"><?php echo htmlspecialchars((string)($s['mobile'] ?? ($s['phone'] ?? '-'))); ?></td>
                             <td style="font-size: 12px; color: #2563eb; font-weight: 500;"><?php echo htmlspecialchars((string)($s['email'] ?? '-')); ?></td>
                             <td style="font-family: 'Courier New', monospace; font-weight: 700; font-size: 12px; mso-number-format:'\@';"><?php echo htmlspecialchars((string)($s['usn'] ?? 'N/A')); ?></td>
+                            <td>
+                                <?php 
+                                    $uUpper = strtoupper(trim($s['usn'] ?? ''));
+                                    $st = $placementStatusMap[$uUpper] ?? null;
+                                    if ($st && !empty($st['opt_out'])): ?>
+                                        <span class="badge badge-danger" style="background:#fee2e2; color:#991b1b; border:1px solid #fecaca; font-size:10px; padding:2px 6px; font-weight:700; border-radius:4px; display:inline-flex; align-items:center; gap:4px;">
+                                            <i class="fas fa-ban"></i> Opt-Out
+                                            <?php if (!empty($st['has_opt_out_pdf'])): ?>
+                                                <form method="POST" action="../student/view_undertaking.php" target="_blank" style="display:inline; margin:0 0 0 3px;">
+                                                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
+                                                    <input type="hidden" name="usn" value="<?php echo htmlspecialchars($uUpper); ?>">
+                                                    <input type="hidden" name="type" value="opt_out">
+                                                    <button type="submit" style="background:none; border:none; padding:0; color:#991b1b; cursor:pointer;" title="View Non-Participation PDF"><i class="fas fa-file-pdf"></i></button>
+                                                </form>
+                                            <?php endif; ?>
+                                        </span>
+                                    <?php elseif ($st && !empty($st['has_policy_pdf'])): ?>
+                                        <span class="badge badge-success" style="background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; font-size:10px; padding:2px 6px; font-weight:700; border-radius:4px; display:inline-flex; align-items:center; gap:4px;">
+                                            <i class="fas fa-file-signature"></i> Policy Signed
+                                            <form method="POST" action="../student/view_undertaking.php" target="_blank" style="display:inline; margin:0 0 0 3px;">
+                                                <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
+                                                <input type="hidden" name="usn" value="<?php echo htmlspecialchars($uUpper); ?>">
+                                                <input type="hidden" name="type" value="policy">
+                                                <button type="submit" style="background:none; border:none; padding:0; color:#065f46; cursor:pointer;" title="View Signed Policy PDF"><i class="fas fa-file-pdf"></i></button>
+                                            </form>
+                                        </span>
+                                    <?php elseif ($st && !empty($st['interested'])): ?>
+                                        <span class="badge badge-info" style="background:#eff6ff; color:#1e40af; border:1px solid #bfdbfe; font-size:10px; padding:2px 6px; font-weight:600; border-radius:4px;">
+                                            Policy Pending
+                                        </span>
+                                    <?php else: ?>
+                                        <span style="font-size:11px; color:#9ca3af;">Active</span>
+                                    <?php endif; ?>
+                            </td>
                             <td style="font-weight: 700; color: #000000ff;"><?php echo !empty($s['sslc_percentage']) ? round($s['sslc_percentage'], 1) . '%' : '-'; ?></td>
                             <td style="font-weight: 700; color: #000000ff;"><?php echo !empty($s['puc_percentage']) ? round($s['puc_percentage'], 1) . '%' : '-'; ?></td>
                             <td style="font-size: 12px;"><?php echo htmlspecialchars((string)($s['father_name'] ?? '-')); ?></td>
@@ -583,7 +642,7 @@ $fullName = getFullName();
                             </td>
                         </tr>
                         <?php endforeach; else: ?>
-                        <tr><td colspan="13" style="text-align: center; padding: 40px;">No records found matching filters.</td></tr>
+                        <tr><td colspan="14" style="text-align: center; padding: 40px;">No records found matching filters.</td></tr>
                         <?php endif; ?>
                     </tbody>
                 </table>

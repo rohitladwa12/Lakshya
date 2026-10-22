@@ -1314,13 +1314,23 @@ $fullName = getFullName();
                                             <span class="badge-simple" style="background:#fee2e2; color:#991b1b; border:1px solid #fecaca; font-size:9.5px; padding:1px 6px; font-weight:700; border-radius:3px; display:inline-flex; align-items:center; gap:4px;" title="Student declared not interested in Campus Placements (CASP Opt-Out Undertaking)">
                                                 <i class="fas fa-ban"></i> Not Interested (Opt-Out)
                                                 <?php if (!empty($stInfo['has_opt_out_pdf'])): ?>
-                                                    <a href="../student/view_undertaking.php?usn=<?php echo urlencode($sUsnUpper); ?>&type=opt_out" target="_blank" style="color:#991b1b; margin-left:3px; text-decoration:none;" title="View Non-Participation PDF"><i class="fas fa-file-pdf"></i></a>
+                                                    <form method="POST" action="../student/view_undertaking.php" target="_blank" style="display:inline; margin:0; padding:0;">
+                                                        <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
+                                                        <input type="hidden" name="usn" value="<?php echo htmlspecialchars($sUsnUpper); ?>">
+                                                        <input type="hidden" name="type" value="opt_out">
+                                                        <button type="submit" style="background:none; border:none; padding:0; margin-left:3px; color:#991b1b; cursor:pointer; font-size:10px; vertical-align:middle;" title="View Non-Participation PDF"><i class="fas fa-file-pdf"></i></button>
+                                                    </form>
                                                 <?php endif; ?>
                                             </span>
                                         <?php elseif ($stInfo && !empty($stInfo['has_policy_pdf'])): ?>
                                             <span class="badge-simple" style="background:#ecfdf5; color:#065f46; border:1px solid #a7f3d0; font-size:9.5px; padding:1px 6px; font-weight:700; border-radius:3px; display:inline-flex; align-items:center; gap:4px;" title="Student signed the CASP Placement Policy & Undertaking">
                                                 <i class="fas fa-file-signature"></i> Policy Signed
-                                                <a href="../student/view_undertaking.php?usn=<?php echo urlencode($sUsnUpper); ?>&type=policy" target="_blank" style="color:#065f46; margin-left:3px; text-decoration:none;" title="View Signed Policy PDF"><i class="fas fa-file-pdf"></i></a>
+                                                <form method="POST" action="../student/view_undertaking.php" target="_blank" style="display:inline; margin:0; padding:0;">
+                                                    <input type="hidden" name="csrf_token" value="<?php echo $_SESSION['csrf_token'] ?? ''; ?>">
+                                                    <input type="hidden" name="usn" value="<?php echo htmlspecialchars($sUsnUpper); ?>">
+                                                    <input type="hidden" name="type" value="policy">
+                                                    <button type="submit" style="background:none; border:none; padding:0; margin-left:3px; color:#065f46; cursor:pointer; font-size:10px; vertical-align:middle;" title="View Signed Policy PDF"><i class="fas fa-file-pdf"></i></button>
+                                                </form>
                                             </span>
                                         <?php endif; ?>
                                     </div>

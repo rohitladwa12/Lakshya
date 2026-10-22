@@ -52,18 +52,25 @@ class StudentProfile extends Model {
 
             $details = [];
             if ($this->remoteDB) {
-                // Query by USN/aadhar first (most reliable), fall back to enquiry_no
+                $identifiers = array_unique(array_filter([
+                    $username,
+                    $aadhar,
+                    $user['student_id_str'] ?? '',
+                    $user['id'] ?? '',
+                    $userId,
+                    $user['raw']['USER_NAME'] ?? '',
+                    $user['raw']['AADHAR'] ?? '',
+                    $user['raw']['EMP_ID'] ?? ''
+                ]));
+                $ph = implode(',', array_fill(0, count($identifiers), '?'));
+
                 $sqlDetails = "SELECT * FROM {$prefix}ad_student_details
-                               WHERE usn = ? OR student_id = ? LIMIT 1";
+                               WHERE usn IN ($ph) OR student_id IN ($ph) OR aadhar IN ($ph) LIMIT 1";
                 $stmt = $this->remoteDB->prepare($sqlDetails);
-                $stmt->execute([$username, $username]);
+                $stmt->execute(array_merge($identifiers, $identifiers, $identifiers));
                 $row = $stmt->fetch();
 
-                // Only use this row if it actually belongs to this student
-                if ($row && (
-                    strtoupper($row['usn'] ?? '') === strtoupper($username) ||
-                    strtoupper($row['student_id'] ?? '') === strtoupper($username)
-                )) {
+                if ($row) {
                     $details = $row;
                 }
             }
@@ -99,20 +106,35 @@ class StudentProfile extends Model {
             return $mapped;
         } else {
             // GMU fetching (REMOTE)
-            $sqlApproved = "SELECT * FROM {$prefix}ad_student_approved 
-                            WHERE usn = ? OR (aadhar IS NOT NULL AND aadhar = ?) 
-                            ORDER BY academic_year DESC, sem DESC LIMIT 1";
-            if (!$this->remoteDB) return $this->mapToAppProfile([], $user, [], $inst);
-            $stmtA = $this->remoteDB->prepare($sqlApproved); // REMOTE
-            $stmtA->execute([$username, $aadhar]);
-            $approved = $stmtA->fetch();
+            $identifiers = array_unique(array_filter([
+                $username,
+                $aadhar,
+                $user['student_id_str'] ?? '',
+                $user['id'] ?? '',
+                $userId,
+                $user['raw']['USER_NAME'] ?? '',
+                $user['raw']['AADHAR'] ?? '',
+                $user['raw']['ID'] ?? ''
+            ]));
+            $ph = implode(',', array_fill(0, count($identifiers), '?'));
 
-            $sqlDetails = "SELECT * FROM {$prefix}ad_student_details 
-                           WHERE usn = ? OR (aadhar IS NOT NULL AND aadhar = ?) 
-                           LIMIT 1";
+            $approved = false;
             if ($this->remoteDB) {
+                $sqlApproved = "SELECT * FROM {$prefix}ad_student_approved 
+                                WHERE usn IN ($ph) OR aadhar IN ($ph) OR student_id IN ($ph)
+                                ORDER BY academic_year DESC, sem DESC LIMIT 1";
+                $stmtA = $this->remoteDB->prepare($sqlApproved); // REMOTE
+                $stmtA->execute(array_merge($identifiers, $identifiers, $identifiers));
+                $approved = $stmtA->fetch();
+            }
+
+            $details = false;
+            if ($this->remoteDB) {
+                $sqlDetails = "SELECT * FROM {$prefix}ad_student_details 
+                               WHERE usn IN ($ph) OR aadhar IN ($ph) OR student_id IN ($ph)
+                               LIMIT 1";
                 $stmtD = $this->remoteDB->prepare($sqlDetails); // REMOTE
-                $stmtD->execute([$username, $aadhar]);
+                $stmtD->execute(array_merge($identifiers, $identifiers, $identifiers));
                 $details = $stmtD->fetch();
             }
             
@@ -297,9 +319,9 @@ class StudentProfile extends Model {
         return [
             'id' => (!empty($row['SL_NO']) ? $row['SL_NO'] : (!empty($detailsRow['enquiry_no']) ? $detailsRow['enquiry_no'] : null)),
             'user_id' => $userRow['id'] ?? ($userRow['SL_NO'] ?? null),
-            'usn' => (!empty($row['usn']) ? $row['usn'] : (!empty($detailsRow['usn']) ? $detailsRow['usn'] : ($userRow['username'] ?? null))),
-            'enrollment_number' => (!empty($row['usn']) ? $row['usn'] : (!empty($detailsRow['usn']) ? $detailsRow['usn'] : ($userRow['username'] ?? ($userRow['USER_NAME'] ?? ($userRow['EMP_ID'] ?? ($userRow['raw']['EMP_ID'] ?? null)))))),
-            'student_id' => (!empty($detailsRow['student_id']) ? $detailsRow['student_id'] : (!empty($row['student_id']) ? $row['student_id'] : ($userRow['username'] ?? ($userRow['USER_NAME'] ?? ($userRow['EMP_ID'] ?? ($userRow['raw']['EMP_ID'] ?? null)))))),
+            'usn' => (!empty($row['usn']) ? $row['usn'] : (!empty($detailsRow['usn']) ? $detailsRow['usn'] : ($userRow['student_id_str'] ?? ($userRow['raw']['ID'] ?? ($userRow['username'] ?? null))))),
+            'enrollment_number' => (!empty($row['usn']) ? $row['usn'] : (!empty($detailsRow['usn']) ? $detailsRow['usn'] : ($userRow['student_id_str'] ?? ($userRow['raw']['ID'] ?? ($userRow['username'] ?? ($userRow['USER_NAME'] ?? ($userRow['EMP_ID'] ?? ($userRow['raw']['EMP_ID'] ?? null)))))))),
+            'student_id' => (!empty($detailsRow['student_id']) ? $detailsRow['student_id'] : (!empty($row['student_id']) ? $row['student_id'] : ($userRow['student_id_str'] ?? ($userRow['raw']['ID'] ?? ($userRow['username'] ?? ($userRow['USER_NAME'] ?? ($userRow['EMP_ID'] ?? ($userRow['raw']['EMP_ID'] ?? null)))))))),
             'course' => (!empty($row['course']) ? $row['course'] : (!empty($detailsRow['course']) ? $detailsRow['course'] : ($userRow['COURSE'] ?? ($userRow['raw']['COURSE'] ?? null)))),
             'department' => (!empty($row['discipline']) ? $row['discipline'] : (!empty($row['branch']) ? $row['branch'] : (!empty($detailsRow['discipline']) ? $detailsRow['discipline'] : (!empty($detailsRow['branch']) ? $detailsRow['branch'] : ($userRow['DISCIPLINE'] ?? ($userRow['raw']['DISCIPLINE'] ?? ($userRow['raw']['branch'] ?? ($userRow['raw']['DEPT_ID'] ?? null)))))))),
             'year_of_study' => $row['year'] ?? (!empty($row['sem']) ? ceil((int)$row['sem'] / 2) : (!empty($row['semester']) ? ceil((int)$row['semester'] / 2) : null)),
@@ -313,6 +335,7 @@ class StudentProfile extends Model {
             'academic_year' => $row['academic_year'] ?? ($detailsRow['academic_year'] ?? null),
             'institution' => $institution,
             'aadhar' => $row['aadhar'] ?? ($detailsRow['aadhar'] ?? ($userRow['aadhar'] ?? null)),
+            'email' => $detailsRow['email_id'] ?? ($detailsRow['email'] ?? ($userRow['email'] ?? ($userRow['EMAIL'] ?? null))),
             
             // Expanded Personal & Demographic Fields
             'father_name' => $detailsRow['father_name'] ?? null,

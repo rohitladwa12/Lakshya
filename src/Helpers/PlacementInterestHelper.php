@@ -116,6 +116,80 @@ class PlacementInterestHelper
     }
 
     /**
+     * Check if a student has opted out (cannot opt in)
+     */
+    public static function isOptedOut(string $usn): bool
+    {
+        $usn = strtoupper(trim($usn));
+        if ($usn === '') return false;
+
+        $hasOpt = self::hasOptOutPdf($usn);
+        $hasPol = self::hasPolicyPdf($usn);
+        if ($hasOpt && $hasPol) {
+            $optTime = @filemtime(self::getOptOutPdfPath($usn)) ?: 0;
+            $polTime = @filemtime(self::getPolicyPdfPath($usn)) ?: 0;
+            return $optTime <= $polTime;
+        }
+
+        if ($hasOpt) {
+            return true;
+        }
+
+        $all = self::getAll();
+        if (isset($all[$usn])) {
+            return !empty($all[$usn]['opt_out']) || (isset($all[$usn]['interested']) && $all[$usn]['interested'] === false);
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if a student has opted in / signed placement policy (cannot opt out)
+     */
+    public static function isOptedIn(string $usn): bool
+    {
+        $usn = strtoupper(trim($usn));
+        if ($usn === '') return false;
+
+        $hasOpt = self::hasOptOutPdf($usn);
+        $hasPol = self::hasPolicyPdf($usn);
+        if ($hasOpt && $hasPol) {
+            $optTime = @filemtime(self::getOptOutPdfPath($usn)) ?: 0;
+            $polTime = @filemtime(self::getPolicyPdfPath($usn)) ?: 0;
+            return $polTime < $optTime;
+        }
+
+        if ($hasPol) {
+            return true;
+        }
+
+        $all = self::getAll();
+        if (isset($all[$usn])) {
+            return !empty($all[$usn]['interested']) && empty($all[$usn]['opt_out']);
+        }
+
+        return false;
+    }
+
+    /**
+     * Can student opt in to placement?
+     * Strictly false if already opted out.
+     */
+    public static function canOptIn(string $usn): bool
+    {
+        return !self::isOptedOut($usn);
+    }
+
+    /**
+     * Can student opt out of placement?
+     * Strictly false if already opted in / signed policy.
+     */
+    public static function canOptOut(string $usn): bool
+    {
+        return !self::isOptedIn($usn);
+    }
+
+    /**
      * Check if a student has already made a decision (asked once)
      */
     public static function hasDecision(string $usn): bool
@@ -123,49 +197,51 @@ class PlacementInterestHelper
         $usn = strtoupper(trim($usn));
         if ($usn === '') return false;
 
-        // Check if either PDF exists on disk
-        if (self::hasOptOutPdf($usn) || self::hasPolicyPdf($usn)) {
-            return true;
-        }
-
-        $all = self::getAll();
-        return isset($all[$usn]);
+        return self::isOptedOut($usn) || self::isOptedIn($usn);
     }
 
     /**
-     * Get student decision: returns true (interested), false (not interested), or null (not decided yet)
+     * Get student decision: returns true (opted-in), false (opted-out), or null (not decided yet)
      */
     public static function getDecision(string $usn): ?bool
     {
         $usn = strtoupper(trim($usn));
         if ($usn === '') return null;
 
-        if (self::hasOptOutPdf($usn)) {
+        if (self::isOptedOut($usn)) {
             return false;
         }
-        if (self::hasPolicyPdf($usn)) {
+        if (self::isOptedIn($usn)) {
             return true;
-        }
-
-        $all = self::getAll();
-        if (isset($all[$usn])) {
-            return (bool)($all[$usn]['interested'] ?? true);
         }
 
         return null;
     }
 
     /**
-     * Save student decision
+     * Save student decision with strict mutual exclusion:
+     * Once student opts out, they cannot opt in.
+     * Once student opts in, they cannot opt out.
      */
     public static function setDecision(string $usn, bool $interested, array $meta = []): bool
     {
         $usn = strtoupper(trim($usn));
         if ($usn === '') return false;
 
+        // Strict Mutual Exclusion: Prevent flipping once a decision is made
+        if ($interested && self::isOptedOut($usn)) {
+            error_log("PlacementInterestHelper: Blocked opt-in attempt for already opted-out student {$usn}");
+            return false;
+        }
+        if (!$interested && self::isOptedIn($usn)) {
+            error_log("PlacementInterestHelper: Blocked opt-out attempt for already opted-in student {$usn}");
+            return false;
+        }
+
         $all = self::getAll();
         $all[$usn] = array_merge([
             'interested' => $interested,
+            'opt_out' => !$interested,
             'status' => $interested ? 'interested' : 'opt_out',
             'updated_at' => date('Y-m-d H:i:s'),
             'ip' => $_SERVER['REMOTE_ADDR'] ?? ''
@@ -259,6 +335,15 @@ class PlacementInterestHelper
                 }
             }
         }
+
+        // Mutual exclusion resolution for any legacy students with both documents
+        foreach ($map as $u => &$item) {
+            if (!empty($item['has_opt_out_pdf']) && !empty($item['has_policy_pdf'])) {
+                $item['opt_out'] = self::isOptedOut($u);
+                $item['interested'] = self::isOptedIn($u);
+            }
+        }
+        unset($item);
 
         return $map;
     }

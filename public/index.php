@@ -53,6 +53,60 @@
           "publisher": {
             "@id": "https://gmu.ac.in/#organization"
           }
+        },
+        {
+          "@type": "FAQPage",
+          "@id": "https://leap.gmu.ac.in/Lakshya/#faq",
+          "mainEntity": [
+            {
+              "@type": "Question",
+              "name": "What is LAKSHYA at GM University?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "LAKSHYA is the official Internship & Campus Placement Portal of GM University (GMU & GMIT) in Davangere, Karnataka. It connects students with leading global recruiters, automates campus hiring drives, and provides AI-driven training and interview preparation."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How do students access the Lakshya portal?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Students of GM University and GMIT can sign in using their registered University Seat Number (USN) or student portal credentials. Once logged in, students can complete their profile, build an ATS resume, practice AI mock interviews, and apply for campus drives."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "What AI interview preparation tools does Lakshya provide?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Lakshya offers full-stack AI interview prep including Technical coding rounds, AI HR mock interviews, academic project viva prep, company-specific preparation guides, and aptitude practice engines with real-time feedback."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How does the ATS Resume Builder help students?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "The built-in ATS Resume Builder helps students create industry-standard, recruiter-ready resumes optimized for Applicant Tracking Systems (ATS), with automated scoring, keyword suggestions, and instant PDF exports."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "How can recruiters and companies partner with GM University for campus placements?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Companies and HR teams can contact the Career Advancement & Student Placements (CASP) cell via email at placement@gmu.ac.in or call +91 8310793613 / +91 9901191487 to schedule on-campus or virtual recruitment drives and hire talent."
+              }
+            },
+            {
+              "@type": "Question",
+              "name": "Are corporate internships available through Lakshya?",
+              "acceptedAnswer": {
+                "@type": "Answer",
+                "text": "Yes, Lakshya regularly hosts verified internship opportunities, summer training programs, and industry apprenticeships across engineering, computing, management, and allied fields."
+              }
+            }
+          ]
         }
       ]
     }
@@ -1946,6 +2000,118 @@
                 display: none !important;
             }
         }
+
+        /* ============================================
+           FAQ SECTION (SEO & Search Console Optimized)
+        ============================================ */
+        .faq-section {
+            padding: 120px 40px;
+            background: #ffffff;
+            border-top: 1px solid var(--border);
+            position: relative;
+        }
+
+        .faq-container {
+            max-width: 920px;
+            margin: 0 auto;
+        }
+
+        .faq-header {
+            text-align: center;
+            margin-bottom: 54px;
+        }
+
+        .faq-list {
+            display: flex;
+            flex-direction: column;
+            gap: 14px;
+        }
+
+        .faq-item {
+            background: #fafafa;
+            border: 1px solid #e5e7eb;
+            border-radius: var(--radius-sm);
+            overflow: hidden;
+            transition: all 0.3s ease;
+        }
+
+        .faq-item:hover {
+            border-color: rgba(128, 0, 0, 0.3);
+            background: #ffffff;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+        }
+
+        .faq-item[open] {
+            border-color: var(--maroon);
+            background: #ffffff;
+            box-shadow: 0 8px 24px rgba(128, 0, 0, 0.08);
+        }
+
+        .faq-question {
+            list-style: none;
+            padding: 22px 28px;
+            font-size: 1.08rem;
+            font-weight: 700;
+            color: var(--text);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            user-select: none;
+            transition: color 0.2s ease;
+        }
+
+        .faq-question::-webkit-details-marker {
+            display: none;
+        }
+
+        .faq-question:hover {
+            color: var(--maroon);
+        }
+
+        .faq-icon {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: rgba(128, 0, 0, 0.06);
+            color: var(--maroon);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.85rem;
+            flex-shrink: 0;
+            transition: transform 0.3s ease, background 0.3s ease, color 0.3s ease;
+        }
+
+        .faq-item[open] .faq-icon {
+            transform: rotate(180deg);
+            background: var(--maroon);
+            color: var(--white);
+        }
+
+        .faq-answer {
+            padding: 0 28px 24px 28px;
+            font-size: 0.98rem;
+            line-height: 1.75;
+            color: var(--text-muted);
+            border-top: 1px solid #f3f4f6;
+            padding-top: 16px;
+        }
+
+        @media (max-width: 768px) {
+            .faq-section {
+                padding: 80px 20px;
+            }
+            .faq-question {
+                padding: 18px 20px;
+                font-size: 0.98rem;
+            }
+            .faq-answer {
+                padding: 0 20px 20px 20px;
+                font-size: 0.92rem;
+            }
+        }
     </style>
 </head>
 
@@ -1969,6 +2135,7 @@
                 <li><a href="#about" class="mobile-link">Stats</a></li>
                 <li><a href="#features" class="mobile-link">Features</a></li>
                 <li><a href="#story" class="mobile-link">How it works</a></li>
+                <li><a href="#faq" class="mobile-link">FAQ</a></li>
             </ul>
 
             <!-- Divider -->
@@ -1998,6 +2165,7 @@
         <a href="#about" class="mobile-link">Stats</a>
         <a href="#features" class="mobile-link">Features</a>
         <a href="#story" class="mobile-link">How It Works</a>
+        <a href="#faq" class="mobile-link">FAQ</a>
         <a href="login" class="mobile-cta mobile-link">Sign In / Login <i class="fas fa-arrow-right" aria-hidden="true"></i></a>
     </div>
 
@@ -2249,6 +2417,79 @@
         <div class="story__scroll-space"></div>
     </section>
 
+    <!-- ============ FAQ SECTION (Search Console & Rich Snippets) ============ -->
+    <section class="faq-section" id="faq">
+        <div class="faq-container">
+            <div class="faq-header gsap-up">
+                <div class="section-label">Got Questions?</div>
+                <h2 style="font-size:clamp(2rem, 4vw, 3rem); font-weight:900; letter-spacing:-0.03em; color:var(--text); margin-bottom:14px;">Frequently Asked Questions</h2>
+                <p style="color:var(--text-muted); font-size:1.05rem; max-width:620px; margin:0 auto;">Everything you need to know about Lakshya, campus placements, AI interview prep, and corporate hiring at GM University.</p>
+            </div>
+
+            <div class="faq-list">
+                <details class="faq-item gsap-up" open>
+                    <summary class="faq-question">
+                        <span>What is LAKSHYA at GM University?</span>
+                        <span class="faq-icon" aria-hidden="true"><i class="fas fa-chevron-down"></i></span>
+                    </summary>
+                    <div class="faq-answer">
+                        LAKSHYA is the official Internship & Campus Placement Portal of GM University (GMU & GMIT) in Davangere, Karnataka. It connects students with leading global recruiters, automates campus hiring drives, and provides AI-driven training and interview preparation.
+                    </div>
+                </details>
+
+                <details class="faq-item gsap-up">
+                    <summary class="faq-question">
+                        <span>How do students access the Lakshya portal?</span>
+                        <span class="faq-icon" aria-hidden="true"><i class="fas fa-chevron-down"></i></span>
+                    </summary>
+                    <div class="faq-answer">
+                        Students of GM University and GMIT can sign in using their registered University Seat Number (USN) or student portal credentials. Once logged in, students can complete their profile, build an ATS resume, practice AI mock interviews, and apply for campus drives.
+                    </div>
+                </details>
+
+                <details class="faq-item gsap-up">
+                    <summary class="faq-question">
+                        <span>What AI interview preparation tools does Lakshya provide?</span>
+                        <span class="faq-icon" aria-hidden="true"><i class="fas fa-chevron-down"></i></span>
+                    </summary>
+                    <div class="faq-answer">
+                        Lakshya offers full-stack AI interview prep including Technical coding rounds, AI HR mock interviews, academic project viva prep, company-specific preparation guides, and aptitude practice engines with real-time feedback.
+                    </div>
+                </details>
+
+                <details class="faq-item gsap-up">
+                    <summary class="faq-question">
+                        <span>How does the ATS Resume Builder help students?</span>
+                        <span class="faq-icon" aria-hidden="true"><i class="fas fa-chevron-down"></i></span>
+                    </summary>
+                    <div class="faq-answer">
+                        The built-in ATS Resume Builder helps students create industry-standard, recruiter-ready resumes optimized for Applicant Tracking Systems (ATS), with automated scoring, keyword suggestions, and instant PDF exports.
+                    </div>
+                </details>
+
+                <details class="faq-item gsap-up">
+                    <summary class="faq-question">
+                        <span>How can recruiters and companies partner with GM University for campus placements?</span>
+                        <span class="faq-icon" aria-hidden="true"><i class="fas fa-chevron-down"></i></span>
+                    </summary>
+                    <div class="faq-answer">
+                        Companies and HR teams can contact the Career Advancement & Student Placements (CASP) cell via email at <a href="mailto:placement@gmu.ac.in" style="color:var(--maroon); font-weight:600; text-decoration:underline;">placement@gmu.ac.in</a> or call <a href="tel:+918310793613" style="color:var(--maroon); font-weight:600;">+91 8310793613</a> / <a href="tel:+919901191487" style="color:var(--maroon); font-weight:600;">+91 9901191487</a> to schedule on-campus or virtual recruitment drives and hire talent.
+                    </div>
+                </details>
+
+                <details class="faq-item gsap-up">
+                    <summary class="faq-question">
+                        <span>Are corporate internships available through Lakshya?</span>
+                        <span class="faq-icon" aria-hidden="true"><i class="fas fa-chevron-down"></i></span>
+                    </summary>
+                    <div class="faq-answer">
+                        Yes, Lakshya regularly hosts verified internship opportunities, summer training programs, and industry apprenticeships across engineering, computing, management, and allied fields.
+                    </div>
+                </details>
+            </div>
+        </div>
+    </section>
+
     <!-- ============ CTA ============ -->
     <section class="cta-section">
         <div class="cta-section__inner gsap-up">
@@ -2282,6 +2523,7 @@
                     <a href="#features">AI Interview Practice</a>
                     <a href="#features">ATS Resume Builder</a>
                     <a href="#story">How It Works</a>
+                    <a href="#faq">Frequently Asked Questions</a>
                 </div>
                 <div class="footer__col">
                     <h4>Contact</h4>

@@ -133,7 +133,8 @@ if (isPost() && isset($_POST['apply'])) {
                 if ($result['success']) {
                     $hasApplied = true;
                     if ($isExternalApply) {
-                        $message = "Your application was registered on Lakshya! Opening the company recruitment portal...";
+                        $message = "Your application was registered on Lakshya! Please complete the compulsory company website application.";
+                        $showExternalModal = true;
                         $externalRedirectUrl = $job['external_url'];
                     } else {
                         $message = $result['message'];
@@ -262,6 +263,169 @@ if (isPost() && isset($_POST['apply'])) {
 
         .divider{border:none;border-top:1px dashed var(--border);margin:16px 0;}
         .custom-q-title{font-size:13px;font-weight:700;color:var(--text-dark);margin-bottom:12px;}
+
+        /* External Application Warning Modal */
+        .ext-modal-backdrop {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.78);
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            z-index: 999999;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.25s ease, visibility 0.25s ease;
+        }
+        .ext-modal-backdrop.active {
+            opacity: 1;
+            visibility: visible;
+        }
+        .ext-modal-dialog {
+            background: #ffffff;
+            border-radius: 20px;
+            max-width: 520px;
+            width: 100%;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35), 0 0 0 1px rgba(0, 0, 0, 0.08);
+            overflow: hidden;
+            transform: scale(0.92) translateY(12px);
+            transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            text-align: center;
+            animation: modalFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .ext-modal-backdrop.active .ext-modal-dialog {
+            transform: scale(1) translateY(0);
+        }
+        @keyframes modalFadeIn {
+            from { transform: scale(0.92) translateY(16px); opacity: 0; }
+            to { transform: scale(1) translateY(0); opacity: 1; }
+        }
+        .ext-modal-header {
+            padding: 32px 28px 20px;
+            background: linear-gradient(180deg, #fffbeb 0%, #ffffff 100%);
+            border-bottom: 1px solid #fef3c7;
+            position: relative;
+        }
+        .ext-modal-icon {
+            width: 72px;
+            height: 72px;
+            margin: 0 auto 16px;
+            border-radius: 50%;
+            background: #fef3c7;
+            border: 4px solid #fde68a;
+            color: #d97706;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 32px;
+            box-shadow: 0 4px 14px rgba(217, 119, 6, 0.2);
+        }
+        .ext-modal-badge {
+            display: inline-block;
+            background: #dc2626;
+            color: #ffffff;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            padding: 4px 14px;
+            border-radius: 50px;
+            margin-bottom: 12px;
+        }
+        .ext-modal-title {
+            font-size: 21px;
+            font-weight: 800;
+            color: #0f172a;
+            line-height: 1.3;
+            margin-bottom: 8px;
+            letter-spacing: -0.02em;
+        }
+        .ext-modal-subtitle {
+            font-size: 13.5px;
+            color: #64748b;
+            line-height: 1.5;
+        }
+        .ext-modal-body {
+            padding: 22px 28px 16px;
+            text-align: left;
+        }
+        .ext-modal-warning-card {
+            background: #fef2f2;
+            border: 1.5px solid #fecaca;
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 18px;
+        }
+        .ext-modal-warning-card strong {
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            color: #991b1b;
+            font-size: 14px;
+            margin-bottom: 6px;
+        }
+        .ext-modal-warning-card p {
+            font-size: 13px;
+            color: #7f1d1d;
+            line-height: 1.65;
+            margin: 0;
+        }
+        .ext-modal-job-summary {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 12px 16px;
+            font-size: 13px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+        .ext-modal-footer {
+            padding: 10px 28px 28px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .ext-modal-btn-open {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            width: 100%;
+            padding: 14px 20px;
+            background: linear-gradient(135deg, #1e40af 0%, #2563eb 100%);
+            color: #ffffff !important;
+            border-radius: 12px;
+            font-size: 15px;
+            font-weight: 700;
+            text-decoration: none;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+            transition: all 0.2s ease;
+        }
+        .ext-modal-btn-open:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 20px rgba(37, 99, 235, 0.45);
+        }
+        .ext-modal-btn-close {
+            background: #f8fafc;
+            border: 1.5px solid #cbd5e1;
+            color: #475569;
+            padding: 12px 18px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+        .ext-modal-btn-close:hover {
+            background: #f1f5f9;
+            color: #0f172a;
+            border-color: #94a3b8;
+        }
         
     </style>
 </head>
@@ -525,12 +689,17 @@ if (isPost() && isset($_POST['apply'])) {
                     <?php if ($hasApplied): ?>
                         <div class="btn-applied-state"><i class="fas fa-check-circle"></i> Application Submitted</div>
                         <?php if (($job['application_mode'] ?? 'Internal') === 'External' && !empty($job['external_url'])): ?>
-                            <p style="text-align:center;margin-top:10px;font-size:12px;color:var(--text-muted);">
-                                You applied for this opportunity on the company portal.
-                            </p>
-                            <a href="<?php echo htmlspecialchars($job['external_url']); ?>" target="_blank" class="btn-builder" style="background:#2563eb;color:#fff;margin-top:8px;">
-                                <i class="fas fa-external-link-alt"></i> Re-open Company Portal
-                            </a>
+                            <div style="background: #fef2f2; border: 1.5px solid #fecaca; border-radius: 12px; padding: 12px; margin-top: 14px; text-align: left;">
+                                <div style="font-weight: 700; color: #991b1b; font-size: 12px; display: flex; align-items: center; gap: 6px; margin-bottom: 4px;">
+                                    <i class="fas fa-exclamation-triangle"></i> Compulsory Step
+                                </div>
+                                <div style="font-size: 11.5px; color: #7f1d1d; line-height: 1.5;">
+                                    You must compulsorily apply on the official company site. If not completed there, your application will not be considered.
+                                </div>
+                            </div>
+                            <button type="button" onclick="openExternalModal()" class="btn-builder" style="background:#2563eb;color:#fff;margin-top:10px;width:100%;cursor:pointer;border:none;">
+                                <i class="fas fa-external-link-alt"></i> Complete on Company Portal
+                            </button>
                         <?php else: ?>
                             <p style="text-align:center;margin-top:12px;font-size:13px;color:var(--text-muted);">Track your status in the Dashboard.</p>
                         <?php endif; ?>
@@ -636,12 +805,96 @@ if (isPost() && isset($_POST['apply'])) {
                             <button type="submit" name="apply" class="btn-submit"><i class="fas fa-paper-plane"></i> Submit Application</button>
                         </form>
                     <?php endif; ?>
-                </div>
             </div>
         </div>
-    <?php if (!empty($externalRedirectUrl)): ?>
+    </div>
+    </div>
+
+    <!-- External Application Compulsory Warning Modal -->
+    <?php if (($job['application_mode'] ?? 'Internal') === 'External' && !empty($job['external_url'])): ?>
+    <div class="ext-modal-backdrop <?php echo !empty($showExternalModal) ? 'active' : ''; ?>" id="externalApplyModal">
+        <div class="ext-modal-dialog">
+            <div class="ext-modal-header">
+                <div class="ext-modal-icon">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="ext-modal-badge">
+                    <i class="fas fa-bell"></i> Compulsory Step Required
+                </div>
+                <h3 class="ext-modal-title">Apply on Company Website</h3>
+                <p class="ext-modal-subtitle">Your application is logged on Lakshya. Complete the final mandatory step.</p>
+            </div>
+            
+            <div class="ext-modal-body">
+                <div class="ext-modal-warning-card">
+                    <strong>
+                        <i class="fas fa-triangle-exclamation"></i> Action Required
+                    </strong>
+                    <p>
+                        After applying in Lakshya, you <strong>MUST compulsorily apply on the official company recruitment website</strong>.
+                        If you do not submit your application on the company's portal, your application <strong>will NOT be considered or shortlisted</strong>.
+                    </p>
+                </div>
+
+                <div class="ext-modal-job-summary">
+                    <div>
+                        <div style="font-weight:700; color:#0f172a; font-size:13.5px;"><?php echo htmlspecialchars($job['title']); ?></div>
+                        <div style="color:#64748b; font-size:12px; margin-top:2px;"><i class="fas fa-building"></i> <?php echo htmlspecialchars($job['company_name']); ?></div>
+                    </div>
+                    <span style="background:#e0f2fe; color:#0369a1; padding:4px 9px; border-radius:6px; font-size:11px; font-weight:700;">External Portal</span>
+                </div>
+            </div>
+
+            <div class="ext-modal-footer">
+                <a href="<?php echo htmlspecialchars($job['external_url']); ?>" target="_blank" class="ext-modal-btn-open" id="modalOpenExternalBtn" onclick="markExternalOpened()">
+                    <span>Apply on Company Website</span>
+                    <i class="fas fa-external-link-alt"></i>
+                </a>
+                <button type="button" class="ext-modal-btn-close" onclick="closeExternalModal()">
+                    <i class="fas fa-check-circle" style="color:#059669; margin-right:4px;"></i> I Have Applied / Understood
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
-        window.open(<?php echo json_encode($externalRedirectUrl); ?>, '_blank');
+        function openExternalModal() {
+            const modal = document.getElementById('externalApplyModal');
+            if (modal) {
+                modal.classList.add('active');
+                document.body.style.overflow = 'hidden';
+            }
+        }
+        function closeExternalModal() {
+            const modal = document.getElementById('externalApplyModal');
+            if (modal) {
+                modal.classList.remove('active');
+                document.body.style.overflow = '';
+            }
+        }
+        function markExternalOpened() {
+            setTimeout(function() {
+                const btn = document.getElementById('modalOpenExternalBtn');
+                if (btn) {
+                    btn.innerHTML = '<span>Re-open Company Website</span> <i class="fas fa-external-link-alt"></i>';
+                }
+            }, 600);
+        }
+        // If modal is active on page load, lock scroll
+        if (document.getElementById('externalApplyModal') && document.getElementById('externalApplyModal').classList.contains('active')) {
+            document.body.style.overflow = 'hidden';
+        }
+        // Close on escape key
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') closeExternalModal();
+        });
+        // Close on clicking backdrop outside dialog
+        const modalBackdrop = document.getElementById('externalApplyModal');
+        if (modalBackdrop) {
+            modalBackdrop.addEventListener('click', function(e) {
+                if (e.target === this) closeExternalModal();
+            });
+        }
     </script>
     <?php endif; ?>
 </body>

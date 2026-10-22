@@ -89,7 +89,11 @@ if (php_sapi_name() !== 'cli') {
             'resume_handler',
             'resume_analysis_handler.php',
             'resume_analysis_handler',
-            'portfolio_handler.php'
+            'portfolio_handler.php',
+            'view_undertaking.php',
+            'view_undertaking',
+            'view_resume.php',
+            'view_resume'
         ];
         
         // Skip CSRF check for HOD Portal SSO when MENTOR_ID or emp_id is passed

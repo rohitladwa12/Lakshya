@@ -37,22 +37,39 @@ class User extends Model {
     // Map legacy columns to application attributes if needed, but for now we'll handle in methods
     
     /**
-     * Find user by username
+     * Find user by username, USN, or Aadhar
      */
     public function findByUsername($username) {
+        if (empty($username)) return null;
+
         $institutions = [
             INSTITUTION_GMU => DB_GMU_PREFIX,
             INSTITUTION_GMIT => DB_GMIT_PREFIX
         ];
         
+        if (is_string($username) && isGmitUsn($username)) {
+            $institutions = [
+                INSTITUTION_GMIT => DB_GMIT_PREFIX,
+                INSTITUTION_GMU => DB_GMU_PREFIX
+            ];
+        }
+
         foreach ($institutions as $inst => $prefix) {
             $remoteDB = $this->getRemoteDB();
             if (!$remoteDB) break;
 
             $table = $prefix . 'users';
-            $sql = "SELECT * FROM {$table} WHERE USER_NAME = ? LIMIT 1";
-            $stmt = $remoteDB->prepare($sql);
-            $stmt->execute([$username]);
+            if ($inst === INSTITUTION_GMU) {
+                // In GMU, student can be identified by USER_NAME, ID (USN e.g. U25E01AI048), or AADHAR
+                $sql = "SELECT * FROM {$table} WHERE USER_NAME = ? OR ID = ? OR AADHAR = ? LIMIT 1";
+                $stmt = $remoteDB->prepare($sql);
+                $stmt->execute([$username, $username, $username]);
+            } else {
+                // In GMIT, student can be identified by USER_NAME, EMP_ID (USN), or AADHAR
+                $sql = "SELECT * FROM {$table} WHERE USER_NAME = ? OR EMP_ID = ? OR AADHAR = ? LIMIT 1";
+                $stmt = $remoteDB->prepare($sql);
+                $stmt->execute([$username, $username, $username]);
+            }
             $user = $stmt->fetch();
             
             if ($user) {
@@ -71,10 +88,10 @@ class User extends Model {
     }
     
     /**
-     * Find user by ID
+     * Find user by ID, USN, or Aadhar
      */
     public function find($id, $institution = null) {
-        if ($id === null) return null;
+        if ($id === null || $id === '') return null;
 
         // Hardening: Handle array inputs gracefully to avoid "Array to string conversion" errors.
         if (is_array($id)) {
@@ -103,26 +120,26 @@ class User extends Model {
             
             $user = null;
             if ($institution === INSTITUTION_GMIT) {
-                // For GMIT, search by both Enquiry No and Username (only if numeric, otherwise only Username)
-                if (is_numeric($id)) {
+                // For GMIT, search by Enquiry No, Username, EMP_ID, or Aadhar
+                if (is_numeric($id) && strlen((string)$id) < 10) {
                     $sql = "SELECT u.*, d.name as student_name 
                             FROM {$table} u 
                             LEFT JOIN {$prefix}ad_student_details d ON u.ENQUIRY_NO = d.enquiry_no OR u.USER_NAME = d.student_id 
-                            WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
+                            WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? OR u.EMP_ID = ? OR u.AADHAR = ? LIMIT 1";
                     $stmt = $db->prepare($sql);
-                    $stmt->execute([$id, $id]);
+                    $stmt->execute([$id, $id, $id, $id]);
                 } else {
                     $sql = "SELECT u.*, d.name as student_name 
                             FROM {$table} u 
-                            LEFT JOIN {$prefix}ad_student_details d ON u.USER_NAME = d.student_id 
-                            WHERE u.USER_NAME = ? LIMIT 1";
+                            LEFT JOIN {$prefix}ad_student_details d ON u.USER_NAME = d.student_id OR u.EMP_ID = d.usn 
+                            WHERE u.USER_NAME = ? OR u.EMP_ID = ? OR u.AADHAR = ? LIMIT 1";
                     $stmt = $db->prepare($sql);
-                    $stmt->execute([$id]);
+                    $stmt->execute([$id, $id, $id]);
                 }
                 $user = $stmt->fetch();
             } else {
-                // GMU: Try numerical SL_NO first (only if numeric and short), fall back to USER_NAME
-                if (is_numeric($id) && strlen($id) < 10) {
+                // GMU: Try numerical SL_NO first (only if numeric and short to prevent numeric Aadhar false match)
+                if (is_numeric($id) && strlen((string)$id) < 10) {
                     $sql = "SELECT * FROM {$table} WHERE SL_NO = ? LIMIT 1";
                     $stmt = $db->prepare($sql);
                     $stmt->execute([$id]);
@@ -130,9 +147,9 @@ class User extends Model {
                 }
                 
                 if (!$user) {
-                    $sql = "SELECT * FROM {$table} WHERE USER_NAME = ? LIMIT 1";
+                    $sql = "SELECT * FROM {$table} WHERE USER_NAME = ? OR ID = ? OR AADHAR = ? LIMIT 1";
                     $stmt = $db->prepare($sql);
-                    $stmt->execute([$id]);
+                    $stmt->execute([$id, $id, $id]);
                     $user = $stmt->fetch();
                 }
             }
@@ -166,75 +183,76 @@ class User extends Model {
             $user = null;
             if ($inst === INSTITUTION_GMIT) {
                 try {
-                    // Optimized: Fetch user first, check ENQUIRY_NO only if numeric to prevent type conversion mismatch
-                    if (is_numeric($id)) {
-                        $sql = "SELECT u.* FROM {$table} u WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
+                    if (is_numeric($id) && strlen((string)$id) < 10) {
+                        $sql = "SELECT u.* FROM {$table} u WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? OR u.EMP_ID = ? OR u.AADHAR = ? LIMIT 1";
                         $stmt = $this->remoteDB->prepare($sql);
-                        $stmt->execute([$id, $id]);
+                        $stmt->execute([$id, $id, $id, $id]);
                     } else {
-                        $sql = "SELECT u.* FROM {$table} u WHERE u.USER_NAME = ? LIMIT 1";
+                        $sql = "SELECT u.* FROM {$table} u WHERE u.USER_NAME = ? OR u.EMP_ID = ? OR u.AADHAR = ? LIMIT 1";
                         $stmt = $this->remoteDB->prepare($sql);
-                        $stmt->execute([$id]);
+                        $stmt->execute([$id, $id, $id]);
                     }
                     $user = $stmt->fetch();
                     
                     if ($user) {
                         $enq = $user['ENQUIRY_NO'] ?? '';
                         $sid = $user['USER_NAME'] ?? '';
-                        $sqlDet = "SELECT name as student_name, discipline FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? LIMIT 1";
+                        $eid = $user['EMP_ID'] ?? '';
+                        $sqlDet = "SELECT name as student_name, discipline FROM {$prefix}ad_student_details WHERE enquiry_no = ? OR student_id = ? OR usn = ? LIMIT 1";
                         $stmtDet = $this->remoteDB->prepare($sqlDet);
-                        $stmtDet->execute([$enq, $sid]);
+                        $stmtDet->execute([$enq, $sid, $eid]);
                         $details = $stmtDet->fetch();
                         if ($details) {
                             $user = array_merge($user, $details);
                         }
                     }
                 } catch (Exception $e) {
-                    if (is_numeric($id)) {
-                        $sql = "SELECT u.* FROM {$table} u WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? LIMIT 1";
+                    if (is_numeric($id) && strlen((string)$id) < 10) {
+                        $sql = "SELECT u.* FROM {$table} u WHERE u.ENQUIRY_NO = ? OR u.USER_NAME = ? OR u.EMP_ID = ? OR u.AADHAR = ? LIMIT 1";
                         $stmt = $this->remoteDB->prepare($sql);
-                        $stmt->execute([$id, $id]);
+                        $stmt->execute([$id, $id, $id, $id]);
                     } else {
-                        $sql = "SELECT u.* FROM {$table} u WHERE u.USER_NAME = ? LIMIT 1";
+                        $sql = "SELECT u.* FROM {$table} u WHERE u.USER_NAME = ? OR u.EMP_ID = ? OR u.AADHAR = ? LIMIT 1";
                         $stmt = $this->remoteDB->prepare($sql);
-                        $stmt->execute([$id]);
+                        $stmt->execute([$id, $id, $id]);
                     }
                     $user = $stmt->fetch();
                 }
             } else {
-                // GMU: Try joining with ad_student_approved for name/discipline
+                // GMU: Try numerical SL_NO first if short numeric, otherwise search by USER_NAME, ID (USN), or AADHAR
                 try {
-                    $queryId = (is_numeric($id) && strlen($id) < 10) ? "u.{$idCol}" : "u.USER_NAME";
-                    $sql = "SELECT u.*, ad.name as student_name, ad.discipline
-                            FROM {$table} u
-                            LEFT JOIN {$prefix}ad_student_approved ad ON u.USER_NAME = ad.usn
-                            WHERE {$queryId} = ? LIMIT 1";
-                    $stmt = $this->remoteDB->prepare($sql);
-                    $stmt->execute([$id]);
-                    $user = $stmt->fetch();
-
-                    // Fallback to query USER_NAME if query by SL_NO yielded no results
-                    if (!$user && $queryId === "u.{$idCol}") {
+                    $isShortNum = (is_numeric($id) && strlen((string)$id) < 10);
+                    if ($isShortNum) {
                         $sql = "SELECT u.*, ad.name as student_name, ad.discipline
                                 FROM {$table} u
-                                LEFT JOIN {$prefix}ad_student_approved ad ON u.USER_NAME = ad.usn
-                                WHERE u.USER_NAME = ? LIMIT 1";
+                                LEFT JOIN {$prefix}ad_student_approved ad ON u.ID = ad.usn OR u.USER_NAME = ad.usn OR u.AADHAR = ad.aadhar
+                                WHERE u.SL_NO = ? LIMIT 1";
                         $stmt = $this->remoteDB->prepare($sql);
                         $stmt->execute([$id]);
                         $user = $stmt->fetch();
                     }
-                } catch (Exception $e) {
-                    // Fallback to minimal query
-                    $queryId = (is_numeric($id) && strlen($id) < 10) ? "{$idCol}" : "USER_NAME";
-                    $sql = "SELECT * FROM {$table} WHERE {$queryId} = ? LIMIT 1";
-                    $stmt = $this->remoteDB->prepare($sql);
-                    $stmt->execute([$id]);
-                    $user = $stmt->fetch();
 
-                    if (!$user && $queryId === $idCol) {
-                        $sql = "SELECT * FROM {$table} WHERE USER_NAME = ? LIMIT 1";
+                    if (!$user) {
+                        $sql = "SELECT u.*, ad.name as student_name, ad.discipline
+                                FROM {$table} u
+                                LEFT JOIN {$prefix}ad_student_approved ad ON u.ID = ad.usn OR u.USER_NAME = ad.usn OR u.AADHAR = ad.aadhar
+                                WHERE u.USER_NAME = ? OR u.ID = ? OR u.AADHAR = ? LIMIT 1";
+                        $stmt = $this->remoteDB->prepare($sql);
+                        $stmt->execute([$id, $id, $id]);
+                        $user = $stmt->fetch();
+                    }
+                } catch (Exception $e) {
+                    $isShortNum = (is_numeric($id) && strlen((string)$id) < 10);
+                    if ($isShortNum) {
+                        $sql = "SELECT * FROM {$table} WHERE SL_NO = ? LIMIT 1";
                         $stmt = $this->remoteDB->prepare($sql);
                         $stmt->execute([$id]);
+                        $user = $stmt->fetch();
+                    }
+                    if (!$user) {
+                        $sql = "SELECT * FROM {$table} WHERE USER_NAME = ? OR ID = ? OR AADHAR = ? LIMIT 1";
+                        $stmt = $this->remoteDB->prepare($sql);
+                        $stmt->execute([$id, $id, $id]);
                         $user = $stmt->fetch();
                     }
                 }
@@ -408,15 +426,15 @@ class User extends Model {
 
             $table = $prefix . 'users';
             
-            // GMU allows USN or Aadhar; GMIT uses Username only
+            // GMU allows USN (ID), USER_NAME, or Aadhar; GMIT allows Username, EMP_ID, or Aadhar
             if ($inst === INSTITUTION_GMIT) {
-                $sqlUser = "SELECT * FROM {$table} WHERE USER_NAME = ? AND STATUS = 'ACTIVE' LIMIT 1";
+                $sqlUser = "SELECT * FROM {$table} WHERE (USER_NAME = ? OR EMP_ID = ? OR AADHAR = ?) AND STATUS = 'ACTIVE' LIMIT 1";
                 $stmt = $this->remoteDB->prepare($sqlUser);
-                $stmt->execute([$username]);
+                $stmt->execute([$username, $username, $username]);
             } else {
-                $sqlUser = "SELECT * FROM {$table} WHERE (USER_NAME = ? OR AADHAR = ?) AND STATUS = 'ACTIVE' LIMIT 1";
+                $sqlUser = "SELECT * FROM {$table} WHERE (USER_NAME = ? OR ID = ? OR AADHAR = ?) AND STATUS = 'ACTIVE' LIMIT 1";
                 $stmt = $this->remoteDB->prepare($sqlUser);
-                $stmt->execute([$username, $username]);
+                $stmt->execute([$username, $username, $username]);
             }
             $user = $stmt->fetch();
             

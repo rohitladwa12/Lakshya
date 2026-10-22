@@ -76,6 +76,18 @@ try {
     error_log("Error in officer dashboard metadata query: " . $e->getMessage());
 }
 
+// Fetch CASP Placement Policy & Undertaking statistics
+require_once ROOT_PATH . '/src/Helpers/PlacementInterestHelper.php';
+$caspStatusMap = \App\Helpers\PlacementInterestHelper::getStatusMap();
+$caspSignedCount = 0;
+$caspOptOutCount = 0;
+$caspPendingCount = 0;
+foreach ($caspStatusMap as $u => $item) {
+    if (!empty($item['opt_out'])) $caspOptOutCount++;
+    elseif (!empty($item['has_policy_pdf'])) $caspSignedCount++;
+    elseif (!empty($item['interested'])) $caspPendingCount++;
+}
+
 // Chart Data (Yearly placements)
 $chartLabels = ['2021', '2022', '2023', '2024', '2025'];
 $chartPlacements = [420, 510, 630, 780, 890];
@@ -293,7 +305,7 @@ $todayFormatted = date('l, d M Y');
         /* Executive Metrics Grid */
         .kpi-grid {
             display: grid;
-            grid-template-columns: repeat(4, 1fr);
+            grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
             gap: 18px;
             margin-bottom: 24px;
         }
@@ -750,6 +762,9 @@ $todayFormatted = date('l, d M Y');
             <div class="date-chip">
                 <i class="far fa-calendar-alt"></i> <?php echo $todayFormatted; ?>
             </div>
+            <a href="casp_undertakings.php" class="erp-btn erp-btn-secondary" style="border-color:#A7F3D0; color:#065F46;">
+                <i class="fas fa-file-contract"></i> CASP Undertakings
+            </a>
             <a href="campus_drives.php" class="erp-btn erp-btn-secondary">
                 <i class="fas fa-calendar-check"></i> Campus Drives
             </a>
@@ -826,6 +841,18 @@ $todayFormatted = date('l, d M Y');
             <div class="kpi-card__value"><?php echo number_format($stats['total_companies']); ?></div>
             <div class="kpi-card__subtext">Active corporate recruiters</div>
         </div>
+
+        <!-- 5. CASP Undertakings -->
+        <a href="casp_undertakings.php" class="kpi-card" style="text-decoration: none; border-left: 3px solid #059669; transition: transform 0.15s;">
+            <div class="kpi-card__top">
+                <span class="kpi-card__label" style="color: #065F46;">CASP Policy Signed</span>
+                <div class="kpi-card__icon" style="background:#ECFDF5; color:#059669;"><i class="fas fa-file-signature"></i></div>
+            </div>
+            <div class="kpi-card__value" style="color: #065F46;"><?php echo number_format($caspSignedCount); ?></div>
+            <div class="kpi-card__subtext">
+                <span style="color:#DC2626; font-weight:600;"><?php echo $caspOptOutCount; ?> Opted Out</span> &bull; <?php echo $caspPendingCount; ?> Pending &rarr;
+            </div>
+        </a>
     </div>
 
     <!-- Main Two-Column Layout -->
@@ -1008,6 +1035,10 @@ $todayFormatted = date('l, d M Y');
                 </div>
                 <div class="erp-card__body" style="padding: 16px;">
                     <div class="tools-grid">
+                        <a href="casp_undertakings.php" class="tool-btn" style="border-color: #A7F3D0; background: #ECFDF5;">
+                            <i class="fas fa-file-contract" style="color: #059669;"></i>
+                            <span style="font-weight: 700; color: #065F46;">CASP Undertakings</span>
+                        </a>
                         <a href="attendance.php" class="tool-btn">
                             <i class="fas fa-user-check"></i>
                             <span>Mark Attendance</span>

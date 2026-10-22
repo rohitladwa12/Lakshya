@@ -6,9 +6,10 @@
 
 require_once __DIR__ . '/../../config/bootstrap.php';
 
-// 1. Get requested USN and token from URL
-$requestedUsn = isset($_GET['usn']) ? preg_replace('/[^a-zA-Z0-9_-]/', '', $_GET['usn']) : '';
-$token = isset($_GET['token']) ? trim($_GET['token']) : '';
+// 1. Get requested USN and token from URL or POST body
+$rawUsn = $_POST['usn'] ?? ($_GET['usn'] ?? '');
+$requestedUsn = preg_replace('/[^a-zA-Z0-9_-]/', '', trim((string)$rawUsn));
+$token = trim((string)($_POST['token'] ?? ($_GET['token'] ?? '')));
 
 if (empty($requestedUsn)) {
     http_response_code(400);
@@ -86,8 +87,8 @@ if (!$canAccess) {
 }
 
 // 4. Locate the file
-$requestedPath = isset($_GET['path']) ? $_GET['path'] : '';
-$requestedType = isset($_GET['type']) ? $_GET['type'] : 'Resume';
+$requestedPath = $_POST['path'] ?? ($_GET['path'] ?? '');
+$requestedType = $_POST['type'] ?? ($_GET['type'] ?? 'Resume');
 $filePath = '';
 $fileName = '';
 

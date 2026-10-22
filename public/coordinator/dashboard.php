@@ -476,6 +476,12 @@ if (!empty($discipline_filters)) {
                 <div class="action-title">Live Student Monitor</div>
                 <div class="action-desc">Real-time student portal activity and online monitoring</div>
             </a>
+
+            <a href="casp_undertakings.php" class="action-card">
+                <div class="action-icon" style="color:#059669;"><i class="fas fa-file-contract"></i></div>
+                <div class="action-title">CASP Undertakings</div>
+                <div class="action-desc">Verify student placement policy signatures &amp; opt-out declarations</div>
+            </a>
         </div>
 
         <!-- Section 3: Performance & Placements -->

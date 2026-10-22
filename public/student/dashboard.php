@@ -29,8 +29,26 @@ if (isPost() && isset($_POST['action']) && $_POST['action'] === 'refresh_cache')
 // Handle placement interest decision from modal prompt (No extra DB table)
 if (isPost() && isset($_POST['action']) && $_POST['action'] === 'save_placement_interest') {
     require_once ROOT_PATH . '/src/Helpers/PlacementInterestHelper.php';
-    $interested = isset($_POST['interested']) && ($_POST['interested'] === '1' || $_POST['interested'] === 'true' || $_POST['interested'] === 1);
     $currentUsn = getUsername();
+
+    // Check if decision is already made (strict mutual exclusion)
+    $existingDecision = \App\Helpers\PlacementInterestHelper::getDecision($currentUsn);
+    if ($existingDecision !== null) {
+        if (isAjax()) {
+            header('Content-Type: application/json');
+            echo json_encode([
+                'success' => false,
+                'locked' => true,
+                'message' => 'Your placement decision is final and cannot be modified.',
+                'interested' => $existingDecision,
+                'redirect' => $existingDecision ? 'casp_policy_undertaking.php' : 'casp_opt_out_undertaking.php'
+            ]);
+            exit;
+        }
+        redirect($existingDecision ? 'casp_policy_undertaking.php' : 'casp_opt_out_undertaking.php');
+    }
+
+    $interested = isset($_POST['interested']) && ($_POST['interested'] === '1' || $_POST['interested'] === 'true' || $_POST['interested'] === 1);
     \App\Helpers\PlacementInterestHelper::setDecision($currentUsn, $interested, [
         'user_id' => getUserId(),
         'source' => 'dashboard_popup'
@@ -3193,6 +3211,48 @@ $dailyQuote = $_SESSION['grind_quote'];
                 </div>
                 <?php
             else: ?>
+                <?php
+                $isPolicyPending = \App\Helpers\PlacementInterestHelper::isOptedIn($username) && !\App\Helpers\PlacementInterestHelper::hasPolicyPdf($username);
+                $isOptOutPending = \App\Helpers\PlacementInterestHelper::isOptedOut($username) && !\App\Helpers\PlacementInterestHelper::hasOptOutPdf($username);
+                ?>
+                <?php if ($isPolicyPending): ?>
+                    <!-- PLACEMENT POLICY UNDERTAKING PENDING BANNER -->
+                    <div class="policy-alert-banner"
+                        style="background: linear-gradient(135deg, #065f46 0%, #047857 100%); color: white; padding: 18px 24px; border-radius: 18px; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 10px 25px rgba(5,150,105,0.22); flex-wrap: wrap; gap: 14px;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="width: 44px; height: 44px; background: rgba(255,255,255,0.18); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;">
+                                <i class="fas fa-file-signature"></i>
+                            </div>
+                            <div>
+                                <h4 style="margin:0; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.3px;">Action Required: Placement Policy &amp; Undertaking Pending</h4>
+                                <p style="margin: 4px 0 0; opacity: 0.92; font-size: 0.88rem;">You have opted to participate in campus placements. Please draw your digital signature and submit your undertaking to be eligible for placement drives.</p>
+                            </div>
+                        </div>
+                        <a href="casp_policy_undertaking.php"
+                            style="background: #ffffff; color: #065f46; font-weight: 800; padding: 11px 22px; border-radius: 12px; text-decoration: none; font-size: 0.88rem; transition: 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.15); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;">
+                            <i class="fas fa-pen-nib"></i> Sign Undertaking Now
+                        </a>
+                    </div>
+                <?php elseif ($isOptOutPending): ?>
+                    <!-- PLACEMENT OPT-OUT UNDERTAKING PENDING BANNER -->
+                    <div class="policy-alert-banner"
+                        style="background: linear-gradient(135deg, #991b1b 0%, #7f1d1d 100%); color: white; padding: 18px 24px; border-radius: 18px; margin-bottom: 1.5rem; display: flex; align-items: center; justify-content: space-between; box-shadow: 0 10px 25px rgba(153,27,27,0.22); flex-wrap: wrap; gap: 14px;">
+                        <div style="display: flex; align-items: center; gap: 14px;">
+                            <div style="width: 44px; height: 44px; background: rgba(255,255,255,0.18); border-radius: 12px; display: flex; align-items: center; justify-content: center; font-size: 22px; flex-shrink: 0;">
+                                <i class="fas fa-ban"></i>
+                            </div>
+                            <div>
+                                <h4 style="margin:0; font-weight: 800; font-size: 1.05rem; letter-spacing: 0.3px;">Placement Opt-Out Undertaking Incomplete</h4>
+                                <p style="margin: 4px 0 0; opacity: 0.92; font-size: 0.88rem;">You have chosen to opt out of campus placements. Please complete and submit your official Non-Participation Undertaking to finalize your decision.</p>
+                            </div>
+                        </div>
+                        <a href="casp_opt_out_undertaking.php"
+                            style="background: #ffffff; color: #991b1b; font-weight: 800; padding: 11px 22px; border-radius: 12px; text-decoration: none; font-size: 0.88rem; transition: 0.2s; box-shadow: 0 4px 10px rgba(0,0,0,0.15); display: inline-flex; align-items: center; gap: 8px; white-space: nowrap;">
+                            <i class="fas fa-file-contract"></i> Complete Opt-Out Form
+                        </a>
+                    </div>
+                <?php endif; ?>
+
                 <!-- COMPULSORY RESUME NOTIFICATION -->
                 <?php if (!$hasResume): ?>
                     <div class="resume-alert-banner"

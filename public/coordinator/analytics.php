@@ -16,7 +16,7 @@ requireRole(ROLE_DEPT_COORDINATOR);
 $pageId = 'coordinator_analytics';
 
 // Handle POST (Filters, Reset, Export Request)
-if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
     if (isset($_POST['reset_filters'])) {
         SessionFilterHelper::clearFilters($pageId);
     } else {
@@ -236,6 +236,8 @@ if (!empty($studentIds)) {
             
             $sDet['task_title'] = $task['title'];
             $sDet['assigned_at'] = $task['created_at'];
+            $sDet['deadline'] = $task['deadline'] ?? null;
+            $sDet['resolved_sem'] = ($sDet['semester'] ?? null) ?: ($semOf[$ru] ?? '-');
 
             $isExpired = strtotime($task['deadline']) < time();
             
@@ -283,6 +285,624 @@ if (!empty($studentIds)) {
         // Consume export triggers from the SESSION copy (GET-injected missed_pdf/type
         // were never stored there, so this must not write local overrides back).
         SessionFilterHelper::setFilters($pageId, array_diff_key(SessionFilterHelper::getFilters($pageId), ['export'=>1, 'pdf'=>1, 'missed_pdf'=>1, 'type'=>1]));
+        
+        // Dedicated Missed Students Export (when triggered from modal [Download Missed List])
+        if ($isMissedOnly) {
+            $taskGroup = $tasksDataMap[$pendingType] ?? null;
+            $taskTitle = $taskGroup ? $taskGroup['title'] : (ucfirst($pendingType ?? 'Assessment') . ' Tasks');
+            $missedItems = [];
+            if ($taskGroup) {
+                foreach ($taskGroup['missed_list'] as $m) {
+                    $m['status_label'] = 'MISSED';
+                    $missedItems[] = $m;
+                }
+                foreach ($taskGroup['pending_list'] as $p) {
+                    $p['status_label'] = 'PENDING';
+                    $missedItems[] = $p;
+                }
+            } else if (!empty($tasksDataMap)) {
+                foreach ($tasksDataMap as $tGroup) {
+                    foreach ($tGroup['missed_list'] as $m) {
+                        $m['status_label'] = 'MISSED';
+                        $missedItems[] = $m;
+                    }
+                    foreach ($tGroup['pending_list'] as $p) {
+                        $p['status_label'] = 'PENDING';
+                        $missedItems[] = $p;
+                    }
+                }
+            }
+
+            // Group by Student, then for each student group tasks chronologically by assigned date
+            $studentGrouped = [];
+            foreach ($missedItems as $item) {
+                $usn = $item['usn'];
+                if (!isset($studentGrouped[$usn])) {
+                    $studentGrouped[$usn] = [
+                        'info' => $item,
+                        'total' => 0,
+                        'dates' => []
+                    ];
+                }
+                $studentGrouped[$usn]['total']++;
+                $dKey = !empty($item['assigned_at']) ? date('Y-m-d', strtotime($item['assigned_at'])) : 'Unknown';
+                $studentGrouped[$usn]['dates'][$dKey][] = $item;
+            }
+
+            // Sort students alphabetically by name
+            uasort($studentGrouped, function ($a, $b) {
+                return strcmp($a['info']['name'], $b['info']['name']);
+            });
+
+            // Sort each student's dates descending (most recent first)
+            foreach ($studentGrouped as &$sData) {
+                krsort($sData['dates']);
+            }
+            unset($sData);
+
+            if (!$isPdf) {
+                ob_clean();
+                header('Content-Type: application/vnd.ms-excel');
+                header('Content-Disposition: attachment; filename="missed_' . preg_replace('/[^a-zA-Z0-9_-]/', '_', $pendingType ?: 'tasks') . '_' . date('Y-m-d') . '.xls"');
+                echo '<html><head><meta http-equiv="Content-Type" content="text/html; charset=utf-8"></head><body>';
+                ?>
+                <table border="1" cellspacing="0" cellpadding="6">
+                    <thead>
+                        <tr style="background:#800000; color:#ffffff; font-weight:bold;">
+                            <th>#</th>
+                            <th>USN</th>
+                            <th>Student Name</th>
+                            <th>Institution</th>
+                            <th>Department</th>
+                            <th>Semester</th>
+                            <th>Assigned Date</th>
+                            <th>Assessment Title</th>
+                            <th>Submission Deadline</th>
+                            <th>Status</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php 
+                        $sl = 1;
+                        foreach ($studentGrouped as $usn => $sData): 
+                            $sInfo = $sData['info'];
+                            foreach ($sData['dates'] as $dateKey => $tasksOnDate):
+                                $dateFormatted = ($dateKey !== 'Unknown') ? date('d M Y', strtotime($dateKey)) : '-';
+                                foreach ($tasksOnDate as $item):
+                        ?>
+                            <tr>
+                                <td><?php echo $sl++; ?></td>
+                                <td><?php echo htmlspecialchars($usn); ?></td>
+                                <td><?php echo htmlspecialchars($sInfo['name']); ?></td>
+                                <td><?php echo htmlspecialchars($sInfo['institution'] ?? '-'); ?></td>
+                                <td><?php echo htmlspecialchars($sInfo['department'] ?? '-'); ?></td>
+                                <td><?php echo htmlspecialchars($sInfo['resolved_sem'] ?? ($sInfo['semester'] ?? '-')); ?></td>
+                                <td><?php echo $dateFormatted; ?></td>
+                                <td><?php echo htmlspecialchars($item['task_title']); ?></td>
+                                <td><?php echo !empty($item['deadline']) ? date('d M Y, h:i A', strtotime($item['deadline'])) : '-'; ?></td>
+                                <td><?php echo htmlspecialchars($item['status_label']); ?></td>
+                            </tr>
+                        <?php 
+                                endforeach;
+                            endforeach;
+                        endforeach; 
+                        ?>
+                    </tbody>
+                </table>
+                </body></html>
+                <?php
+                exit;
+            }
+            ?>
+            <!DOCTYPE html>
+            <html lang="en">
+            <head>
+                <link rel='icon' type='image/png' href='<?php echo APP_URL; ?>/assets/img/favicon.png'>
+                <meta charset="UTF-8">
+                <title>Missed Assessments Report - <?php echo htmlspecialchars($taskTitle); ?></title>
+                <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+                <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+                <style>
+                    @page {
+                        size: A4;
+                        margin: 12mm 15mm;
+                    }
+                    @media print {
+                        body {
+                            background: #ffffff !important;
+                            color: #000000 !important;
+                            padding: 0 !important;
+                            font-size: 9.5pt;
+                        }
+                        .no-print {
+                            display: none !important;
+                        }
+                        .report-container {
+                            box-shadow: none !important;
+                            padding: 0 !important;
+                            border: none !important;
+                            border-radius: 0 !important;
+                            max-width: 100% !important;
+                        }
+                        .page-break {
+                            page-break-before: always;
+                        }
+                        .keep-together {
+                            break-inside: avoid;
+                            page-break-inside: avoid;
+                        }
+                    }
+
+                    * { margin: 0; padding: 0; box-sizing: border-box; }
+                    body {
+                        font-family: 'Outfit', 'Inter', sans-serif;
+                        color: #1e293b;
+                        background: #f1f5f9;
+                        padding: 24px;
+                        line-height: 1.45;
+                    }
+
+                    .report-container {
+                        max-width: 210mm;
+                        margin: 0 auto;
+                        background: #ffffff;
+                        padding: 30px 36px;
+                        border-radius: 12px;
+                        box-shadow: 0 8px 30px rgba(0,0,0,0.06);
+                    }
+
+                    .no-print-bar {
+                        display: flex;
+                        justify-content: space-between;
+                        background: #f8fafc;
+                        border: 1px solid #e2e8f0;
+                        padding: 12px 20px;
+                        border-radius: 10px;
+                        margin-bottom: 24px;
+                        align-items: center;
+                    }
+
+                    .print-btn {
+                        background: #800000;
+                        color: #ffffff;
+                        border: none;
+                        padding: 9px 20px;
+                        border-radius: 6px;
+                        font-weight: 700;
+                        font-size: 13px;
+                        cursor: pointer;
+                        font-family: inherit;
+                        display: inline-flex;
+                        align-items: center;
+                        gap: 8px;
+                        transition: background 0.15s;
+                    }
+                    .print-btn:hover { background: #600000; }
+                    .close-btn {
+                        background: #64748b;
+                        color: #ffffff;
+                        border: none;
+                        padding: 9px 18px;
+                        border-radius: 6px;
+                        font-weight: 600;
+                        font-size: 13px;
+                        cursor: pointer;
+                        font-family: inherit;
+                    }
+                    .close-btn:hover { background: #475569; }
+
+                    /* Official Header */
+                    .report-header {
+                        border-bottom: 3px double #800000;
+                        padding-bottom: 18px;
+                        margin-bottom: 24px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: flex-start;
+                        gap: 20px;
+                    }
+
+                    .header-brand .portal-tag {
+                        font-size: 9pt;
+                        font-weight: 800;
+                        color: #800000;
+                        letter-spacing: 1.5px;
+                        text-transform: uppercase;
+                        margin-bottom: 4px;
+                    }
+
+                    .header-brand h1 {
+                        font-size: 19pt;
+                        font-weight: 800;
+                        color: #0f172a;
+                        letter-spacing: -0.3px;
+                        line-height: 1.2;
+                    }
+
+                    .header-brand .sub-title {
+                        font-size: 11pt;
+                        font-weight: 600;
+                        color: #475569;
+                        margin-top: 4px;
+                    }
+
+                    .metadata-card {
+                        background: #f8fafc;
+                        border: 1px solid #e2e8f0;
+                        border-radius: 8px;
+                        padding: 10px 14px;
+                        font-size: 8.5pt;
+                        color: #475569;
+                        min-width: 240px;
+                        line-height: 1.6;
+                    }
+                    .metadata-card strong { color: #0f172a; }
+
+                    /* KPI Cards */
+                    .summary-grid {
+                        display: grid;
+                        grid-template-columns: repeat(4, 1fr);
+                        gap: 12px;
+                        margin-bottom: 26px;
+                    }
+
+                    .summary-card {
+                        border: 1px solid #e2e8f0;
+                        background: #fcfdfe;
+                        padding: 12px 14px;
+                        border-radius: 8px;
+                        text-align: center;
+                    }
+
+                    .summary-card .label {
+                        font-size: 8pt;
+                        font-weight: 700;
+                        text-transform: uppercase;
+                        color: #64748b;
+                        letter-spacing: 0.5px;
+                    }
+
+                    .summary-card .value {
+                        font-size: 18pt;
+                        font-weight: 800;
+                        color: #800000;
+                        margin-top: 4px;
+                    }
+
+                    .summary-card .subtext {
+                        font-size: 8pt;
+                        color: #64748b;
+                        margin-top: 2px;
+                    }
+
+                    /* Student Sections */
+                    .student-block {
+                        border: 1px solid #e2e8f0;
+                        border-radius: 8px;
+                        margin-bottom: 14px;
+                        overflow: hidden;
+                    }
+
+                    .student-bar {
+                        background: #f8fafc;
+                        border-left: 4px solid #800000;
+                        padding: 10px 14px;
+                        display: flex;
+                        justify-content: space-between;
+                        align-items: center;
+                        gap: 12px;
+                    }
+
+                    .student-title {
+                        display: flex;
+                        align-items: center;
+                        gap: 10px;
+                        flex-wrap: wrap;
+                    }
+
+                    .student-idx {
+                        font-weight: 800;
+                        color: #800000;
+                        font-size: 11pt;
+                        min-width: 24px;
+                    }
+
+                    .student-name {
+                        font-weight: 700;
+                        color: #0f172a;
+                        font-size: 10.5pt;
+                    }
+
+                    .student-usn {
+                        font-weight: 800;
+                        color: #800000;
+                        font-size: 10pt;
+                        letter-spacing: 0.5px;
+                        background: #fdf2f2;
+                        padding: 2px 8px;
+                        border-radius: 4px;
+                        border: 1px solid #fecaca;
+                    }
+
+                    .student-meta {
+                        font-size: 8.5pt;
+                        color: #64748b;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                    }
+
+                    .badge-count {
+                        background: #fee2e2;
+                        color: #991b1b;
+                        padding: 3px 10px;
+                        border-radius: 12px;
+                        font-size: 8pt;
+                        font-weight: 700;
+                        letter-spacing: 0.3px;
+                        white-space: nowrap;
+                    }
+
+                    /* Tasks Table inside Student */
+                    table.tasks-table {
+                        width: 100%;
+                        border-collapse: collapse;
+                        font-size: 8.5pt;
+                    }
+
+                    table.tasks-table th {
+                        background: #ffffff;
+                        color: #64748b;
+                        font-weight: 700;
+                        text-transform: uppercase;
+                        font-size: 7.5pt;
+                        letter-spacing: 0.5px;
+                        padding: 8px 12px;
+                        border-top: 1px solid #e2e8f0;
+                        border-bottom: 1px solid #e2e8f0;
+                        text-align: left;
+                    }
+
+                    table.tasks-table td {
+                        padding: 9px 12px;
+                        border-bottom: 1px solid #f1f5f9;
+                        color: #334155;
+                    }
+
+                    table.tasks-table tr:last-child td {
+                        border-bottom: none;
+                    }
+
+                    .date-text {
+                        font-weight: 600;
+                        color: #0f172a;
+                        white-space: nowrap;
+                    }
+
+                    .task-text {
+                        font-weight: 600;
+                        color: #1e293b;
+                    }
+
+                    .deadline-text {
+                        color: #64748b;
+                        white-space: nowrap;
+                        font-size: 8pt;
+                    }
+
+                    .badge-missed {
+                        background: #fee2e2;
+                        color: #991b1b;
+                        padding: 2px 8px;
+                        border-radius: 4px;
+                        font-size: 7.5pt;
+                        font-weight: 800;
+                        letter-spacing: 0.5px;
+                        display: inline-block;
+                    }
+
+                    .badge-pending {
+                        background: #fef3c7;
+                        color: #92400e;
+                        padding: 2px 8px;
+                        border-radius: 4px;
+                        font-size: 7.5pt;
+                        font-weight: 800;
+                        letter-spacing: 0.5px;
+                        display: inline-block;
+                    }
+
+                    /* Signature Authorization Blocks */
+                    .signature-block {
+                        margin-top: 45px;
+                        display: flex;
+                        justify-content: space-between;
+                        font-size: 8.5pt;
+                        color: #475569;
+                        padding-top: 20px;
+                        border-top: 1px solid #e2e8f0;
+                    }
+
+                    .sig-line {
+                        width: 160px;
+                        border-top: 1.5px solid #64748b;
+                        margin-bottom: 6px;
+                    }
+
+                    .report-footer {
+                        margin-top: 25px;
+                        text-align: center;
+                        font-size: 7.5pt;
+                        color: #94a3b8;
+                        border-top: 1px dashed #e2e8f0;
+                        padding-top: 10px;
+                    }
+                </style>
+            </head>
+            <body>
+                <div class="report-container">
+                    <!-- Screen Action Bar -->
+                    <div class="no-print-bar no-print">
+                        <div style="font-size: 13px; font-weight: 600; color: #1e293b;">
+                            <i class="fas fa-file-pdf" style="color: #800000; margin-right: 6px;"></i>
+                            Missed Assessment Deficiency Report • Grouped by Student & Date
+                        </div>
+                        <div style="display: flex; gap: 10px;">
+                            <button class="print-btn" onclick="window.print()">
+                                <i class="fas fa-print"></i> Print / Save as PDF
+                            </button>
+                            <button class="close-btn" onclick="window.close()">Close</button>
+                        </div>
+                    </div>
+
+                    <!-- Official Document Header -->
+                    <header class="report-header">
+                        <div class="header-brand">
+                            <div class="portal-tag">Lakshya Training & Placement Portal</div>
+                            <h1>Missed Assessments Report</h1>
+                            <div class="sub-title"><?php echo htmlspecialchars($taskTitle); ?></div>
+                        </div>
+                        <div class="metadata-card">
+                            <div><strong>Department:</strong> <?php echo htmlspecialchars($deptLabel); ?></div>
+                            <div><strong>Coordinator:</strong> <?php echo htmlspecialchars($fullName); ?></div>
+                            <div><strong>Institution:</strong> <?php echo strtoupper($instFilter); ?></div>
+                            <div><strong>Generated:</strong> <?php echo date('d M Y, h:i A'); ?></div>
+                        </div>
+                    </header>
+
+                    <!-- Executive KPI Summary Cards -->
+                    <div class="summary-grid">
+                        <div class="summary-card">
+                            <div class="label">Defaulter Students</div>
+                            <div class="value"><?php echo count($studentGrouped); ?></div>
+                            <div class="subtext">Students with incomplete tasks</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="label">Total Tasks Missed</div>
+                            <div class="value"><?php echo count($missedItems); ?></div>
+                            <div class="subtext">Cumulative missed instances</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="label">Assessment Type</div>
+                            <div class="value" style="font-size: 15pt; color: #0f172a; margin-top: 6px;">
+                                <?php echo ucfirst($pendingType ?: 'General'); ?>
+                            </div>
+                            <div class="subtext">Category scope</div>
+                        </div>
+                        <div class="summary-card">
+                            <div class="label">Audit Status</div>
+                            <div class="value" style="font-size: 14pt; color: #b91c1c; margin-top: 6px;">
+                                Action Required
+                            </div>
+                            <div class="subtext">Department Review</div>
+                        </div>
+                    </div>
+
+                    <!-- Student Defaulter Roster Grouped by Date -->
+                    <div class="roster-section">
+                        <?php if (empty($studentGrouped)): ?>
+                            <div style="text-align: center; padding: 40px; color: #64748b; background: #f8fafc; border-radius: 8px; border: 1px dashed #cbd5e1;">
+                                <i class="fas fa-check-circle" style="font-size: 32px; color: #16a34a; margin-bottom: 10px; display: block;"></i>
+                                <strong style="font-size: 14px; color: #0f172a;">No Defaulters Found</strong>
+                                <p style="font-size: 12px; margin-top: 4px;">All assigned students have successfully completed their <?php echo ucfirst($pendingType ?: ''); ?> assessments.</p>
+                            </div>
+                        <?php else: ?>
+                            <?php 
+                            $idx = 1;
+                            foreach ($studentGrouped as $usn => $sData): 
+                                $sInfo = $sData['info'];
+                            ?>
+                                <div class="student-block keep-together">
+                                    <div class="student-bar">
+                                        <div class="student-title">
+                                            <span class="student-idx">#<?php echo $idx++; ?></span>
+                                            <span class="student-name"><?php echo htmlspecialchars($sInfo['name']); ?></span>
+                                            <span class="student-usn"><?php echo htmlspecialchars($usn); ?></span>
+                                        </div>
+                                        <div class="student-meta">
+                                            <span><?php echo htmlspecialchars($sInfo['institution'] ?? '-'); ?></span>
+                                            <span>•</span>
+                                            <span><?php echo htmlspecialchars($sInfo['department'] ?? '-'); ?></span>
+                                            <span>•</span>
+                                            <span>Sem <?php echo htmlspecialchars($sInfo['resolved_sem'] ?? ($sInfo['semester'] ?? '-')); ?></span>
+                                            <span class="badge-count"><?php echo $sData['total']; ?> Missed</span>
+                                        </div>
+                                    </div>
+
+                                    <table class="tasks-table">
+                                        <thead>
+                                            <tr>
+                                                <th style="width: 140px;">Assigned Date</th>
+                                                <th>Assessment / Task Title</th>
+                                                <th style="width: 180px;">Submission Deadline</th>
+                                                <th style="width: 100px; text-align: center;">Status</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <?php 
+                                            foreach ($sData['dates'] as $dateKey => $tasksOnDate):
+                                                $dateFormatted = ($dateKey !== 'Unknown') ? date('d M Y', strtotime($dateKey)) : 'No Date';
+                                                foreach ($tasksOnDate as $item):
+                                            ?>
+                                                <tr>
+                                                    <td class="date-text">
+                                                        <i class="far fa-calendar-alt" style="color: #800000; margin-right: 5px;"></i>
+                                                        <?php echo $dateFormatted; ?>
+                                                    </td>
+                                                    <td class="task-text">
+                                                        <?php echo htmlspecialchars($item['task_title']); ?>
+                                                    </td>
+                                                    <td class="deadline-text">
+                                                        <i class="far fa-clock" style="margin-right: 4px;"></i>
+                                                        <?php echo !empty($item['deadline']) ? date('d M Y, h:i A', strtotime($item['deadline'])) : '-'; ?>
+                                                    </td>
+                                                    <td style="text-align: center;">
+                                                        <?php if ($item['status_label'] === 'MISSED'): ?>
+                                                            <span class="badge-missed">MISSED</span>
+                                                        <?php else: ?>
+                                                            <span class="badge-pending">PENDING</span>
+                                                        <?php endif; ?>
+                                                    </td>
+                                                </tr>
+                                            <?php 
+                                                endforeach;
+                                            endforeach; 
+                                            ?>
+                                        </tbody>
+                                    </table>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+
+                    <!-- Authorization Signatures -->
+                    <div class="signature-block keep-together">
+                        <div>
+                            <div class="sig-line"></div>
+                            <div style="font-weight: 700; color: #0f172a;">Department Coordinator</div>
+                            <div style="font-size: 8pt; color: #64748b;"><?php echo htmlspecialchars($fullName); ?></div>
+                        </div>
+                        <div>
+                            <div class="sig-line"></div>
+                            <div style="font-weight: 700; color: #0f172a;">Head of Department</div>
+                            <div style="font-size: 8pt; color: #64748b;">Department of <?php echo htmlspecialchars($deptLabel); ?></div>
+                        </div>
+                        <div>
+                            <div class="sig-line"></div>
+                            <div style="font-weight: 700; color: #0f172a;">Placement & Training Officer</div>
+                            <div style="font-size: 8pt; color: #64748b;">Central T&P Cell</div>
+                        </div>
+                    </div>
+
+                    <div class="report-footer">
+                        CONFIDENTIAL DOCUMENT • Generated via Lakshya Placement & Training Automation System • <?php echo date('Y'); ?>
+                    </div>
+                </div>
+            </body>
+            </html>
+            <?php
+            exit;
+        }
         
         if (!$isPdf) {
             ob_clean();
@@ -353,11 +973,8 @@ if (!empty($studentIds)) {
             <body>
                 <button class="print-btn" onclick="window.print()">Print / Save as PDF</button>
                 <div class="report-header">
-                    <h1><?php echo $isMissedOnly ? "Missed Students Report" : "Department Analytics Report"; ?></h1>
+                    <h1>Department Analytics Report</h1>
                     <p>Generated on <?php echo date('d M Y'); ?> for <?php echo htmlspecialchars($deptLabel); ?></p>
-                    <?php if ($isMissedOnly && $pendingType): ?>
-                        <p style="font-weight: 700; color: #dc2626;">Filter: Only Missed <?php echo ucfirst($pendingType); ?> Tasks</p>
-                    <?php endif; ?>
                     <p>Total Students: <?php echo $studentCount; ?> | Date: <?php echo date('d M Y'); ?></p>
                 </div>
 
@@ -444,20 +1061,6 @@ if (!empty($studentIds)) {
             <tbody>
                 <?php foreach ($students as $s): 
                     $usn = $s['usn'];
-                    
-                    // If Missed Only mode, skip students who have completed the task
-                    if ($isMissedOnly && $pendingType) {
-                        $isMissed = false;
-                        // Check both pending and missed lists as both are "not completed"
-                        $combinedMissing = array_merge($tasksDataMap[$pendingType]['pending_list'] ?? [], $tasksDataMap[$pendingType]['missed_list'] ?? []);
-                        foreach ($combinedMissing as $pl) {
-                            if ($pl['usn'] === $usn) {
-                                $isMissed = true;
-                                break;
-                            }
-                        }
-                        if (!$isMissed) continue;
-                    }
 
                     $displaySem = ($s['semester'] ?? null) ?: ($gmitSems[$usn] ?? '-');
                     $deptName = $s['department'] ?? '-';
