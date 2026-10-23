@@ -6,47 +6,8 @@
 
 require_once __DIR__ . '/../config/bootstrap.php';
 
-$mentorId = '';
-if (isset($_REQUEST['emp_id'])) {
-    $mentorId = trim((string)$_REQUEST['emp_id']);
-} elseif (isset($_REQUEST['MENTOR_ID'])) {
-    $mentorId = trim((string)$_REQUEST['MENTOR_ID']);
-} elseif (isset($_REQUEST['mentor_id'])) {
-    $mentorId = trim((string)$_REQUEST['mentor_id']);
-}
-
-if (!empty($mentorId)) {
-    $remoteDB = getDB('gmu');
-    if ($remoteDB) {
-        $stmt = $remoteDB->prepare("SELECT * FROM users WHERE ID = ? AND STATUS = 'ACTIVE' LIMIT 1");
-        $stmt->execute([$mentorId]);
-        $userRow = $stmt->fetch();
-        
-        if ($userRow) {
-            $department = trim((string)($userRow['DISCIPLINE'] ?? ''));
-            if (empty($department)) {
-                 $department = 'CSE';
-            }
-            $photo = $userRow['PHOTO'] ?? null;
-            $role = 'hod';
-            
-            Session::setUser(
-                $userRow['SL_NO'],
-                $userRow['USER_NAME'],
-                $role,
-                $userRow['NAME'] ?? $userRow['USER_NAME'],
-                'GMU',
-                $department,
-                $photo
-            );
-            
-            trackActivity('erp_auto_login', 'HOD logged in via ERP MENTOR_ID link from login page', [
-                'mentor_id' => $mentorId,
-                'department' => $department
-            ]);
-        }
-    }
-}
+// ERP HOD single sign-on (?MENTOR_ID= / ?emp_id=): see attemptHodSsoLogin() in functions.php
+attemptHodSsoLogin();
 
 // If already logged in, redirect to appropriate dashboard
 if (isLoggedIn()) {

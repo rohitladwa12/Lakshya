@@ -34,7 +34,7 @@ $baseVaultDir = realpath(__DIR__ . '/../../storage/proctor_vault');
 $targetPath   = realpath(__DIR__ . '/../../' . $event['snapshot_path']);
 
 // Path traversal defense
-if (!$targetPath || strpos($targetPath, $baseVaultDir) !== 0 || !file_exists($targetPath)) {
+if (!$baseVaultDir || !$targetPath || strpos($targetPath, $baseVaultDir . DIRECTORY_SEPARATOR) !== 0 || !is_file($targetPath)) {
     http_response_code(403);
     die('Access to the requested evidence is forbidden.');
 }

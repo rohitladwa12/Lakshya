@@ -6,8 +6,9 @@
 require_once __DIR__ . '/../../config/bootstrap.php';
 require_once __DIR__ . '/../../src/Services/AIService.php';
 
-if (php_sapi_name() !== 'cli' && (!isset($_GET['run']) || $_GET['run'] !== 'secret123')) {
-    die("Access Denied.");
+// Maintenance script: command line, or a logged-in administrator (no secret in the URL)
+if (php_sapi_name() !== 'cli') {
+    requireRole(ROLE_ADMIN);
 }
 
 header('Content-Type: text/plain');

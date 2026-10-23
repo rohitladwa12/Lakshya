@@ -115,12 +115,18 @@ class ProctoringEngine {
         }
 
         this._token    = sessionData.token;
+        // A resumed session already has sequence numbers used; continue after them or the
+        // server rejects every report as out-of-order
+        this._seq      = Number(sessionData.last_seq) || 0;
         this._settings = sessionData.config || {};
         if (this._settings.tau_smoothing_ms) this._tauMs = this._settings.tau_smoothing_ms;
         if (this._settings.device_enter_confidence) this._deviceState.enter_thresh = this._settings.device_enter_confidence;
         if (this._settings.device_exit_confidence) this._deviceState.exit_thresh = this._settings.device_exit_confidence;
 
         this._injectUI();
+        if (sessionData.resumed) {
+            this._updateRiskDisplay(sessionData.suspicion_score || 0, sessionData.strike_count || 0, sessionData.penalty_pct || 0);
+        }
 
         if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
             const isSecure = window.isSecureContext !== false;
@@ -486,16 +492,19 @@ class ProctoringEngine {
         const deltaTMs = this._lastFrameTime > 0 ? (now - this._lastFrameTime) : 1500;
         this._lastFrameTime = now;
 
-        const detections = await this._detectFaces();
+        const rawDetections = await this._detectFaces();
         // No frame yet or detector still (re)loading — skip rather than report a false NO_FACE
-        if (detections === null) return;
+        if (rawDetections === null) return;
         const lum = this._getFrameLuminance();
+        // Drop weak / tiny / duplicate detections (posters, reflections, double boxes on one face)
+        const detections = this._filterRealFaces(rawDetections);
         const faceCount = detections.length;
 
         // 1. Lighting / Scene Quality Gate (Non-punitive)
         if (lum < 20) {
             this._setPreviewStatusIndicator('warning');
-            if (this._canReport('LOW_LIGHT', 10000)) {
+            // Reported every ~4.5 s so the server can tell a covered lens (black for 10 s) from a dim room
+            if (this._canReport('LOW_LIGHT', 4000)) {
                 await this._reportObservation('OCCLUSION_SAMPLE', 0, 0.95, null, {
                     scene_luminance: Number(lum.toFixed(1)),
                     face_count: faceCount,
@@ -507,16 +516,22 @@ class ProctoringEngine {
 
         // 2. Multi-Face Presence → MULTI_FACE (matches admin dashboard label)
         if (faceCount > 1) {
+            // Must be seen on two consecutive checks (~3 s) before it is reported
+            this._multiFaceFrames = (this._multiFaceFrames || 0) + 1;
+            if (this._multiFaceFrames < 2) return;
             this._setPreviewStatusIndicator('warning');
             if (this._canReport('MULTI_FACE', 4000)) {
                 const snapshot = this._captureSnapshot();
-                await this._reportObservation('MULTI_FACE', 2000, 0.95, snapshot, {
+                const scores = detections.map(d => Number((d.score || 0).toFixed(2)));
+                await this._reportObservation('MULTI_FACE', 2000, Math.min(...scores), snapshot, {
                     face_count: faceCount,
+                    face_scores: scores,
                     scene_luminance: Number(lum.toFixed(1))
                 });
             }
             return;
         }
+        this._multiFaceFrames = 0;
 
         // 3. Unattended Station (Face Absence) → NO_FACE/UNATTENDED_STATION
         if (faceCount === 0) {
@@ -549,7 +564,8 @@ class ProctoringEngine {
             if (!this._devicePresenceStartTime) this._devicePresenceStartTime = now;
             const devDurationMs = now - this._devicePresenceStartTime;
 
-            if (devDurationMs >= 3000 && this._canReport('PROHIBITED_DEVICE_DETECTED', 5000)) {
+            // Heuristic only: logged for review (never a strike), so report rarely
+            if (devDurationMs >= 3000 && this._canReport('PROHIBITED_DEVICE_DETECTED', 20000)) {
                 const snapshot = this._captureSnapshot();
                 await this._reportObservation('PROHIBITED_DEVICE_DETECTED', devDurationMs, phoneScore, snapshot, {
                     class: 'cell_phone',
@@ -740,6 +756,39 @@ class ProctoringEngine {
         this._setPreviewStatusIndicator(sustainedDeviation ? 'deviated' : 'normal');
     }
 
+    /**
+     * Keeps only plausible real faces: score >= 0.75, box at least 8% of frame width, and not
+     * overlapping an already-kept (higher scoring) face by more than 30% (duplicate boxes).
+     * The best face is always kept so a single weak detection still counts as "a face".
+     */
+    _filterRealFaces(detections) {
+        if (!detections || detections.length <= 1) return detections;
+        const boxOf = d => {
+            const b = d.boundingBox;
+            return b ? { x: b.originX, y: b.originY, w: b.width, h: b.height } : null;
+        };
+        const frameW = this._canvasEl ? this._canvasEl.width : 320;
+        const sorted = [...detections].sort((a, b) => (b.score || 0) - (a.score || 0));
+        const kept = [sorted[0]];
+        for (let i = 1; i < sorted.length; i++) {
+            const d = sorted[i];
+            const box = boxOf(d);
+            if ((d.score || 0) < 0.75) continue;
+            if (box && box.w < frameW * 0.08) continue;
+            let duplicate = false;
+            for (const k of kept) {
+                const kb = boxOf(k);
+                if (!box || !kb) continue;
+                const ix = Math.max(0, Math.min(box.x + box.w, kb.x + kb.w) - Math.max(box.x, kb.x));
+                const iy = Math.max(0, Math.min(box.y + box.h, kb.y + kb.h) - Math.max(box.y, kb.y));
+                const smaller = Math.min(box.w * box.h, kb.w * kb.h) || 1;
+                if ((ix * iy) / smaller > 0.30) { duplicate = true; break; }
+            }
+            if (!duplicate) kept.push(d);
+        }
+        return kept;
+    }
+
     /** Pushes a sample into a 3-frame history and returns the per-key median */
     _medianOf(history, sample, keys) {
         history.push(sample);
@@ -899,7 +948,9 @@ class ProctoringEngine {
 
         // INSTANT 0ms BLINK-OF-AN-EYE SNAPSHOT CAPTURE
         // Capture snapshot frame synchronously in memory BEFORE network latency
-        const instantSnapshot = snapshotBase64 || this._captureSnapshot();
+        // Routine samples carry no evidence, so don't capture/upload a picture for them
+        const noSnapshot = eventType === 'CLEAN_FRAME' || eventType === 'CALIBRATION_ENROLLMENT';
+        const instantSnapshot = snapshotBase64 || (noSnapshot ? null : this._captureSnapshot());
 
         this._seq++;
         try {

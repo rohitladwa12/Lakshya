@@ -148,7 +148,7 @@ $institution = Session::get('institution');
 $leapUrl = defined('APP_URL') ? APP_URL : 'http://leap.gmu.ac.in/Lakshya';
 
 // Shared secret key — must match login.php on tutor side
-define('SSO_SECRET', 'gmu_tutor_sso_secret_key_2026');
+define('SSO_SECRET', getenv('TUTOR_SSO_SECRET') ?: 'gmu_tutor_sso_secret_key_2026');
 
 // Build signed payload
 $payload = base64_encode(json_encode([

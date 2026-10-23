@@ -28,8 +28,13 @@ class ProctoringService
     const THRESHOLD_FACE_OCCLUSION_MS      = 4000; // 4.0s sustained face landmark occlusion
     const THRESHOLD_HIGH_CONF_DEV_OCC_MS   = 3000; // 3.0s correlated device + face occlusion
 
-    // Temporal continuity gap threshold (unambiguous constant)
-    const TEMPORAL_CONTINUITY_GAP_MS = 4000; // 4.0s gap tolerance
+    const THRESHOLD_CAMERA_BLOCKED_MS      = 10000; // 10s of a (near) black frame = lens covered
+    const CAMERA_BLOCKED_LUMINANCE         = 8.0;   // a covered lens reads ~0-5; a dim room stays above this
+
+    // Temporal continuity gap: the client throttles each signal to one report per 4-5 s and
+    // checks every 1.5 s, so consecutive reports arrive 4.5-6 s apart. The gap must be larger
+    // than that or every report restarts the timer and no sustained strike can ever fire.
+    const TEMPORAL_CONTINUITY_GAP_MS = 8000;
 
     // Heartbeat timing thresholds in seconds
     const HEARTBEAT_NORMAL_WINDOW_SEC = 15;
@@ -83,33 +88,61 @@ class ProctoringService
             @mkdir($tempDir, 0755, true);
         }
 
-        // Layer 1: IP rate limit (60 requests per 10 seconds)
-        $ipHash = md5('ip_' . $ip);
-        $ipFile = $tempDir . '/' . $ipHash . '.json';
-        $ipData = @file_get_contents($ipFile);
-        $ipHits = $ipData ? json_decode($ipData, true) : [];
-        $ipHits = array_filter($ipHits, fn($t) => ($now - $t) < 10.0);
-        if (count($ipHits) >= 60) {
+        // Occasionally remove stale counter files (one per token would otherwise pile up)
+        if (random_int(1, 200) === 1) {
+            foreach (@glob($tempDir . '/*.json') ?: [] as $f) {
+                if ($now - (@filemtime($f) ?: $now) > 3600) @unlink($f);
+            }
+        }
+
+        // Layer 1: per-IP ceiling. Many students share one public IP (college lab behind NAT, 100+
+        // students), so this is only a flood guard: generous with a session token, and still
+        // roomy without one so a whole lab can press Start together.
+        $ipLimit = !empty($sessionToken) ? 2000 : 300;
+        if (!self::rateLimitHit($tempDir . '/' . md5('ip_' . $ip . ($sessionToken === '' || $sessionToken === null ? '_n' : '_t')) . '.json', $now, 10.0, $ipLimit)) {
             return ['allowed' => false, 'error' => 'IP rate limit exceeded. Please wait.', 'retry_after' => 10];
         }
-        $ipHits[] = $now;
-        @file_put_contents($ipFile, json_encode($ipHits), LOCK_EX);
 
-        // Layer 2: Per-session rate limit (10 requests per 2 seconds)
+        // Layer 2: per-session limit (10 requests per 2 seconds) — the real per-student protection
         if (!empty($sessionToken)) {
-            $sessHash = md5('sess_' . $sessionToken);
-            $sessFile = $tempDir . '/' . $sessHash . '.json';
-            $sessData = @file_get_contents($sessFile);
-            $sessHits = $sessData ? json_decode($sessData, true) : [];
-            $sessHits = array_filter($sessHits, fn($t) => ($now - $t) < 2.0);
-            if (count($sessHits) >= 10) {
+            if (!self::rateLimitHit($tempDir . '/' . md5('sess_' . $sessionToken) . '.json', $now, 2.0, 10)) {
                 return ['allowed' => false, 'error' => 'Telemetry rate limit exceeded (session burst).', 'retry_after' => 2];
             }
-            $sessHits[] = $now;
-            @file_put_contents($sessFile, json_encode($sessHits), LOCK_EX);
         }
 
         return ['allowed' => true];
+    }
+
+    /** Sliding-window counter in a file, read-modify-write under one exclusive lock. */
+    private static function rateLimitHit($file, $now, $windowSec, $max)
+    {
+        $fh = @fopen($file, 'c+');
+        if (!$fh) return true; // never block students because the temp dir is unwritable
+        $allowed = true;
+        if (flock($fh, LOCK_EX)) {
+            $raw = stream_get_contents($fh);
+            $hits = $raw ? json_decode($raw, true) : [];
+            $hits = is_array($hits) ? array_values(array_filter($hits, fn($t) => ($now - $t) < $windowSec)) : [];
+            if (count($hits) >= $max) {
+                $allowed = false;
+            } else {
+                $hits[] = $now;
+                ftruncate($fh, 0);
+                rewind($fh);
+                fwrite($fh, json_encode($hits));
+            }
+            flock($fh, LOCK_UN);
+        }
+        fclose($fh);
+        return $allowed;
+    }
+
+    /** Only known assessment types are accepted; the client can't pick its own tolerances. */
+    public static function normalizeAssessmentType($type)
+    {
+        $type = strtolower(trim((string)$type));
+        $known = ['aptitude', 'technical', 'coding', 'hr', 'general', 'mock_ai_interview', 'project_viva', 'skill_quiz'];
+        return in_array($type, $known, true) ? $type : 'general';
     }
 
     /**
@@ -118,6 +151,42 @@ class ProctoringService
     public static function createSession($studentId, $assessmentId, $assessmentType = 'general')
     {
         $db = getDB();
+        $assessmentType = self::normalizeAssessmentType($assessmentType);
+
+        // Reload / re-open must not wipe strikes: resume this student's unfinished session for
+        // the same assessment (last 3 h, including a terminated one) instead of starting at 0.
+        $stmtOpen = $db->prepare("
+            SELECT * FROM `proctor_sessions`
+            WHERE `student_id` = ? AND `assessment_id` = ? AND `assessment_type` = ?
+              AND `status` <> 'completed' AND `created_at` >= (NOW() - INTERVAL 3 HOUR)
+            ORDER BY `created_at` DESC LIMIT 1
+        ");
+        $stmtOpen->execute([(string)$studentId, (int)$assessmentId, $assessmentType]);
+        $open = $stmtOpen->fetch(PDO::FETCH_ASSOC);
+        if ($open) {
+            if ($open['status'] !== 'terminated') {
+                $db->prepare("UPDATE `proctor_sessions` SET `status` = 'active', `interrupted_at` = NULL,
+                              `reconnect_deadline_at` = NULL, `last_heartbeat_at` = NOW() WHERE `id` = ?")
+                   ->execute([$open['id']]);
+            }
+            // Heartbeat-logged events also use sequence numbers, so resume after the highest one used
+            $stmtMax = $db->prepare("SELECT COALESCE(MAX(`sequence_id`), 0) FROM `assessment_integrity_events` WHERE `session_token` = ?");
+            $stmtMax->execute([$open['session_token']]);
+            $maxSeq = max((int)$open['last_seq'], (int)$stmtMax->fetchColumn());
+
+            return [
+                'success'         => true,
+                'token'           => $open['session_token'],
+                'config'          => self::getClientConfig($assessmentType),
+                'resumed'         => true,
+                'status'          => $open['status'] === 'terminated' ? 'terminated' : 'active',
+                'last_seq'        => $maxSeq,
+                'strike_count'    => (int)$open['strike_count'],
+                'penalty_pct'     => (float)$open['penalty_pct'],
+                'suspicion_score' => (float)$open['suspicion_score']
+            ];
+        }
+
         $sessionToken = bin2hex(random_bytes(32));
 
         $stmt = $db->prepare("
@@ -180,7 +249,7 @@ class ProctoringService
         // Head-pose tolerances. Reading the lower part of a laptop screen tilts the head
         // ~10-15° below the camera's line of sight, so the downward limit must sit well past
         // that. Coding rounds also involve looking at the keyboard while typing.
-        $isCoding = in_array(strtolower((string) $assessmentType), ['technical', 'coding'], true);
+        $isCoding = in_array(self::normalizeAssessmentType($assessmentType), ['technical', 'coding'], true);
         $downwardPitchDeg = $isCoding ? 30.0 : 22.0;
         $downwardMs       = $isCoding ? 15000 : 8000;
 
@@ -253,7 +322,10 @@ class ProctoringService
         $db->beginTransaction();
 
         try {
-            $stmt = $db->prepare("SELECT * FROM `proctor_sessions` WHERE `session_token` = ? FOR UPDATE");
+            // Gap measured by the database clock (same clock that wrote last_heartbeat_at), so a
+            // PHP/MySQL timezone difference can't turn a normal heartbeat into a huge "gap"
+            $stmt = $db->prepare("SELECT *, TIMESTAMPDIFF(SECOND, `last_heartbeat_at`, NOW()) AS `gap_sec`
+                                  FROM `proctor_sessions` WHERE `session_token` = ? FOR UPDATE");
             $stmt->execute([$sessionToken]);
             $session = $stmt->fetch(PDO::FETCH_ASSOC);
 
@@ -267,67 +339,56 @@ class ProctoringService
                 return ['success' => true, 'action' => 'terminate', 'status' => 'terminated', 'message' => 'Session terminated.'];
             }
 
-            $lastSeq = (int)$session['last_seq'];
-            if ($seq <= $lastSeq) {
+            // A finished attempt takes no more telemetry
+            if ($session['status'] === 'completed') {
                 $db->rollBack();
-                return ['success' => false, 'error' => 'Duplicate or out-of-order sequence ID.'];
+                return ['success' => true, 'action' => 'continue', 'status' => 'completed'];
             }
 
-            $lastHeartbeat = $session['last_heartbeat_at'] ? strtotime($session['last_heartbeat_at']) : $nowTime;
-            $gapSec = max(0, $nowTime - $lastHeartbeat);
+            // Heartbeats don't need ordering: the client's counter is shared with observations,
+            // so a heartbeat overtaking an observation must not make the observation "out of order".
+            // Observation ordering is enforced in recordObservation.
 
-            $newStatus = $session['status'];
-            $interruptedAt = $session['interrupted_at'];
-            $reconnectDeadline = $session['reconnect_deadline_at'];
+            $gapSec = $session['gap_sec'] !== null ? max(0, (int)$session['gap_sec']) : 0;
+            $newStatus = 'active';
 
             if ($gapSec <= self::HEARTBEAT_NORMAL_WINDOW_SEC) {
                 $newStatus = 'active';
-                $interruptedAt = null;
-                $reconnectDeadline = null;
             } elseif ($gapSec <= self::HEARTBEAT_GRACE_WINDOW_SEC) {
                 $newStatus = 'grace';
             } else {
-                if ($session['status'] !== 'interrupted') {
-                    $newStatus = 'interrupted';
-                    $interruptedAt = date('Y-m-d H:i:s', $nowTime);
-                    $reconnectDeadline = date('Y-m-d H:i:s', $nowTime + self::HEARTBEAT_RECONNECT_MAX_SEC);
+                // Contact was lost for longer than normal and has just resumed. Short drops are
+                // logged as low severity; a drop longer than the reconnect window (30 s + 120 s)
+                // is logged HIGH so the coordinator reviews what happened in the gap.
+                $longDrop = $gapSec > (self::HEARTBEAT_GRACE_WINDOW_SEC + self::HEARTBEAT_RECONNECT_MAX_SEC);
+                self::logHeartbeatEvent($db, $session, $sessionToken, $studentId, $seq,
+                    $longDrop ? 'LONG_DISCONNECT' : 'NETWORK_INTERRUPTION',
+                    $longDrop ? 'HIGH' : 'LOW',
+                    $gapSec, ['heartbeat_gap_sec' => $gapSec]);
+            }
 
-                    $stmtLog = $db->prepare("
-                        INSERT INTO `assessment_integrity_events`
-                        (`student_id`, `portfolio_id`, `session_token`, `assessment_type`, `event_type`, `sequence_id`, `duration`, `duration_ms`, `confidence`, `severity`, `metadata`, `review_status`, `is_authoritative_strike`, `created_at`)
-                        VALUES (?, ?, ?, ?, 'NETWORK_INTERRUPTION', ?, ?, ?, 1.0, 'LOW', ?, 'pending', 0, NOW())
-                    ");
-                    $stmtLog->execute([
-                        $studentId,
-                        (int)$session['assessment_id'],
-                        $sessionToken,
-                        $session['assessment_type'],
-                        $seq,
-                        $gapSec,
-                        $gapSec * 1000,
-                        json_encode(['heartbeat_gap_sec' => $gapSec, 'reconnect_deadline' => $reconnectDeadline])
-                    ]);
-                } else {
-                    if ($reconnectDeadline && strtotime($reconnectDeadline) >= $nowTime) {
-                        $newStatus = 'active';
-                        $interruptedAt = null;
-                        $reconnectDeadline = null;
-                    } else {
-                        $newStatus = 'terminated';
-                    }
+            // The browser reports its own state with each heartbeat; a stopped camera is logged
+            // for review (at most once a minute) instead of being ignored
+            if (array_key_exists('camera_active', $clientData) && $clientData['camera_active'] === false) {
+                $recent = $db->prepare("SELECT COUNT(*) FROM `assessment_integrity_events`
+                                        WHERE `session_token` = ? AND `event_type` = 'CAMERA_LOST'
+                                          AND `created_at` >= (NOW() - INTERVAL 60 SECOND)");
+                $recent->execute([$sessionToken]);
+                if ((int)$recent->fetchColumn() === 0) {
+                    self::logHeartbeatEvent($db, $session, $sessionToken, $studentId, $seq,
+                        'CAMERA_LOST', 'MEDIUM', 0, ['camera_active' => false]);
                 }
             }
 
             $stmtUpdate = $db->prepare("
                 UPDATE `proctor_sessions`
-                SET `last_seq` = ?,
-                    `status` = ?,
-                    `interrupted_at` = ?,
-                    `reconnect_deadline_at` = ?,
+                SET `status` = ?,
+                    `interrupted_at` = NULL,
+                    `reconnect_deadline_at` = NULL,
                     `last_heartbeat_at` = NOW()
                 WHERE `id` = ?
             ");
-            $stmtUpdate->execute([$seq, $newStatus, $interruptedAt, $reconnectDeadline, $session['id']]);
+            $stmtUpdate->execute([$newStatus, $session['id']]);
 
             $db->commit();
 
@@ -347,6 +408,28 @@ class ProctoringService
             }
             return ['success' => false, 'error' => 'Database error during heartbeat processing'];
         }
+    }
+
+    /** Non-strike audit entry written from the heartbeat path (review only). */
+    private static function logHeartbeatEvent(PDO $db, array $session, $sessionToken, $studentId, $seq, $eventType, $severity, $gapSec, array $meta)
+    {
+        $stmtLog = $db->prepare("
+            INSERT INTO `assessment_integrity_events`
+            (`student_id`, `portfolio_id`, `session_token`, `assessment_type`, `event_type`, `sequence_id`, `duration`, `duration_ms`, `confidence`, `severity`, `metadata`, `review_status`, `is_authoritative_strike`, `created_at`)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1.0, ?, ?, 'pending', 0, NOW())
+        ");
+        $stmtLog->execute([
+            $studentId,
+            (int)$session['assessment_id'],
+            $sessionToken,
+            $session['assessment_type'],
+            $eventType,
+            $seq,
+            $gapSec,
+            $gapSec * 1000,
+            $severity,
+            json_encode($meta)
+        ]);
     }
 
     /**
@@ -406,10 +489,25 @@ class ProctoringService
                 ];
             }
 
-            $lastSeq = (int)$session['last_seq'];
-            if ($seq <= $lastSeq) {
+            // A finished attempt takes no more telemetry (a late event must not re-open or terminate it)
+            if ($session['status'] === 'completed') {
                 $db->rollBack();
-                return ['success' => false, 'error' => 'Sequence violation: duplicate or out-of-order telemetry rejected.'];
+                return ['success' => true, 'action' => 'continue', 'message' => 'Assessment already completed.',
+                        'strike_count' => (int)$session['strike_count'], 'penalty_pct' => (float)$session['penalty_pct']];
+            }
+
+            // Replay protection: each sequence number may be used once. Two requests in flight can
+            // arrive in either order, so "must be higher than the last one" would drop real events
+            // (e.g. a tab-switch strike overtaken by a heartbeat); a used-number check does not.
+            if ($seq <= 0) {
+                $db->rollBack();
+                return ['success' => false, 'error' => 'Invalid sequence ID.'];
+            }
+            $stmtDup = $db->prepare("SELECT 1 FROM `assessment_integrity_events` WHERE `session_token` = ? AND `sequence_id` = ? LIMIT 1");
+            $stmtDup->execute([$sessionToken, $seq]);
+            if ($stmtDup->fetchColumn()) {
+                $db->rollBack();
+                return ['success' => false, 'error' => 'Sequence violation: duplicate telemetry rejected.'];
             }
 
             // 3. Server-Calculated Temporal State & Multi-Signal Cross-Correlation Engine
@@ -423,9 +521,11 @@ class ProctoringService
             $evidenceScore     = $evalResult['evidence_score'];
             $correlatedContext = $evalResult['correlated_context'];
 
-            // 4. Secure Evidence Vault Storage (if snapshot provided)
+            // 4. Secure Evidence Vault Storage. Only frames that are evidence: routine clean frames,
+            // enrollment, dim-light and "still suspected" samples would just fill the disk with
+            // pictures of a student who did nothing wrong.
             $snapshotInfo = null;
-            if (!empty($snapshotBase64)) {
+            if (!empty($snapshotBase64) && !in_array($evalResult['current_state'], ['NORMAL', 'ENROLLED', 'LOW_QUALITY', 'SUSPECTED'], true)) {
                 $snapshotInfo = self::saveSnapshotToVault($snapshotBase64, $sessionToken, $establishedEvent);
             }
 
@@ -501,7 +601,7 @@ class ProctoringService
             // 7. Update Session State Atomically
             $stmtUpdate = $db->prepare("
                 UPDATE `proctor_sessions`
-                SET `last_seq` = ?,
+                SET `last_seq` = GREATEST(`last_seq`, ?),
                     `suspicion_score` = ?,
                     `strike_count` = ?,
                     `warnings_issued` = ?,
@@ -541,7 +641,8 @@ class ProctoringService
             if ($db->inTransaction()) {
                 $db->rollBack();
             }
-            return ['success' => false, 'error' => 'Database error during observation processing: ' . $e->getMessage()];
+            error_log('[Proctoring] recordObservation failed: ' . $e->getMessage());
+            return ['success' => false, 'error' => 'Database error during observation processing'];
         }
     }
 
@@ -652,6 +753,23 @@ class ProctoringService
                     'is_strike' => false, 'server_elapsed_ms' => 0, 'suspicion_delta' => 0.0, 'severity' => 'LOW',
                     'current_state' => 'NORMAL', 'reason' => 'Candidate filtered by confidence threshold',
                     'established_event' => 'OBJECT_FILTERED', 'evidence_score' => 0.0, 'correlated_context' => ['conf' => $devConf]
+                ];
+            }
+
+            // Only a real object detector may issue a device strike. The browser's brightness
+            // heuristic also fires on white paper, lamps and bright clothes, so its reports are
+            // logged for coordinator review and never count as a strike.
+            if (($metadata['detection_method'] ?? '') !== 'object_detector') {
+                return [
+                    'is_strike'          => false,
+                    'server_elapsed_ms'  => (int)($metadata['duration_ms'] ?? 0),
+                    'suspicion_delta'    => 2.0,
+                    'severity'           => 'LOW',
+                    'current_state'      => 'REVIEW',
+                    'reason'             => 'Possible bright object / device (heuristic) — review snapshot',
+                    'established_event'  => 'DEVICE_HEURISTIC_REVIEW',
+                    'evidence_score'     => round($devConf * 0.5, 2),
+                    'correlated_context' => ['class' => $devClass, 'conf' => $devConf, 'method' => $metadata['detection_method'] ?? 'unknown']
                 ];
             }
 
@@ -849,6 +967,40 @@ class ProctoringService
             $faceCount  = (int)($metadata['face_count'] ?? 0);
             $occRatio   = (float)($metadata['weighted_occlusion_ratio'] ?? $metadata['occlusion_ratio'] ?? 0.0);
             $camStable  = (bool)($metadata['camera_stable'] ?? true);
+
+            // 0. Lens covered (near-black frame sustained). A dim room is non-punitive (below),
+            // but a black frame for 10 s means the camera is blocked.
+            if ($lum < self::CAMERA_BLOCKED_LUMINANCE) {
+                $temporal = self::updateTemporalStateRow($sessionToken, 'CAMERA_BLOCKED', self::THRESHOLD_CAMERA_BLOCKED_MS, $nowMs, $db);
+                $elapsedMs = $temporal['server_elapsed_ms'];
+
+                if ($temporal['is_threshold_met']) {
+                    return [
+                        'is_strike'          => true,
+                        'server_elapsed_ms'  => $elapsedMs,
+                        'suspicion_delta'    => 30.0,
+                        'severity'           => 'HIGH',
+                        'current_state'      => 'STRIKE',
+                        'reason'             => 'Camera appears covered or blocked',
+                        'established_event'  => 'CAMERA_BLOCKED',
+                        'evidence_score'     => 0.90,
+                        'correlated_context' => ['scene_luminance' => $lum]
+                    ];
+                }
+
+                return [
+                    'is_strike'          => false,
+                    'server_elapsed_ms'  => $elapsedMs,
+                    'suspicion_delta'    => 0.0,
+                    'severity'           => 'LOW',
+                    'current_state'      => 'SUSPECTED',
+                    'reason'             => "Camera frame is black ({$elapsedMs}ms)",
+                    'established_event'  => 'CAMERA_BLOCKED_SUSPECTED',
+                    'evidence_score'     => 0.30,
+                    'correlated_context' => ['scene_luminance' => $lum]
+                ];
+            }
+            self::resetTemporalStateRow($sessionToken, 'CAMERA_BLOCKED', $db);
 
             // 1. Low quality / dark room (Non-punitive)
             if ($lum < 20.0) {
@@ -1093,10 +1245,10 @@ class ProctoringService
 
             if (preg_match('/^data:(image\/[a-zA-Z0-9\+\-]+);base64,(.+)$/', $base64Data, $matches)) {
                 $mimeType = $matches[1];
-                $data = base64_decode($matches[2]);
+                $data = base64_decode($matches[2], true);
             } else {
                 $mimeType = 'image/jpeg';
-                $data = base64_decode($base64Data);
+                $data = base64_decode($base64Data, true);
             }
 
             if (!$data) return null;
@@ -1125,7 +1277,10 @@ class ProctoringService
             $filename = "ev_{$safeType}_{$epochMs}_" . bin2hex(random_bytes(4)) . ".{$ext}";
             $fullPath = $vaultDir . '/' . $filename;
 
-            @file_put_contents($fullPath, $data);
+            // Don't record an evidence path for a file that was never written
+            if (@file_put_contents($fullPath, $data) === false) {
+                return null;
+            }
 
             return [
                 'path' => 'storage/proctor_vault/' . preg_replace('/[^a-zA-Z0-9_-]/', '', $sessionToken) . '/' . $filename,

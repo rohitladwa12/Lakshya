@@ -121,14 +121,22 @@ define('ROLE_DEMO', 'demo');
 // Timezone
 date_default_timezone_set('Asia/Kolkata');
 
-// Error Reporting (set to 0 in production)
-if (getenv('APP_ENV') === 'production') {
-    error_reporting(0);
-    ini_set('display_errors', 0);
-}
-else {
+// Error details (file paths, stack traces) are shown only on a developer machine: the CLI,
+// localhost, or APP_ENV=development. Anywhere else they go to the log only, so a server
+// whose APP_ENV is missing or wrong no longer prints them to visitors.
+define('APP_IS_LOCAL',
+    php_sapi_name() === 'cli'
+    || getenv('APP_ENV') === 'development'
+    || in_array(strtolower((string)($_SERVER['SERVER_NAME'] ?? '')), ['localhost', '127.0.0.1', '::1'], true)
+);
+if (getenv('APP_ENV') !== 'production' && APP_IS_LOCAL) {
     error_reporting(E_ALL);
     ini_set('display_errors', 1);
+}
+else {
+    error_reporting(E_ALL & ~E_DEPRECATED & ~E_NOTICE);
+    ini_set('display_errors', 0);
+    ini_set('log_errors', 1);
 }
 
 // Create upload directories if they don't exist

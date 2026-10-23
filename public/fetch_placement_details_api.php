@@ -2,15 +2,19 @@
 header('Content-Type: application/json');
 header("Access-Control-Allow-Origin: *");
 
-$host = '172.20.6.86';
-$db = 'lakshya';
-$user = 'arihant';
-$pass = 'Arihant#Lkshya2026!7Q';
+// Same values as before; set PLACEMENT_API_DB_* in the server environment to move them out of this file
+$host = getenv('PLACEMENT_API_DB_HOST') ?: '172.20.6.86';
+$db = getenv('PLACEMENT_API_DB_NAME') ?: 'lakshya';
+$user = getenv('PLACEMENT_API_DB_USER') ?: 'arihant';
+$pass = getenv('PLACEMENT_API_DB_PASS') ?: 'Arihant#Lkshya2026!7Q';
 
-$conn = new mysqli($host, $user, $pass, $db);
+mysqli_report(MYSQLI_REPORT_OFF);
+$conn = @new mysqli($host, $user, $pass, $db);
 
 if ($conn->connect_error) {
-    echo json_encode(["success" => false, "message" => "Connection failed: " . $conn->connect_error]);
+    error_log('[placement api] database connection failed: ' . $conn->connect_error);
+    http_response_code(503);
+    echo json_encode(["success" => false, "message" => "Service temporarily unavailable"]);
     exit;
 }
 

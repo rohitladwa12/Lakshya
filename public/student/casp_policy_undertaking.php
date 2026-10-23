@@ -17,6 +17,14 @@ $rawUsnParam = $_POST['usn'] ?? ($_GET['usn'] ?? '');
 if (($isViewAction || $isDownloadAction) && !empty($rawUsnParam)) {
     requireAnyRole([ROLE_STUDENT, ROLE_DEPT_COORDINATOR, ROLE_PLACEMENT_OFFICER, ROLE_INTERNSHIP_OFFICER, ROLE_ADMIN, ROLE_HOD, ROLE_VC]);
     $requestedUsn = preg_replace('/[^a-zA-Z0-9_-]/', '', trim((string)$rawUsnParam));
+    // A student may only open their own PDF
+    if (hasRole(ROLE_STUDENT)) {
+        $wantUsn = strtoupper($requestedUsn);
+        if ($wantUsn !== strtoupper(trim((string)getUsername())) && $wantUsn !== strtoupper(trim((string)getStudentIdForAssessment()))) {
+            http_response_code(403);
+            die('Access denied.');
+        }
+    }
     $targetPdfPath = PlacementInterestHelper::getPolicyPdfPath($requestedUsn);
     if (file_exists($targetPdfPath) && filesize($targetPdfPath) > 0) {
         $disposition = $isDownloadAction ? 'attachment' : 'inline';

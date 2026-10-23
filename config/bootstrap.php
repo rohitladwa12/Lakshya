@@ -96,20 +96,45 @@ if (php_sapi_name() !== 'cli') {
             'view_resume'
         ];
         
-        // Skip CSRF check for HOD Portal SSO when MENTOR_ID or emp_id is passed
-        if (isset($_REQUEST['MENTOR_ID']) || isset($_REQUEST['mentor_id']) || isset($_REQUEST['emp_id'])) {
+        // Skip CSRF check for HOD Portal SSO when MENTOR_ID or emp_id is passed. Only the HOD
+        // portal pages take that login, so the exemption must not apply to the admin or
+        // coordinator dashboards (adding ?mentor_id= to a forged request switched CSRF off there).
+        $isHodPortal = strpos(str_replace('\\', '/', (string)($_SERVER['SCRIPT_NAME'] ?? '')), '/hod/') !== false;
+        if ($isHodPortal && (isset($_REQUEST['MENTOR_ID']) || isset($_REQUEST['mentor_id']) || isset($_REQUEST['emp_id']))) {
             $skipCSRF[] = 'dashboard.php';
             $skipCSRF[] = 'dashboard';
             $skipCSRF[] = 'ai_monitor.php';
             $skipCSRF[] = 'ai_monitor';
-            $skipCSRF[] = 'login.php';
-            $skipCSRF[] = 'login';
         }
-        
+
         $currentFile = strtolower(basename($_SERVER['SCRIPT_FILENAME']));
         $currentFileSelf = strtolower(basename($_SERVER['PHP_SELF']));
-        
-        if (!in_array($currentFile, $skipCSRF) && !in_array($currentFileSelf, $skipCSRF)) {
+        $isCsrfExempt = in_array($currentFile, $skipCSRF) || in_array($currentFileSelf, $skipCSRF);
+
+        // Handlers on the exemption list don't carry a CSRF token, and with SameSite=None
+        // cookies another website could post to them as a logged-in user. A browser always
+        // sends Origin on such a request, so refuse any whose Origin is not this site.
+        // Login and the ERP HOD login are left out: the ERP legitimately posts to them.
+        $ssoEntry = in_array($currentFile, ['login.php', 'notifications_stream.php', 'ai_worker.php'], true) || $isHodPortal;
+        if ($isCsrfExempt && !$ssoEntry && !empty($_SERVER['HTTP_ORIGIN'])) {
+            $originHost = strtolower((string)parse_url($_SERVER['HTTP_ORIGIN'], PHP_URL_HOST));
+            $appHost = strtolower((string)parse_url((string)getenv('APP_URL'), PHP_URL_HOST));
+            $allowedHosts = array_filter(array_unique([
+                strtolower(preg_replace('/:\d+$/', '', (string)($_SERVER['HTTP_HOST'] ?? ''))),
+                strtolower(preg_replace('/:\d+$/', '', (string)($_SERVER['HTTP_X_FORWARDED_HOST'] ?? ''))),
+                $appHost,
+                'leap.gmu.ac.in',
+            ]));
+            if ($originHost === '' || !in_array($originHost, $allowedHosts, true)) {
+                error_log('[csrf] cross-site POST refused: origin=' . $_SERVER['HTTP_ORIGIN'] . ' file=' . $currentFile);
+                header('Content-Type: application/json');
+                http_response_code(403);
+                echo json_encode(['success' => false, 'message' => 'Cross-site request blocked']);
+                exit;
+            }
+        }
+
+        if (!$isCsrfExempt) {
             $headers = function_exists('getallheaders') ? getallheaders() : [];
             $headerToken = $headers['X-CSRF-TOKEN'] ?? $headers['x-csrf-token'] ?? $_SERVER['HTTP_X_CSRF_TOKEN'] ?? '';
             $postToken = $_POST['csrf_token'] ?? '';
@@ -177,7 +202,7 @@ set_error_handler(function($errno, $errstr, $errfile, $errline) {
     $errorMessage = "Error [{$errno}]: {$errstr} in {$errfile} on line {$errline}";
     logMessage($errorMessage, 'ERROR');
     
-    if (getenv('APP_ENV') !== 'production') {
+    if (defined('APP_IS_LOCAL') && APP_IS_LOCAL && getenv('APP_ENV') !== 'production') {
         // Check if we are in an AJAX or JSON context
         $isJson = (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false) ||
                   (isset($_SERVER['CONTENT_TYPE']) && strpos($_SERVER['CONTENT_TYPE'], 'application/json') !== false) ||
@@ -208,7 +233,7 @@ set_exception_handler(function($exception) {
                     " on line " . $exception->getLine();
     logMessage($errorMessage, 'EXCEPTION');
     
-    if (getenv('APP_ENV') !== 'production') {
+    if (defined('APP_IS_LOCAL') && APP_IS_LOCAL && getenv('APP_ENV') !== 'production') {
         $isJson = (isset($_SERVER['HTTP_ACCEPT']) && strpos($_SERVER['HTTP_ACCEPT'], 'application/json') !== false) ||
                   (isset($_SERVER['CONTENT_TYPE']) && strpos($_SERVER['CONTENT_TYPE'], 'application/json') !== false) ||
                   isAjax();

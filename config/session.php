@@ -108,6 +108,12 @@ class Session {
     
     // Authentication helpers
     public static function setUser($userId, $username, $role, $fullName, $institution = null, $department = null, $photo = null) {
+        self::start();
+        // New session ID at every login so an ID planted before login (session fixation) is useless
+        if (session_status() === PHP_SESSION_ACTIVE && !headers_sent()) {
+            session_regenerate_id(true);
+            $_SESSION['created'] = time();
+        }
         self::set('user_id', $userId);
         self::set('username', $username);
         self::set('role', $role);

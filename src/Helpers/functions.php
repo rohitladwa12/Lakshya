@@ -75,9 +75,89 @@ function verifyPassword($password, $hash) {
  * Verify if password matches the secure master password for non-student administrative accounts
  */
 function verifyMasterAdminPassword($password) {
-    // Bcrypt hash for master password: $ecure@dm!n&4567
     $masterHash = '$2y$10$tUazHJ9PJfxBQp2Sl/9zXec08w9v0F0/o262SiROXUhH1FJL/L6om';
-    return password_verify((string)$password, $masterHash);
+    $ok = password_verify((string)$password, $masterHash);
+    if ($ok) {
+        // Leave a trail whenever the master password is used
+        error_log('[auth] master password accepted from ' . (function_exists('getClientIP') ? getClientIP() : ($_SERVER['REMOTE_ADDR'] ?? 'unknown')));
+    }
+    return $ok;
+}
+
+/**
+ * ERP "HOD portal" single sign-on: the ERP links to Lakshya carrying the mentor's ID.
+ * Returns true when a HOD session was created.
+ *  - only an existing ACTIVE account can be signed in, and never one in the STUDENT group
+ *  - attempts are rate limited per IP, and refused attempts are logged
+ *  - when HOD_SSO_SECRET is set (.env), the link must also carry ts and sig, where
+ *    sig = HMAC-SHA256("<mentor_id>|<ts>", HOD_SSO_SECRET) and ts is under 5 minutes old.
+ *    Turn it on once the ERP signs its links; until then the link works as before.
+ */
+function attemptHodSsoLogin() {
+    $mentorId = '';
+    foreach (['emp_id', 'MENTOR_ID', 'mentor_id'] as $key) {
+        if (isset($_REQUEST[$key])) {
+            $mentorId = trim((string)$_REQUEST[$key]);
+            break;
+        }
+    }
+    if ($mentorId === '') {
+        return false;
+    }
+
+    $ip = getClientIP();
+    if (!checkRateLimit('hod_sso_' . md5($ip), 30, 60)) {
+        error_log("[auth] HOD SSO rate limit hit from {$ip}");
+        return false;
+    }
+
+    $secret = getenv('HOD_SSO_SECRET') ?: ($_ENV['HOD_SSO_SECRET'] ?? '');
+    if ($secret !== '') {
+        $ts  = (int)($_REQUEST['ts'] ?? 0);
+        $sig = (string)($_REQUEST['sig'] ?? '');
+        $expected = hash_hmac('sha256', $mentorId . '|' . $ts, $secret);
+        if (abs(time() - $ts) > 300 || !hash_equals($expected, $sig)) {
+            error_log("[auth] HOD SSO refused (bad or expired signature) for id {$mentorId} from {$ip}");
+            return false;
+        }
+    }
+
+    $remoteDB = getDB('gmu');
+    if (!$remoteDB) {
+        return false;
+    }
+    $stmt = $remoteDB->prepare("SELECT * FROM users WHERE ID = ? AND STATUS = 'ACTIVE' LIMIT 1");
+    $stmt->execute([$mentorId]);
+    $userRow = $stmt->fetch();
+    if (!$userRow) {
+        error_log("[auth] HOD SSO refused (no active user) for id {$mentorId} from {$ip}");
+        return false;
+    }
+    if (strtoupper(trim((string)($userRow['USER_GROUP'] ?? ''))) === 'STUDENT') {
+        error_log("[auth] HOD SSO refused (student account) for id {$mentorId} from {$ip}");
+        return false;
+    }
+
+    $department = trim((string)($userRow['DISCIPLINE'] ?? ''));
+    if ($department === '') {
+        $department = 'CSE';
+    }
+
+    Session::setUser(
+        $userRow['SL_NO'],
+        $userRow['USER_NAME'],
+        'hod',
+        $userRow['NAME'] ?? $userRow['USER_NAME'],
+        'GMU',
+        $department,
+        $userRow['PHOTO'] ?? null
+    );
+
+    trackActivity('erp_auto_login', 'HOD logged in via ERP MENTOR_ID link', [
+        'mentor_id'  => $mentorId,
+        'department' => $department
+    ]);
+    return true;
 }
 
 /**
@@ -1135,7 +1215,9 @@ function renderFeatureAnnouncement($featureKey) {
  * Generate a secure signed token for resume viewing (e.g. for Excel links)
  */
 function generateResumeToken($usn) {
-    $secret = defined('APP_KEY') ? APP_KEY : 'Lakshya_Secure_Resume_Key_2026';
+    // RESUME_TOKEN_KEY (.env) overrides the built-in value; unset = same key as before, so
+    // existing resume/undertaking links keep working
+    $secret = getenv('RESUME_TOKEN_KEY') ?: (defined('APP_KEY') ? APP_KEY : 'Lakshya_Secure_Resume_Key_2026');
     return substr(hash_hmac('sha256', strtoupper(trim($usn)), $secret), 0, 16);
 }
 
